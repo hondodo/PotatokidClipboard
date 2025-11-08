@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -100,7 +101,8 @@ class ClipboardController extends BaseGetVM {
     debugPrint(
         'ClipboardController] 自动同步后端剪贴板列表间隔时间: $autoCheckClipboardIntervalS秒');
     if (user.value.isNotLogin ||
-        AppLifecyclesStateService.currentState != AppLifecycleState.resumed) {
+        ((AppLifecyclesStateService.currentState != AppLifecycleState.resumed &&
+            (Platform.isAndroid || Platform.isIOS)))) {
       debugPrint(
           'ClipboardController] 未登录或应用处于后台，暂不同步后端的剪贴板列表，下次状态检测在1秒后，登录状态：${user.value.isNotLogin}，应用状态：${AppLifecyclesStateService.currentState}');
       // 当恢复时1秒后获取一次
