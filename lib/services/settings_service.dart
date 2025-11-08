@@ -16,6 +16,12 @@ class SettingsService extends GetxService {
   /// 是否自动保存剪贴板
   final Rx<bool> isAutoSaveClipboard = true.obs;
 
+  /// 是否正在同步剪贴板
+  final Rx<bool> isSyncingClipboard = false.obs;
+
+  /// 是否正在上传剪贴板
+  final Rx<bool> isUploadingClipboard = false.obs;
+
   /// 自动检查剪贴板间隔时间(毫秒)
   final Rx<int> autoCheckClipboardIntervalS =
       DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S.obs;

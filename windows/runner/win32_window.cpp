@@ -128,15 +128,40 @@ bool Win32Window::Create(const std::wstring& title,
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
-  const POINT target_point = {static_cast<LONG>(origin.x),
-                              static_cast<LONG>(origin.y)};
-  HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
-  UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
-  double scale_factor = dpi / 96.0;
+  // Use CW_USEDEFAULT to let system choose window position
+  // 0xFFFFFFFF is used as a sentinel value to indicate default positioning
+  constexpr unsigned int CW_USEDEFAULT_SENTINEL = 0xFFFFFFFF;
+  bool use_default_position = (origin.x == CW_USEDEFAULT_SENTINEL || 
+                                origin.y == CW_USEDEFAULT_SENTINEL);
+
+  UINT dpi;
+  double scale_factor;
+  if (use_default_position) {
+    // Use primary monitor DPI when using default position
+    POINT primary_point = {0, 0};
+    HMONITOR monitor = MonitorFromPoint(primary_point, MONITOR_DEFAULTTOPRIMARY);
+    dpi = FlutterDesktopGetDpiForMonitor(monitor);
+    scale_factor = dpi / 96.0;
+  } else {
+    const POINT target_point = {static_cast<LONG>(origin.x),
+                                static_cast<LONG>(origin.y)};
+    HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
+    dpi = FlutterDesktopGetDpiForMonitor(monitor);
+    scale_factor = dpi / 96.0;
+  }
+
+  int x, y;
+  if (use_default_position) {
+    x = CW_USEDEFAULT;
+    y = CW_USEDEFAULT;
+  } else {
+    x = Scale(origin.x, scale_factor);
+    y = Scale(origin.y, scale_factor);
+  }
 
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
+      x, y,
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 

@@ -1,5 +1,5 @@
 name: potatokid_clipboard
-description: "A new Flutter project."
+description: "Potatokid's tools, clipboard everywhere."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -87,6 +87,9 @@ dependencies:
   # udid
   flutter_udid: ^4.0.0
 
+  # windows/linux/macos 系统托盘
+  tray_manager: ^0.5.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -159,3 +162,4 @@ flutter:
   # see https://flutter.dev/to/font-from-package
   assets:
     - assets/images/common/
+    - assets/images/icon/

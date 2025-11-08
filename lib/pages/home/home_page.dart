@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_underline_bar_widget.dart';
 import 'package:potatokid_clipboard/framework/components/navigations/navigation_widget.dart';
+import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
 import 'package:potatokid_clipboard/pages/home/controller/home_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/clipboard_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/me/me_page.dart';
@@ -14,7 +15,7 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
 
   @override
   String getTitle() {
-    return 'PotatoKid Clipboard'.tr;
+    return '薯仔的剪贴板'.tr;
   }
 
   @override
@@ -37,6 +38,7 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
           Expanded(
               child: Text(
             getTitle(),
+            style: AppTextTheme.textStyle.title,
             overflow: TextOverflow.ellipsis,
           )),
         ],

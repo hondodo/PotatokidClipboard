@@ -20,40 +20,144 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
         ),
       );
     }
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
+    return GestureDetector(
+      onTap: () => controller.textFocusNode.unfocus(),
+      child: Column(
+        children: [
+          Padding(
             padding:
-                const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 4),
-            child: TextField(
-              controller: controller.textController,
-              style: AppTextTheme.textStyle.body,
-              decoration: InputDecoration(
-                hintText: '请输入内容'.tr,
-                hintStyle: AppTextTheme.textStyle.hint,
-              ),
+                const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxHeight: 120,
+                    ),
+                    child: Container(
+                      padding: EdgeInsets.zero,
+                      decoration: BoxDecoration(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey, width: 1),
+                      ),
+                      child: TextField(
+                        minLines: 1,
+                        maxLines: null,
+                        controller: controller.textController,
+                        focusNode: controller.textFocusNode,
+                        style: AppTextTheme.textStyle.body,
+                        decoration: InputDecoration(
+                          hintText: '请输入内容'.tr,
+                          hintStyle: AppTextTheme.textStyle.hint,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 8,
+                          ),
+                          isDense: true,
+                          border: const OutlineInputBorder(
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                ElevatedButton(
+                  onPressed: controller.onSetClipboard,
+                  child: Text('添加'.tr, style: AppTextTheme.textStyle.body),
+                ),
+              ],
             ),
           ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding:
-                const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 16),
-            child: ElevatedButton(
-              onPressed: controller.onSetClipboard,
-              child: Text('添加到剪贴板'.tr, style: AppTextTheme.textStyle.body),
+          // Padding(
+          //   padding:
+          //       const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 16),
+          //   child: ElevatedButton(
+          //     onPressed: controller.onSetClipboard,
+          //     child: Text('添加到剪贴板'.tr, style: AppTextTheme.textStyle.body),
+          //   ),
+          // ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: CustomScrollView(
+              slivers: [
+                SliverList.builder(
+                  itemCount: controller.clipboardList.length,
+                  itemBuilder: (context, index) {
+                    var item = controller.clipboardList[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: buildClipboardCard(item),
+                    );
+                  },
+                )
+              ],
             ),
           ),
-        ),
-        SliverList.builder(
-          itemCount: controller.clipboardList.length,
-          itemBuilder: (context, index) {
-            var item = controller.clipboardList[index];
-            return buildClipboardCard(item);
-          },
-        )
-      ],
+          const SizedBox(height: 4),
+          Container(
+            padding:
+                const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 2),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.05),
+              border: Border(
+                  bottom: BorderSide(
+                      color: Colors.black.withOpacity(0.1), width: 1)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    // 上传图标
+                    Icon(Icons.upload,
+                        size: 12,
+                        color: controller
+                                .settingsService.isUploadingClipboard.value
+                            ? AppTextTheme.primaryColor
+                            : AppTextTheme.hintColor),
+                    const SizedBox(width: 4),
+                    // 同步图标
+                    Icon(Icons.sync,
+                        size: 12,
+                        color:
+                            controller.settingsService.isSyncingClipboard.value
+                                ? AppTextTheme.primaryColor
+                                : AppTextTheme.hintColor),
+                  ],
+                ),
+                Row(
+                  children: [
+                    // 监控图标
+                    Icon(
+                      Icons.monitor,
+                      size: 12,
+                      color:
+                          controller.settingsService.isMonitoringClipboard.value
+                              ? AppTextTheme.primaryColor
+                              : AppTextTheme.hintColor,
+                    ),
+                    const SizedBox(width: 4),
+                    // 自动设置图标
+                    Icon(Icons.auto_mode,
+                        size: 12,
+                        color:
+                            controller.settingsService.isAutoSaveClipboard.value
+                                ? AppTextTheme.primaryColor
+                                : AppTextTheme.hintColor),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
     );
   }
 
@@ -128,6 +232,11 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
         ),
       ),
     );
-    return SelectionArea(child: card);
+    return SelectionArea(
+      child: GestureDetector(
+        onTap: () => controller.textFocusNode.unfocus(),
+        child: card,
+      ),
+    );
   }
 }

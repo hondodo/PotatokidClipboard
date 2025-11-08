@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
+import 'package:potatokid_clipboard/services/settings_service.dart';
 import 'package:potatokid_clipboard/user/user_service.dart';
 import 'package:potatokid_clipboard/utils/error_utils.dart';
 
@@ -93,13 +95,20 @@ class ClipboardService extends GetxService {
   /// 检查剪贴板内容
   Future<void> _checkClipboard() async {
     try {
+      // 系统限制，只有在应用处于前台时才能访问剪贴板；如果处于后台，剪贴板返回内容为null(Android 10+)
+      // if(AppLifecyclesStateService.currentState != AppLifecycleState.resumed){
+      // if(Platform.isAndroid){
+      //   // 系统
+      //   return;
+      // }
+      // }
       final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data != null && data.text != null) {
         String text = data.text!;
         if (text.isNotEmpty && _lastClipboardText != text) {
           _handleClipboardChange(text);
         }
-      }
+      } else {}
     } catch (e) {
       // 忽略轮询时的错误，避免日志过多
       // Log.e('ClipboardService] 轮询检查剪贴板失败: $e');
@@ -123,10 +132,12 @@ class ClipboardService extends GetxService {
       debugPrint('ClipboardService] 未登录，不保存剪贴板内容');
       return;
     }
-
+    Get.find<SettingsService>().isUploadingClipboard.value = true;
     Get.find<ClipboardRepository>().setClipboard(text).catchError((e) {
       Log.e('ClipboardService] 保存剪贴板内容失败: $e');
       ErrorUtils.showErrorToast(e);
+    }).whenComplete(() {
+      Get.find<SettingsService>().isUploadingClipboard.value = false;
     });
   }
 

@@ -14,6 +14,9 @@ class $AssetsImagesGen {
 
   /// Directory path: assets/images/common
   $AssetsImagesCommonGen get common => const $AssetsImagesCommonGen();
+
+  /// Directory path: assets/images/icon
+  $AssetsImagesIconGen get icon => const $AssetsImagesIconGen();
 }
 
 class $AssetsImagesCommonGen {
@@ -25,6 +28,27 @@ class $AssetsImagesCommonGen {
 
   /// List of all assets
   List<AssetGenImage> get values => [commonLoading];
+}
+
+class $AssetsImagesIconGen {
+  const $AssetsImagesIconGen();
+
+  /// File path: assets/images/icon/icon_off.ico
+  String get iconOffIco => 'assets/images/icon/icon_off.ico';
+
+  /// File path: assets/images/icon/icon_off.png
+  AssetGenImage get iconOffPng =>
+      const AssetGenImage('assets/images/icon/icon_off.png');
+
+  /// File path: assets/images/icon/icon_on.ico
+  String get iconOnIco => 'assets/images/icon/icon_on.ico';
+
+  /// File path: assets/images/icon/icon_on.png
+  AssetGenImage get iconOnPng =>
+      const AssetGenImage('assets/images/icon/icon_on.png');
+
+  /// List of all assets
+  List<dynamic> get values => [iconOffIco, iconOffPng, iconOnIco, iconOnPng];
 }
 
 class Assets {

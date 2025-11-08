@@ -12,6 +12,7 @@ import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/routes/router_names.dart';
 import 'package:potatokid_clipboard/routes/routers_manager.dart';
 import 'package:potatokid_clipboard/services/app_lifecycles_state_service.dart';
+import 'package:tray_manager/tray_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,17 +27,20 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+class _MyAppState extends State<MyApp>
+    with WidgetsBindingObserver, TrayListener {
   Timer? appStateTimer;
 
   @override
   void initState() {
+    trayManager.addListener(this);
     super.initState();
     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    trayManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -83,7 +87,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
-      title: '薯仔工具箱 - 剪贴板',
+      title: '薯仔工具箱 - 剪贴板'.tr,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
@@ -104,5 +108,30 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       // 初始化SmartDialog，这是Windows平台正常显示toast的关键
       builder: FlutterSmartDialog.init(),
     );
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    // do something, for example pop up the menu
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    // do something
+    trayManager.popUpContextMenu();
+  }
+
+  @override
+  void onTrayIconRightMouseUp() {
+    // do something
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    if (menuItem.key == 'show_window') {
+      // do something
+    } else if (menuItem.key == 'exit_app') {
+      // do something
+    }
   }
 }

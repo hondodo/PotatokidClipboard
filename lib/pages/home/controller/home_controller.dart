@@ -6,6 +6,7 @@ import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:potatokid_clipboard/services/steam_service.dart';
 import 'package:potatokid_clipboard/utils/service_tools_utils.dart';
+import 'package:potatokid_clipboard/utils/try_icon_helper.dart';
 
 class HomeController extends BaseGetVM with GetSingleTickerProviderStateMixin {
   RxList<AppPage> tabs = <AppPage>[].obs;
@@ -22,6 +23,7 @@ class HomeController extends BaseGetVM with GetSingleTickerProviderStateMixin {
     homePageStreamSubscription = ServiceToolsUtils
         .instance.steamService.homePageStream
         .listen(onTabChangedRequest);
+    TryIconHelper.setUpTray();
   }
 
   @override
