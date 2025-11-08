@@ -9,11 +9,18 @@ class Apis {
 }
 
 class Hosts {
-  static String get baseHost => NetConfig.baseHost;
+  static String get baseHost => NetConfig.instance.baseHost;
 }
 
 extension ApisExtension on String {
   String get inBaseHost {
-    return '${Hosts.baseHost}$this';
+    String baseHost = Hosts.baseHost;
+    while (baseHost.endsWith('/')) {
+      baseHost = baseHost.substring(0, baseHost.length - 1);
+    }
+    if (startsWith('/')) {
+      return '$baseHost$this';
+    }
+    return '$baseHost/$this';
   }
 }
