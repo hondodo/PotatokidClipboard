@@ -133,9 +133,11 @@ class ClipboardService extends GetxService {
       return;
     }
     Get.find<SettingsService>().isUploadingClipboard.value = true;
+    Get.find<SettingsService>().isUploadingClipboardFailed.value = false;
     Get.find<ClipboardRepository>().setClipboard(text).catchError((e) {
       Log.e('ClipboardService] 保存剪贴板内容失败: $e');
       ErrorUtils.showErrorToast(e);
+      Get.find<SettingsService>().isUploadingClipboardFailed.value = true;
     }).whenComplete(() {
       Get.find<SettingsService>().isUploadingClipboard.value = false;
     });

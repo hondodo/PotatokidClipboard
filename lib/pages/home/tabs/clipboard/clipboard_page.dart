@@ -117,16 +117,22 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
                     // 上传图标
                     Icon(Icons.upload,
                         size: 12,
-                        color: controller
-                                .settingsService.isUploadingClipboard.value
-                            ? AppTextTheme.primaryColor
-                            : AppTextTheme.hintColor),
+                        color: controller.settingsService
+                                .isUploadingClipboardFailed.value
+                            ? AppTextTheme.errorColor
+                            : controller
+                                    .settingsService.isUploadingClipboard.value
+                                ? AppTextTheme.primaryColor
+                                : AppTextTheme.hintColor),
                     const SizedBox(width: 4),
                     // 同步图标
                     Icon(Icons.sync,
                         size: 12,
-                        color:
-                            controller.settingsService.isSyncingClipboard.value
+                        color: controller
+                                .settingsService.isSyncingClipboardFailed.value
+                            ? AppTextTheme.errorColor
+                            : controller
+                                    .settingsService.isSyncingClipboard.value
                                 ? AppTextTheme.primaryColor
                                 : AppTextTheme.hintColor),
                   ],

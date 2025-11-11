@@ -1,3 +1,4 @@
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/app/app_enums.dart';
@@ -9,6 +10,7 @@ import 'package:potatokid_clipboard/pages/home/tabs/clipboard/clipboard_page.dar
 import 'package:potatokid_clipboard/pages/home/tabs/me/me_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/settings/settings_page.dart';
 import 'package:potatokid_clipboard/user/widget/user_login_widget.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
 
 class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
   const HomePage({super.key});
@@ -22,6 +24,15 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
   List<Widget>? buildActions() {
     return [
       const UserLoginWidget(),
+      if (DeviceUtils.instance.isDesktop()) ...[
+        const SizedBox(width: 8),
+        CloseWindowButton(
+          onPressed: () {
+            appWindow.minimize();
+            appWindow.hide();
+          },
+        ),
+      ],
       const SizedBox(width: 8),
     ];
   }

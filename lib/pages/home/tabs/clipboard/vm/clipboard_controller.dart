@@ -110,8 +110,10 @@ class ClipboardController extends BaseGetVM {
       return;
     }
     settingsService.isSyncingClipboard.value = true;
+    settingsService.isSyncingClipboardFailed.value = false;
     onLoadClipboard().then((_) {}).catchError((e) {
       Log.e('ClipboardController] 同步后端剪贴板列表失败: $e');
+      settingsService.isSyncingClipboardFailed.value = true;
     }).whenComplete(() {
       _clipboardListTimer =
           Timer(Duration(seconds: autoCheckClipboardIntervalS), onTimerTick);

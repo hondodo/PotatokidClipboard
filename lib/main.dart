@@ -13,20 +13,22 @@ import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/routes/router_names.dart';
 import 'package:potatokid_clipboard/routes/routers_manager.dart';
 import 'package:potatokid_clipboard/services/app_lifecycles_state_service.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:tray_manager/tray_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await PreConfig.init();
   runApp(const MyApp());
-
-  doWhenWindowReady(() {
-    const initialSize = Size(600, 450);
-    appWindow.minSize = initialSize;
-    appWindow.size = initialSize;
-    appWindow.alignment = Alignment.center;
-    appWindow.show();
-  });
+  if (DeviceUtils.instance.isDesktop()) {
+    doWhenWindowReady(() {
+      const initialSize = Size(340, 600);
+      appWindow.minSize = initialSize;
+      appWindow.size = initialSize;
+      appWindow.alignment = Alignment.center;
+      appWindow.show();
+    });
+  }
 }
 
 class MyApp extends StatefulWidget {
@@ -122,6 +124,7 @@ class _MyAppState extends State<MyApp>
   @override
   void onTrayIconMouseDown() {
     // do something, for example pop up the menu
+    onShowWindow();
   }
 
   @override
@@ -139,8 +142,15 @@ class _MyAppState extends State<MyApp>
   void onTrayMenuItemClick(MenuItem menuItem) {
     if (menuItem.key == 'show_window') {
       // do something
+      onShowWindow();
     } else if (menuItem.key == 'exit_app') {
       // do something
+      appWindow.close();
     }
+  }
+
+  void onShowWindow() {
+    appWindow.show();
+    appWindow.restore();
   }
 }

@@ -90,4 +90,12 @@ class DeviceUtils {
       return OsType.unknown;
     }
   }
+
+  bool isMobile() {
+    return Platform.isIOS || Platform.isAndroid;
+  }
+
+  bool isDesktop() {
+    return !isMobile();
+  }
 }

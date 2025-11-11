@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
+import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
 
 class NavigationWidget extends StatelessWidget implements PreferredSizeWidget {
   const NavigationWidget(
@@ -31,15 +35,34 @@ class NavigationWidget extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     bool showLeading =
         leading != null || Navigator.canPop(context) || noBackLeading;
-    return AppBar(
-      title: titleWidget ?? Text(title),
-      backgroundColor: backgroundColor ?? Colors.blue,
-      foregroundColor: foregroundColor ?? Colors.white,
-      automaticallyImplyLeading: showLeading, // 去除后退箭头 1
-      titleSpacing: titleSpacing ?? (showLeading ? null : 0), // 去除后退箭头 2
-      leading: leading ?? (noBackLeading ? null : buildLeading(context)),
-      actions: actions,
-    );
+    if (Platform.isIOS || Platform.isAndroid) {
+      return AppBar(
+        title: titleWidget ?? Text(title, style: AppTextTheme.textStyle.title),
+        backgroundColor: backgroundColor ?? Colors.blue,
+        foregroundColor: foregroundColor ?? Colors.white,
+        automaticallyImplyLeading: showLeading, // 去除后退箭头 1
+        titleSpacing: titleSpacing ?? (showLeading ? null : 0), // 去除后退箭头 2
+        leading: leading ?? (noBackLeading ? null : buildLeading(context)),
+        actions: actions,
+      );
+    } else {
+      return
+          // WindowTitleBarBox(
+          //   child:
+          MoveWindow(
+        child: AppBar(
+          title:
+              titleWidget ?? Text(title, style: AppTextTheme.textStyle.title),
+          backgroundColor: backgroundColor ?? Colors.blue,
+          foregroundColor: foregroundColor ?? Colors.white,
+          automaticallyImplyLeading: showLeading, // 去除后退箭头 1
+          titleSpacing: titleSpacing ?? (showLeading ? null : 0), // 去除后退箭头 2
+          leading: leading ?? (noBackLeading ? null : buildLeading(context)),
+          actions: actions,
+        ),
+        // ),
+      );
+    }
   }
 
   @override

@@ -1,4 +1,4 @@
-#include <bitsdojo_window_windows/bitsdojo_window_plugin.h>
+﻿#include <bitsdojo_window_windows/bitsdojo_window_plugin.h>
 auto bdw = bitsdojo_window_configure(BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP);
 
 #include <flutter/dart_project.h>
@@ -28,15 +28,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  Win32Window::Point origin(10, 10);
   Win32Window::Size size(390, 720);
-  
-  // Use 0xFFFFFFFF as sentinel value to let system choose window position
-  // This will use CW_USEDEFAULT in CreateWindow, allowing Windows to position
-  // the window automatically (typically cascaded or at default position)
-  constexpr unsigned int CW_USEDEFAULT_SENTINEL = 0xFFFFFFFF;
-  Win32Window::Point origin(CW_USEDEFAULT_SENTINEL, CW_USEDEFAULT_SENTINEL);
-  
-  if (!window.Create(L"Potatokid's Clipboard", origin, size)) {
+  if (!window.Create(L"薯仔的剪贴板", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
