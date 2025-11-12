@@ -43,12 +43,16 @@ class $AssetsImagesIconGen {
   /// File path: assets/images/icon/icon_on.ico
   String get iconOnIco => 'assets/images/icon/icon_on.ico';
 
+  /// File path: assets/images/icon/icon_on.pdn
+  String get iconOnPdn => 'assets/images/icon/icon_on.pdn';
+
   /// File path: assets/images/icon/icon_on.png
   AssetGenImage get iconOnPng =>
       const AssetGenImage('assets/images/icon/icon_on.png');
 
   /// List of all assets
-  List<dynamic> get values => [iconOffIco, iconOffPng, iconOnIco, iconOnPng];
+  List<dynamic> get values =>
+      [iconOffIco, iconOffPng, iconOnIco, iconOnPdn, iconOnPng];
 }
 
 class Assets {

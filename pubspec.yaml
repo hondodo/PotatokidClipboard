@@ -110,6 +110,9 @@ dev_dependencies:
   flutter_gen_runner: ^5.8.0
   # json序列化
   json_serializable: ^6.8.0
+  # logo生成 dart run flutter_launcher_icons
+  # 注：安卓生成的 mipmap-anydpi-v26 目录请删除，当前编译会显示不出图标
+  flutter_launcher_icons: ^0.14.1
 
 flutter_gen:
   integrations:
@@ -166,3 +169,22 @@ flutter:
   assets:
     - assets/images/common/
     - assets/images/icon/
+
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/icon/icon_on.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+  web:
+    generate: true
+    image_path: "assets/images/icon/icon_on.png"
+    background_color: "#FFFFFF"
+    theme_color: "#FFFFFF"
+  windows:
+    generate: true
+    image_path: "assets/images/icon/icon_on.png"
+    icon_size: 48 # min:48, max:256, default: 48
+  macos:
+    generate: true
+    image_path: "assets/images/icon/icon_on.png"
