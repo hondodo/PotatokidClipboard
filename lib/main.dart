@@ -1,6 +1,7 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
@@ -143,6 +144,12 @@ class _MyAppState extends State<MyApp>
     if (menuItem.key == 'show_window') {
       // do something
       onShowWindow();
+    } else if (menuItem.key == 'hide_window') {
+      // do something
+      appWindow.minimize();
+      if (!Platform.isMacOS) {
+        appWindow.hide(); // macOS下调用会直接退出，如果延迟调用，也不会隐藏应用列表里的显示，相当于无效
+      }
     } else if (menuItem.key == 'exit_app') {
       // do something
       appWindow.close();

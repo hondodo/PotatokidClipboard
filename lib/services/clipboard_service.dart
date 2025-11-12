@@ -8,6 +8,7 @@ import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
 import 'package:potatokid_clipboard/services/settings_service.dart';
 import 'package:potatokid_clipboard/user/user_service.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:potatokid_clipboard/utils/error_utils.dart';
 
 class ClipboardService extends GetxService {
@@ -106,6 +107,10 @@ class ClipboardService extends GetxService {
       if (data != null && data.text != null) {
         String text = data.text!;
         if (text.isNotEmpty && _lastClipboardText != text) {
+          // 如果是ios，那么要设置剪贴板内容，否则会一直提示获取剪贴板的来源
+          if (DeviceUtils.instance.isMobile()) {
+            Clipboard.setData(data);
+          }
           _handleClipboardChange(text);
         }
       } else {}
