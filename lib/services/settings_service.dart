@@ -54,7 +54,7 @@ class SettingsService extends GetxService {
     autoCheckClipboardIntervalS.listen(onAutoCheckClipboardIntervalSChanged);
     onSettingsChanged();
     Log.d(
-        'SettingsService] 初始化设置: isMonitoringClipboard: $isMonitoringClipboard.value, isAutoSaveClipboard: $isAutoSaveClipboard.value');
+        'SettingsService] 初始化设置: isMonitoringClipboard: ${isMonitoringClipboard.value}, isAutoSaveClipboard: ${isAutoSaveClipboard.value}');
   }
 
   void onIsMonitoringClipboardChanged(bool value) {
