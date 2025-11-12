@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -24,7 +26,7 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
   List<Widget>? buildActions() {
     return [
       const UserLoginWidget(),
-      if (DeviceUtils.instance.isDesktop()) ...[
+      if (DeviceUtils.instance.isDesktop() && !Platform.isMacOS) ...[
         const SizedBox(width: 8),
         CloseWindowButton(
           onPressed: () {

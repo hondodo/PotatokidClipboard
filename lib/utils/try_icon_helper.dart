@@ -25,6 +25,11 @@ class TryIconHelper {
         ),
         MenuItem.separator(),
         MenuItem(
+          key: 'hide_window',
+          label: '隐藏窗口'.tr,
+        ),
+        MenuItem.separator(),
+        MenuItem(
           key: 'exit_app',
           label: '退出应用'.tr,
         ),
