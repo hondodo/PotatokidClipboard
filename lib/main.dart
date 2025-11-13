@@ -14,6 +14,7 @@ import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/routes/router_names.dart';
 import 'package:potatokid_clipboard/routes/routers_manager.dart';
 import 'package:potatokid_clipboard/services/app_lifecycles_state_service.dart';
+import 'package:potatokid_clipboard/services/settings_service.dart';
 import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:tray_manager/tray_manager.dart';
 
@@ -27,7 +28,15 @@ void main() async {
       appWindow.minSize = initialSize;
       appWindow.size = initialSize;
       appWindow.alignment = Alignment.center;
-      appWindow.show();
+      if (Platform.isWindows) {
+        if (Get.find<SettingsService>().isHideWindowOnStartup.value) {
+          appWindow.hide();
+        } else {
+          appWindow.show();
+        }
+      } else {
+        appWindow.show();
+      }
     });
   }
 }

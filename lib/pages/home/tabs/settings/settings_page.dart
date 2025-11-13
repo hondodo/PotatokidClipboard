@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
@@ -25,6 +27,13 @@ class SettingsPage extends BaseStatelessSubWidget<SettingsController> {
                 value: controller.isAutoSaveClipboard.value,
                 onChanged: (value) => controller.onToggleAutoSaveClipboard(),
               ),
+              if (Platform.isWindows)
+                SwitchListTile(
+                  title: Text('在启动时隐藏窗口'.tr),
+                  value: controller.isHideWindowOnStartup.value,
+                  onChanged: (value) =>
+                      controller.onToggleHideWindowOnStartup(),
+                ),
               Container(
                 alignment: Alignment.centerLeft,
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),

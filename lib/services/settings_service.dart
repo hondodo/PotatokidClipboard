@@ -32,16 +32,25 @@ class SettingsService extends GetxService {
   final Rx<int> autoCheckClipboardIntervalS =
       DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S.obs;
 
+  /// 是否在启动时隐藏窗口-仅Windows平台有效
+  final Rx<bool> isHideWindowOnStartup = true.obs;
+
   @override
   void onInit() {
     super.onInit();
-    isMonitoringClipboard.value =
-        GetStorage().read<bool>('isMonitoringClipboard') ?? true;
-    isAutoSaveClipboard.value =
-        GetStorage().read<bool>('isAutoSaveClipboard') ?? true;
-    autoCheckClipboardIntervalS.value =
-        GetStorage().read<int>('autoCheckClipboardIntervalS') ??
-            DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S;
+    try {
+      isMonitoringClipboard.value =
+          GetStorage().read<bool>('isMonitoringClipboard') ?? true;
+      isAutoSaveClipboard.value =
+          GetStorage().read<bool>('isAutoSaveClipboard') ?? true;
+      autoCheckClipboardIntervalS.value =
+          GetStorage().read<int>('autoCheckClipboardIntervalS') ??
+              DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S;
+      isHideWindowOnStartup.value =
+          GetStorage().read<bool>('isHideWindowOnStartup') ?? true;
+    } catch (e) {
+      Log.e('SettingsService] 初始化设置失败: $e');
+    }
     if (autoCheckClipboardIntervalS.value <
             MIN_AUTO_CHECK_CLIPBOARD_INTERVAL_S ||
         autoCheckClipboardIntervalS.value >
@@ -52,6 +61,7 @@ class SettingsService extends GetxService {
     isMonitoringClipboard.listen(onIsMonitoringClipboardChanged);
     isAutoSaveClipboard.listen(onIsAutoSaveClipboardChanged);
     autoCheckClipboardIntervalS.listen(onAutoCheckClipboardIntervalSChanged);
+    isHideWindowOnStartup.listen(onIsHideWindowOnStartupChanged);
     onSettingsChanged();
     Log.d(
         'SettingsService] 初始化设置: isMonitoringClipboard: ${isMonitoringClipboard.value}, isAutoSaveClipboard: ${isAutoSaveClipboard.value}');
@@ -65,6 +75,10 @@ class SettingsService extends GetxService {
   void onIsAutoSaveClipboardChanged(bool value) {
     GetStorage().write('isAutoSaveClipboard', value);
     onSettingsChanged();
+  }
+
+  void onIsHideWindowOnStartupChanged(bool value) {
+    GetStorage().write('isHideWindowOnStartup', value);
   }
 
   void onAutoCheckClipboardIntervalSChanged(int value) {

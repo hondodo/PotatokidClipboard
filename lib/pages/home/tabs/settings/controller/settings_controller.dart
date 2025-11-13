@@ -9,6 +9,7 @@ class SettingsController extends BaseGetVM {
   final SettingsService settingsService = Get.find<SettingsService>();
   Rx<bool> get isMonitoringClipboard => settingsService.isMonitoringClipboard;
   Rx<bool> get isAutoSaveClipboard => settingsService.isAutoSaveClipboard;
+  Rx<bool> get isHideWindowOnStartup => settingsService.isHideWindowOnStartup;
   Rx<int> autoCheckClipboardIntervalS =
       SettingsService.DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S.obs;
   Rx<String> newHost = ''.obs;
@@ -30,6 +31,10 @@ class SettingsController extends BaseGetVM {
 
   void onToggleAutoSaveClipboard() {
     isAutoSaveClipboard.value = !isAutoSaveClipboard.value;
+  }
+
+  void onToggleHideWindowOnStartup() {
+    isHideWindowOnStartup.value = !isHideWindowOnStartup.value;
   }
 
   void onChangeAutoCheckClipboardIntervalMs(int value) {
