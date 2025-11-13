@@ -4,6 +4,10 @@ import 'package:potatokid_clipboard/pages/home/controller/home_controller.dart';
 import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/vm/clipboard_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_controller.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_download_controller.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_upload_controller.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/files/repository/file_repository.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/me/repository/me_repository.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/me/vm/me_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/settings/controller/settings_controller.dart';
@@ -22,6 +26,10 @@ abstract class RouterManager {
       Get.lazyPut(() => MeRepository());
       Get.lazyPut(() => ClipboardRepository());
       Get.lazyPut(() => SettingsController());
+      Get.lazyPut(() => FileController());
+      Get.lazyPut(() => FileUploadController());
+      Get.lazyPut(() => FileDownloadController());
+      Get.lazyPut(() => FileRepository());
       return const HomePage();
     },
     RouterNames.login: (context) {

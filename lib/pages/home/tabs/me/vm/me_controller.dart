@@ -18,4 +18,8 @@ class MeController extends BaseGetVM {
   Future<void> loadIpInfo() async {
     ipInfoModel.value = await MeRepository().getIpInfo();
   }
+
+  Future<void> onRefresh() async {
+    loadIpInfo().responseWithStatus(this);
+  }
 }

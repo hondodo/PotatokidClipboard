@@ -1,3 +1,5 @@
+import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
@@ -11,22 +13,41 @@ class MePage extends BaseStatelessSubWidget<MeController> {
 
   @override
   Widget buildBody(BuildContext context) {
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: buildMeInfo(),
+    return CustomMaterialIndicator(
+      onRefresh: () async {
+        await controller.onRefresh();
+      },
+      scrollableBuilder: (context, child, controller) {
+        // 在 Windows 平台上启用鼠标拖动滚动
+        return ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              PointerDeviceKind.mouse,
+              PointerDeviceKind.touch,
+              PointerDeviceKind.stylus,
+              PointerDeviceKind.trackpad,
+            },
           ),
-        ),
-        SliverToBoxAdapter(
-          child: Container(
-            padding:
-                const EdgeInsets.only(top: 0, left: 16, right: 16, bottom: 12),
-            child: buildIpInfo(),
+          child: child,
+        );
+      },
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: buildMeInfo(),
+            ),
           ),
-        ),
-      ],
+          SliverToBoxAdapter(
+            child: Container(
+              padding: const EdgeInsets.only(
+                  top: 0, left: 16, right: 16, bottom: 12),
+              child: buildIpInfo(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

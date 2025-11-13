@@ -189,23 +189,33 @@ class DioManager {
   /// 下载文件
   /// 如果下载失败后会抛出异常，需要自行处理
   /// 返回是否下载成功（文件是否存在）
+  /// downloadToTempFile: 是否下载到临时文件，如果下载到临时文件，则下载成功后会自动重命名
+  /// 如果downloadToTempFile为false，则不会下载到临时文件，直接下载到目标文件
   Future<bool> download({
     required String url,
     required String filename,
     ProgressCallback? onReceiveProgress,
+    bool downloadToTempFile = true,
   }) async {
     Log.d('download file: $url => $filename');
     // 适配代理, 每次访问前适配
     await DioHelper.addCharlesAdapter(_dio);
-    await _dio.download(url, '$filename.downloading',
+    String tempFilename = '$filename.downloading';
+    if (!downloadToTempFile) {
+      tempFilename = filename;
+    }
+    await _dio.download(url, tempFilename,
         options: Options(headers: {
           'cookie': DioManager().cookieHeader,
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Credentials': 'true',
         }),
         onReceiveProgress: onReceiveProgress);
-    var file = await renameFile('$filename.downloading', filename);
-    return file.existsSync();
+    if (downloadToTempFile) {
+      var file = await renameFile('$filename.downloading', filename);
+      return file.existsSync();
+    }
+    return File(filename).existsSync();
   }
 
   Future<Response> dioDownload(

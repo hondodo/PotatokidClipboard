@@ -93,6 +93,18 @@ dependencies:
   # 桌面窗口
   bitsdojo_window: ^0.1.6
 
+  # 权限
+  permission_handler: ^12.0.1
+
+  # 下拉刷新
+  custom_refresh_indicator: ^4.0.1
+
+  # 文件图标
+  file_icon: ^1.0.0
+  
+  # 文件选择
+  file_picker: ^8.0.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

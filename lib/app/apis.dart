@@ -6,6 +6,9 @@ class Apis {
   static String getIpInfo = '/api/ipinfo';
   static String setClipboard = '/api/clipboard';
   static String getClipboardList = '/api/clipboards';
+  static String uploadFile = '/api/upload';
+  static String getFileList = '/api/files';
+  static String downloadFile = '/api/download';
 }
 
 class Hosts {
