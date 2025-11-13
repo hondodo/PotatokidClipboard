@@ -29,7 +29,7 @@ class FileRepository with RequestMixin {
 
   /// downloadToTempFile: 是否下载到临时文件，如果下载到临时文件，则下载成功后会自动重命名
   /// 如果downloadToTempFile为false，则不会下载到临时文件，直接下载到目标文件
-  Future<dynamic> downloadFile({
+  Future<bool> downloadFile({
     required String filename,
     required String saveFilename,
     ProgressCallback? onReceiveProgress,
