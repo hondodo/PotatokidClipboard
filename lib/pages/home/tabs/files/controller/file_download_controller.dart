@@ -19,10 +19,13 @@ class FileDownloadController extends BaseGetVM {
   FileRepository get fileRepository => Get.find<FileRepository>();
   final Rx<FileListModel?> fileList = Rx<FileListModel?>(null);
   final RxList<FileItemModel> uploadingFiles = <FileItemModel>[].obs;
+  late String iphoneTip;
 
   @override
   void onInit() {
     super.onInit();
+    iphoneTip =
+        '注：在iPhone下，只能选择本程序目录下的目录（我的iPhone->Poatatokid Clipboard），否则无法下载文件'.tr;
     onRefresh();
   }
 
@@ -108,7 +111,14 @@ class FileDownloadController extends BaseGetVM {
           '下载成功，已保存到：\n@filename'.trParams({'filename': saveFilename}));
     } catch (e) {
       Log.e('downloadFile error: $e');
-      ErrorUtils.showErrorToast('打开保存对话框失败: $e');
+
+      if (Platform.isIOS && e is PathAccessException) {
+        DialogHelper.showTextToast(
+            '@tip\n@error'.trParams({'tip': iphoneTip, 'error': '$e'}));
+      } else {
+        ErrorUtils.showErrorToast(
+            '打开保存对话框失败: @error'.trParams({'error': '$e'}));
+      }
     }
   }
 

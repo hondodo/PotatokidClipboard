@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:file_icon/file_icon.dart';
 import 'package:flutter/gestures.dart';
@@ -61,6 +63,16 @@ class FileDownloadPage extends BaseStatelessSubWidget<FileDownloadController> {
               );
             },
           ),
+          if (Platform.isIOS)
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Text(
+                  controller.iphoneTip,
+                  style: AppTextTheme.textStyle.body.hint,
+                ),
+              ),
+            ),
           SliverList.builder(
             itemCount: controller.fileList.value?.files?.length ?? 0,
             itemBuilder: (context, index) {

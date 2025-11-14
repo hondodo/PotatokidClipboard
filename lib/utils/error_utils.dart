@@ -42,11 +42,14 @@ class ErrorUtils {
                 '网络错误，请检查网络连接，代码：@code'.trParams({'code': code.toString()}));
           }
       }
+    } else if (e is String) {
+      if (tipError) {
+        DialogHelper.showTextToast(e);
+      }
     } else {
       if (tipError) {
         DialogHelper.showTextToast('发生未知错误，请稍后再试'.tr);
       }
-      return true;
     }
     return null;
   }
