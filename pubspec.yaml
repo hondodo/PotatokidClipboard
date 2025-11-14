@@ -105,6 +105,9 @@ dependencies:
   # 文件选择
   file_picker: ^8.0.4
 
+  # 分享
+  share_plus: ^11.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -30,7 +30,10 @@ void main() async {
       appWindow.alignment = Alignment.center;
       if (Platform.isWindows) {
         if (Get.find<SettingsService>().isHideWindowOnStartup.value) {
-          appWindow.hide();
+          Future.delayed(const Duration(milliseconds: 1000), () {
+            appWindow.minimize();
+            appWindow.hide();
+          });
         } else {
           appWindow.show();
         }

@@ -3,15 +3,29 @@ allprojects {
         google()
         mavenCentral()
     }
+    // 减少编译输出
+    gradle.projectsEvaluated {
+        tasks.withType(JavaCompile) {
+            options.compilerArgs << "-Xlint:none"
+            options.deprecation = false
+            options.warnings = false
+        }
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile) {
+            kotlinOptions {
+                suppressWarnings = true
+            }
+        }
+    }
 }
 
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
-subprojects {
-    project.evaluationDependsOn(":app")
-}
+// 已删除循环依赖配置，避免 StackOverflowError
+// subprojects {
+//     project.evaluationDependsOn(":app")
+// }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir

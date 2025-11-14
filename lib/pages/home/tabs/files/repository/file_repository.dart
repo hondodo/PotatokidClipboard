@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:potatokid_clipboard/app/apis.dart';
 import 'package:potatokid_clipboard/framework/mixin/default_http_request.dart';
@@ -41,5 +44,49 @@ class FileRepository with RequestMixin {
         filename: saveFilename,
         onReceiveProgress: onReceiveProgress,
         downloadToTempFile: downloadToTempFile);
+  }
+
+  /// 上传文件
+  /// [filename] 文件名（用于显示）
+  /// [file] 文件路径
+  /// [onSendProgress] 上传进度回调
+  /// 返回服务器响应的 data 部分
+  Future<dynamic> uploadFile(
+    String filename,
+    String file, {
+    ProgressCallback? onSendProgress,
+  }) async {
+    // 检查文件是否存在
+    final fileObj = File(file);
+    if (!await fileObj.exists()) {
+      throw Exception('文件不存在: $file');
+    }
+
+    // 创建 FormData
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        file,
+        filename: filename,
+      ),
+    });
+
+    // 发送上传请求
+    final url = Apis.uploadFile.inBaseHost;
+    final response = await DioManager().dio.post(
+          url,
+          data: formData,
+          onSendProgress: onSendProgress,
+        );
+
+    // 处理响应（使用 RequestMixin 的 handleResult 方法处理标准响应格式）
+    // Dio 可能已经解析了 JSON，需要转换为字符串
+    dynamic responseData = response.data;
+    String responseString;
+    if (responseData is String) {
+      responseString = responseData;
+    } else {
+      responseString = jsonEncode(responseData);
+    }
+    return handleResult(url, responseString, true);
   }
 }
