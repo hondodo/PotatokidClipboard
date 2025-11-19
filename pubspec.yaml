@@ -93,8 +93,8 @@ dependencies:
   # 桌面窗口
   bitsdojo_window: ^0.1.6
 
-  # 权限
-  permission_handler: ^12.0.1
+  # # 权限  # 在windows下如果引用会引起“位置服务”的权限，在windows系统托盘会出现位置的图标，当前还没请求移动端的权限，所以先注释掉
+  # permission_handler: ^12.0.1
 
   # 下拉刷新
   custom_refresh_indicator: ^4.0.1

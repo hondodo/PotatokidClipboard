@@ -6,7 +6,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   bitsdojo_window_windows
   connectivity_plus
   flutter_udid
-  permission_handler_windows
   share_plus
   tray_manager
   url_launcher_windows
