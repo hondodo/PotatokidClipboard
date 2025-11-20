@@ -164,11 +164,11 @@ class FileDownloadController extends BaseGetVM {
   }
 
   Future<void> onDoubleTapFile(FileItemModel file) async {
+    if (!DeviceUtils.instance.isMobile()) {
+      // 移动端不允许双击打开
+      return;
+    }
     if (!file.isDownloaded) {
-      if (!DeviceUtils.instance.isMobile()) {
-        DialogHelper.showTextToast('文件未下载'.tr);
-        return;
-      }
       await downloadFile(file);
     }
     await openFile(file);
