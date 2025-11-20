@@ -164,7 +164,7 @@ class FileDownloadController extends BaseGetVM {
   }
 
   Future<void> onDoubleTapFile(FileItemModel file) async {
-    if (!DeviceUtils.instance.isMobile()) {
+    if (DeviceUtils.instance.isMobile()) {
       // 移动端不允许双击打开
       return;
     }
