@@ -108,6 +108,9 @@ dependencies:
   # 分享
   share_plus: ^11.0.0
 
+  # 打开文件
+  open_file: ^3.5.10
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -96,114 +96,132 @@ class FileDownloadPage extends BaseStatelessSubWidget<FileDownloadController> {
     return GetBuilder<FileDownloadController>(
       id: file.name,
       builder: (controller) {
-        return Card(
-          clipBehavior: Clip.hardEdge,
-          child: Stack(
-            // 进度条
-            children: [
-              Visibility(
-                visible: file.isDownloadFailed ||
-                    file.isDownloaded ||
-                    file.total > 0,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.transparent,
-                  ),
-                  width: double.infinity,
-                  height: 4,
-                  child: LinearProgressIndicator(
-                    value: file.isDownloadFailed
-                        ? 1
-                        : file.isDownloaded
-                            ? 1
-                            : file.count / file.total,
-                    color: file.isDownloadFailed
-                        ? AppTextTheme.errorColor
-                        : file.isDownloaded
-                            ? AppTextTheme.successColor
-                            : AppTextTheme.primaryColor.withOpacity(0.5),
-                    backgroundColor: AppTextTheme.hintColor.withOpacity(0.5),
+        return GestureDetector(
+          onDoubleTap: () {
+            controller.onDoubleTapFile(file);
+          },
+          child: Card(
+            clipBehavior: Clip.hardEdge,
+            child: Stack(
+              // 进度条
+              children: [
+                Visibility(
+                  visible: file.isDownloadFailed ||
+                      file.isDownloaded ||
+                      file.total > 0,
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.transparent,
+                    ),
+                    width: double.infinity,
+                    height: 4,
+                    child: LinearProgressIndicator(
+                      value: file.isDownloadFailed
+                          ? 1
+                          : file.isDownloaded
+                              ? 1
+                              : file.count / file.total,
+                      color: file.isDownloadFailed
+                          ? AppTextTheme.errorColor
+                          : file.isDownloaded
+                              ? AppTextTheme.successColor
+                              : AppTextTheme.primaryColor.withOpacity(0.5),
+                      backgroundColor: AppTextTheme.hintColor.withOpacity(0.5),
+                    ),
                   ),
                 ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.only(top: 8, bottom: 8, left: 4, right: 4),
-                child: Row(
-                  children: [
-                    // 图标
-                    FileIcon(file.name, size: 32),
-                    const SizedBox(width: 8),
-                    // [文件名、大小]
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          // 文件名
-                          Text(
-                            file.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextTheme.textStyle.body,
-                          ),
-                          // 上传时间
-                          Text(
-                            file.uploadTimeFormatted,
-                            style: AppTextTheme.textStyle.hint
-                                .resize(AppTextTheme.fontSizeSmall),
-                          ),
-                          // 大小
-                          Text(
-                            file.fileSizeFormatted,
-                            style: AppTextTheme.textStyle.hint
-                                .resize(AppTextTheme.fontSizeSmall),
-                          ),
-                          Visibility(
-                            visible:
-                                file.isDownloaded && file.localFilename != null,
-                            child: Text(
-                              '文件已保存到：@filename'.trParams(
-                                  {'filename': file.localFilename ?? ''}),
+                Container(
+                  padding: const EdgeInsets.only(
+                      top: 8, bottom: 8, left: 4, right: 4),
+                  child: Row(
+                    children: [
+                      // 图标
+                      FileIcon(file.name, size: 32),
+                      const SizedBox(width: 8),
+                      // [文件名、大小]
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            // 文件名
+                            Text(
+                              file.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextTheme.textStyle.body,
+                            ),
+                            // 上传时间
+                            Text(
+                              file.uploadTimeFormatted,
                               style: AppTextTheme.textStyle.hint
                                   .resize(AppTextTheme.fontSizeSmall),
                             ),
-                          )
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // 下载按钮
-                    Row(children: [
-                      IconButton(
-                        onPressed: () {
-                          controller.downloadFile(file);
-                        },
-                        icon: const Icon(
-                          Icons.download,
-                          color: AppTextTheme.primaryColor,
-                          size: 16,
+                            // 大小
+                            Text(
+                              file.fileSizeFormatted,
+                              style: AppTextTheme.textStyle.hint
+                                  .resize(AppTextTheme.fontSizeSmall),
+                            ),
+                            Visibility(
+                              visible: file.isDownloaded &&
+                                  file.localFilename != null,
+                              child: Text(
+                                '文件已保存到：@filename'.trParams(
+                                    {'filename': file.localFilename ?? ''}),
+                                style: AppTextTheme.textStyle.hint
+                                    .resize(AppTextTheme.fontSizeSmall),
+                              ),
+                            )
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Visibility(
-                        visible: file.isDownloaded,
-                        child: IconButton(
-                          onPressed: () {
-                            controller.shareFile(file);
-                          },
-                          icon: const Icon(
-                            Icons.share,
-                            color: AppTextTheme.primaryColor,
-                            size: 16,
+                      Column(
+                        children: [
+                          IconButton(
+                            onPressed: () {
+                              controller.downloadFile(file);
+                            },
+                            icon: const Icon(
+                              Icons.download,
+                              color: AppTextTheme.primaryColor,
+                              size: 16,
+                            ),
                           ),
-                        ),
-                      )
-                    ]),
-                  ],
+                          Visibility(
+                            visible: file.isDownloaded,
+                            child: IconButton(
+                              onPressed: () {
+                                controller.shareFile(file);
+                              },
+                              icon: const Icon(
+                                Icons.share,
+                                color: AppTextTheme.primaryColor,
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                          Visibility(
+                            visible: file.isDownloaded,
+                            child: IconButton(
+                              onPressed: () {
+                                controller.openFile(file);
+                              },
+                              icon: const Icon(
+                                Icons.open_in_new,
+                                color: AppTextTheme.primaryColor,
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },

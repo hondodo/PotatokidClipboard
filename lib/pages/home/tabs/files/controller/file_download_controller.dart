@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
+import 'package:open_file/open_file.dart';
 import 'package:potatokid_clipboard/app/app_cache.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
@@ -10,6 +11,7 @@ import 'package:potatokid_clipboard/pages/home/tabs/files/model/file_item_model.
 import 'package:potatokid_clipboard/pages/home/tabs/files/model/file_list_model.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/repository/file_repository.dart';
 import 'package:potatokid_clipboard/user/user_service.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:potatokid_clipboard/utils/dialog_helper.dart';
 import 'package:potatokid_clipboard/utils/error_utils.dart';
 import 'package:potatokid_clipboard/utils/file_path.dart';
@@ -159,6 +161,29 @@ class FileDownloadController extends BaseGetVM {
     } else {
       DialogHelper.showTextToast('分享失败'.tr);
     }
+  }
+
+  Future<void> onDoubleTapFile(FileItemModel file) async {
+    if (!file.isDownloaded) {
+      if (!DeviceUtils.instance.isMobile()) {
+        DialogHelper.showTextToast('文件未下载'.tr);
+        return;
+      }
+      await downloadFile(file);
+    }
+    await openFile(file);
+  }
+
+  Future<void> openFile(FileItemModel file) async {
+    if (!file.isDownloaded) {
+      DialogHelper.showTextToast('文件未下载'.tr);
+      return;
+    }
+    if (file.localFilename == null) {
+      DialogHelper.showTextToast('文件不存在'.tr);
+      return;
+    }
+    await OpenFile.open(file.localFilename ?? '');
   }
 
   Future<void> onReuploadFile(FileItemModel file) async {

@@ -8,6 +8,7 @@
 
 #include <bitsdojo_window_linux/bitsdojo_window_plugin.h>
 #include <flutter_udid/flutter_udid_plugin.h>
+#include <open_file_linux/open_file_linux_plugin.h>
 #include <tray_manager/tray_manager_plugin.h>
 #include <url_launcher_linux/url_launcher_plugin.h>
 
@@ -18,6 +19,9 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) flutter_udid_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "FlutterUdidPlugin");
   flutter_udid_plugin_register_with_registrar(flutter_udid_registrar);
+  g_autoptr(FlPluginRegistrar) open_file_linux_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "OpenFileLinuxPlugin");
+  open_file_linux_plugin_register_with_registrar(open_file_linux_registrar);
   g_autoptr(FlPluginRegistrar) tray_manager_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "TrayManagerPlugin");
   tray_manager_plugin_register_with_registrar(tray_manager_registrar);
