@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/gen/assets.gen.dart';
 import 'package:tray_manager/tray_manager.dart';
 
@@ -36,5 +37,21 @@ class TryIconHelper {
       ],
     );
     await trayManager.setContextMenu(menu);
+  }
+
+  static Future<void> updateTrayIcon(
+      {required TrayIconState trayIconState}) async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      return;
+    }
+    String iconPath = Platform.isWindows
+        ? Assets.images.icon.iconOffIco
+        : Assets.images.icon.iconOffPng.path;
+    if (trayIconState == TrayIconState.on) {
+      iconPath = Platform.isWindows
+          ? Assets.images.icon.iconOnIco
+          : Assets.images.icon.iconOnPng.path;
+    }
+    await trayManager.setIcon(iconPath);
   }
 }

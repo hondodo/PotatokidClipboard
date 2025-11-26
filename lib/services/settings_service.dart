@@ -2,8 +2,11 @@
 
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/services/clipboard_service.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
+import 'package:potatokid_clipboard/utils/try_icon_helper.dart';
 
 class SettingsService extends GetxService {
   static const int MIN_AUTO_CHECK_CLIPBOARD_INTERVAL_S = 1;
@@ -62,6 +65,12 @@ class SettingsService extends GetxService {
     isAutoSaveClipboard.listen(onIsAutoSaveClipboardChanged);
     autoCheckClipboardIntervalS.listen(onAutoCheckClipboardIntervalSChanged);
     isHideWindowOnStartup.listen(onIsHideWindowOnStartupChanged);
+
+    isSyncingClipboard.listen(onIsSyncingClipboardChanged);
+    isUploadingClipboard.listen(onIsUploadingClipboardChanged);
+    isSyncingClipboardFailed.listen(onIsSyncingClipboardFailedChanged);
+    isUploadingClipboardFailed.listen(onIsUploadingClipboardFailedChanged);
+
     onSettingsChanged();
     Log.d(
         'SettingsService] 初始化设置: isMonitoringClipboard: ${isMonitoringClipboard.value}, isAutoSaveClipboard: ${isAutoSaveClipboard.value}');
@@ -99,4 +108,21 @@ class SettingsService extends GetxService {
       Get.find<ClipboardService>().stopMonitoring();
     }
   }
+
+  void onIsSyncingClipboardChanged(bool value) {
+    if (DeviceUtils.instance.isDesktop()) {
+      TryIconHelper.updateTrayIcon(
+          trayIconState: value ? TrayIconState.on : TrayIconState.off);
+    }
+  }
+
+  void onIsUploadingClipboardChanged(bool value) {
+    if (DeviceUtils.instance.isDesktop()) {
+      TryIconHelper.updateTrayIcon(
+          trayIconState: value ? TrayIconState.on : TrayIconState.off);
+    }
+  }
+
+  void onIsSyncingClipboardFailedChanged(bool value) {}
+  void onIsUploadingClipboardFailedChanged(bool value) {}
 }

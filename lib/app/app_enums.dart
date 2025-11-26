@@ -46,3 +46,8 @@ enum FileTab {
     }
   }
 }
+
+enum TrayIconState {
+  on,
+  off,
+}
