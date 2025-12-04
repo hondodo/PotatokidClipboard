@@ -43,11 +43,11 @@ PODS:
     - SAMKeychain
   - native_flutter_proxy (0.0.1):
     - Flutter
+  - open_file_ios (0.0.1):
+    - Flutter
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
-  - permission_handler_apple (9.3.0):
-    - Flutter
   - SAMKeychain (1.5.3)
   - SDWebImage (5.21.1):
     - SDWebImage/Core (= 5.21.1)
@@ -63,8 +63,8 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_udid (from `.symlinks/plugins/flutter_udid/ios`)
   - native_flutter_proxy (from `.symlinks/plugins/native_flutter_proxy/ios`)
+  - open_file_ios (from `.symlinks/plugins/open_file_ios/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
-  - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
 
 SPEC REPOS:
@@ -88,10 +88,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_udid/ios"
   native_flutter_proxy:
     :path: ".symlinks/plugins/native_flutter_proxy/ios"
+  open_file_ios:
+    :path: ".symlinks/plugins/open_file_ios/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
-  permission_handler_apple:
-    :path: ".symlinks/plugins/permission_handler_apple/ios"
   share_plus:
     :path: ".symlinks/plugins/share_plus/ios"
 
@@ -104,8 +104,8 @@ SPEC CHECKSUMS:
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   flutter_udid: b2417673f287ee62817a1de3d1643f47b9f508ab
   native_flutter_proxy: 9d5ce4f6db3e1bf1e0c796020393f6500abd3126
+  open_file_ios: 461db5853723763573e140de3193656f91990d9e
   path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
-  permission_handler_apple: 9878588469a2b0d0fc1e048d9f43605f92e6cec2
   SAMKeychain: 483e1c9f32984d50ca961e26818a534283b4cd5c
   SDWebImage: f29024626962457f3470184232766516dee8dfea
   share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
