@@ -20,6 +20,7 @@ class HomeController extends BaseGetVM with GetSingleTickerProviderStateMixin {
     super.onInit();
     tabs.add(AppPage.clipboard);
     tabs.add(AppPage.files);
+    tabs.add(AppPage.excelToCsv);
     tabs.add(AppPage.me);
     tabs.add(AppPage.settings);
     tabController = TabController(length: tabs.length, vsync: this);

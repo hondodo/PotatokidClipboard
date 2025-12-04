@@ -5,6 +5,7 @@ enum AppPage {
   files,
   me,
   settings,
+  excelToCsv,
 }
 
 enum OsType {
@@ -50,4 +51,26 @@ enum FileTab {
 enum TrayIconState {
   on,
   off,
+}
+
+enum ExcelToCsvConvertStatus {
+  pending,
+  converting,
+  completed,
+  failed,
+}
+
+extension ExcelToCsvConvertStatusExtension on ExcelToCsvConvertStatus {
+  String get text {
+    switch (this) {
+      case ExcelToCsvConvertStatus.pending:
+        return '待转换'.tr;
+      case ExcelToCsvConvertStatus.converting:
+        return '转换中'.tr;
+      case ExcelToCsvConvertStatus.completed:
+        return '转换完成'.tr;
+      case ExcelToCsvConvertStatus.failed:
+        return '转换失败'.tr;
+    }
+  }
 }

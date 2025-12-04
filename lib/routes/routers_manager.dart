@@ -4,6 +4,7 @@ import 'package:potatokid_clipboard/pages/home/controller/home_controller.dart';
 import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/vm/clipboard_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/excel_to_csv/vm/excel_to_csv_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_download_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/repository/file_repository.dart';
@@ -28,6 +29,7 @@ abstract class RouterManager {
       Get.lazyPut(() => FileController());
       Get.lazyPut(() => FileDownloadController());
       Get.lazyPut(() => FileRepository());
+      Get.lazyPut(() => ExcelToCsvController());
       return const HomePage();
     },
     RouterNames.login: (context) {

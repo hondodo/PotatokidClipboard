@@ -9,6 +9,7 @@ import 'package:potatokid_clipboard/framework/components/navigations/navigation_
 import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
 import 'package:potatokid_clipboard/pages/home/controller/home_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/clipboard_page.dart';
+import 'package:potatokid_clipboard/pages/home/tabs/excel_to_csv/excel_to_csv_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/file_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/me/me_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/settings/settings_page.dart';
@@ -94,6 +95,8 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
         return Tab(text: '设置'.tr);
       case AppPage.files:
         return Tab(text: '文件'.tr);
+      case AppPage.excelToCsv:
+        return Tab(text: 'Excel转CSV'.tr);
     }
   }
 
@@ -107,6 +110,8 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
         return const SettingsPage();
       case AppPage.files:
         return const FilePage();
+      case AppPage.excelToCsv:
+        return const ExcelToCsvPage();
     }
   }
 }
