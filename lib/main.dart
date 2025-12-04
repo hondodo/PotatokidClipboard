@@ -30,9 +30,12 @@ void main() async {
       appWindow.alignment = Alignment.center;
       if (Platform.isWindows) {
         if (Get.find<SettingsService>().isHideWindowOnStartup.value) {
+          appWindow.show();
           Future.delayed(const Duration(milliseconds: 1000), () {
             appWindow.minimize();
-            appWindow.hide();
+            Future.delayed(const Duration(milliseconds: 100), () {
+              appWindow.hide();
+            });
           });
         } else {
           appWindow.show();
@@ -160,7 +163,9 @@ class _MyAppState extends State<MyApp>
       // do something
       appWindow.minimize();
       if (!Platform.isMacOS) {
-        appWindow.hide(); // macOS下调用会直接退出，如果延迟调用，也不会隐藏应用列表里的显示，相当于无效
+        Future.delayed(const Duration(milliseconds: 100), () {
+          appWindow.hide(); // macOS下调用会直接退出，如果延迟调用，也不会隐藏应用列表里的显示，相当于无效
+        });
       }
     } else if (menuItem.key == 'exit_app') {
       // do something

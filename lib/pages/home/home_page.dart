@@ -33,7 +33,9 @@ class HomePage extends BaseStatelessUnderlineBarWidget<HomeController> {
         CloseWindowButton(
           onPressed: () {
             appWindow.minimize();
-            appWindow.hide();
+            Future.delayed(const Duration(milliseconds: 100), () {
+              appWindow.hide();
+            });
           },
         ),
       ],
