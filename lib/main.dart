@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -20,6 +21,21 @@ import 'package:tray_manager/tray_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 设置全局错误处理，捕获键盘状态异常
+  FlutterError.onError = (FlutterErrorDetails details) {
+    // 忽略键盘状态不同步的异常（这是 bitsdojo_window 的已知问题）
+    if (details.exception.toString().contains('KeyDownEvent') &&
+        details.exception
+            .toString()
+            .contains('physical key is already pressed')) {
+      // 这是一个已知的 Flutter 框架问题，不影响功能，可以安全忽略
+      return;
+    }
+    // 其他错误正常处理
+    FlutterError.presentError(details);
+  };
+
   await PreConfig.init();
   runApp(const MyApp());
   if (DeviceUtils.instance.isDesktop()) {
@@ -28,8 +44,12 @@ void main() async {
       appWindow.minSize = initialSize;
       appWindow.size = initialSize;
       appWindow.alignment = Alignment.center;
+      appWindow.show();
       if (Platform.isWindows) {
-        if (Get.find<SettingsService>().isHideWindowOnStartup.value) {
+        // 在调试模式下不隐藏窗口，避免调试连接断开
+        final bool isDebugMode = kDebugMode;
+        if (Get.find<SettingsService>().isHideWindowOnStartup.value &&
+            !isDebugMode) {
           appWindow.show();
           Future.delayed(const Duration(milliseconds: 1000), () {
             appWindow.minimize();
@@ -37,11 +57,7 @@ void main() async {
               appWindow.hide();
             });
           });
-        } else {
-          appWindow.show();
         }
-      } else {
-        appWindow.show();
       }
     });
   }
@@ -176,5 +192,12 @@ class _MyAppState extends State<MyApp>
   void onShowWindow() {
     appWindow.show();
     appWindow.restore();
+    // 延迟等待窗口完全显示后再触发布局重建，避免布局溢出
+    Future.delayed(const Duration(milliseconds: 200), () {
+      // 强制触发布局重建
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 }

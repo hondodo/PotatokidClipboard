@@ -115,8 +115,6 @@ abstract class HttpBaseRequest {
             tipError: tipError,
             cancelToken: cancelToken(),
             contentType: contentType);
-      default:
-        return null;
     }
   }
 }

@@ -9,6 +9,16 @@
 
 import 'package:flutter/widgets.dart';
 
+class $AssetsDatasGen {
+  const $AssetsDatasGen();
+
+  /// File path: assets/datas/timezone.csv
+  String get timezone => 'assets/datas/timezone.csv';
+
+  /// List of all assets
+  List<String> get values => [timezone];
+}
+
 class $AssetsImagesGen {
   const $AssetsImagesGen();
 
@@ -51,22 +61,24 @@ class $AssetsImagesIconGen {
       const AssetGenImage('assets/images/icon/icon_on.png');
 
   /// List of all assets
-  List<dynamic> get values =>
-      [iconOffIco, iconOffPng, iconOnIco, iconOnPdn, iconOnPng];
+  List<dynamic> get values => [
+    iconOffIco,
+    iconOffPng,
+    iconOnIco,
+    iconOnPdn,
+    iconOnPng,
+  ];
 }
 
 class Assets {
   const Assets._();
 
+  static const $AssetsDatasGen datas = $AssetsDatasGen();
   static const $AssetsImagesGen images = $AssetsImagesGen();
 }
 
 class AssetGenImage {
-  const AssetGenImage(
-    this._assetName, {
-    this.size,
-    this.flavors = const {},
-  });
+  const AssetGenImage(this._assetName, {this.size, this.flavors = const {}});
 
   final String _assetName;
 
@@ -126,15 +138,8 @@ class AssetGenImage {
     );
   }
 
-  ImageProvider provider({
-    AssetBundle? bundle,
-    String? package,
-  }) {
-    return AssetImage(
-      _assetName,
-      bundle: bundle,
-      package: package,
-    );
+  ImageProvider provider({AssetBundle? bundle, String? package}) {
+    return AssetImage(_assetName, bundle: bundle, package: package);
   }
 
   String get path => _assetName;

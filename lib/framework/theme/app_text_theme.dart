@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 class AppTextTheme {
+  static final AppTextTheme _instance = AppTextTheme._();
+  static AppTextTheme get instance => _instance;
+
+  AppTextTheme._();
+
   /// 最小字体大小 10px
   static const double fontSizeMini = 10.0;
 
@@ -89,7 +94,7 @@ extension TextThemeExtension on TextStyle {
     return copyWith(fontSize: fontSize);
   }
 
-  TextStyle setColor(Color color) {
+  TextStyle setColor(Color? color) {
     return copyWith(color: color);
   }
 

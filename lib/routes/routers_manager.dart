@@ -4,7 +4,6 @@ import 'package:potatokid_clipboard/pages/home/controller/home_controller.dart';
 import 'package:potatokid_clipboard/pages/home/home_page.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/vm/clipboard_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
-import 'package:potatokid_clipboard/pages/home/tabs/excel_to_csv/vm/excel_to_csv_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/controller/file_download_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/files/repository/file_repository.dart';
@@ -13,6 +12,7 @@ import 'package:potatokid_clipboard/pages/home/tabs/me/vm/me_controller.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/settings/controller/settings_controller.dart';
 import 'package:potatokid_clipboard/pages/login/controller/login_controller.dart';
 import 'package:potatokid_clipboard/pages/login/login_page.dart';
+import 'package:potatokid_clipboard/pages/tools/vm/tools_controller.dart';
 import 'package:potatokid_clipboard/routes/router_names.dart';
 import 'package:potatokid_clipboard/user/controller/user_controller.dart';
 
@@ -29,7 +29,7 @@ abstract class RouterManager {
       Get.lazyPut(() => FileController());
       Get.lazyPut(() => FileDownloadController());
       Get.lazyPut(() => FileRepository());
-      Get.lazyPut(() => ExcelToCsvController());
+      Get.lazyPut(() => ToolsController());
       return const HomePage();
     },
     RouterNames.login: (context) {

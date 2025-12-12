@@ -3,8 +3,8 @@ import 'package:get/get.dart';
 import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
 import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
-import 'package:potatokid_clipboard/pages/home/tabs/excel_to_csv/model/excel_file_model.dart';
-import 'package:potatokid_clipboard/pages/home/tabs/excel_to_csv/vm/excel_to_csv_controller.dart';
+import 'package:potatokid_clipboard/pages/tools/excel_to_csv/model/excel_file_model.dart';
+import 'package:potatokid_clipboard/pages/tools/excel_to_csv/vm/excel_to_csv_controller.dart';
 
 class ExcelToCsvPage extends BaseStatelessSubWidget<ExcelToCsvController> {
   const ExcelToCsvPage({super.key});
@@ -95,7 +95,7 @@ class ExcelToCsvPage extends BaseStatelessSubWidget<ExcelToCsvController> {
 
   Widget getExcelFileItem(ExcelFileModel excelFile) {
     return GetBuilder<ExcelToCsvController>(
-      id: excelFile.name,
+      id: excelFile.id,
       builder: (controller) {
         return Card(
           child: Container(
@@ -107,7 +107,20 @@ class ExcelToCsvPage extends BaseStatelessSubWidget<ExcelToCsvController> {
               children: [
                 Text(excelFile.name, style: AppTextTheme.textStyle.body),
                 Text(excelFile.convertStatus.value.text,
-                    style: AppTextTheme.textStyle.hint),
+                    style: excelFile.convertStatus.value ==
+                            ExcelToCsvConvertStatus.failed
+                        ? AppTextTheme.textStyle.error
+                        : AppTextTheme.textStyle.hint),
+                if (excelFile.convertStatus.value ==
+                    ExcelToCsvConvertStatus.failed)
+                  Text(excelFile.convertError.value,
+                      style: AppTextTheme.textStyle.error),
+                if (excelFile.convertStatus.value ==
+                    ExcelToCsvConvertStatus.converting)
+                  LinearProgressIndicator(
+                    color: AppTextTheme.primaryColor,
+                    backgroundColor: AppTextTheme.hintColor,
+                  ),
               ],
             ),
           ),

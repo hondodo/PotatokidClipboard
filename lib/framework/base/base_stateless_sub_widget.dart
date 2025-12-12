@@ -237,13 +237,7 @@ abstract class BaseStatelessSubWidget<T extends BaseStatusMixin>
                 retry();
               },
             );
-      default:
-        break;
     }
-    return Center(
-        child: Text(
-      'not defined'.tr,
-    ));
   }
 
   void retry() {

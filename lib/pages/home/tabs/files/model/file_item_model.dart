@@ -48,26 +48,44 @@ class FileItemModel {
     return FileSizeUtils.formatSize(size);
   }
 
-  // 本地字段，下载进度数（一般为已下载文件大小）
+  /// 本地字段，下载进度数（一般为已下载文件大小）
+  @JsonKey(includeFromJson: false, includeToJson: false)
   int count = 0;
-  // 本地字段，下载总数（一般为文件大小）
+
+  /// 本地字段，下载总数（一般为文件大小）
+  @JsonKey(includeFromJson: false, includeToJson: false)
   int total = 0;
-  // 本地字段，是否已下载
+
+  /// 本地字段，是否已下载
+  @JsonKey(includeFromJson: false, includeToJson: false)
   bool isDownloaded = false;
-  // 本地字段，本地文件名
+
+  /// 本地字段，本地文件名
+  @JsonKey(includeFromJson: false, includeToJson: false)
   String? localFilename;
-  // 本地字段，是否下载失败
+
+  /// 本地字段，是否下载失败
+  @JsonKey(includeFromJson: false, includeToJson: false)
   bool isDownloadFailed = false;
 
-  // 本地字段，是否正在上传
+  /// 本地字段，是否正在上传
+  @JsonKey(includeFromJson: false, includeToJson: false)
   bool isUploading = false;
-  // 本地字段，上传进度数（一般为已上传文件大小）
+
+  /// 本地字段，上传进度数（一般为已上传文件大小）
+  @JsonKey(includeFromJson: false, includeToJson: false)
   int uploadCount = 0;
-  // 本地字段，上传总数（一般为文件大小）
+
+  /// 本地字段，上传总数（一般为文件大小）
+  @JsonKey(includeFromJson: false, includeToJson: false)
   int uploadTotal = 0;
-  // 本地字段，是否上传失败
+
+  /// 本地字段，是否上传失败
+  @JsonKey(includeFromJson: false, includeToJson: false)
   bool isUploadFailed = false;
-  // 本地字段，是否上传完成
+
+  /// 本地字段，是否上传完成
+  @JsonKey(includeFromJson: false, includeToJson: false)
   bool isUploadCompleted = false;
 
   @JsonKey(name: 'name')

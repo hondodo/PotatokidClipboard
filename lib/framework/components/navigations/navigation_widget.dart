@@ -51,8 +51,11 @@ class NavigationWidget extends StatelessWidget implements PreferredSizeWidget {
           //   child:
           MoveWindow(
         child: AppBar(
-          title:
-              titleWidget ?? Text(title, style: AppTextTheme.textStyle.title),
+          title: titleWidget ??
+              Text(title,
+                  style: AppTextTheme.textStyle.title,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1),
           backgroundColor: backgroundColor ?? Colors.blue,
           foregroundColor: foregroundColor ?? Colors.white,
           automaticallyImplyLeading: showLeading, // 去除后退箭头 1

@@ -7,12 +7,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:potatokid_clipboard/utils/file_path.dart';
 
 class ExcelUtils {
-  static Future<void> convertExcelToCsv(
-      PlatformFile file, String saveDirectory) async {
-    if (file.path == null) {
-      return;
-    }
-    var ioFile = File(file.path!);
+  /// 在 Isolate 中使用的转换方法，只接受基本类型参数
+  static Future<void> convertExcelToCsvInIsolate(
+      String filePath, String fileName, String saveDirectory) async {
+    var ioFile = File(filePath);
     var bytes = await ioFile.readAsBytes();
     var excel = Excel.decodeBytes(bytes);
     // 1、读取每个表单
@@ -31,7 +29,7 @@ class ExcelUtils {
         rows.add(rowData);
       }
       String savePath =
-          FilePath.join(saveDirectory, '${file.name.split('.')[0]}_$sheet.csv')
+          FilePath.join(saveDirectory, '${fileName.split('.')[0]}_$sheet.csv')
               .path;
       final res = const ListToCsvConverter().convert(rows);
       // 使用 UTF-8 BOM 编码保存，确保 Excel 能正确识别中文
@@ -39,5 +37,14 @@ class ExcelUtils {
       final List<int> bytesWithBom = [0xEF, 0xBB, 0xBF, ...utf8Bytes];
       await File(savePath).writeAsBytes(bytesWithBom);
     }
+  }
+
+  /// 保留原有方法以保持兼容性
+  static Future<void> convertExcelToCsv(
+      PlatformFile file, String saveDirectory) async {
+    if (file.path == null) {
+      return;
+    }
+    await convertExcelToCsvInIsolate(file.path!, file.name, saveDirectory);
   }
 }

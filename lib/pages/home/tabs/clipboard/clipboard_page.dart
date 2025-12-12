@@ -204,9 +204,14 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
                   Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(item.createdAtFormatted,
-                            style: AppTextTheme.textStyle.hint),
+                        Flexible(
+                          child: Text(item.createdAtFormatted,
+                              style: AppTextTheme.textStyle.hint,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1),
+                        ),
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(getOsIcon(item.os),
                                 size: 12, color: AppTextTheme.hintColor),
