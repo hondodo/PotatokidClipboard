@@ -106,11 +106,78 @@ rmdir /s /q build\windows
 flutter build windows --debug
 ```
 
+## Gradle ZIP 错误修复
+
+### 问题描述
+在运行 Flutter Android 应用时，可能会遇到以下错误：
+```
+Exception in thread "main" java.util.zip.ZipException: zip END header not found
+```
+
+### 原因
+这个错误通常是由于：
+1. Gradle 缓存中的 ZIP 文件损坏或不完整
+2. Gradle wrapper 下载过程中断导致文件不完整
+3. 网络问题导致依赖项下载失败
+
+### 解决方案
+
+#### 方法 1：使用自动修复脚本（推荐）
+
+运行提供的修复脚本：
+```bash
+fix_gradle_zip_error.bat
+```
+
+该脚本会自动：
+1. 清理 Flutter 构建缓存
+2. 清理 Android 构建目录
+3. 清理 Gradle 缓存和 wrapper 下载文件
+4. 重新获取 Flutter 依赖
+
+#### 方法 2：手动修复
+
+1. **清理 Flutter 构建缓存**
+   ```bash
+   flutter clean
+   ```
+
+2. **清理 Android 构建目录**
+   ```bash
+   rmdir /s /q android\build
+   rmdir /s /q android\app\build
+   ```
+
+3. **清理 Gradle 缓存**
+   ```bash
+   rmdir /s /q %USERPROFILE%\.gradle\caches
+   rmdir /s /q %USERPROFILE%\.gradle\wrapper\dists
+   ```
+
+4. **重新获取依赖**
+   ```bash
+   flutter pub get
+   ```
+
+5. **重新运行应用**
+   ```bash
+   flutter run
+   ```
+
+#### 方法 3：仅清理 Gradle wrapper（快速修复）
+
+如果只是 Gradle wrapper 损坏，可以只清理 wrapper 下载文件：
+```bash
+rmdir /s /q %USERPROFILE%\.gradle\wrapper\dists
+flutter run
+```
+
 ## 注意事项
 
 - 禁用图标树摇会增加应用体积（包含所有图标字体）
 - 这是使用 `file_icon` 包的必要配置
 - 如果构建仍然失败，请检查其他错误信息
 - 如果 Debug 构建持续失败，可以尝试使用 Release 模式构建（`flutter build windows --release`）
+- Gradle 缓存清理后，首次构建会重新下载依赖，可能需要较长时间
 
 

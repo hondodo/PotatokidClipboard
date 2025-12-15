@@ -136,16 +136,10 @@ class SearchWebController extends BaseGetVM {
               int.parse(searchIntervalTimeController.text);
       bool isPauseTurn = false;
       for (var keyword in keywords) {
-        if (searchIndex >= searchCount) {
+        if (searchIndex >= (searchCount - 1)) {
           isPauseTurn = true;
 
           multipleSearchTimer = Timer(Duration(seconds: pauseTime), () {});
-          pauseTime = Random().nextInt(
-                  int.parse(searchIntervalPauseTimeToController.text)) +
-              int.parse(searchIntervalPauseTimeFromController.text);
-          searchCount = Random()
-                  .nextInt(int.parse(searchIntervalCountToController.text)) +
-              int.parse(searchIntervalCountFromController.text);
         } else {
           isPauseTurn = false;
           multipleSearchTimer = Timer(Duration(seconds: delay), () {});
@@ -164,7 +158,17 @@ class SearchWebController extends BaseGetVM {
         multipleSearchStatusTips.value = tips;
         multipleKeywordsSearchBarController.onSearchNowPressed(
             keyword: keyword);
-        searchIndex++;
+        if (isPauseTurn) {
+          searchIndex = 0;
+          pauseTime = Random().nextInt(
+                  int.parse(searchIntervalPauseTimeToController.text)) +
+              int.parse(searchIntervalPauseTimeFromController.text);
+          searchCount = Random()
+                  .nextInt(int.parse(searchIntervalCountToController.text)) +
+              int.parse(searchIntervalCountFromController.text);
+        } else {
+          searchIndex++;
+        }
         totalIndex++;
         if (totalIndex >= totalCount) {
           break;
