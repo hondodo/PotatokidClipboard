@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.potatokid_clipboard"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "26.3.11579264"
 
     compileOptions {
