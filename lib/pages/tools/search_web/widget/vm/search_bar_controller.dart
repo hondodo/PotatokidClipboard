@@ -4,6 +4,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/pages/tools/search_web/model/search_provider_model.dart';
+import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SearchBarController extends BaseGetVM {
@@ -34,9 +35,13 @@ class SearchBarController extends BaseGetVM {
     var bing = SearchProviderModel(
         id: 'bing',
         name: '必应'.tr,
-        url: 'https://www.bing.com/search?q=',
+        url: DeviceUtils.instance.isDesktop()
+            ? 'https://www.bing.com/search?q='
+            : 'https://cn.bing.com/search?q=',
         icon: 'https://www.bing.com/favicon.ico',
-        tail: '&FORM=SSQNT1&adppc=EDGEESS&PC=NMTS');
+        tail: DeviceUtils.instance.isDesktop()
+            ? '&FORM=SSQNT1&adppc=EDGEESS&PC=NMTS'
+            : '&setmkt=zh-CN&PC=EMMX01&form=LWS002&scope=web');
     searchProviders.add(SearchProviderModel(
       id: 'baidu',
       name: '百度'.tr,
@@ -89,7 +94,7 @@ class SearchBarController extends BaseGetVM {
     try {
       return GetStorage().read<String>(key) ?? model.tail;
     } catch (e) {
-      Log.e('SearchBarController] 获取搜索尾关键字失败: $e');
+      Log.e('SearchBarController] 获取附加参数失败: $e');
       return model.tail;
     }
   }
