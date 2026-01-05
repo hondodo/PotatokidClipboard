@@ -15,10 +15,13 @@ mixin class TipOverlayMixin {
     }
   }
 
-  void showSuccess(String message) {
+  void showSuccess(String message, {int timeout = 2000}) {
     if (Get.context != null) {
       ScaffoldMessenger.of(Get.context!).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.green),
+        SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.green,
+            duration: Duration(milliseconds: timeout)),
       );
     }
   }

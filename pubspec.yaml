@@ -131,6 +131,9 @@ dependencies:
   # 小数计算
   decimal: ^3.2.4
 
+  # # 文字转语音
+  # flutter_tts: ^4.2.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

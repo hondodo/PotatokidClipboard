@@ -28,17 +28,32 @@ class CalcPage extends BaseStatelessSubWidget<CalcController> {
                 controller: controller.scrollController,
                 itemBuilder: (context, index) {
                   if (index >= controller.expressionHistory.length) {
-                    return Text(
-                      controller.getCurrentExpressionText(),
-                      style: AppTextTheme.textStyle.title.resize(
-                        AppTextTheme.fontSizeXXXXXXXLarge,
+                    return GestureDetector(
+                      onTap: () {
+                        controller
+                            .onTabLine(controller.getCurrentExpressionText());
+                      },
+                      child: Text(
+                        controller.getCurrentExpressionText(),
+                        style: AppTextTheme.textStyle.title.resize(
+                          AppTextTheme.fontSizeXXXXXXXLarge,
+                        ),
                       ),
                     );
                   } else {
-                    return Text(
-                      controller.expressionHistory[index],
-                      style: AppTextTheme.textStyle.title.hint
-                          .resize(AppTextTheme.fontSizeSmall),
+                    return GestureDetector(
+                      onTap: () {
+                        controller
+                            .onTabLine(controller.expressionHistory[index]);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          controller.expressionHistory[index],
+                          style: AppTextTheme.textStyle.title.hint
+                              .resize(AppTextTheme.fontSizeSmall),
+                        ),
+                      ),
                     );
                   }
                 },
