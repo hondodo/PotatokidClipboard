@@ -15,6 +15,11 @@ class MeController extends BaseGetVM {
     loadIpInfo().responseWithStatus(this);
   }
 
+  @override
+  void onRetry() {
+    loadIpInfo().responseWithStatus(this);
+  }
+
   Future<void> loadIpInfo() async {
     ipInfoModel.value = await MeRepository().getIpInfo();
   }

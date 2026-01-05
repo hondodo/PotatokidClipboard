@@ -24,7 +24,6 @@ class ExcelToCsvPage extends BaseStatelessSubWidget<ExcelToCsvController> {
                 onPressed: controller.onAddExcelFiles,
                 child: Text('添加文件'.tr, style: AppTextTheme.textStyle.body),
               ),
-              SizedBox(width: 16),
               Row(
                 children: [
                   ElevatedButton(

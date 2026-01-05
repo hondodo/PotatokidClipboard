@@ -86,7 +86,11 @@ enum ToolsTab {
   timeStamp(2),
 
   /// 搜索
-  searchWeb(3);
+  searchWeb(3),
+
+  /// 计算器
+  calc(4),
+  ;
 
   final int value;
   const ToolsTab(this.value);
@@ -106,6 +110,8 @@ enum ToolsTab {
         return '时间戳转换'.tr;
       case ToolsTab.searchWeb:
         return '浏览器搜索'.tr;
+      case ToolsTab.calc:
+        return '计算器'.tr;
     }
   }
 }

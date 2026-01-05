@@ -31,6 +31,11 @@ class FileDownloadController extends BaseGetVM {
     onRefresh();
   }
 
+  @override
+  void onRetry() {
+    onRefresh();
+  }
+
   Future<FileListModel> getFileList() async {
     var result = await fileRepository.getFileList();
     // 从缓存更新本地文件名

@@ -43,7 +43,7 @@ dependencies:
   intl: ^0.20.2
   
   # get 状态管理
-  get: ^4.6.6
+  get: ^4.7.3
 
   # get 存储
   get_storage: ^2.1.1
@@ -121,6 +121,15 @@ dependencies:
 
   # 打开网页
   url_launcher: ^6.3.2
+
+  # 电池
+  battery_plus: ^7.0.0
+
+  # 计算表达式
+  dart_eval: ^0.8.3
+
+  # 小数计算
+  decimal: ^3.2.4
 
 dev_dependencies:
   flutter_test:

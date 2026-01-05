@@ -10,6 +10,7 @@ class ToolsController extends BaseGetVM with GetSingleTickerProviderStateMixin {
   @override
   void onInit() {
     super.onInit();
+    tabs.add(ToolsTab.calc);
     tabs.add(ToolsTab.timeStamp);
     tabs.add(ToolsTab.searchWeb);
     tabs.add(ToolsTab.excelToCsv);

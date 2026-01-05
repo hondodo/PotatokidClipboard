@@ -49,6 +49,8 @@ class AppTextField extends StatefulWidget {
     this.onClear,
     this.alwaysShowPrefixIcon = false,
     this.borderRadius = 8,
+    this.selectionControls,
+    this.autoScrollToEnd = false,
   });
 
   final String? hintText;
@@ -66,6 +68,11 @@ class AppTextField extends StatefulWidget {
   final bool isReadOnly;
   final Color? backgroundColor;
   final Color? unFocusBorderColor;
+
+  /// {@macro flutter.widgets.editableText.selectionControls}
+  final TextSelectionControls? selectionControls;
+
+  final bool autoScrollToEnd;
 
   /// 该特性必须使用ColoredTextController,如果controller为null，则默认使用ColoredTextController
   /// 显示字数统计的最小行数，当输入的字符占用的行数大于或等于showCounterMinLines时，显示字数统计
@@ -451,6 +458,19 @@ class _AppTextField extends State<AppTextField> {
         _characterCount = controller.text.length;
       });
     }
+    if (widget.autoScrollToEnd) {
+      setState(() {
+        focusNode.requestFocus();
+        controller.value = TextEditingValue(
+          text: controller.text,
+          selection: TextSelection.fromPosition(
+            TextPosition(
+                affinity: TextAffinity.downstream,
+                offset: controller.text.length),
+          ),
+        );
+      });
+    }
   }
 
   /// 构建后缀图标，包括清除按钮和用户自定义的suffixIcon
@@ -529,6 +549,7 @@ class _AppTextField extends State<AppTextField> {
       keyboardType: widget.keyboardType,
       textInputAction: widget.textInputAction,
       obscureText: widget.obscureText,
+      selectionControls: widget.selectionControls,
       onChanged: (value) {
         if (widget.onChanged != null) {
           widget.onChanged!(value);

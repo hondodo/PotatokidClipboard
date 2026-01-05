@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
+import 'package:potatokid_clipboard/pages/tools/calc/calc_page.dart';
+import 'package:potatokid_clipboard/pages/tools/calc/vm/calc_controller.dart';
 import 'package:potatokid_clipboard/pages/tools/excel_to_csv/excel_to_csv_page.dart';
 import 'package:potatokid_clipboard/pages/tools/excel_to_csv/vm/excel_to_csv_controller.dart';
 import 'package:potatokid_clipboard/pages/tools/search_web/search_web_page.dart';
@@ -57,6 +59,9 @@ class ToolsPage extends BaseStatelessSubWidget<ToolsController> {
       case ToolsTab.searchWeb:
         Get.lazyPut(() => SearchWebController());
         return const SearchWebPage();
+      case ToolsTab.calc:
+        Get.lazyPut(() => CalcController());
+        return const CalcPage();
       case ToolsTab.none:
         return const SizedBox.shrink();
     }

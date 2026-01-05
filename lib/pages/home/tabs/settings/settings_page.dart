@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:potatokid_clipboard/components/battery_widgets/battery_icon_text_widget.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
 import 'package:potatokid_clipboard/framework/net/net_config.dart';
 import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
@@ -122,6 +123,18 @@ class SettingsPage extends BaseStatelessSubWidget<SettingsController> {
                     style: AppTextTheme.textStyle.body.error,
                   ),
                 ),
+            ],
+          ),
+        ),
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: BatteryIconTextWidget(),
+              ),
             ],
           ),
         ),
