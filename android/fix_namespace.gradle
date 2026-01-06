@@ -1,0 +1,34 @@
+// 为缺少命名空间的插件修复命名空间问题
+// 在 Android 扩展配置时设置命名空间
+if (project.name == "flutter_vibrate") {
+    project.plugins.withId("com.android.library") {
+        project.android {
+            namespace = "flutter.plugins.vibrate.vibrate"
+        }
+    }
+    
+    // 备用方案：在 afterEvaluate 中设置
+    project.afterEvaluate {
+        if (project.plugins.hasPlugin("com.android.library")) {
+            def android = project.extensions.findByName("android")
+            if (android != null) {
+                try {
+                    // 检查并设置命名空间
+                    def namespace = android.hasProperty("namespace") ? android.namespace : null
+                    if (namespace == null || namespace.toString().isEmpty()) {
+                        // 通过反射设置命名空间
+                        android.metaClass.setProperty(android, 'namespace', 'flutter.plugins.vibrate.vibrate')
+                    }
+                } catch (Exception e) {
+                    // 如果反射失败，尝试其他方法
+                    try {
+                        project.android.ext.set('namespace', 'flutter.plugins.vibrate.vibrate')
+                    } catch (Exception ex) {
+                        println "Warning: Could not set namespace for flutter_vibrate: ${ex.message}"
+                    }
+                }
+            }
+        }
+    }
+}
+

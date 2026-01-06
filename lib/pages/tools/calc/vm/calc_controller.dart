@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:flutter/material.dart';
+import 'package:potatokid_clipboard/utils/calc_voice_helper.dart';
+import 'package:vibration/vibration.dart';
 
 class CalcResult {
   final num value;
@@ -13,26 +15,105 @@ class CalcResult {
   final String errorMessage;
   final String valueString;
   final bool isError;
+  final String expression;
   CalcResult(
       {required this.value,
       required this.isOverPrecision,
       required this.errorMessage,
       required this.valueString,
-      required this.isError});
+      required this.isError,
+      required this.expression});
+
+  String getExpressionText() {
+    if (isError) {
+      return '@expression=@error'
+          .trParams({'expression': expression, 'error': '出错了'.tr});
+    }
+    return '$expression=$valueString';
+  }
 }
 
 class CalcController extends BaseGetVM {
-  RxList<String> expressionHistory = <String>[].obs;
+  RxList<CalcResult> expressionHistory = <CalcResult>[].obs;
   String currentExpression = '';
   final ScrollController scrollController = ScrollController();
   List<String> operatorList = ['+', '-', '*', '/', '%', '×', '÷'];
+  List<CalcVoiceType> voiceTypeList = [
+    CalcVoiceType.putonghua,
+    CalcVoiceType.yinyue,
+    CalcVoiceType.yueyu
+  ];
+  final currentVoiceTypeIndex = 0.obs;
+
+  void onKeyTabDownFeedback() {
+    Vibration.vibrate(duration: 20, amplitude: 255, sharpness: 1.0);
+  }
+
+  void onKeyTabUpFeedback() {}
+
+  bool isEndWithOperator(String expression) {
+    if (expression.isEmpty) {
+      return false;
+    }
+    return operatorList.contains(expression.substring(expression.length - 1));
+  }
+
+  bool isContainOperator(String expression) {
+    for (String op in operatorList) {
+      if (expression.contains(op)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String removeFirstZero(String numbers) {
+    while (numbers.startsWith('0')) {
+      numbers = numbers.substring(1);
+    }
+    if (numbers.startsWith('.')) {
+      numbers = '0$numbers';
+    }
+    if (numbers.isEmpty) {
+      numbers = '0';
+    }
+    // 如果超过两个.，那么只保留第一个.
+    if (numbers.contains('.')) {
+      var dotParts = numbers.split('.');
+      if (dotParts.length > 2) {
+        numbers = '${dotParts[0]}.${dotParts[1]}';
+        for (int i = 2; i < dotParts.length; i++) {
+          numbers += dotParts[i];
+        }
+      }
+    }
+    return numbers;
+  }
 
   void onKeyboardNumberPressed(String text) {
     currentExpression += text;
+    bool hasChanged = false;
+    for (String op in operatorList) {
+      if (currentExpression.contains(op)) {
+        var parts = currentExpression.split(op);
+        if (parts.length > 1) {
+          var newParts = parts.map((part) => removeFirstZero(part)).toList();
+          currentExpression = newParts.join(op);
+          hasChanged = true;
+        }
+      }
+    }
+    if (!hasChanged) {
+      currentExpression = removeFirstZero(currentExpression);
+    }
     updateExpressionHistory();
   }
 
   void onKeyboardOperatorPressed(String text) {
+    while (currentExpression.endsWith('.')) {
+      currentExpression =
+          currentExpression.substring(0, currentExpression.length - 1);
+    }
     if (currentExpression.isNotEmpty) {
       String lastChar =
           currentExpression.substring(currentExpression.length - 1);
@@ -41,53 +122,44 @@ class CalcController extends BaseGetVM {
             currentExpression.substring(0, currentExpression.length - 1);
       }
     }
-    for (String operator in operatorList) {
-      if (currentExpression.contains(operator)) {
-        onKeyboardEqualPressed();
+    if (currentExpression.isEmpty) {
+      currentExpression = '0';
+    }
+    if (text != '%') {
+      for (String operator in operatorList) {
+        if (currentExpression.contains(operator)) {
+          calcCurrentExpression();
+        }
       }
     }
     currentExpression += text;
     updateExpressionHistory();
     if (text == '%') {
-      onKeyboardEqualPressed();
+      calcCurrentExpression();
     }
-  }
-
-  void onDotPressed() {
-    if (currentExpression.contains('.')) {
-      return;
-    }
-    while (currentExpression.startsWith('0')) {
-      currentExpression = currentExpression.substring(1);
-    }
-    if (currentExpression.isEmpty) {
-      currentExpression = '0';
-    }
-    while (currentExpression.endsWith('.')) {
-      currentExpression =
-          currentExpression.substring(0, max(0, currentExpression.length - 1));
-    }
-    if (currentExpression.startsWith('.')) {
-      currentExpression = '0$currentExpression';
-    }
-    currentExpression += '.';
-    updateExpressionHistory();
   }
 
   void onKeyboardEqualPressed() {
+    if (currentExpression.endsWith('.')) {
+      currentExpression =
+          currentExpression.substring(0, currentExpression.length - 1);
+    } else if (!currentExpression.endsWith('%') &&
+        isEndWithOperator(currentExpression)) {
+      currentExpression =
+          currentExpression.substring(0, currentExpression.length - 1);
+    }
+    calcCurrentExpression();
+  }
+
+  void calcCurrentExpression() {
     if (currentExpression.isEmpty) {
       return;
     }
     String expression = currentExpression;
-    expression = expression
-        .replaceAll('×', '*')
-        .replaceAll('÷', '/')
-        .replaceAll('%', '/100.0');
     CalcResult result = evaluateExpression(expression);
     bool isError = result.isError;
-    String resultString = isError ? '出错了'.tr : result.valueString;
-    expressionHistory.add('$currentExpression=$resultString');
-    currentExpression = isError ? '' : resultString;
+    expressionHistory.add(result);
+    currentExpression = isError ? '' : result.valueString;
     updateExpressionHistory();
   }
 
@@ -107,27 +179,33 @@ class CalcController extends BaseGetVM {
 
   CalcResult evaluateExpression(String expression) {
     try {
-      final result = eval(expression);
-      return _formatNumber(result);
+      var calcExpression = expression
+          .replaceAll('×', '*')
+          .replaceAll('÷', '/')
+          .replaceAll('%', '/100.0');
+      final result = eval(calcExpression);
+      return _formatNumber(result, expression);
     } catch (e) {
       return CalcResult(
           value: 0,
           isError: true,
           isOverPrecision: false,
           errorMessage: e.toString(),
-          valueString: '');
+          valueString: '',
+          expression: expression);
     }
   }
 
   /// 格式化数字，去除浮点数精度误差和尾随零
-  CalcResult _formatNumber(num value) {
+  CalcResult _formatNumber(num value, String rawExpression) {
     if (value is int) {
       return CalcResult(
           value: value,
           isOverPrecision: false,
           errorMessage: '',
           isError: false,
-          valueString: _formatNumberForDisplay(value));
+          valueString: _formatNumberForDisplay(value),
+          expression: rawExpression);
     }
 
     // 检测到精度误差，尝试智能四舍五入
@@ -152,6 +230,7 @@ class CalcController extends BaseGetVM {
             isOverPrecision: false,
             errorMessage: '',
             valueString: _formatNumberForDisplay(rounded),
+            expression: rawExpression,
             isError: false);
       }
     }
@@ -161,7 +240,8 @@ class CalcController extends BaseGetVM {
         isOverPrecision: true,
         errorMessage: '',
         valueString: _formatNumberForDisplay(value),
-        isError: false);
+        isError: false,
+        expression: rawExpression);
   }
 
   void updateExpressionHistory() {
@@ -232,5 +312,58 @@ class CalcController extends BaseGetVM {
       }),
       timeout: 1000,
     );
+  }
+
+  Future<void> onTabExpressionHistory(CalcResult result) async {
+    if (isContainOperator(currentExpression)) {
+      if (result.isError) {
+        return;
+      }
+      // 将 123+456-567 拆为 123+456 和 567 两部分，只保留123+456-部分，将567替换为result.valueString
+      // +/- 是operatorList任意一个操作符
+      // 从后往前遍历，找到第一个 +/- 操作符，将 +/- 操作符前的部分替换为result.valueString
+      for (int i = currentExpression.length - 1; i >= 0; i--) {
+        if (operatorList.contains(currentExpression[i])) {
+          currentExpression = currentExpression.substring(0, i) +
+              currentExpression[i] +
+              result.valueString;
+          break;
+        }
+      }
+    } else {
+      if (result.isError) {
+        currentExpression = result.expression;
+      } else {
+        currentExpression = result.valueString;
+      }
+    }
+    updateExpressionHistory();
+  }
+
+  Future<void> onLongPressExpressionHistory(CalcResult result) async {
+    if (result.isError) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: result.valueString));
+    showSuccess(
+      '已复制@line到剪贴板'.trParams({
+        'line': result.valueString,
+      }),
+      timeout: 1000,
+    );
+  }
+
+  void onVoiceTypePressed() {
+    int index = currentVoiceTypeIndex.value;
+    index++;
+    if (index >= voiceTypeList.length) {
+      index = 0;
+    }
+    currentVoiceTypeIndex.value = index;
+  }
+
+  void onVoiceItemPressed(CalcVoiceItem item) {
+    CalcVoiceHelper.instance
+        .playVoice(voiceTypeList[currentVoiceTypeIndex.value], item);
   }
 }

@@ -11,4 +11,10 @@ class AppTheme {
 
   Color get pageBgColor => Colors.white;
   Color get primaryColor => Colors.blue;
+  Color get unselectedBackgroundColor => Colors.lightBlueAccent;
+  Color get hoverColor => Colors.brown;
+  Color get pressedColor => Colors.blue.shade900;
+  Color get unselectedPressedColor => Colors.lightBlue;
+  Color get disabledColor => Colors.blueGrey;
+  Color get shadowColor => Colors.black.withValues(alpha: 0.05);
 }

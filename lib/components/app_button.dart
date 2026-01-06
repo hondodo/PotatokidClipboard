@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
+import 'package:potatokid_clipboard/framework/theme/app_theme.dart';
 
 EdgeInsetsGeometry _scaledPadding(BuildContext context) {
   final ThemeData theme = Theme.of(context);
@@ -21,12 +23,6 @@ class AppButton extends ButtonStyleButton {
   static final roundedBorder =
       RoundedRectangleBorder(borderRadius: BorderRadius.circular(8));
 
-  /// Called when a tap down event occurs.
-  final GestureTapDownCallback? onTapDown;
-
-  /// Called when a tap up event occurs.
-  final GestureTapUpCallback? onTapUp;
-
   /// Create an AppButton.
   const AppButton({
     super.key,
@@ -34,8 +30,6 @@ class AppButton extends ButtonStyleButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    this.onTapDown,
-    this.onTapUp,
     super.style,
     super.focusNode,
     super.autofocus = false,
@@ -50,8 +44,6 @@ class AppButton extends ButtonStyleButton {
     VoidCallback? onLongPress,
     ValueChanged<bool>? onHover,
     ValueChanged<bool>? onFocusChange,
-    GestureTapDownCallback? onTapDown,
-    GestureTapUpCallback? onTapUp,
     ButtonStyle? style,
     FocusNode? focusNode,
     bool? autofocus,
@@ -66,8 +58,6 @@ class AppButton extends ButtonStyleButton {
     VoidCallback? onLongPress,
     ValueChanged<bool>? onHover,
     ValueChanged<bool>? onFocusChange,
-    GestureTapDownCallback? onTapDown,
-    GestureTapUpCallback? onTapUp,
     ButtonStyle? style,
     FocusNode? focusNode,
     bool? autofocus,
@@ -83,8 +73,6 @@ class AppButton extends ButtonStyleButton {
     VoidCallback? onLongPress,
     ValueChanged<bool>? onHover,
     ValueChanged<bool>? onFocusChange,
-    GestureTapDownCallback? onTapDown,
-    GestureTapUpCallback? onTapUp,
     ButtonStyle? style,
     FocusNode? focusNode,
     bool? autofocus,
@@ -99,8 +87,6 @@ class AppButton extends ButtonStyleButton {
     VoidCallback? onLongPress,
     ValueChanged<bool>? onHover,
     ValueChanged<bool>? onFocusChange,
-    GestureTapDownCallback? onTapDown,
-    GestureTapUpCallback? onTapUp,
     ButtonStyle? style,
     FocusNode? focusNode,
     bool? autofocus,
@@ -147,8 +133,6 @@ class AppButton extends ButtonStyleButton {
     VoidCallback? onLongPress,
     ValueChanged<bool>? onHover,
     ValueChanged<bool>? onFocusChange,
-    GestureTapDownCallback? onTapDown,
-    GestureTapUpCallback? onTapUp,
     ButtonStyle? style,
     FocusNode? focusNode,
     bool? autofocus,
@@ -237,85 +221,6 @@ class AppButton extends ButtonStyleButton {
   ButtonStyle? themeStyleOf(BuildContext context) {
     return ElevatedButtonTheme.of(context).style;
   }
-
-  @override
-  State<AppButton> createState() => _AppButtonState();
-}
-
-class _AppButtonState extends State<AppButton> {
-  @override
-  Widget build(BuildContext context) {
-    // 创建一个内部的 AppButton，不包含 onTapDown 和 onTapUp
-    final Widget button = _InternalAppButton(
-      key: widget.key,
-      onPressed: widget.onPressed,
-      onLongPress: widget.onLongPress,
-      onHover: widget.onHover,
-      onFocusChange: widget.onFocusChange,
-      style: widget.style,
-      focusNode: widget.focusNode,
-      autofocus: widget.autofocus,
-      clipBehavior: widget.clipBehavior,
-      statesController: widget.statesController,
-      child: widget.child,
-    );
-
-    // 如果有 onTapDown 或 onTapUp，使用 Listener 监听底层指针事件
-    // 这样可以避免与 InkWell 的手势识别器冲突
-    if (widget.onTapDown != null || widget.onTapUp != null) {
-      return Listener(
-        onPointerDown: widget.onTapDown != null
-            ? (PointerDownEvent event) {
-                widget.onTapDown?.call(TapDownDetails(
-                  globalPosition: event.position,
-                  localPosition: event.localPosition,
-                  kind: event.kind,
-                ));
-              }
-            : null,
-        onPointerUp: widget.onTapUp != null
-            ? (PointerUpEvent event) {
-                widget.onTapUp?.call(TapUpDetails(
-                  globalPosition: event.position,
-                  localPosition: event.localPosition,
-                  kind: event.kind,
-                ));
-              }
-            : null,
-        behavior: HitTestBehavior.translucent,
-        child: button,
-      );
-    }
-
-    return button;
-  }
-}
-
-// 内部使用的 AppButton，不包含 onTapDown 和 onTapUp
-class _InternalAppButton extends ButtonStyleButton {
-  const _InternalAppButton({
-    super.key,
-    required super.onPressed,
-    super.onLongPress,
-    super.onHover,
-    super.onFocusChange,
-    super.style,
-    super.focusNode,
-    super.autofocus = false,
-    super.clipBehavior = Clip.none,
-    super.statesController,
-    required super.child,
-  });
-
-  @override
-  ButtonStyle defaultStyleOf(BuildContext context) {
-    return _AppButtonDefaults(context);
-  }
-
-  @override
-  ButtonStyle? themeStyleOf(BuildContext context) {
-    return ElevatedButtonTheme.of(context).style;
-  }
 }
 
 class _AppButtonWithText extends AppButton {
@@ -325,8 +230,6 @@ class _AppButtonWithText extends AppButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    super.onTapDown,
-    super.onTapUp,
     super.style,
     super.focusNode,
     bool? autofocus,
@@ -355,8 +258,6 @@ class _AppButtonWithIcon extends AppButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    super.onTapDown,
-    super.onTapUp,
     super.style,
     super.focusNode,
     bool? autofocus,
@@ -375,8 +276,7 @@ class _AppButtonWithIcon extends AppButton {
         minimumSize: const WidgetStatePropertyAll<Size?>(Size.zero),
         backgroundColor:
             const WidgetStatePropertyAll<Color?>(Colors.transparent),
-        padding:
-            const WidgetStatePropertyAll<EdgeInsetsGeometry?>(EdgeInsets.all(5))
+        padding: WidgetStatePropertyAll<EdgeInsetsGeometry?>(EdgeInsets.all(5))
         // padding: EdgeInsets.all(12);
         );
   }
@@ -389,8 +289,6 @@ class _AppButtonWithOutlined extends AppButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    super.onTapDown,
-    super.onTapUp,
     super.style,
     super.focusNode,
     bool? autofocus,
@@ -405,10 +303,12 @@ class _AppButtonWithOutlined extends AppButton {
 
   @override
   ButtonStyle defaultStyleOf(BuildContext context) {
+    // final colors = Theme.of(context).colorScheme;
+    final theme = AppTheme.instance;
     return super.defaultStyleOf(context).copyWith(
-        foregroundColor: const WidgetStatePropertyAll(Colors.blue),
+        foregroundColor: WidgetStatePropertyAll(theme.primaryColor),
         shape: WidgetStatePropertyAll(AppButton.roundedBorder),
-        side: const WidgetStatePropertyAll(BorderSide(color: Colors.blue))
+        side: WidgetStatePropertyAll(BorderSide(color: theme.primaryColor))
         // side: WidgetStateProperty.resolveWith((Set<WidgetState> states) {
         //   if (states.contains(WidgetState.disabled)) {
         //     return BorderSide(color: colors.onSurface.withOpacity(0.12));
@@ -434,8 +334,6 @@ class _AppButtonWithFilled extends AppButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    super.onTapDown,
-    super.onTapUp,
     super.style,
     super.focusNode,
     bool? autofocus,
@@ -450,15 +348,17 @@ class _AppButtonWithFilled extends AppButton {
 
   @override
   ButtonStyle defaultStyleOf(BuildContext context) {
+    // final colors = Theme.of(context).colorScheme;
+    final theme = AppTheme.instance; // Get.find<ThemeController>().data;
     return super.defaultStyleOf(context).copyWith(
         shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
         backgroundColor:
             WidgetStateProperty.resolveWith((Set<WidgetState> states) {
           if (states.contains(WidgetState.disabled)) {
-            return Colors.grey.withOpacity(0.12);
+            return theme.disabledColor;
           }
-          return Colors.blue;
+          return theme.primaryColor;
         }));
   }
 }
@@ -472,8 +372,6 @@ class _AppButtonWithCheckabe extends AppButton {
     super.onLongPress,
     super.onHover,
     super.onFocusChange,
-    super.onTapDown,
-    super.onTapUp,
     super.style,
     super.focusNode,
     bool? autofocus,
@@ -488,14 +386,16 @@ class _AppButtonWithCheckabe extends AppButton {
 
   @override
   ButtonStyle defaultStyleOf(BuildContext context) {
+    // final colors = Theme.of(context).colorScheme;
+    final theme = AppTheme.instance; // Get.find<ThemeController>().data;
     return super.defaultStyleOf(context).copyWith(
         backgroundColor: WidgetStatePropertyAll(
-            isChecked ? Colors.blue : Colors.transparent));
+            isChecked ? theme.primaryColor : Colors.transparent));
   }
 }
 
 class _AppButtonDefaults extends ButtonStyle {
-  const _AppButtonDefaults(this.context)
+  _AppButtonDefaults(this.context)
       : super(
           animationDuration: kThemeChangeDuration,
           enableFeedback: true,
@@ -503,28 +403,30 @@ class _AppButtonDefaults extends ButtonStyle {
         );
 
   final BuildContext context;
+  // late final ColorScheme _colors = Theme.of(context).colorScheme;
+  // late final ThemeModel theme = Get.find<ThemeController>().data;
+  final AppTheme theme = AppTheme.instance;
 
   @override
   WidgetStateProperty<TextStyle?> get textStyle =>
-      const WidgetStatePropertyAll<TextStyle?>(
-          TextStyle(fontSize: 16, fontWeight: FontWeight.bold));
+      WidgetStatePropertyAll<TextStyle?>(AppTextTheme.textStyle.body.medium);
 
   @override
   WidgetStateProperty<Color?>? get backgroundColor =>
       WidgetStateProperty.resolveWith((Set<WidgetState> states) {
         if (states.contains(WidgetState.disabled)) {
-          return Colors.grey.withOpacity(0.12);
+          return theme.disabledColor.withValues(alpha: 0.12);
         }
-        return Colors.white;
+        return theme.primaryColor;
       });
 
   @override
   WidgetStateProperty<Color?>? get foregroundColor =>
       WidgetStateProperty.resolveWith((Set<WidgetState> states) {
         if (states.contains(WidgetState.disabled)) {
-          return Colors.grey.withOpacity(0.38);
+          return theme.disabledColor.withValues(alpha: 0.38);
         }
-        return Colors.black;
+        return theme.primaryColor;
       });
 
   @override
@@ -578,7 +480,7 @@ class _AppButtonDefaults extends ButtonStyle {
 
   @override
   WidgetStateProperty<Size>? get minimumSize =>
-      const WidgetStatePropertyAll<Size>(Size(64, 40));
+      WidgetStatePropertyAll<Size>(Size(64, 40));
 
   // No default fixedSize
 
@@ -649,13 +551,13 @@ class _AppButtonDefaultOverlay extends WidgetStateProperty<Color?>
   @override
   Color? resolve(Set<WidgetState> states) {
     if (states.contains(WidgetState.pressed)) {
-      return overlay.withOpacity(0.24);
+      return overlay.withValues(alpha: 0.24);
     }
     if (states.contains(WidgetState.hovered)) {
-      return overlay.withOpacity(0.08);
+      return overlay.withValues(alpha: 0.08);
     }
     if (states.contains(WidgetState.focused)) {
-      return overlay.withOpacity(0.24);
+      return overlay.withValues(alpha: 0.24);
     }
     return null;
   }

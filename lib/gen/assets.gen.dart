@@ -9,6 +9,13 @@
 
 import 'package:flutter/widgets.dart';
 
+class $AssetsAudioGen {
+  const $AssetsAudioGen();
+
+  /// Directory path: assets/audio/calc
+  $AssetsAudioCalcGen get calc => const $AssetsAudioCalcGen();
+}
+
 class $AssetsDatasGen {
   const $AssetsDatasGen();
 
@@ -27,6 +34,14 @@ class $AssetsImagesGen {
 
   /// Directory path: assets/images/icon
   $AssetsImagesIconGen get icon => const $AssetsImagesIconGen();
+}
+
+class $AssetsAudioCalcGen {
+  const $AssetsAudioCalcGen();
+
+  /// Directory path: assets/audio/calc/putonghua
+  $AssetsAudioCalcPutonghuaGen get putonghua =>
+      const $AssetsAudioCalcPutonghuaGen();
 }
 
 class $AssetsImagesCommonGen {
@@ -70,9 +85,98 @@ class $AssetsImagesIconGen {
   ];
 }
 
+class $AssetsAudioCalcPutonghuaGen {
+  const $AssetsAudioCalcPutonghuaGen();
+
+  /// File path: assets/audio/calc/putonghua/0.mp3
+  String get a0 => 'assets/audio/calc/putonghua/0.mp3';
+
+  /// File path: assets/audio/calc/putonghua/00.mp3
+  String get a00 => 'assets/audio/calc/putonghua/00.mp3';
+
+  /// File path: assets/audio/calc/putonghua/1.mp3
+  String get a1 => 'assets/audio/calc/putonghua/1.mp3';
+
+  /// File path: assets/audio/calc/putonghua/2.mp3
+  String get a2 => 'assets/audio/calc/putonghua/2.mp3';
+
+  /// File path: assets/audio/calc/putonghua/3.mp3
+  String get a3 => 'assets/audio/calc/putonghua/3.mp3';
+
+  /// File path: assets/audio/calc/putonghua/4.mp3
+  String get a4 => 'assets/audio/calc/putonghua/4.mp3';
+
+  /// File path: assets/audio/calc/putonghua/5.mp3
+  String get a5 => 'assets/audio/calc/putonghua/5.mp3';
+
+  /// File path: assets/audio/calc/putonghua/6.mp3
+  String get a6 => 'assets/audio/calc/putonghua/6.mp3';
+
+  /// File path: assets/audio/calc/putonghua/7.mp3
+  String get a7 => 'assets/audio/calc/putonghua/7.mp3';
+
+  /// File path: assets/audio/calc/putonghua/8.mp3
+  String get a8 => 'assets/audio/calc/putonghua/8.mp3';
+
+  /// File path: assets/audio/calc/putonghua/9.mp3
+  String get a9 => 'assets/audio/calc/putonghua/9.mp3';
+
+  /// File path: assets/audio/calc/putonghua/add.mp3
+  String get add => 'assets/audio/calc/putonghua/add.mp3';
+
+  /// File path: assets/audio/calc/putonghua/backspace.mp3
+  String get backspace => 'assets/audio/calc/putonghua/backspace.mp3';
+
+  /// File path: assets/audio/calc/putonghua/clear.mp3
+  String get clear => 'assets/audio/calc/putonghua/clear.mp3';
+
+  /// File path: assets/audio/calc/putonghua/divide.mp3
+  String get divide => 'assets/audio/calc/putonghua/divide.mp3';
+
+  /// File path: assets/audio/calc/putonghua/dot.mp3
+  String get dot => 'assets/audio/calc/putonghua/dot.mp3';
+
+  /// File path: assets/audio/calc/putonghua/equal.mp3
+  String get equal => 'assets/audio/calc/putonghua/equal.mp3';
+
+  /// File path: assets/audio/calc/putonghua/multiply.mp3
+  String get multiply => 'assets/audio/calc/putonghua/multiply.mp3';
+
+  /// File path: assets/audio/calc/putonghua/percent.mp3
+  String get percent => 'assets/audio/calc/putonghua/percent.mp3';
+
+  /// File path: assets/audio/calc/putonghua/subtract.mp3
+  String get subtract => 'assets/audio/calc/putonghua/subtract.mp3';
+
+  /// List of all assets
+  List<String> get values => [
+    a0,
+    a00,
+    a1,
+    a2,
+    a3,
+    a4,
+    a5,
+    a6,
+    a7,
+    a8,
+    a9,
+    add,
+    backspace,
+    clear,
+    divide,
+    dot,
+    equal,
+    multiply,
+    percent,
+    subtract,
+  ];
+}
+
 class Assets {
   const Assets._();
 
+  static const $AssetsAudioGen audio = $AssetsAudioGen();
   static const $AssetsDatasGen datas = $AssetsDatasGen();
   static const $AssetsImagesGen images = $AssetsImagesGen();
 }

@@ -130,9 +130,16 @@ dependencies:
 
   # 小数计算
   decimal: ^3.2.4
+  
+  # 震动反馈
+  haptic_feedback: ^0.6.4+3
 
-  # # 文字转语音
-  # flutter_tts: ^4.2.4
+  # 震动反馈
+  vibration: ^3.1.5
+
+  # 音频播放
+  just_audio: ^0.10.5
+  audioplayers: ^6.5.1
 
 dev_dependencies:
   flutter_test:
@@ -211,6 +218,7 @@ flutter:
     - assets/images/common/
     - assets/images/icon/
     - assets/datas/
+    - assets/audio/calc/putonghua/
 
 
 flutter_launcher_icons:
