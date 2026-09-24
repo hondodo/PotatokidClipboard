@@ -1,0 +1,22 @@
+{
+  "app_name": "potatokid_screen",
+  "common_loading": "Loading...",
+  "common_retry": "Retry",
+  "common_empty": "No data",
+  "home_title": "Home",
+  "profile_title": "Profile",
+  "home_detail_title": "Detail",
+  "settings_title": "Settings",
+  "action_settings": "Open Settings",
+  "action_close": "Close",
+  "action_back": "Back",
+  "theme_mode_title": "Theme",
+  "theme_system": "System",
+  "theme_light": "Light",
+  "theme_dark": "Dark",
+  "language_mode_title": "Language",
+  "language_zh_cn": "简体中文",
+  "language_zh_tw": "繁體中文",
+  "language_en_us": "English",
+  "language_ja_jp": "日本語"
+}
