@@ -11,3 +11,8 @@ class ChangeThemeMode extends AppEvent {
 
   final ThemeMode themeMode;
 }
+
+/// 切换 AppBar / 底部导航栏的显隐（沉浸式全屏开关）
+class ToggleChrome extends AppEvent {
+  const ToggleChrome();
+}

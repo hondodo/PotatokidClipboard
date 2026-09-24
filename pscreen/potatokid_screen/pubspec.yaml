@@ -49,6 +49,11 @@ dependencies:
   easy_localization: ^3.0.8
   intl: ^0.20.2
 
+  # IPTV 直播播放（libmpv，支持安卓电视网络直播流）
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

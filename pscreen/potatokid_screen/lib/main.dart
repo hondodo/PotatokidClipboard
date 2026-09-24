@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:potatokid_screen/app/app.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/app/hosts/app_hosts.dart';
@@ -17,13 +18,14 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // 1. 允许横竖屏（不锁定方向）
+      // 1. 锁定横屏（电视场景）
       await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
+
+      // 1.1 初始化媒体播放库（media_kit）
+      MediaKit.ensureInitialized();
 
       // 2. 加载 .env 与环境配置
       await AppConfig.initialize();

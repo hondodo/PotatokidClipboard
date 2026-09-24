@@ -1,6 +1,7 @@
 import 'package:potatokid_screen/core/di/get_it.dart';
 import 'package:potatokid_screen/core/di/modules/app_module.dart';
 import 'package:potatokid_screen/core/di/modules/home_module.dart';
+import 'package:potatokid_screen/core/di/modules/iptv_module.dart';
 import 'package:potatokid_screen/core/di/modules/network_module.dart';
 import 'package:potatokid_screen/core/di/modules/router_module.dart';
 
@@ -15,9 +16,11 @@ class Injection {
     await RouterModule.register();
     await AppModule.register();
     await HomeModule.register();
+    await IptvModule.register();
   }
 
   static Future<void> reset() async {
+    await IptvModule.unregister();
     await HomeModule.unregister();
     await AppModule.unregister();
     await RouterModule.unregister();

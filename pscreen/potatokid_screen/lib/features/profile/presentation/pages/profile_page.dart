@@ -22,67 +22,63 @@ class ProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('profile_title'.tr())),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: <Widget>[
-          Text(
-            'theme_mode_title'.tr(),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          BlocBuilder<AppBloc, AppState>(
-            builder: (context, state) {
-              return SegmentedButton<ThemeMode>(
-                segments: <ButtonSegment<ThemeMode>>[
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.system,
-                    label: Text('theme_system'.tr()),
-                  ),
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.light,
-                    label: Text('theme_light'.tr()),
-                  ),
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.dark,
-                    label: Text('theme_dark'.tr()),
-                  ),
-                ],
-                selected: <ThemeMode>{state.themeMode},
-                onSelectionChanged: (selection) => context
-                    .read<AppBloc>()
-                    .add(ChangeThemeMode(selection.first)),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'language_mode_title'.tr(),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final (Locale locale, String labelKey) in _supportedLanguages)
-                ChoiceChip(
-                  label: Text(labelKey.tr()),
-                  selected: context.locale == locale,
-                  onSelected: (_) => context.setLocale(locale),
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: <Widget>[
+        Text(
+          'theme_mode_title'.tr(),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        BlocBuilder<AppBloc, AppState>(
+          builder: (context, state) {
+            return SegmentedButton<ThemeMode>(
+              segments: <ButtonSegment<ThemeMode>>[
+                ButtonSegment<ThemeMode>(
+                  value: ThemeMode.system,
+                  label: Text('theme_system'.tr()),
                 ),
-            ],
+                ButtonSegment<ThemeMode>(
+                  value: ThemeMode.light,
+                  label: Text('theme_light'.tr()),
+                ),
+                ButtonSegment<ThemeMode>(
+                  value: ThemeMode.dark,
+                  label: Text('theme_dark'.tr()),
+                ),
+              ],
+              selected: <ThemeMode>{state.themeMode},
+              onSelectionChanged: (selection) =>
+                  context.read<AppBloc>().add(ChangeThemeMode(selection.first)),
+            );
+          },
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'language_mode_title'.tr(),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final (Locale locale, String labelKey) in _supportedLanguages)
+              ChoiceChip(
+                label: Text(labelKey.tr()),
+                selected: context.locale == locale,
+                onSelected: (_) => context.setLocale(locale),
+              ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
+            const SettingsSheetParams(from: 'profile'),
           ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
-              const SettingsSheetParams(from: 'profile'),
-            ),
-            child: Text('action_settings'.tr()),
-          ),
-        ],
-      ),
+          child: Text('action_settings'.tr()),
+        ),
+      ],
     );
   }
 }

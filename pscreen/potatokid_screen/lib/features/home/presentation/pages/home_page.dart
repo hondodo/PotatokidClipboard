@@ -2,82 +2,48 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
-import 'package:potatokid_screen/core/router/app_router.dart';
-import 'package:potatokid_screen/core/router/route_params.dart';
-import 'package:potatokid_screen/features/home/application/bloc/home_bloc.dart';
-import 'package:potatokid_screen/features/home/application/bloc/home_event.dart';
-import 'package:potatokid_screen/features/home/application/bloc/home_state.dart';
-import 'package:potatokid_screen/features/home/data/models/home_model.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_state.dart';
+import 'package:potatokid_screen/features/iptv/presentation/components/live_player_widget.dart';
 
-/// 首页：注入 [HomeBloc]（由 DI 提供），进入即触发加载。
+/// 首页（电视）：「首页」Tab 主体为全屏 IPTV 直播。
+/// 进入即自动加载远程 m3u 列表并自动播放首个频道，底部频道条焦点即切台。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<HomeBloc>(
-      create: (_) => Injection.get<HomeBloc>()..add(const LoadHomeList()),
-      child: const _HomeView(),
+    return BlocProvider<IptvBloc>(
+      create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv()),
+      child: const _IptvHomeView(),
     );
   }
 }
 
-class _HomeView extends StatelessWidget {
-  const _HomeView();
+class _IptvHomeView extends StatelessWidget {
+  const _IptvHomeView();
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('home_title'.tr()),
-        actions: <Widget>[
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
-              const SettingsSheetParams(from: 'home'),
-            ),
-          ),
-        ],
-      ),
-      body: BlocBuilder<HomeBloc, HomeState>(
-        builder: (context, state) {
-          if (state.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.errorMessage != null) {
-            return _ErrorView(
-              message: state.errorMessage!,
-              onRetry: () =>
-                  context.read<HomeBloc>().add(const LoadHomeList()),
-            );
-          }
-          if (state.items.isEmpty) {
-            return Center(child: Text('common_empty'.tr()));
-          }
-          return RefreshIndicator(
-            onRefresh: () async {
-              context
-                  .read<HomeBloc>()
-                  .add(const LoadHomeList(forceRefresh: true));
-            },
-            child: ListView.separated(
-              itemCount: state.items.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final HomeModel item = state.items[index];
-                return ListTile(
-                  title: Text(item.title),
-                  subtitle: Text(item.subtitle),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Injection.get<AppRouter>().pushHomeDetail(
-                    HomeDetailParams(id: item.id, title: item.title),
-                  ),
-                );
-              },
-            ),
+    return BlocBuilder<IptvBloc, IptvState>(
+      builder: (context, state) {
+        if (state.isLoading) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
           );
-        },
-      ),
+        }
+        if (state.errorMessage != null) {
+          return _ErrorView(
+            message: state.errorMessage!,
+            onRetry: () => context.read<IptvBloc>().add(const LoadIptv()),
+          );
+        }
+        if (state.channels.isEmpty) {
+          return Center(child: Text('common_empty'.tr()));
+        }
+        return LivePlayerWidget(channels: state.channels);
+      },
     );
   }
 }
@@ -94,7 +60,7 @@ class _ErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text(message),
+          Text(message, style: const TextStyle(color: Colors.white)),
           const SizedBox(height: 12),
           FilledButton(
             onPressed: onRetry,

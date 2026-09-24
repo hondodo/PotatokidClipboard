@@ -2,8 +2,10 @@
 class RouteNames {
   const RouteNames._();
 
-  // Tab 页面
+  // Tab 页面（顺序：首页 | 时间 | 屏保 | 我的）
   static const String home = '/';
+  static const String time = '/time';
+  static const String screensaver = '/screensaver';
   static const String profile = '/profile';
 
   // 普通页面

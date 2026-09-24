@@ -6,9 +6,14 @@ import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 class AppBloc extends Bloc<AppEvent, AppState> {
   AppBloc() : super(AppState.initial()) {
     on<ChangeThemeMode>(_onChangeThemeMode);
+    on<ToggleChrome>(_onToggleChrome);
   }
 
   void _onChangeThemeMode(ChangeThemeMode event, Emitter<AppState> emit) {
     emit(state.copyWith(themeMode: event.themeMode));
+  }
+
+  void _onToggleChrome(ToggleChrome event, Emitter<AppState> emit) {
+    emit(state.copyWith(isChromeVisible: !state.isChromeVisible));
   }
 }
