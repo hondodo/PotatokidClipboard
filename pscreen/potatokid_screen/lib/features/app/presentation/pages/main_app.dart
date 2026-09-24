@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
-import 'package:potatokid_screen/core/router/app_router.dart';
-import 'package:potatokid_screen/core/router/route_params.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
+import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 
 /// 单个顶部 Tab 的静态描述（图标 + 文案 key）。
 class _TabDescriptor {
@@ -30,6 +30,9 @@ class MainApp extends StatelessWidget {
 
   final StatefulNavigationShell navigationShell;
 
+  /// 「时间」Tab 在 [_tabs] 中的序号（上/下键在此切换时钟样式）。
+  static const int _timeBranchIndex = 1;
+
   static const List<_TabDescriptor> _tabs = <_TabDescriptor>[
     _TabDescriptor('home_title', Icons.live_tv_outlined, Icons.live_tv),
     _TabDescriptor('time_title', Icons.schedule_outlined, Icons.schedule),
@@ -50,16 +53,108 @@ class MainApp extends StatelessWidget {
 
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final LogicalKeyboardKey key = event.logicalKey;
-    final bool isOk =
-        key == LogicalKeyboardKey.select ||
+    return _handleLogical(context, event.logicalKey)
+        ? KeyEventResult.handled
+        : KeyEventResult.ignored;
+  }
+
+  /// 悬浮遥控器按键：映射为逻辑键后走与真实遥控器一致的 [LogicalKeyboardKey] 逻辑。
+  void _onRemoteButton(BuildContext context, RemoteButton button) {
+    final LogicalKeyboardKey key = switch (button) {
+      RemoteButton.up => LogicalKeyboardKey.arrowUp,
+      RemoteButton.down => LogicalKeyboardKey.arrowDown,
+      RemoteButton.left => LogicalKeyboardKey.arrowLeft,
+      RemoteButton.right => LogicalKeyboardKey.arrowRight,
+      RemoteButton.ok => LogicalKeyboardKey.enter,
+      RemoteButton.menu => LogicalKeyboardKey.contextMenu,
+      RemoteButton.back => LogicalKeyboardKey.escape,
+    };
+    _handleLogical(context, key);
+  }
+
+  /// 统一的按键逻辑（按「导航条显隐」分模式）：
+  /// - 左右：导航条显示时切 tab；隐藏时交给页面（页内无左右）。
+  /// - 上下：首页切频道、时间页切样式，其余滚动/焦点移动。
+  /// - OK：激活焦点按钮，否则显隐导航条（含频道条）。
+  /// - 菜单：仅在首页单独呼出频道列表。
+  bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
+    final AppState state = context.read<AppBloc>().state;
+    final int cur = navigationShell.currentIndex;
+
+    final bool ok = key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA;
-    if (!isOk) return KeyEventResult.ignored;
-    context.read<AppBloc>().add(const ToggleChrome());
-    return KeyEventResult.handled;
+    if (ok) {
+      _pressOk(context);
+      return true;
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowRight) {
+      if (!state.isChromeVisible) return false; // 隐藏时页内无左右
+      final int delta = key == LogicalKeyboardKey.arrowRight ? 1 : -1;
+      _goTabWrapped(cur, delta);
+      return true;
+    }
+
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      final bool up = key == LogicalKeyboardKey.arrowUp;
+      switch (cur) {
+        case 0: // 首页：上下切频道
+          up
+              ? LiveChannelController.instance.previous()
+              : LiveChannelController.instance.next();
+          break;
+        case _timeBranchIndex: // 时间：上下切样式
+          up
+              ? TimeStyleController.instance.previous()
+              : TimeStyleController.instance.next();
+          break;
+        default: // 其余：滚动 / 焦点移动
+          _moveFocus(up ? TraversalDirection.up : TraversalDirection.down);
+          break;
+      }
+      return true;
+    }
+
+    if (key == LogicalKeyboardKey.contextMenu) {
+      if (cur == 0) {
+        context.read<AppBloc>().add(const ToggleChannels());
+        return true;
+      }
+      return false;
+    }
+
+    return false;
+  }
+
+  /// 循环切换 tab（左右）。
+  void _goTabWrapped(int current, int delta) {
+    final int next = (current + delta + MainApp._tabs.length) % MainApp._tabs.length;
+    _goTab(next);
+  }
+
+  void _moveFocus(TraversalDirection direction) {
+    final FocusScopeNode? scope =
+        FocusManager.instance.primaryFocus?.enclosingScope;
+    if (scope == null) return;
+    scope.focusInDirection(direction);
+  }
+
+  void _pressOk(BuildContext context) {
+    final BuildContext? focusContext =
+        FocusManager.instance.primaryFocus?.context;
+    // 焦点落在可聚焦且注册了 Activate 动作的控件上时触发其激活（按钮/列表项）；
+    // 否则与真实遥控器一致，OK 冒泡到壳层用于显隐导航条。
+    if (focusContext != null &&
+        Actions.maybeFind<ActivateIntent>(focusContext) != null) {
+      Actions.invoke(focusContext, const ActivateIntent());
+    } else {
+      context.read<AppBloc>().add(const ToggleChrome());
+    }
   }
 
   @override
@@ -103,6 +198,8 @@ class MainApp extends StatelessWidget {
                     ),
                   ),
                 ),
+                // 悬浮遥控器蒙层（手机调试用），置于最上层。
+                FloatingRemote(onKey: (button) => _onRemoteButton(context, button)),
               ],
             ),
           ),
@@ -112,7 +209,7 @@ class MainApp extends StatelessWidget {
   }
 }
 
-/// 顶部横向导航条：4 个 tab + 设置入口，焦点即切页、高亮显示。
+/// 顶部横向导航条：4 个 tab，焦点即切页、高亮显示。
 class _TopNavBar extends StatelessWidget {
   const _TopNavBar({
     required this.currentIndex,
@@ -147,13 +244,6 @@ class _TopNavBar extends StatelessWidget {
               onFocused: onTabSelected,
             ),
           const Spacer(),
-          IconButton(
-            tooltip: 'action_settings'.tr(),
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
-              const SettingsSheetParams(from: 'home'),
-            ),
-          ),
           const SizedBox(width: 12),
         ],
       ),

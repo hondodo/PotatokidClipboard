@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 
-/// 横向频道条：底部半透明叠加层，D-pad 左右移动焦点即切换频道。
+/// 右侧垂直频道条：半透明，上下（键盘由壳层驱动）或点按切换频道。
 ///
-/// 频道项使用可聚焦组件但**不注册 ActivateIntent**，因此 OK 键会继续冒泡到
-/// 壳层，用于显示/隐藏顶部导航栏（与「OK 管显隐」约定一致）。
+/// 这里只负责展示与点按；「上/下」切换由壳层 MainApp 经由
+/// `LiveChannelController` 驱动，避免焦点把方向键截走。
 class ChannelBar extends StatelessWidget {
   const ChannelBar({
     super.key,
@@ -20,114 +20,61 @@ class ChannelBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 108,
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[Colors.transparent, Colors.black87],
-        ),
+      width: 200,
+      margin: const EdgeInsets.only(right: 12),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: <Widget>[
-            for (int i = 0; i < channels.length; i++)
-              _ChannelTile(
-                channel: channels[i],
-                index: i,
-                selected: i == selectedIndex,
-                onFocus: onChanged,
-              ),
-          ],
-        ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: channels.length,
+        itemBuilder: (context, index) {
+          return _ChannelTile(
+            channel: channels[index],
+            selected: index == selectedIndex,
+            onTap: () => onChanged(index),
+            earnFocus: index == selectedIndex && (index - selectedIndex).abs() <= 1,
+          );
+        },
       ),
     );
   }
 }
 
-class _ChannelTile extends StatefulWidget {
+class _ChannelTile extends StatelessWidget {
   const _ChannelTile({
     required this.channel,
-    required this.index,
     required this.selected,
-    required this.onFocus,
+    required this.onTap,
+    required this.earnFocus,
   });
 
   final IptvChannel channel;
-  final int index;
   final bool selected;
+  final VoidCallback onTap;
 
-  /// 获得焦点时的回调，用于「焦点即切台」。
-  final ValueChanged<int> onFocus;
-
-  @override
-  State<_ChannelTile> createState() => _ChannelTileState();
-}
-
-class _ChannelTileState extends State<_ChannelTile> {
-  late final FocusNode _focusNode;
-  bool _focused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode = FocusNode()..addListener(_onFocusChanged);
-  }
-
-  void _onFocusChanged() {
-    final bool focused = _focusNode.hasFocus;
-    setState(() => _focused = focused);
-    if (focused) {
-      widget.onFocus(widget.index);
-    }
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
+  /// 让选中项附近可聚焦，便于遥控器方向键垂直滚动；选中项默认聚焦。
+  final bool earnFocus;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final bool active = widget.selected || _focused;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Focus(
-        focusNode: _focusNode,
-        autofocus: widget.selected,
-        // 触摸降级：手机直接点频道也切换（requestFocus 走焦点监听→切台+高亮）
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _focusNode.requestFocus(),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: active
-                  ? scheme.primary.withValues(alpha: 0.85)
-                  : Colors.white24,
-              borderRadius: BorderRadius.circular(10),
-              border: _focused
-                  ? Border.all(color: Colors.white, width: 2)
-                  : null,
-            ),
-            child: Text(
-              widget.channel.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
+    return Focus(
+      canRequestFocus: earnFocus,
+      autofocus: selected,
+      child: ListTile(
+        dense: true,
+        selected: selected,
+        selectedTileColor: scheme.primary.withValues(alpha: 0.85),
+        title: Text(
+          channel.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontSize: 14),
         ),
+        onTap: onTap,
       ),
     );
   }

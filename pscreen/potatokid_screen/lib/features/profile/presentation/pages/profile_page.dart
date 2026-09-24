@@ -72,13 +72,24 @@ class ProfilePage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
-        FilledButton(
-          onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
-            const SettingsSheetParams(from: 'profile'),
+          FilledButton(
+            onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
+              const SettingsSheetParams(from: 'profile'),
+            ),
+            child: Text('action_settings'.tr()),
           ),
-          child: Text('action_settings'.tr()),
-        ),
-      ],
+          const SizedBox(height: 12),
+          BlocBuilder<AppBloc, AppState>(
+            builder: (context, state) {
+              return SwitchListTile(
+                title: Text('settings_floating_remote'.tr()),
+                value: state.showFloatingRemote,
+                onChanged: (value) =>
+                    context.read<AppBloc>().add(SetFloatingRemote(value)),
+              );
+            },
+          ),
+        ],
     );
   }
 }
