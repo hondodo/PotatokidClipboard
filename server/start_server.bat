@@ -1,0 +1,6 @@
+@echo off
+echo 启动文件上传服务器...
+cd server
+echo 启动服务器...
+D:\env\nvm\v23.1.0\node.exe server.js
+pause

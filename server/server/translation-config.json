@@ -1,0 +1,46 @@
+{
+    "apps": [
+        {
+            "appName": "myStar",
+            "languages": [
+                {
+                    "lanName": "英文",
+                    "lanFile": "en_US.json",
+                    "tsKey": "en_US"
+                },
+                {
+                    "lanName": "日文",
+                    "lanFile": "ja_JP.json",
+                    "tsKey": "ja_JP"
+                },
+                {
+                    "lanName": "中文",
+                    "lanFile": "zh_CN.json",
+                    "tsKey": "zh_CN"
+                }
+            ],
+            "description": "保存翻译文件后，在myStar中“设置-语言-下载英文（或其它语言）翻译”下载成功后，重启app即可查看翻译结果。"
+        },
+        {
+            "appName": "PicsAi",
+            "languages": [
+                {
+                    "lanName": "英文",
+                    "lanFile": "en_US.json",
+                    "tsKey": "en_US"
+                },
+                {
+                    "lanName": "日文",
+                    "lanFile": "ja_JP.json",
+                    "tsKey": "ja_JP"
+                },
+                {
+                    "lanName": "中文",
+                    "lanFile": "zh_CN.json",
+                    "tsKey": "zh_CN"
+                }
+            ],
+            "description": "PicsAi暂不支持在线翻译。"
+        }
+    ]
+}
