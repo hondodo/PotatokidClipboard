@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
+import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
@@ -32,6 +33,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   Timer? _toastTimer;
   String? _toastName; // 左下角当前频道名提示（5 秒后消失）
   int _currentIndex = 0;
+
+  /// 频道列表「30 秒无操作」自动收起的计时器。
+  Timer? _channelsHideTimer;
+  static const Duration _channelsHideDelay = Duration(seconds: 30);
 
   @override
   void initState() {
@@ -61,6 +66,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
 
   void _onChannelChanged() {
     _openChannel(_channelController.index);
+    // 换台算一次列表操作：显示列表并重置 30 秒计时。
+    _markChannelsActivity();
+  }
+
+  /// 频道列表操作（换台/滑动）：显示列表并重置 30 秒自动收起计时。
+  void _markChannelsActivity() {
+    if (!mounted) return;
+    context.read<AppBloc>().add(const SetChannels(true));
+    _armChannelsHide();
+  }
+
+  void _armChannelsHide() {
+    _channelsHideTimer?.cancel();
+    _channelsHideTimer = Timer(_channelsHideDelay, () {
+      _channelsHideTimer = null;
+      if (!mounted) return;
+      context.read<AppBloc>().add(const SetChannels(false));
+    });
   }
 
   Future<void> _openChannel(int index, {bool force = false}) async {
@@ -88,6 +111,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   void dispose() {
     _channelController.removeListener(_onChannelChanged);
     _toastTimer?.cancel();
+    _channelsHideTimer?.cancel();
     _player?.dispose();
     _player = null;
     _controller = null;
@@ -118,17 +142,29 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
             buildWhen: (previous, current) =>
                 previous.showChannels != current.showChannels,
             builder: (context, state) {
+              // 列表处于可见时确保有 30 秒计时（初始显示也算）。
+              if (state.showChannels &&
+                  (mounted && _channelsHideTimer == null)) {
+                _armChannelsHide();
+              }
               return AnimatedSlide(
                 offset: state.showChannels
                     ? Offset.zero
                     : const Offset(1, 0),
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeInOut,
-                child: ChannelBar(
-                  channels: widget.channels,
-                  selectedIndex: _channelController.index,
-                  onChanged: _channelController.select,
-                  visible: state.showChannels,
+                // 滑动列表也算操作：重置 30 秒计时并确保显示。
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (_) {
+                    if (state.showChannels) _markChannelsActivity();
+                    return false;
+                  },
+                  child: ChannelBar(
+                    channels: widget.channels,
+                    selectedIndex: _channelController.index,
+                    onChanged: _channelController.select,
+                    visible: state.showChannels,
+                  ),
                 ),
               );
             },

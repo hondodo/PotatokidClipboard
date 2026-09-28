@@ -13,9 +13,24 @@ class ChangeThemeMode extends AppEvent {
 }
 
 /// 切换 AppBar / 底部导航栏的显隐（沉浸式全屏开关）。
-/// 顶部 tab 条与首页频道条一起显隐。
+/// 顶部 tab 条与首页频道条一起显隐（OK 键触发）。
 class ToggleChrome extends AppEvent {
   const ToggleChrome();
+}
+
+/// 仅设置顶部 tab 条显隐，**不动**频道列表（供顶部条自动收起用，
+/// 避免 10 秒自动收起把频道列表一起带走）。
+class SetChrome extends AppEvent {
+  const SetChrome(this.visible);
+
+  final bool visible;
+}
+
+/// 仅设置首页频道列表显隐（供换台/滑动显示、30 秒无操作隐藏用）。
+class SetChannels extends AppEvent {
+  const SetChannels(this.show);
+
+  final bool show;
 }
 
 /// 单独切换首页频道条的显隐（菜单键呼出频道列表用）。

@@ -186,12 +186,10 @@ class MainApp extends StatelessWidget {
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
-    // 启动 10 秒后自动收起顶部导航条（含频道条）。
-    // 分组1（首页|时间|屏保…）允许 10 秒自动收起；
-    // 分组2（我的）始终显示 tabs，不自动收起。
+    // 自动收起触发点：切到非「我的」tab / OK 呼出后 10 秒；「我的」不自动收起。
     return AutoHideChrome(
-      shouldAutoHide: () =>
-          navigationShell.currentIndex != _profileBranchIndex,
+      currentIndex: navigationShell.currentIndex,
+      profileBranchIndex: _profileBranchIndex,
       child: Focus(
         debugLabel: 'MainApp.rootOkHandler',
         canRequestFocus: false,

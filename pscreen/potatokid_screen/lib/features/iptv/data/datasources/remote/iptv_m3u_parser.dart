@@ -30,8 +30,7 @@ class IptvM3uParser {
 
   static IptvChannel? _parseEntry(List<String> lines, int index) {
     final String inf = lines[index];
-    final String attrPart =
-        inf.substring('#EXTINF:'.length).trim();
+    final String attrPart = inf.substring('#EXTINF:'.length).trim();
 
     // 提取属性：tvg-logo="..." 、 group-title="..."
     final String? logo = _attribute(attrPart, 'tvg-logo');
@@ -55,8 +54,7 @@ class IptvM3uParser {
   }
 
   static String? _attribute(String attrPart, String key) {
-    final RegExp regex =
-        RegExp('$key="([^"]*)"', caseSensitive: false);
+    final RegExp regex = RegExp('$key="([^"]*)"', caseSensitive: false);
     final Match? match = regex.firstMatch(attrPart);
     final String? value = match?.group(1);
     return (value == null || value.isEmpty) ? null : value;
