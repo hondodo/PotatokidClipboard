@@ -63,13 +63,13 @@ class MainApp extends StatelessWidget {
   }
 
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
-    final bool isDir = event.logicalKey == LogicalKeyboardKey.arrowUp ||
-        event.logicalKey == LogicalKeyboardKey.arrowDown ||
-        event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+    final bool isVertical = event.logicalKey == LogicalKeyboardKey.arrowUp ||
+        event.logicalKey == LogicalKeyboardKey.arrowDown;
+    final bool isHorizontal = event.logicalKey == LogicalKeyboardKey.arrowLeft ||
         event.logicalKey == LogicalKeyboardKey.arrowRight;
 
-    // 方向键：按下时启动长按快速重复，抬起时停止。
-    if (isDir) {
+    // 上下方向键：长按快速重复（切频道 / 切设置行 / 切样式等列表型操作）。
+    if (isVertical) {
       if (event is KeyDownEvent) {
         bool handled = false;
         KeyRepeatController.instance.keyDown(event.logicalKey, () {
@@ -79,13 +79,18 @@ class MainApp extends StatelessWidget {
       }
       if (event is KeyUpEvent) {
         KeyRepeatController.instance.keyUp(event.logicalKey);
-        // 不返回 handled，让系统也收到抬起事件
       }
       return KeyEventResult.ignored;
     }
 
-    // 非方向键（OK/菜单/返回等）：仅在按下时处理一次。
+    // 左右方向键 / 其他按键：按下时仅处理一次，不做长按重复。
+    // （切 tab / 切源 都是单步操作，快速重复容易过头或陷入循环）
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (isHorizontal) {
+      // 停止可能存在的上下键重复（避免误触残留），然后正常处理左右。
+      KeyRepeatController.instance.keyUp(LogicalKeyboardKey.arrowUp);
+      KeyRepeatController.instance.keyUp(LogicalKeyboardKey.arrowDown);
+    }
     return _handleLogical(context, event.logicalKey)
         ? KeyEventResult.handled
         : KeyEventResult.ignored;
@@ -128,20 +133,23 @@ class MainApp extends StatelessWidget {
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
       final int delta = key == LogicalKeyboardKey.arrowRight ? 1 : -1;
-      // 焦点优先：焦点在「我的」设置行内时，左/右改该行的值，不切 tab。
+      // 最高优先级：焦点在「我的」设置行内时，左/右改该行的值。
       if (cur == _profileBranchIndex &&
           ProfileFocusController.instance.focused) {
         ProfileFocusController.instance.step(delta);
         return true;
       }
-      // 首页左下角频道名提示可见时，左/右切换当前频道的源，不切 tab。
+      // 导航条可见时，左右优先用于切换 tab。
+      if (state.isChromeVisible) {
+        _goTabWrapped(cur, delta);
+        return true;
+      }
+      // 导航条隐藏时，首页频道名提示可见 → 左右切换当前频道的源。
       if (cur == 0 && HomeNowPlayingController.instance.toastVisible) {
         HomeNowPlayingController.instance.switchSource(delta);
         return true;
       }
-      if (!state.isChromeVisible) return false; // 隐藏时页内无左右
-      _goTabWrapped(cur, delta);
-      return true;
+      return false;
     }
 
     if (key == LogicalKeyboardKey.arrowUp ||
@@ -199,10 +207,17 @@ class MainApp extends StatelessWidget {
   }
 
   void _pressOk(BuildContext context) {
+    final AppState state = context.read<AppBloc>().state;
+    // 导航条隐藏时，OK 键优先用于呼出导航（全屏播放时用户的主要意图），
+    // 不交给焦点 widget 的 Activate 动作，避免焦点落在视频/列表项上时 OK 无效。
+    if (!state.isChromeVisible &&
+        navigationShell.currentIndex != _profileBranchIndex) {
+      context.read<AppBloc>().add(const ToggleChrome());
+      return;
+    }
+    // 导航条可见时，若焦点在有 Activate 动作的控件上则触发激活（按钮/列表项等）。
     final BuildContext? focusContext =
         FocusManager.instance.primaryFocus?.context;
-    // 焦点落在可聚焦且注册了 Activate 动作的控件上时触发其激活（按钮/列表项）；
-    // 否则与真实遥控器一致，OK 冒泡到壳层用于显隐导航条。
     if (focusContext != null &&
         Actions.maybeFind<ActivateIntent>(focusContext) != null) {
       Actions.invoke(focusContext, const ActivateIntent());

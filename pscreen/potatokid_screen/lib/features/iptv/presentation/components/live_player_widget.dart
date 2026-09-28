@@ -30,12 +30,12 @@ class LivePlayerWidget extends StatefulWidget {
   State<LivePlayerWidget> createState() => _LivePlayerWidgetState();
 }
 
-class _LivePlayerWidgetState extends State<LivePlayerWidget>
-    with WidgetsBindingObserver {
+class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBindingObserver {
   Player? _player;
   VideoController? _controller;
   final LiveChannelController _channelController = LiveChannelController.instance;
   Timer? _toastTimer;
+
   /// 左下角频道名提示（ValueNotifier 避免 setState 导致整棵树重建而闪烁）
   final ValueNotifier<String?> _toastNameVN = ValueNotifier<String?>(null);
   int _currentIndex = 0;
@@ -113,10 +113,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
-    _bufferStallWatch = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _checkBufferStall(),
-    );
+    _bufferStallWatch = Timer.periodic(const Duration(seconds: 1), (_) => _checkBufferStall());
     // 同步频道数与当前选中频道，随后监听上/下键的切换。
     _syncChannels();
     _channelController.addListener(_onChannelChanged);
@@ -252,9 +249,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           'width=${s.width}',
         );
         _bufferingAccum = Duration.zero;
-        _onPlaybackIssue(
-          reason: '持续缓冲卡死(${_bufferStallThreshold.inSeconds}s)',
-        );
+        _onPlaybackIssue(reason: '持续缓冲卡死(${_bufferStallThreshold.inSeconds}s)');
       }
     } else {
       _bufferingAccum = Duration.zero;
@@ -414,71 +409,68 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
         // 运行时切换硬解设置：立即应用到当前播放器（下一个频道/源生效）。
         final Player? p = _player;
         if (p != null && p.platform is NativePlayer) {
-          (p.platform as NativePlayer).setProperty(
-            'hwdec',
-            state.hwdecEnabled ? 'auto' : 'no',
-          );
+          (p.platform as NativePlayer).setProperty('hwdec', state.hwdecEnabled ? 'auto' : 'no');
         }
       },
       child: Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        // 视频始终全屏铺满。
-        ColoredBox(
-          color: Colors.black,
-          child: Video(controller: controller, controls: NoVideoControls),
-        ),
-        // 右侧频道条：显隐由 showChannels 开关控制（OK 同步 / 菜单键单独呼出）。
-        Align(
-          alignment: Alignment.centerRight,
-          child: BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) => previous.showChannels != current.showChannels,
-            builder: (context, state) {
-              // 列表处于可见时确保有 30 秒计时（初始显示也算）。
-              if (state.showChannels && (mounted && _channelsHideTimer == null)) {
-                _armChannelsHide();
-              }
-              return AnimatedSlide(
-                offset: state.showChannels ? Offset.zero : const Offset(1, 0),
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                // 滑动列表也算操作：重置 30 秒计时并确保显示。
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (_) {
-                    if (state.showChannels) _markChannelsActivity();
-                    return false;
-                  },
-                  child: ChannelBar(
-                    channels: widget.channels,
-                    selectedIndex: _channelController.index,
-                    onChanged: _channelController.select,
-                    visible: state.showChannels,
+        fit: StackFit.expand,
+        children: <Widget>[
+          // 视频始终全屏铺满。
+          ColoredBox(
+            color: Colors.black,
+            child: Video(controller: controller, controls: NoVideoControls),
+          ),
+          // 右侧频道条：显隐由 showChannels 开关控制（OK 同步 / 菜单键单独呼出）。
+          Align(
+            alignment: Alignment.centerRight,
+            child: BlocBuilder<AppBloc, AppState>(
+              buildWhen: (previous, current) => previous.showChannels != current.showChannels,
+              builder: (context, state) {
+                // 列表处于可见时确保有 30 秒计时（初始显示也算）。
+                if (state.showChannels && (mounted && _channelsHideTimer == null)) {
+                  _armChannelsHide();
+                }
+                return AnimatedSlide(
+                  offset: state.showChannels ? Offset.zero : const Offset(1, 0),
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  // 滑动列表也算操作：重置 30 秒计时并确保显示。
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (_) {
+                      if (state.showChannels) _markChannelsActivity();
+                      return false;
+                    },
+                    child: ChannelBar(
+                      channels: widget.channels,
+                      selectedIndex: _channelController.index,
+                      onChanged: _channelController.select,
+                      visible: state.showChannels,
+                    ),
                   ),
+                );
+              },
+            ),
+          ),
+          // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
+          ValueListenableBuilder<String?>(
+            valueListenable: _toastNameVN,
+            builder: (context, name, _) {
+              if (name == null) return const SizedBox.shrink();
+              return Positioned(
+                left: 16,
+                bottom: 24,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 16)),
                 ),
               );
             },
           ),
-        ),
-        // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
-        ValueListenableBuilder<String?>(
-          valueListenable: _toastNameVN,
-          builder: (context, name, _) {
-            if (name == null) return const SizedBox.shrink();
-            return Positioned(
-              left: 16,
-              bottom: 24,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 16)),
-              ),
-            );
-          },
-        ),
-      ],
+        ],
       ),
     );
   }

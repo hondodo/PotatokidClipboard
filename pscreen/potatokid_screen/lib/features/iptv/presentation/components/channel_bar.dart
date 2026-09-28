@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 
@@ -28,14 +30,39 @@ class ChannelBar extends StatefulWidget {
 
 class _ChannelBarState extends State<ChannelBar> {
   static const double _itemExtent = 42;
+
+  /// 快速滚动判定阈值：两次选中变化间隔小于此值视为快速滚动，用 jumpTo 即时跟上。
+  static const int _rapidScrollThresholdMs = 150;
+
+  /// 松手后（停止快速滚动）延迟多久做最终平滑归位。
+  static const int _settleDelayMs = 120;
+
   final ScrollController _scrollController = ScrollController();
+  Timer? _settleTimer;
+  int _lastIndexChangeAt = 0;
 
   @override
   void didUpdateWidget(covariant ChannelBar oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 频道切换时跟随高亮；从收起变成显示时定位到当前频道。
     if (oldWidget.selectedIndex != widget.selectedIndex) {
-      _scrollToSelected(animate: true);
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final bool rapid = (now - _lastIndexChangeAt) < _rapidScrollThresholdMs;
+      _lastIndexChangeAt = now;
+
+      if (rapid) {
+        // 快速滚动：jumpTo 即时跟上，避免动画队列滞后。
+        _scrollToSelected(animate: false);
+        _settleTimer?.cancel();
+        _settleTimer = Timer(
+          const Duration(milliseconds: _settleDelayMs),
+          () => _scrollToSelected(animate: true),
+        );
+      } else {
+        // 单步切换：正常平滑动画。
+        _settleTimer?.cancel();
+        _scrollToSelected(animate: true);
+      }
     } else if (!oldWidget.visible && widget.visible) {
       _scrollToSelected(animate: false);
     }
@@ -43,6 +70,7 @@ class _ChannelBarState extends State<ChannelBar> {
 
   @override
   void dispose() {
+    _settleTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -105,28 +133,33 @@ class _ChannelTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-      child: Material(
-        color: selected
-            ? scheme.primary.withValues(alpha: 0.85)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
+    // 频道列表项不参与 Flutter 焦点系统：
+    // 导航完全由 LiveChannelController（上下键切台）驱动，
+    // 避免出现「高亮选中项」和「焦点项」不一致导致按 OK 切错台的问题。
+    return ExcludeFocus(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        child: Material(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.85)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                channel.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  channel.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                  ),
                 ),
               ),
             ),
