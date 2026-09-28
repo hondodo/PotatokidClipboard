@@ -1,21 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 
-/// 右侧垂直频道条：半透明，上下（键盘由壳层驱动）或点按切换频道。
+/// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
 ///
-/// 这里只负责展示与点按；「上/下」切换由壳层 MainApp 经由
-/// `LiveChannelController` 驱动，避免焦点把方向键截走。
-class ChannelBar extends StatelessWidget {
+/// - 当前频道高亮显示，并用 [ScrollController] 滚动到可视区（「跟随」），
+///   收起后又呼出时也自动定位到当前频道，避免像两个无关控件。
+/// - 「上/下」切台由壳层驱动 controller，「点按」直接选中。
+class ChannelBar extends StatefulWidget {
   const ChannelBar({
     super.key,
     required this.channels,
     required this.selectedIndex,
     required this.onChanged,
+    required this.visible,
   });
 
   final List<IptvChannel> channels;
   final int selectedIndex;
   final ValueChanged<int> onChanged;
+
+  /// 列表是否可见（用于呼出时定位到当前频道）
+  final bool visible;
+
+  @override
+  State<ChannelBar> createState() => _ChannelBarState();
+}
+
+class _ChannelBarState extends State<ChannelBar> {
+  static const double _itemExtent = 42;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant ChannelBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 频道切换时跟随高亮；从收起变成显示时定位到当前频道。
+    if (oldWidget.selectedIndex != widget.selectedIndex) {
+      _scrollToSelected(animate: true);
+    } else if (!oldWidget.visible && widget.visible) {
+      _scrollToSelected(animate: false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToSelected({required bool animate}) {
+    if (!_scrollController.hasClients) return;
+    final double target =
+        (widget.selectedIndex * _itemExtent).clamp(
+          0,
+          _scrollController.position.maxScrollExtent,
+        );
+    if (animate) {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(target);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,14 +76,14 @@ class ChannelBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: channels.length,
+        controller: _scrollController,
+        itemExtent: _itemExtent,
+        itemCount: widget.channels.length,
         itemBuilder: (context, index) {
           return _ChannelTile(
-            channel: channels[index],
-            selected: index == selectedIndex,
-            onTap: () => onChanged(index),
-            earnFocus: index == selectedIndex && (index - selectedIndex).abs() <= 1,
+            channel: widget.channels[index],
+            selected: index == widget.selectedIndex,
+            onTap: () => widget.onChanged(index),
           );
         },
       ),
@@ -48,33 +96,42 @@ class _ChannelTile extends StatelessWidget {
     required this.channel,
     required this.selected,
     required this.onTap,
-    required this.earnFocus,
   });
 
   final IptvChannel channel;
   final bool selected;
   final VoidCallback onTap;
 
-  /// 让选中项附近可聚焦，便于遥控器方向键垂直滚动；选中项默认聚焦。
-  final bool earnFocus;
-
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Focus(
-      canRequestFocus: earnFocus,
-      autofocus: selected,
-      child: ListTile(
-        dense: true,
-        selected: selected,
-        selectedTileColor: scheme.primary.withValues(alpha: 0.85),
-        title: Text(
-          channel.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white, fontSize: 14),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      child: Material(
+        color: selected
+            ? scheme.primary.withValues(alpha: 0.85)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                channel.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          ),
         ),
-        onTap: onTap,
       ),
     );
   }

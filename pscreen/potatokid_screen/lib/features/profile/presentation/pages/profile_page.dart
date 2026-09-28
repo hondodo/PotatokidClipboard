@@ -22,56 +22,61 @@ class ProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: <Widget>[
-        Text(
-          'theme_mode_title'.tr(),
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 12),
-        BlocBuilder<AppBloc, AppState>(
-          builder: (context, state) {
-            return SegmentedButton<ThemeMode>(
-              segments: <ButtonSegment<ThemeMode>>[
-                ButtonSegment<ThemeMode>(
-                  value: ThemeMode.system,
-                  label: Text('theme_system'.tr()),
+    // 首页为直播黑底；「我的」页给跟随主题的背景，避免浅色主题下黑底+深色文字看不清。
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: <Widget>[
+          Text(
+            'theme_mode_title'.tr(),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          BlocBuilder<AppBloc, AppState>(
+            builder: (context, state) {
+              return SegmentedButton<ThemeMode>(
+                segments: <ButtonSegment<ThemeMode>>[
+                  ButtonSegment<ThemeMode>(
+                    value: ThemeMode.system,
+                    label: Text('theme_system'.tr()),
+                  ),
+                  ButtonSegment<ThemeMode>(
+                    value: ThemeMode.light,
+                    label: Text('theme_light'.tr()),
+                  ),
+                  ButtonSegment<ThemeMode>(
+                    value: ThemeMode.dark,
+                    label: Text('theme_dark'.tr()),
+                  ),
+                ],
+                selected: <ThemeMode>{state.themeMode},
+                onSelectionChanged: (selection) => context.read<AppBloc>().add(
+                  ChangeThemeMode(selection.first),
                 ),
-                ButtonSegment<ThemeMode>(
-                  value: ThemeMode.light,
-                  label: Text('theme_light'.tr()),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'language_mode_title'.tr(),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final (Locale locale, String labelKey)
+                  in _supportedLanguages)
+                ChoiceChip(
+                  label: Text(labelKey.tr()),
+                  selected: context.locale == locale,
+                  onSelected: (_) => context.setLocale(locale),
                 ),
-                ButtonSegment<ThemeMode>(
-                  value: ThemeMode.dark,
-                  label: Text('theme_dark'.tr()),
-                ),
-              ],
-              selected: <ThemeMode>{state.themeMode},
-              onSelectionChanged: (selection) =>
-                  context.read<AppBloc>().add(ChangeThemeMode(selection.first)),
-            );
-          },
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'language_mode_title'.tr(),
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            for (final (Locale locale, String labelKey) in _supportedLanguages)
-              ChoiceChip(
-                label: Text(labelKey.tr()),
-                selected: context.locale == locale,
-                onSelected: (_) => context.setLocale(locale),
-              ),
-          ],
-        ),
-        const SizedBox(height: 24),
+            ],
+          ),
+          const SizedBox(height: 24),
           FilledButton(
             onPressed: () => Injection.get<AppRouter>().pushSettingsSheet(
               const SettingsSheetParams(from: 'profile'),
@@ -90,6 +95,7 @@ class ProfilePage extends StatelessWidget {
             },
           ),
         ],
+      ),
     );
   }
 }

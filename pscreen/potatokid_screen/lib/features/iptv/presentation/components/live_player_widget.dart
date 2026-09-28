@@ -128,6 +128,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
                   channels: widget.channels,
                   selectedIndex: _channelController.index,
                   onChanged: _channelController.select,
+                  visible: state.showChannels,
                 ),
               );
             },

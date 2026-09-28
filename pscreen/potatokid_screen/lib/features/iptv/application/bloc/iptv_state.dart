@@ -23,11 +23,11 @@ class IptvState {
   final List<IptvChannel> channels;
 
   factory IptvState.initial() => const IptvState._(
-        isLoading: false,
-        errorMessage: null,
-        errorType: null,
-        channels: <IptvChannel>[],
-      );
+    isLoading: false,
+    errorMessage: null,
+    errorType: null,
+    channels: <IptvChannel>[],
+  );
 
   IptvState copyWith({
     bool? isLoading,
