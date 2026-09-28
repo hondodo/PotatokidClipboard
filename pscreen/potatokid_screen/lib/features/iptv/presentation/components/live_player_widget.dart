@@ -29,11 +29,11 @@ class LivePlayerWidget extends StatefulWidget {
   State<LivePlayerWidget> createState() => _LivePlayerWidgetState();
 }
 
-class _LivePlayerWidgetState extends State<LivePlayerWidget> {
+class _LivePlayerWidgetState extends State<LivePlayerWidget>
+    with WidgetsBindingObserver {
   Player? _player;
   VideoController? _controller;
-  final LiveChannelController _channelController =
-      LiveChannelController.instance;
+  final LiveChannelController _channelController = LiveChannelController.instance;
   Timer? _toastTimer;
   String? _toastName; // 左下角当前频道名提示（5 秒后消失）
   int _currentIndex = 0;
@@ -56,6 +56,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   /// 黑屏判定：是否出现过真实视频帧（width>0）。
   bool _playedVideo = false;
 
+  /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
+  Timer? _bufferStallWatch;
+  Duration _bufferingAccum = Duration.zero;
+  static const Duration _bufferStallThreshold = Duration(seconds: 30);
+
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
 
@@ -66,6 +71,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // MediaKit.ensureInitialized() 已在 main() 中调用。
     final Player player = Player();
     _player = player;
@@ -75,16 +81,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
       final String trimmed = msg.trim();
       // 直播源不支持 seek 时 media_kit 会把同一错误拆成多行报出，
       // 都属于非致命（源本身可播，画面会闪一下），整组忽略、不触发回退。
-      if (trimmed.contains('Cannot seek in this stream') ||
-          trimmed.contains('--force-seekable')) {
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed',
-        );
+      if (trimmed.contains('Cannot seek in this stream') || trimmed.contains('--force-seekable')) {
+        Injection.get<LogService>().info('[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed');
         return;
       }
-      final String detail =
-          trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
-      _onPlaybackIssue(reason: 'error: $detail');
+      final String detail = trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
+      // 真实 open 失败（非 seek 类）跳过冷却，允许连续打不开的源一路回退。
+      _onPlaybackIssue(reason: 'error: $detail', bypassCooldown: true);
     });
     _completedSub = player.stream.completed.listen((bool done) {
       if (done) _onPlaybackIssue(reason: 'completed=true');
@@ -100,10 +103,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
         _hangWatchdog?.cancel();
       }
     });
+    // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
+    _bufferStallWatch = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _checkBufferStall(),
+    );
     // 同步频道数与当前选中频道，随后监听上/下键的切换。
     _syncChannels();
     _channelController.addListener(_onChannelChanged);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
+    HomeNowPlayingController.instance.onShowToast = () {
+      if (mounted) _showChannelToast(_channelSourceLabel());
+    };
     _restoreLastChannel();
   }
 
@@ -128,14 +139,23 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     _rememberCurrentChannel();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 锁屏/切后台时 Android 会销毁播放 Surface；恢复前台需重开当前源才能继续播。
+    if (state == AppLifecycleState.resumed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _playCurrentSource();
+      });
+    }
+  }
+
   /// 启动时恢复上次播放的频道（仍存在则切过去，否则默认首台）。
   Future<void> _restoreLastChannel() async {
     // 默认首台(0)。
     int target = _channelController.index;
     final String? last = await ChannelSourceCache.instance.lastChannelName();
     if (last != null) {
-      final int idx =
-          widget.channels.indexWhere((IptvChannel c) => c.name == last);
+      final int idx = widget.channels.indexWhere((IptvChannel c) => c.name == last);
       if (idx >= 0 && idx < widget.channels.length) target = idx;
     }
     // 目标即当前索引（如首台）时 select 不会触发 listener，需手动打开。
@@ -176,10 +196,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     _currentIndex = index;
     _currentSource = 0;
     // 优先从上次可用源起播（记忆的 URL 已不在此频道则回落首源）。
-    final String? preferred =
-        await ChannelSourceCache.instance.preferredSourceOf(
-      widget.channels[index].name,
-    );
+    final String? preferred = await ChannelSourceCache.instance.preferredSourceOf(widget.channels[index].name);
     if (preferred != null) {
       final int idx = widget.channels[index].sources.indexOf(preferred);
       if (idx >= 0) _currentSource = idx;
@@ -208,6 +225,33 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     ChannelSourceCache.instance.rememberSource(channel.name, url);
   }
 
+  /// 每秒检查「持续缓冲卡死」：仅当 playing 且 buffering 连续累计达阈值才回退，
+  /// 一旦缓冲恢复或未在播放即清零，因此正常播放/短暂缓冲不会误杀。
+  void _checkBufferStall() {
+    if (!mounted) return;
+    final dynamic s = _player?.state;
+    if (s == null) return;
+    final bool playing = s.playing;
+    final bool buffering = s.buffering;
+    if (playing && buffering) {
+      _bufferingAccum += const Duration(seconds: 1);
+      if (_bufferingAccum >= _bufferStallThreshold) {
+        final String name = _currentChannel()?.name ?? '?';
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 看门狗 持续缓冲卡死 频道$name'
+          '源(${_currentSource + 1}) 累计${_bufferingAccum.inSeconds}s '
+          'width=${s.width}',
+        );
+        _bufferingAccum = Duration.zero;
+        _onPlaybackIssue(
+          reason: '持续缓冲卡死(${_bufferStallThreshold.inSeconds}s)',
+        );
+      }
+    } else {
+      _bufferingAccum = Duration.zero;
+    }
+  }
+
   IptvChannel? _currentChannel() {
     if (_currentIndex < 0 || _currentIndex >= widget.channels.length) {
       return null;
@@ -221,10 +265,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     if (channel == null || channel.sources.isEmpty) return;
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
+    _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
     _startHangWatchdog();
-    Injection.get<LogService>().info(
-      '[LivePlayerWidget] 播放频道${channel.name}源(${idx + 1}/${channel.sources.length})',
-    );
+    Injection.get<LogService>().info('[LivePlayerWidget] 播放频道${channel.name}源(${idx + 1}/${channel.sources.length})');
     await _player?.open(Media(channel.sources[idx]));
   }
 
@@ -270,9 +313,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     if (channel == null || channel.sources.isEmpty) return;
     final int n = channel.sources.length;
     _currentSource = (_currentSource + delta + n) % n;
-    Injection.get<LogService>().info(
-      '[LivePlayerWidget] 手动切换频道${channel.name}源(${_currentSource + 1}/$n)',
-    );
+    Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道${channel.name}源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
     if (mounted) _showChannelToast(_channelSourceLabel());
@@ -281,13 +322,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   /// 播放失败/结束：循环回退到下一个源。
   ///
   /// 多源时按 1-2-3-4-1-2-… 循环；单源时反复重试同一源 1-1-1-…。
-  /// 用 busy 标志与 700ms 冷却抑制旧源残留事件与过热循环。
-  Future<void> _onPlaybackIssue({String reason = ''}) async {
+  /// [bypassCooldown] 供真实的 open 失败（如 `Failed to open`）跳过 700ms 冷却，
+  /// 使连续打不开的源能一路回退下去，而不是被冷却卡停在当前源。
+  Future<void> _onPlaybackIssue({String reason = '', bool bypassCooldown = false}) async {
     if (_handleFailureBusy || !mounted) return;
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
     // 刚 open 后立刻来的事件多为旧源残留，忽略，避免误回退。
-    if (DateTime.now().difference(_lastOpenAt).inMilliseconds < 700) return;
+    if (!bypassCooldown && DateTime.now().difference(_lastOpenAt).inMilliseconds < 700) {
+      return;
+    }
     _handleFailureBusy = true;
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
@@ -315,12 +359,15 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _channelController.removeListener(_onChannelChanged);
     HomeNowPlayingController.instance.onSwitchSource = null;
+    HomeNowPlayingController.instance.onShowToast = null;
     HomeNowPlayingController.instance.toastVisible = false;
     _toastTimer?.cancel();
     _channelsHideTimer?.cancel();
     _hangWatchdog?.cancel();
+    _bufferStallWatch?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
     _playingSub?.cancel();
@@ -349,12 +396,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
         Align(
           alignment: Alignment.centerRight,
           child: BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) =>
-                previous.showChannels != current.showChannels,
+            buildWhen: (previous, current) => previous.showChannels != current.showChannels,
             builder: (context, state) {
               // 列表处于可见时确保有 30 秒计时（初始显示也算）。
-              if (state.showChannels &&
-                  (mounted && _channelsHideTimer == null)) {
+              if (state.showChannels && (mounted && _channelsHideTimer == null)) {
                 _armChannelsHide();
               }
               return AnimatedSlide(
@@ -389,10 +434,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
                 color: Colors.black.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                _toastName!,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-              ),
+              child: Text(_toastName!, style: const TextStyle(color: Colors.white, fontSize: 16)),
             ),
           ),
       ],

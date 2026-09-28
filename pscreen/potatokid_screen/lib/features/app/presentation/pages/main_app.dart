@@ -149,7 +149,10 @@ class MainApp extends StatelessWidget {
 
     if (key == LogicalKeyboardKey.contextMenu) {
       if (cur == 0) {
+        final bool wasShown = context.read<AppBloc>().state.showChannels;
         context.read<AppBloc>().add(const ToggleChannels());
+        // 呼出列表时，左下角顺带显示当前频道名。
+        if (!wasShown) HomeNowPlayingController.instance.showToast();
         return true;
       }
       return false;
