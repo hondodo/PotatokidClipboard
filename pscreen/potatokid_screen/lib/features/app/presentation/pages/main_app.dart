@@ -10,6 +10,7 @@ import 'package:potatokid_screen/features/iptv/application/home_now_playing_cont
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
+import 'package:potatokid_screen/core/utils/key_repeat_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 
@@ -62,6 +63,28 @@ class MainApp extends StatelessWidget {
   }
 
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
+    final bool isDir = event.logicalKey == LogicalKeyboardKey.arrowUp ||
+        event.logicalKey == LogicalKeyboardKey.arrowDown ||
+        event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+        event.logicalKey == LogicalKeyboardKey.arrowRight;
+
+    // 方向键：按下时启动长按快速重复，抬起时停止。
+    if (isDir) {
+      if (event is KeyDownEvent) {
+        bool handled = false;
+        KeyRepeatController.instance.keyDown(event.logicalKey, () {
+          handled = _handleLogical(context, event.logicalKey);
+        });
+        return handled ? KeyEventResult.handled : KeyEventResult.ignored;
+      }
+      if (event is KeyUpEvent) {
+        KeyRepeatController.instance.keyUp(event.logicalKey);
+        // 不返回 handled，让系统也收到抬起事件
+      }
+      return KeyEventResult.ignored;
+    }
+
+    // 非方向键（OK/菜单/返回等）：仅在按下时处理一次。
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     return _handleLogical(context, event.logicalKey)
         ? KeyEventResult.handled

@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
+import 'package:potatokid_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -35,7 +36,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   VideoController? _controller;
   final LiveChannelController _channelController = LiveChannelController.instance;
   Timer? _toastTimer;
-  String? _toastName; // 左下角当前频道名提示（5 秒后消失）
+  /// 左下角频道名提示（ValueNotifier 避免 setState 导致整棵树重建而闪烁）
+  final ValueNotifier<String?> _toastNameVN = ValueNotifier<String?>(null);
   int _currentIndex = 0;
 
   /// 当前频道正使用的源序号（同频道多源，失败时递增回退）。
@@ -64,9 +66,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
 
-  /// 频道列表「30 秒无操作」自动收起的计时器。
+  /// 频道列表「10 秒无操作」自动收起的计时器。
   Timer? _channelsHideTimer;
-  static const Duration _channelsHideDelay = Duration(seconds: 30);
+  static const Duration _channelsHideDelay = Duration(seconds: 10);
+
+  /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
+  /// 确保进入播放前 hwdec 属性已正确设置）。
+  Future<void>? _hwdecReady;
 
   @override
   void initState() {
@@ -76,6 +82,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final Player player = Player();
     _player = player;
     _controller = VideoController(player);
+    // 硬件解码：默认关闭（TV 设备兼容性考虑），用户可在「我的」页开启。
+    // 需等 AppSettings 加载完成后再设置，确保值正确；_playCurrentSource 会等 _hwdecReady。
+    _hwdecReady = _applyHwdecSetting(player);
     // 源播放失败/结束（completed=true）时尝试回退到下一个源。
     _errorSub = player.stream.error.listen((String msg) {
       final String trimmed = msg.trim();
@@ -259,10 +268,23 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     return widget.channels[_currentIndex];
   }
 
+  /// 从持久化读取硬解设置并应用到播放器。
+  ///
+  /// media_kit v1.x 中 setProperty 是 NativePlayer 的方法，需通过 platform 访问。
+  /// mpv 的 hwdec 需在 open 前设置才生效，因此 _playCurrentSource 会等待此 Future。
+  Future<void> _applyHwdecSetting(Player player) async {
+    await AppSettings.instance.ensureLoaded();
+    if (player.platform is! NativePlayer) return;
+    final bool enabled = AppSettings.instance.hwdecEnabled;
+    await (player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
+  }
+
   /// 打开当前频道的当前源。
   Future<void> _playCurrentSource() async {
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
+    // 确保硬解设置已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
+    await _hwdecReady;
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
@@ -344,15 +366,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (mounted) _showChannelToast(_channelSourceLabel());
   }
 
-  /// 左下角显示当前频道名与源序号，5 秒后自动消失。
+  /// 左下角显示当前频道名与源序号，30 秒后自动消失。
+  /// 使用 ValueNotifier 局部刷新，避免 setState 导致 Video 重建闪烁。
   void _showChannelToast(String name) {
     _toastTimer?.cancel();
-    setState(() => _toastName = name);
+    _toastNameVN.value = name;
     // 提示可见时，首页「左/右」由壳层路由为切换源。
     HomeNowPlayingController.instance.toastVisible = true;
-    _toastTimer = Timer(const Duration(seconds: 5), () {
+    _toastTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
-      setState(() => _toastName = null);
+      _toastNameVN.value = null;
       HomeNowPlayingController.instance.toastVisible = false;
     });
   }
@@ -365,6 +388,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     HomeNowPlayingController.instance.onShowToast = null;
     HomeNowPlayingController.instance.toastVisible = false;
     _toastTimer?.cancel();
+    _toastNameVN.dispose();
     _channelsHideTimer?.cancel();
     _hangWatchdog?.cancel();
     _bufferStallWatch?.cancel();
@@ -384,7 +408,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (controller == null || widget.channels.isEmpty) {
       return const ColoredBox(color: Colors.black);
     }
-    return Stack(
+    return BlocListener<AppBloc, AppState>(
+      listenWhen: (prev, curr) => prev.hwdecEnabled != curr.hwdecEnabled,
+      listener: (context, state) {
+        // 运行时切换硬解设置：立即应用到当前播放器（下一个频道/源生效）。
+        final Player? p = _player;
+        if (p != null && p.platform is NativePlayer) {
+          (p.platform as NativePlayer).setProperty(
+            'hwdec',
+            state.hwdecEnabled ? 'auto' : 'no',
+          );
+        }
+      },
+      child: Stack(
       fit: StackFit.expand,
       children: <Widget>[
         // 视频始终全屏铺满。
@@ -423,21 +459,27 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
             },
           ),
         ),
-        // 左下角频道名提示（5 秒后自动消失）。
-        if (_toastName != null)
-          Positioned(
-            left: 16,
-            bottom: 24,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(8),
+        // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
+        ValueListenableBuilder<String?>(
+          valueListenable: _toastNameVN,
+          builder: (context, name, _) {
+            if (name == null) return const SizedBox.shrink();
+            return Positioned(
+              left: 16,
+              bottom: 24,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 16)),
               ),
-              child: Text(_toastName!, style: const TextStyle(color: Colors.white, fontSize: 16)),
-            ),
-          ),
+            );
+          },
+        ),
       ],
+      ),
     );
   }
 }

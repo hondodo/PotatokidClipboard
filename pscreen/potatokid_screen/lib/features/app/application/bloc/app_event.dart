@@ -44,3 +44,10 @@ class SetFloatingRemote extends AppEvent {
 
   final bool show;
 }
+
+/// 设置是否启用硬件解码
+class SetHardwareDecode extends AppEvent {
+  const SetHardwareDecode(this.enabled);
+
+  final bool enabled;
+}

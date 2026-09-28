@@ -1,8 +1,26 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:potatokid_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 
+/// 内部事件：持久化设置加载完成，用于在 bloc 事件循环内安全 emit。
+class _PersistedSettingsLoaded extends AppEvent {
+  const _PersistedSettingsLoaded({
+    required this.themeMode,
+    required this.showFloatingRemote,
+    required this.hwdecEnabled,
+  });
+
+  final ThemeMode themeMode;
+  final bool showFloatingRemote;
+  final bool hwdecEnabled;
+}
+
 /// 应用级全局状态机：由 main.dart 的 MultiBlocProvider 提供。
+///
+/// 构造后会异步从 [AppSettings] 加载持久化的设置（主题、悬浮遥控器、硬解等），
+/// 加载完成后通过内部事件 emit 新状态；用户修改设置时也会同步写回持久化。
 class AppBloc extends Bloc<AppEvent, AppState> {
   AppBloc() : super(AppState.initial()) {
     on<ChangeThemeMode>(_onChangeThemeMode);
@@ -11,10 +29,34 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     on<SetChannels>(_onSetChannels);
     on<ToggleChannels>(_onToggleChannels);
     on<SetFloatingRemote>(_onSetFloatingRemote);
+    on<SetHardwareDecode>(_onSetHardwareDecode);
+    on<_PersistedSettingsLoaded>(_onPersistedSettingsLoaded);
+
+    // 异步加载持久化设置（不阻塞首帧），加载完通过内部事件更新状态。
+    _loadPersistedSettings();
+  }
+
+  Future<void> _loadPersistedSettings() async {
+    await AppSettings.instance.ensureLoaded();
+    final AppSettings s = AppSettings.instance;
+    add(_PersistedSettingsLoaded(
+      themeMode: s.themeMode,
+      showFloatingRemote: s.showFloatingRemote,
+      hwdecEnabled: s.hwdecEnabled,
+    ));
+  }
+
+  void _onPersistedSettingsLoaded(_PersistedSettingsLoaded event, Emitter<AppState> emit) {
+    emit(state.copyWith(
+      themeMode: event.themeMode,
+      showFloatingRemote: event.showFloatingRemote,
+      hwdecEnabled: event.hwdecEnabled,
+    ));
   }
 
   void _onChangeThemeMode(ChangeThemeMode event, Emitter<AppState> emit) {
     emit(state.copyWith(themeMode: event.themeMode));
+    AppSettings.instance.setThemeMode(event.themeMode);
   }
 
   void _onToggleChrome(ToggleChrome event, Emitter<AppState> emit) {
@@ -38,5 +80,11 @@ class AppBloc extends Bloc<AppEvent, AppState> {
 
   void _onSetFloatingRemote(SetFloatingRemote event, Emitter<AppState> emit) {
     emit(state.copyWith(showFloatingRemote: event.show));
+    AppSettings.instance.setShowFloatingRemote(event.show);
+  }
+
+  void _onSetHardwareDecode(SetHardwareDecode event, Emitter<AppState> emit) {
+    emit(state.copyWith(hwdecEnabled: event.enabled));
+    AppSettings.instance.setHwdecEnabled(event.enabled);
   }
 }

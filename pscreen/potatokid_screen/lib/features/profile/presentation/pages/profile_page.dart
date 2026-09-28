@@ -50,7 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器）。
+  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解）。
   void _stepRow(int row, int delta) {
     if (!mounted) return;
     switch (row) {
@@ -75,6 +75,10 @@ class _ProfilePageState extends State<ProfilePage> {
         final bool isOn = context.read<AppBloc>().state.showFloatingRemote;
         context.read<AppBloc>().add(SetFloatingRemote(!isOn));
         break;
+      case 3: // 启用硬解：开/关切换
+        final bool hwdec = context.read<AppBloc>().state.hwdecEnabled;
+        context.read<AppBloc>().add(SetHardwareDecode(!hwdec));
+        break;
     }
   }
 
@@ -96,6 +100,8 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildLanguageRow(inContent, c),
               const SizedBox(height: 12),
               _buildRemoteRow(inContent, c),
+              const SizedBox(height: 12),
+              _buildHwdecRow(inContent, c),
             ],
           );
         },
@@ -171,6 +177,31 @@ class _ProfilePageState extends State<ProfilePage> {
           },
           onStepRight: () {
             c.select(2);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHwdecRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        // 启用硬解：开 | 关
+        final bool isOn = state.hwdecEnabled;
+        return _SettingRow(
+          highlighted: inContent && c.row == 3,
+          label: 'settings_hwdec'.tr(),
+          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
+          canStepLeft: isOn,
+          canStepRight: !isOn,
+          onTap: () => c.select(3),
+          onStepLeft: () {
+            c.select(3);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(3);
             c.step(1);
           },
         );
