@@ -4,12 +4,20 @@ import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 ///
 /// M3U 结构：`#EXTINF:` 描述行（可含 `tvg-logo=`、`group-title=`），
 /// 紧随其后的一行是频道流地址。解析器逐行扫描并忽略 `#EXTGRP` 等其它注释行。
+///
+/// 同一频道（同名）在播放列表里可能出现在多个分组、每条一个源 URL。
+/// [parse] 会按**名称**把散落的条目合并为一个 [IptvChannel]，将其 URL 收集到
+/// [IptvChannel.sources]，从而避免把每个源当成独立「频道」导致列表膨胀、
+/// 换台要一路扫过所有源。（首个出现的 logo/分组保留，重复 URL 去重。）
 class IptvM3uParser {
   const IptvM3uParser._();
 
-  /// 解析 m3u 文本，返回频道列表。无法识别的行会被跳过。
+  /// 解析 m3u 文本，返回按名称去重聚合后的频道列表。
   static List<IptvChannel> parse(String content) {
-    final List<IptvChannel> result = <IptvChannel>[];
+    // 保留首个出现的顺序，用于稳定排序。
+    final Map<String, _RawEntry> byName = <String, _RawEntry>{};
+    final List<String> order = <String>[];
+
     // 用 \n 切开并统一去掉行尾 \r，兼容 Windows/Unix 换行。
     final List<String> lines = content
         .split('\n')
@@ -20,15 +28,30 @@ class IptvM3uParser {
       final String line = lines[i];
       if (!line.startsWith('#EXTINF:')) continue;
 
-      final IptvChannel? channel = _parseEntry(lines, i);
-      if (channel != null) {
-        result.add(channel);
+      final _ParsedEntry? entry = _parseEntry(lines, i);
+      if (entry == null || entry.name.isEmpty || entry.url.isEmpty) continue;
+
+      final _RawEntry? existing = byName[entry.name];
+      if (existing == null) {
+        byName[entry.name] = _RawEntry(
+          name: entry.name,
+          logo: entry.logo,
+          group: entry.group,
+          url: entry.url,
+        );
+        order.add(entry.name);
+      } else {
+        existing.addUrl(entry.url);
       }
     }
-    return result;
+
+    return <IptvChannel>[
+      for (final String name in order)
+        byName[name]!.toChannel(),
+    ];
   }
 
-  static IptvChannel? _parseEntry(List<String> lines, int index) {
+  static _ParsedEntry? _parseEntry(List<String> lines, int index) {
     final String inf = lines[index];
     final String attrPart = inf.substring('#EXTINF:'.length).trim();
 
@@ -50,7 +73,7 @@ class IptvM3uParser {
     }
     if (url == null || url.isEmpty || name.isEmpty) return null;
 
-    return IptvChannel(name: name, url: url, logo: logo, group: group);
+    return _ParsedEntry(name: name, url: url, logo: logo, group: group);
   }
 
   static String? _attribute(String attrPart, String key) {
@@ -65,4 +88,45 @@ class IptvM3uParser {
     if (comma < 0 || comma == attrPart.length - 1) return '';
     return attrPart.substring(comma + 1).trim();
   }
+}
+
+/// 解析出的单个 m3u 条目（一条 EXTINF + 一个 URL）。
+class _ParsedEntry {
+  const _ParsedEntry({
+    required this.name,
+    required this.url,
+    this.logo,
+    this.group,
+  });
+
+  final String name;
+  final String url;
+  final String? logo;
+  final String? group;
+}
+
+/// 解析过程中用于按名称聚合的可变中间对象。
+class _RawEntry {
+  _RawEntry({
+    required this.name,
+    required this.logo,
+    required this.group,
+    required String url,
+  }) : _sources = <String>[url];
+
+  final String name;
+  String? logo;
+  String? group;
+  final List<String> _sources;
+
+  void addUrl(String url) {
+    if (!_sources.contains(url)) _sources.add(url);
+  }
+
+  IptvChannel toChannel() => IptvChannel(
+        name: name,
+        sources: _sources,
+        logo: logo,
+        group: group,
+      );
 }

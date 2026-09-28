@@ -12,7 +12,7 @@ class LogService {
 
   void info(String message) {
     if (kDebugMode) {
-      debugPrint('[INFO] $message');
+      debugPrint('[INFO][${DateTime.now()}] $message');
     }
   }
 

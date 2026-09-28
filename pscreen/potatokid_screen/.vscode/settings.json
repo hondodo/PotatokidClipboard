@@ -1,3 +1,27 @@
 {
-    "cmake.sourceDirectory": "E:/Code/potatokid_screen/windows"
+    "cmake.sourceDirectory": "E:/Code/potatokid_screen/windows",
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "git.enabled": true,
+    "git.decorations.enabled": true,
+    "git.openRepositoryInParentFolders": "always",
+    // "dart.debugSdkLibraries": true,
+    // "dart.debugExternalPackageLibraries": false,
+    // "dart.enableSdkFormatter": true,
+    "dart.lineLength": 120,
+    // "dart.flutterRunLogFile": null,
+    "dart.flutterAdditionalArgs": [
+        "--verbose"
+    ],
+    // "dart.flutterToolArgs": [
+    //     "--verbose"
+    // ],
+    // "dart.showLog": true,
+    // "dart.verboseLogging": true,
+    // "scm.decorations.enabled": true,
+    "explorer.decorations.colors": true,
+    "explorer.decorations.badges": true,
+    "editor.formatOnSave": true,
+    "[dart]": {
+        "editor.formatOnSave": true
+    },
 }

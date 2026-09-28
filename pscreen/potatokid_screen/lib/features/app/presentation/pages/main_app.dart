@@ -269,15 +269,17 @@ class _TopNavBar extends StatelessWidget {
       child: Row(
         children: <Widget>[
           const SizedBox(width: 12),
+          // Expanded 均分剩余宽度，窄屏也不溢出。
           for (int i = 0; i < MainApp._tabs.length; i++)
-            _TopTab(
-              index: i,
-              descriptor: MainApp._tabs[i],
-              selected: i == currentIndex,
-              canRequestFocus: chromeVisible,
-              onFocused: onTabSelected,
+            Expanded(
+              child: _TopTab(
+                index: i,
+                descriptor: MainApp._tabs[i],
+                selected: i == currentIndex,
+                canRequestFocus: chromeVisible,
+                onFocused: onTabSelected,
+              ),
             ),
-          const Spacer(),
           const SizedBox(width: 12),
         ],
       ),
@@ -358,7 +360,7 @@ class _TopTabState extends State<_TopTab> {
           onTap: () => _focusNode.requestFocus(),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: active
                   ? scheme.primary.withValues(alpha: 0.9)
@@ -366,13 +368,17 @@ class _TopTabState extends State<_TopTab> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(icon, color: Colors.white, size: 22),
                 const SizedBox(width: 8),
-                Text(
-                  widget.descriptor.labelKey.tr(),
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                Flexible(
+                  child: Text(
+                    widget.descriptor.labelKey.tr(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
                 ),
               ],
             ),
