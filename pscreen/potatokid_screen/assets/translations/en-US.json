@@ -3,6 +3,8 @@
   "common_loading": "Loading...",
   "common_retry": "Retry",
   "common_empty": "No data",
+  "common_on": "On",
+  "common_off": "Off",
   "home_title": "Home",
   "time_title": "Time",
   "screensaver_title": "Screensaver",

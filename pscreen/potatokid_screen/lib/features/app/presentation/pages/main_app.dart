@@ -7,6 +7,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
@@ -34,6 +35,9 @@ class MainApp extends StatelessWidget {
   /// 「时间」Tab 在 [_tabs] 中的序号（上/下键在此切换时钟样式）。
   static const int _timeBranchIndex = 1;
 
+  /// 「我的」Tab 在 [_tabs] 中的序号（上/下键在导航条与设置行间移动）。
+  static const int _profileBranchIndex = 3;
+
   static const List<_TabDescriptor> _tabs = <_TabDescriptor>[
     _TabDescriptor('home_title', Icons.live_tv_outlined, Icons.live_tv),
     _TabDescriptor('time_title', Icons.schedule_outlined, Icons.schedule),
@@ -46,6 +50,10 @@ class MainApp extends StatelessWidget {
   ];
 
   void _goTab(int index) {
+    // 进入「我的」时回到位于导航条的状态。
+    if (index == _profileBranchIndex) {
+      ProfileFocusController.instance.reset();
+    }
     navigationShell.goBranch(
       index,
       initialLocation: index == navigationShell.currentIndex,
@@ -95,8 +103,14 @@ class MainApp extends StatelessWidget {
 
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
-      if (!state.isChromeVisible) return false; // 隐藏时页内无左右
       final int delta = key == LogicalKeyboardKey.arrowRight ? 1 : -1;
+      // 焦点优先：焦点在「我的」设置行内时，左/右改该行的值，不切 tab。
+      if (cur == _profileBranchIndex &&
+          ProfileFocusController.instance.focused) {
+        ProfileFocusController.instance.step(delta);
+        return true;
+      }
+      if (!state.isChromeVisible) return false; // 隐藏时页内无左右
       _goTabWrapped(cur, delta);
       return true;
     }
@@ -114,6 +128,11 @@ class MainApp extends StatelessWidget {
           up
               ? TimeStyleController.instance.previous()
               : TimeStyleController.instance.next();
+          break;
+        case _profileBranchIndex: // 我的：导航条 ↔ 主题/语言/悬浮遥控器
+          up
+              ? ProfileFocusController.instance.moveUp()
+              : ProfileFocusController.instance.moveDown();
           break;
         default: // 其余：滚动 / 焦点移动
           _moveFocus(up ? TraversalDirection.up : TraversalDirection.down);
@@ -155,63 +174,72 @@ class MainApp extends StatelessWidget {
     if (focusContext != null &&
         Actions.maybeFind<ActivateIntent>(focusContext) != null) {
       Actions.invoke(focusContext, const ActivateIntent());
-    } else {
-      context.read<AppBloc>().add(const ToggleChrome());
+      return;
     }
+    // 「我的」页 tabs 始终显示，OK 不用于显隐。
+    if (navigationShell.currentIndex == _profileBranchIndex) return;
+    context.read<AppBloc>().add(const ToggleChrome());
   }
 
   @override
   Widget build(BuildContext context) {
+    // 顶部导航条显隐（「我的」页恒显示）。
+    final bool chromeVisible =
+        context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
     // 启动 10 秒后自动收起顶部导航条（含频道条）。
+    // 分组1（首页|时间|屏保…）允许 10 秒自动收起；
+    // 分组2（我的）始终显示 tabs，不自动收起。
     return AutoHideChrome(
-      child: BlocBuilder<AppBloc, AppState>(
-        buildWhen: (previous, current) =>
-            previous.isChromeVisible != current.isChromeVisible,
-        builder: (context, state) {
-          return Focus(
-            debugLabel: 'MainApp.rootOkHandler',
-            canRequestFocus: false,
-            onKeyEvent: (node, event) => _handleRootKey(context, event),
-            child: Scaffold(
-              backgroundColor: Colors.black,
-              body: Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
-                  // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
-                  GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    // 触摸降级：点视频/任意空白背景切换导航条（含频道条）显隐。
-                    onTap: () =>
-                        context.read<AppBloc>().add(const ToggleChrome()),
-                    child: navigationShell,
-                  ),
-                  // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
-                  Align(
+      shouldAutoHide: () =>
+          navigationShell.currentIndex != _profileBranchIndex,
+      child: Focus(
+        debugLabel: 'MainApp.rootOkHandler',
+        canRequestFocus: false,
+        onKeyEvent: (node, event) => _handleRootKey(context, event),
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
+              // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                // 触摸降级：点视频/任意空白背景切换导航条（含频道条）显隐。
+                // 「我的」页 tabs 始终显示，不参与显隐。
+                onTap: () {
+                  if (navigationShell.currentIndex == _profileBranchIndex) {
+                    return;
+                  }
+                  context.read<AppBloc>().add(const ToggleChrome());
+                },
+                child: navigationShell,
+              ),
+              // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
+              // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
+              Align(
+                alignment: Alignment.topCenter,
+                child: ClipRect(
+                  child: AnimatedAlign(
                     alignment: Alignment.topCenter,
-                    child: ClipRect(
-                      child: AnimatedAlign(
-                        alignment: Alignment.topCenter,
-                        heightFactor: state.isChromeVisible ? 1 : 0,
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeInOut,
-                        child: _TopNavBar(
-                          currentIndex: navigationShell.currentIndex,
-                          chromeVisible: state.isChromeVisible,
-                          onTabSelected: _goTab,
-                        ),
-                      ),
+                    heightFactor: chromeVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    child: _TopNavBar(
+                      currentIndex: navigationShell.currentIndex,
+                      chromeVisible: chromeVisible,
+                      onTabSelected: _goTab,
                     ),
                   ),
-                  // 悬浮遥控器蒙层（手机调试用），置于最上层。
-                  FloatingRemote(
-                    onKey: (button) => _onRemoteButton(context, button),
-                  ),
-                ],
+                ),
               ),
-            ),
-          );
-        },
+              // 悬浮遥控器蒙层（手机调试用），置于最上层。
+              FloatingRemote(
+                onKey: (button) => _onRemoteButton(context, button),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -280,7 +308,6 @@ class _TopTab extends StatefulWidget {
 
 class _TopTabState extends State<_TopTab> {
   late final FocusNode _focusNode;
-  bool _focused = false;
 
   @override
   void initState() {
@@ -298,12 +325,10 @@ class _TopTabState extends State<_TopTab> {
   }
 
   void _onFocusChanged() {
-    final bool focused = _focusNode.hasFocus;
-    if (focused) {
+    // 触摸/聚焦到某 tab 时切换页面。
+    if (_focusNode.hasFocus) {
       widget.onFocused(widget.index);
     }
-    if (!mounted) return;
-    setState(() => _focused = focused);
   }
 
   @override
@@ -315,7 +340,10 @@ class _TopTabState extends State<_TopTab> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final bool active = widget.selected || _focused;
+    // 高亮仅跟随「当前选中 tab」。
+    // 切换 tab 走 goBranch，焦点不会同步到新 tab；若用 selected||focused，
+    // 旧 tab 会因残留焦点而持续高亮（遥控器端明显）。
+    final bool active = widget.selected;
     final IconData icon = widget.selected
         ? widget.descriptor.selectedIcon
         : widget.descriptor.icon;

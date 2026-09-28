@@ -3,6 +3,8 @@
   "common_loading": "読み込み中...",
   "common_retry": "再試行",
   "common_empty": "データなし",
+  "common_on": "オン",
+  "common_off": "オフ",
   "home_title": "ホーム",
   "time_title": "時間",
   "screensaver_title": "スクリーンセーバー",

@@ -3,6 +3,8 @@
   "common_loading": "加载中...",
   "common_retry": "重试",
   "common_empty": "暂无数据",
+  "common_on": "开",
+  "common_off": "关",
   "home_title": "首页",
   "time_title": "时间",
   "screensaver_title": "屏保",
