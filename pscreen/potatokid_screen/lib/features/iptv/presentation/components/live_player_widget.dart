@@ -10,6 +10,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
+import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
@@ -50,6 +51,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
 
   /// 进入播放即取消看门狗。
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<int?>? _widthSub;
+
+  /// 黑屏判定：是否出现过真实视频帧（width>0）。
+  bool _playedVideo = false;
 
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
@@ -66,20 +71,39 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     _player = player;
     _controller = VideoController(player);
     // 源播放失败/结束（completed=true）时尝试回退到下一个源。
-    _errorSub = player.stream.error.listen((_) => _onPlaybackIssue());
-    _completedSub = player.stream.completed.listen((done) {
-      if (done) _onPlaybackIssue();
+    _errorSub = player.stream.error.listen((String msg) {
+      final String trimmed = msg.trim();
+      // 直播源不支持 seek 时 media_kit 会把同一错误拆成多行报出，
+      // 都属于非致命（源本身可播，画面会闪一下），整组忽略、不触发回退。
+      if (trimmed.contains('Cannot seek in this stream') ||
+          trimmed.contains('--force-seekable')) {
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed',
+        );
+        return;
+      }
+      final String detail =
+          trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
+      _onPlaybackIssue(reason: 'error: $detail');
     });
-    // 进入播放即取消看门狗，并记住当前频道可用的源。
+    _completedSub = player.stream.completed.listen((bool done) {
+      if (done) _onPlaybackIssue(reason: 'completed=true');
+    });
+    // 记住当前频道可用的源。
     _playingSub = player.stream.playing.listen((value) {
-      if (value) {
+      if (value) _rememberCurrentSource();
+    });
+    // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
+    _widthSub = player.stream.width.listen((w) {
+      if (w != null && w > 0) {
+        _playedVideo = true;
         _hangWatchdog?.cancel();
-        _rememberCurrentSource();
       }
     });
     // 同步频道数与当前选中频道，随后监听上/下键的切换。
     _syncChannels();
     _channelController.addListener(_onChannelChanged);
+    HomeNowPlayingController.instance.onSwitchSource = _switchSource;
     _restoreLastChannel();
   }
 
@@ -212,22 +236,53 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     return '${channel.name} (源 $i/${channel.sources.length})';
   }
 
-  /// 启动“打开后长时间未播放”超时看门狗；进入播放后由 playing 订阅取消。
+  /// 启动“打开后长时间无画面”看门狗。
+  ///
+  /// 打开源后 [_hangTimeout]（60 秒）内若既未开始播放、或一直没出现视频帧
+  /// （黑屏），则回退下一个源。出现视频帧(width>0)即取消。
+  /// 特别注意：黑屏时 stream 的 position 仍可能推进，故**不用 position 作健康信号**。
   void _startHangWatchdog() {
+    // 重置健康信号，等待视频帧。
+    _playedVideo = false;
     _hangWatchdog?.cancel();
     _hangWatchdog = Timer(_hangTimeout, () {
       if (!mounted) return;
-      // 已在使用其它源/已开始播放则忽略。
-      if (_player?.state.playing ?? false) return;
-      _onPlaybackIssue(); // 卡住：循环回退下一个源
+      // 已在使用其它源则忽略。
+      if (_player?.state.playlist.index != _currentSource) return;
+      final bool playing = _player?.state.playing ?? false;
+      final String name = _currentChannel()?.name ?? '?';
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 看门狗到期 频道$name源(${_currentSource + 1}) '
+        'playing=$playing buffering=${_player?.state.buffering} '
+        'width=${_player?.state.width}',
+      );
+      if (!playing) {
+        _onPlaybackIssue(reason: '打开${_hangTimeout.inSeconds}s后未进入播放');
+      } else if (!_playedVideo) {
+        _onPlaybackIssue(reason: '打开${_hangTimeout.inSeconds}s后无视频帧(黑屏)');
+      }
     });
+  }
+
+  /// 左/右键手动切换当前频道的源（循环换向）。
+  void _switchSource(int delta) {
+    final IptvChannel? channel = _currentChannel();
+    if (channel == null || channel.sources.isEmpty) return;
+    final int n = channel.sources.length;
+    _currentSource = (_currentSource + delta + n) % n;
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 手动切换频道${channel.name}源(${_currentSource + 1}/$n)',
+    );
+    _playCurrentSource();
+    // 刷新提示并保持可见，便于连续左右切源。
+    if (mounted) _showChannelToast(_channelSourceLabel());
   }
 
   /// 播放失败/结束：循环回退到下一个源。
   ///
   /// 多源时按 1-2-3-4-1-2-… 循环；单源时反复重试同一源 1-1-1-…。
   /// 用 busy 标志与 700ms 冷却抑制旧源残留事件与过热循环。
-  Future<void> _onPlaybackIssue() async {
+  Future<void> _onPlaybackIssue({String reason = ''}) async {
     if (_handleFailureBusy || !mounted) return;
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
@@ -236,7 +291,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
     _handleFailureBusy = true;
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
-      '[LivePlayerWidget] 切换频道${channel.name}源(${_currentSource + 1}/${channel.sources.length})',
+      '[LivePlayerWidget] 切换频道${channel.name}源'
+      '(${_currentSource + 1}/${channel.sources.length})，原因: $reason',
     );
     await _playCurrentSource();
     _handleFailureBusy = false;
@@ -248,20 +304,27 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> {
   void _showChannelToast(String name) {
     _toastTimer?.cancel();
     setState(() => _toastName = name);
+    // 提示可见时，首页「左/右」由壳层路由为切换源。
+    HomeNowPlayingController.instance.toastVisible = true;
     _toastTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) setState(() => _toastName = null);
+      if (!mounted) return;
+      setState(() => _toastName = null);
+      HomeNowPlayingController.instance.toastVisible = false;
     });
   }
 
   @override
   void dispose() {
     _channelController.removeListener(_onChannelChanged);
+    HomeNowPlayingController.instance.onSwitchSource = null;
+    HomeNowPlayingController.instance.toastVisible = false;
     _toastTimer?.cancel();
     _channelsHideTimer?.cancel();
     _hangWatchdog?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
     _playingSub?.cancel();
+    _widthSub?.cancel();
     _player?.dispose();
     _player = null;
     _controller = null;

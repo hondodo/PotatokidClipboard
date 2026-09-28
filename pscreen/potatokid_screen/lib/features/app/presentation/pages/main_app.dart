@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
@@ -108,6 +109,11 @@ class MainApp extends StatelessWidget {
       if (cur == _profileBranchIndex &&
           ProfileFocusController.instance.focused) {
         ProfileFocusController.instance.step(delta);
+        return true;
+      }
+      // 首页左下角频道名提示可见时，左/右切换当前频道的源，不切 tab。
+      if (cur == 0 && HomeNowPlayingController.instance.toastVisible) {
+        HomeNowPlayingController.instance.switchSource(delta);
         return true;
       }
       if (!state.isChromeVisible) return false; // 隐藏时页内无左右
