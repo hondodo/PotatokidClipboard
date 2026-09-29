@@ -12,6 +12,7 @@ import 'package:potatokid_screen/features/profile/application/profile_focus_cont
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
 import 'package:potatokid_screen/core/utils/key_repeat_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
+import 'package:potatokid_screen/shared/widgets/exit_confirm_scope.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 
 /// 单个顶部 Tab 的静态描述（图标 + 文案 key）。
@@ -29,7 +30,8 @@ class _TabDescriptor {
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
 /// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
-///   「我的」页正文焦点内激活设置行。
+///   「我的」页正文焦点内激活设置行；
+/// - **返回键**：二次确认后才退出应用（见 [ExitConfirmScope]）。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -116,6 +118,7 @@ class MainApp extends StatelessWidget {
   /// - 上下：首页切频道、时间页切样式，其余滚动/焦点移动。
   /// - OK：首页显示/隐藏「频道信息 + 频道列表」，「我的」页激活设置行。
   /// - 菜单：显示/隐藏顶部导航条。
+  /// - 返回：二次确认后退出应用。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
@@ -128,6 +131,14 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.gameButtonA;
     if (ok) {
       _pressOk(context);
+      return true;
+    }
+
+    // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）：
+    // 与系统返回一致，走二次确认，避免盒子上误触直接退出。
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      ExitConfirmScope.requestExit(context);
       return true;
     }
 
@@ -234,55 +245,57 @@ class MainApp extends StatelessWidget {
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
     // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
-    return AutoHideChrome(
-      currentIndex: navigationShell.currentIndex,
-      profileBranchIndex: _profileBranchIndex,
-      child: Focus(
-        debugLabel: 'MainApp.rootOkHandler',
-        canRequestFocus: false,
-        onKeyEvent: (node, event) => _handleRootKey(context, event),
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
-              // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
-              GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
-                // 「我的」页 tabs 始终显示，不参与显隐。
-                onTap: () {
-                  if (navigationShell.currentIndex == _profileBranchIndex) {
-                    return;
-                  }
-                  context.read<AppBloc>().add(SetChrome(!chromeVisible));
-                },
-                child: navigationShell,
-              ),
-              // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
-              // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
-              Align(
-                alignment: Alignment.topCenter,
-                child: ClipRect(
-                  child: AnimatedAlign(
-                    alignment: Alignment.topCenter,
-                    heightFactor: chromeVisible ? 1 : 0,
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    child: _TopNavBar(
-                      currentIndex: navigationShell.currentIndex,
-                      chromeVisible: chromeVisible,
-                      onTabSelected: _goTab,
+    return ExitConfirmScope(
+      child: AutoHideChrome(
+        currentIndex: navigationShell.currentIndex,
+        profileBranchIndex: _profileBranchIndex,
+        child: Focus(
+          debugLabel: 'MainApp.rootOkHandler',
+          canRequestFocus: false,
+          onKeyEvent: (node, event) => _handleRootKey(context, event),
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
+                // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
+                  // 「我的」页 tabs 始终显示，不参与显隐。
+                  onTap: () {
+                    if (navigationShell.currentIndex == _profileBranchIndex) {
+                      return;
+                    }
+                    context.read<AppBloc>().add(SetChrome(!chromeVisible));
+                  },
+                  child: navigationShell,
+                ),
+                // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
+                // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: ClipRect(
+                    child: AnimatedAlign(
+                      alignment: Alignment.topCenter,
+                      heightFactor: chromeVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      child: _TopNavBar(
+                        currentIndex: navigationShell.currentIndex,
+                        chromeVisible: chromeVisible,
+                        onTabSelected: _goTab,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // 悬浮遥控器蒙层（手机调试用），置于最上层。
-              FloatingRemote(
-                onKey: (button) => _onRemoteButton(context, button),
-              ),
-            ],
+                // 悬浮遥控器蒙层（手机调试用），置于最上层。
+                FloatingRemote(
+                  onKey: (button) => _onRemoteButton(context, button),
+                ),
+              ],
+            ),
           ),
         ),
       ),
