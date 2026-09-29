@@ -12,7 +12,7 @@ val releaseSigningStore: File = file("potatokid-release.jks")
 val releaseSigningPassword: String = file(".storepass.txt").readText().trim()
 
 android {
-    namespace = "com.example.potatokid_screen"
+    namespace = "screen.potatokid.tools"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -35,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.potatokid_screen"
+        applicationId = "screen.potatokid.tools"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

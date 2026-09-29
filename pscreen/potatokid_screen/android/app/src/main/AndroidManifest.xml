@@ -2,9 +2,9 @@
     <!-- IPTV：联网拉取 m3u / 播放网络直播流 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="potatokid_screen"
+        android:label="薯仔的工具"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
