@@ -18,7 +18,7 @@ enum RemoteButton {
 ///
 /// 底层不伪造系统按键事件（当前 Flutter 版本已无 [KeyEventSimulator]），
 /// 而是通过 [RemoteButton] 回调到壳层 MainApp，复用与真实遥控器一致的
-/// 处理逻辑（焦点移动切 tab/切频道、OK 显隐导航条、上/下切时钟样式）。
+/// 处理逻辑（焦点移动切 tab/切频道、菜单键显隐导航条、上/下切时钟样式）。
 /// 显隐由全局 [AppState.showFloatingRemote] 控制（在「我的」页开关）。
 class FloatingRemote extends StatefulWidget {
   const FloatingRemote({super.key, required this.onKey});

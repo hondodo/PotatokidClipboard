@@ -9,7 +9,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 ///
 /// 只要处于「导航条可见且非 [profileBranchIndex]」这一状态，就维持一个倒计时；
 /// 在倒计时期间若发生以下触发事件则**重置**倒计时：
-/// - `isChromeVisible` 再次变为可见（如 OK 键呼出）；
+/// - `isChromeVisible` 再次变为可见（如菜单键呼出）；
 /// - 切换到非「[profileBranchIndex]」的 tab。
 ///
 /// 命中「[profileBranchIndex]（我的）」或导航条已隐藏时取消计时：

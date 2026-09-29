@@ -27,8 +27,9 @@ class _TabDescriptor {
 ///
 /// - 顶部横向导航条（首页直播 | 时间 | 屏保 | 我的），图标+文字横排；
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
-/// - **OK 键**（select/enter/space/gameButtonA）在这里统一用于显示/隐藏导航条，
-///   因为它冒泡到本壳层（tab/频道项均不消费 OK）。
+/// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
+/// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
+///   「我的」页正文焦点内激活设置行。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -111,10 +112,10 @@ class MainApp extends StatelessWidget {
   }
 
   /// 统一的按键逻辑（按「导航条显隐」分模式）：
-  /// - 左右：导航条显示时切 tab；隐藏时交给页面（页内无左右）。
+  /// - 左右：导航条显示时切 tab；隐藏时首页切换当前频道的源。
   /// - 上下：首页切频道、时间页切样式，其余滚动/焦点移动。
-  /// - OK：激活焦点按钮，否则显隐导航条（含频道条）。
-  /// - 菜单：仅在首页单独呼出频道列表。
+  /// - OK：首页显示/隐藏「频道信息 + 频道列表」，「我的」页激活设置行。
+  /// - 菜单：显示/隐藏顶部导航条。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
@@ -127,6 +128,14 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.gameButtonA;
     if (ok) {
       _pressOk(context);
+      return true;
+    }
+
+    // 菜单键：显示/隐藏顶部菜单（tabs）。「我的」页 tabs 恒显示，不处理。
+    if (key == LogicalKeyboardKey.contextMenu) {
+      if (cur != _profileBranchIndex) {
+        context.read<AppBloc>().add(SetChrome(!state.isChromeVisible));
+      }
       return true;
     }
 
@@ -180,17 +189,6 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    if (key == LogicalKeyboardKey.contextMenu) {
-      if (cur == 0) {
-        final bool wasShown = context.read<AppBloc>().state.showChannels;
-        context.read<AppBloc>().add(const ToggleChannels());
-        // 呼出列表时，左下角顺带显示当前频道名。
-        if (!wasShown) HomeNowPlayingController.instance.showToast();
-        return true;
-      }
-      return false;
-    }
-
     return false;
   }
 
@@ -208,32 +206,26 @@ class MainApp extends StatelessWidget {
     scope.focusInDirection(direction);
   }
 
+  /// OK 键：
+  /// - 「我的」页正文焦点内 → 激活当前设置行；
+  /// - 首页 → 显示/隐藏「左下角频道信息 + 右侧频道列表」；
+  /// - 其余 → 激活焦点控件（若有）。
   void _pressOk(BuildContext context) {
-    final AppState state = context.read<AppBloc>().state;
-    // 「我的」页正文焦点内：OK 激活当前行（刷新频道等按钮动作），不显隐导航条。
-    if (navigationShell.currentIndex == _profileBranchIndex &&
-        ProfileFocusController.instance.focused) {
+    final int cur = navigationShell.currentIndex;
+    if (cur == _profileBranchIndex && ProfileFocusController.instance.focused) {
       ProfileFocusController.instance.activate();
       return;
     }
-    // 导航条隐藏时，OK 键优先用于呼出导航（全屏播放时用户的主要意图），
-    // 不交给焦点 widget 的 Activate 动作，避免焦点落在视频/列表项上时 OK 无效。
-    if (!state.isChromeVisible &&
-        navigationShell.currentIndex != _profileBranchIndex) {
-      context.read<AppBloc>().add(const ToggleChrome());
+    if (cur == 0) {
+      HomeNowPlayingController.instance.toggleChannelPanel();
       return;
     }
-    // 导航条可见时，若焦点在有 Activate 动作的控件上则触发激活（按钮/列表项等）。
     final BuildContext? focusContext =
         FocusManager.instance.primaryFocus?.context;
     if (focusContext != null &&
         Actions.maybeFind<ActivateIntent>(focusContext) != null) {
       Actions.invoke(focusContext, const ActivateIntent());
-      return;
     }
-    // 「我的」页 tabs 始终显示，OK 不用于显隐。
-    if (navigationShell.currentIndex == _profileBranchIndex) return;
-    context.read<AppBloc>().add(const ToggleChrome());
   }
 
   @override
@@ -241,7 +233,7 @@ class MainApp extends StatelessWidget {
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
-    // 自动收起触发点：切到非「我的」tab / OK 呼出后 10 秒；「我的」不自动收起。
+    // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
     return AutoHideChrome(
       currentIndex: navigationShell.currentIndex,
       profileBranchIndex: _profileBranchIndex,
@@ -258,13 +250,13 @@ class MainApp extends StatelessWidget {
               // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
-                // 触摸降级：点视频/任意空白背景切换导航条（含频道条）显隐。
+                // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
                 // 「我的」页 tabs 始终显示，不参与显隐。
                 onTap: () {
                   if (navigationShell.currentIndex == _profileBranchIndex) {
                     return;
                   }
-                  context.read<AppBloc>().add(const ToggleChrome());
+                  context.read<AppBloc>().add(SetChrome(!chromeVisible));
                 },
                 child: navigationShell,
               ),

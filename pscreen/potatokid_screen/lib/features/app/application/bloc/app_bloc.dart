@@ -29,10 +29,8 @@ class _PersistedSettingsLoaded extends AppEvent {
 class AppBloc extends Bloc<AppEvent, AppState> {
   AppBloc() : super(AppState.initial()) {
     on<ChangeThemeMode>(_onChangeThemeMode);
-    on<ToggleChrome>(_onToggleChrome);
     on<SetChrome>(_onSetChrome);
     on<SetChannels>(_onSetChannels);
-    on<ToggleChannels>(_onToggleChannels);
     on<SetFloatingRemote>(_onSetFloatingRemote);
     on<SetHardwareDecode>(_onSetHardwareDecode);
     on<ChangeAspectMode>(_onChangeAspectMode);
@@ -74,12 +72,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     AppSettings.instance.setThemeMode(event.themeMode);
   }
 
-  void _onToggleChrome(ToggleChrome event, Emitter<AppState> emit) {
-    // 顶部 tab 条与频道条同步显隐（OK 键）。
-    final bool visible = !state.isChromeVisible;
-    emit(state.copyWith(isChromeVisible: visible, showChannels: visible));
-  }
-
   void _onSetChrome(SetChrome event, Emitter<AppState> emit) {
     // 只改顶部 tab 条，频道列表独立控制。
     emit(state.copyWith(isChromeVisible: event.visible));
@@ -87,10 +79,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
 
   void _onSetChannels(SetChannels event, Emitter<AppState> emit) {
     emit(state.copyWith(showChannels: event.show));
-  }
-
-  void _onToggleChannels(ToggleChannels event, Emitter<AppState> emit) {
-    emit(state.copyWith(showChannels: !state.showChannels));
   }
 
   void _onSetFloatingRemote(SetFloatingRemote event, Emitter<AppState> emit) {

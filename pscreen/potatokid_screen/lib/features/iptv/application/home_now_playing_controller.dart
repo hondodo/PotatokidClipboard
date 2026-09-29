@@ -14,9 +14,9 @@ class HomeNowPlayingController {
   /// 左/右切换当前频道源。
   void switchSource(int delta) => onSwitchSource?.call(delta);
 
-  /// 显示当前频道名提示的回调（播放器注册）。
-  void Function()? onShowToast;
+  /// 切换「左下角频道信息 + 右侧频道列表」的回调（播放器注册）。
+  void Function()? onToggleChannelPanel;
 
-  /// 让播放器在左下角显示当前频道名（菜单键呼出列表时用）。
-  void showToast() => onShowToast?.call();
+  /// 首页 OK 键：显示/隐藏左下角频道信息与右侧频道列表。
+  void toggleChannelPanel() => onToggleChannelPanel?.call();
 }

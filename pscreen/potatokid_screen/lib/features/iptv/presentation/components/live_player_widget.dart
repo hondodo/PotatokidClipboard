@@ -124,9 +124,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _syncChannels();
     _channelController.addListener(_onChannelChanged);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
-    HomeNowPlayingController.instance.onShowToast = () {
-      if (mounted) _showChannelToast(_channelSourceLabel());
-    };
+    HomeNowPlayingController.instance.onToggleChannelPanel = _toggleChannelPanel;
     _restoreLastChannel();
   }
 
@@ -243,6 +241,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       if (!mounted) return;
       context.read<AppBloc>().add(const SetChannels(false));
     });
+  }
+
+  /// 首页 OK 键：显示/隐藏「左下角频道信息 + 右侧频道列表」。
+  /// 两者都可见时统一隐藏；否则统一显示并重置各自的自动隐藏计时。
+  void _toggleChannelPanel() {
+    if (!mounted) return;
+    final bool toastVisible = _toastNameVN.value != null;
+    final bool listVisible = context.read<AppBloc>().state.showChannels;
+    if (toastVisible && listVisible) {
+      _toastTimer?.cancel();
+      _toastNameVN.value = null;
+      _channelsHideTimer?.cancel();
+      _channelsHideTimer = null;
+      context.read<AppBloc>().add(const SetChannels(false));
+    } else {
+      _showChannelToast(_channelSourceLabel());
+      _markChannelsActivity();
+    }
   }
 
   Future<void> _openChannel(int index, {bool force = false}) async {
@@ -427,7 +443,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _channelController.removeListener(_onChannelChanged);
     HomeNowPlayingController.instance.onSwitchSource = null;
-    HomeNowPlayingController.instance.onShowToast = null;
+    HomeNowPlayingController.instance.onToggleChannelPanel = null;
     _toastTimer?.cancel();
     _toastNameVN.dispose();
     _channelsHideTimer?.cancel();
@@ -477,7 +493,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
               );
             },
           ),
-          // 右侧频道条：显隐由 showChannels 开关控制（OK 同步 / 菜单键单独呼出）。
+          // 右侧频道条：显隐由 showChannels 开关控制（首页 OK 键切换 / 换台时自动显示）。
           Align(
             alignment: Alignment.centerRight,
             child: BlocBuilder<AppBloc, AppState>(

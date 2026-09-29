@@ -19,6 +19,13 @@
             "deviceId": "192.168.31.56:5555",
         },
         {
+            "name": "potatokid_screen M2102J2SC (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "e724dd69",
+        },
+        {
             "name": "potatokid_screen (profile mode)",
             "request": "launch",
             "type": "dart",
