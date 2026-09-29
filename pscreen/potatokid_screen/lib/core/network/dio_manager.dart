@@ -9,6 +9,7 @@ import 'package:potatokid_screen/app/config/app_constants.dart';
 import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/network/dio_helper.dart';
+import 'package:potatokid_screen/core/network/dio_pretty_logger.dart';
 import 'package:potatokid_screen/core/network/http_method.dart';
 import 'package:potatokid_screen/core/network/net_exceptions.dart';
 
@@ -40,7 +41,7 @@ class DioManager {
       ..connectTimeout = AppConstants.connectTimeout
       ..receiveTimeout = AppConstants.receiveTimeout
       ..sendTimeout = AppConstants.sendTimeout;
-
+    _dio.interceptors.add(DioLogInterceptor()); // 日志打印
     try {
       final dir = await getApplicationDocumentsDirectory();
       _cookieJar = PersistCookieJar(storage: FileStorage(dir.path));
@@ -60,8 +61,7 @@ class DioManager {
 
   /// 切换域名：登录后切 apiHost，未登录切 baseHost
   static Future<void> changeHost({bool? isLogin}) async {
-    _instance._dio.options.baseUrl =
-        (isLogin ?? false) ? AppHosts.apiHost : AppHosts.baseHost;
+    _instance._dio.options.baseUrl = (isLogin ?? false) ? AppHosts.apiHost : AppHosts.baseHost;
   }
 
   /// 登出时取消会话内所有进行中的请求
@@ -115,7 +115,7 @@ class DioManager {
       if (statusCode >= 200 && statusCode < 300) {
         return response.data;
       }
-      throw HttpCodeException(statusCode, '请求失败');
+      throw HttpCodeException(statusCode, '请求失败', response.data);
     } on DioException catch (e, s) {
       if (e.type == DioExceptionType.cancel) rethrow;
       if (currentRetry < maxRetry && _shouldRetry(e)) {
@@ -137,7 +137,7 @@ class DioManager {
         );
       }
       const LogService().error('请求异常: $url', error: e, stackTrace: s);
-      throw HttpCodeException(e.response?.statusCode, e.message);
+      throw HttpCodeException(e.response?.statusCode, e.message, e.response?.data);
     }
   }
 

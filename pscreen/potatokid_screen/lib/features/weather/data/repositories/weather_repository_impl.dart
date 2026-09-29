@@ -5,7 +5,7 @@ import 'package:potatokid_screen/features/weather/domain/models/weather_models.d
 import 'package:potatokid_screen/features/weather/domain/repositories/weather_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 天气仓库实现：定位（缓存 + IP 反查）+ 拉取天气。
+/// 天气仓库实现：定位（IP 反查 + 缓存兜底）+ 拉取天气。
 class WeatherRepositoryImpl implements WeatherRepository {
   WeatherRepositoryImpl({WeatherApiService? api, IpGeoService? ipGeo})
       : _api = api ?? WeatherApiService(),
@@ -16,25 +16,28 @@ class WeatherRepositoryImpl implements WeatherRepository {
   final WeatherApiService _api;
   final IpGeoService _ipGeo;
 
+  /// 每次调用都重新 IP 反查，保证换网络/换出口 IP 后位置能自动纠正。
+  ///
+  /// 缓存仅在反查失败时作为兜底，避免瞬时失败导致定位丢失。
   @override
   Future<String?> resolveLocation() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-
-    // 复用已缓存位置，避免每次启动都重新 IP 反查。
     final String? cached = prefs.getString(_keyLocation);
-    if (cached != null && cached.isNotEmpty) return cached;
 
     final GeoLocation? loc = await _ipGeo.locate();
     if (loc == null) {
       const LogService().warn('IP 反查定位失败：未拿到经纬度');
-      return null;
+      return (cached != null && cached.isNotEmpty) ? cached : null;
     }
 
     final String locStr = '${loc.lat}:${loc.lon}';
-    try {
-      await prefs.setString(_keyLocation, locStr);
-    } catch (_) {
-      // 缓存失败不影响本次使用。
+    // 位置未变化时不重复写盘。
+    if (locStr != cached) {
+      try {
+        await prefs.setString(_keyLocation, locStr);
+      } catch (_) {
+        // 缓存失败不影响本次使用。
+      }
     }
     return locStr;
   }

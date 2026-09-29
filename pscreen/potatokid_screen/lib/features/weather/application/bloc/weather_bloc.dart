@@ -13,17 +13,17 @@ import 'package:potatokid_screen/features/weather/domain/repositories/weather_re
 
 /// 天气状态机：定位 → 拉取 → State。
 ///
-/// 内置每分钟定时刷新（[LoadWeather] + force），使实时天气保持最新。
+/// 内置每 5 分钟定时刷新（[LoadWeather]），使实时天气保持最新。
 class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
   WeatherBloc({required WeatherRepository repository})
       : _repository = repository,
         super(WeatherState.initial()) {
     on<LoadWeather>(_onLoadWeather);
     on<ClearWeather>(_onClearWeather);
-    // 每 1 分钟强制刷新一次（已有数据时也会重新拉取）。
+    // 每 5 分钟刷新一次（重新 IP 反查定位 + 拉取天气）。
     _refreshTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => add(const LoadWeather(force: true)),
+      const Duration(minutes: 5),
+      (_) => add(const LoadWeather()),
     );
   }
 
@@ -40,14 +40,10 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     LoadWeather event,
     Emitter<WeatherState> emit,
   ) async {
-    // 已加载且非强刷时直接返回，避免重复请求。
-    if (state.hasData && !event.force) {
-      completeBlocEvent(event.completer, success: true);
-      return;
-    }
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
-      final String? location = await _repository.resolveLocation();
+      final String? location =
+          await _repository.resolveLocation();
       if (location == null) {
         throw StateError('无法获取设备位置');
       }

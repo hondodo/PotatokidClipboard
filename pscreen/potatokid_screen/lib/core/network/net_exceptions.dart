@@ -9,15 +9,20 @@ class NetDisconnectException implements Exception {
 }
 
 /// HTTP 层错误（超时、状态码非 2xx 等）
+///
+/// [body] 保留服务端原始响应体，供调用方读取错误码/错误详情
+/// （如第三方接口返回 403 + 业务错误码时按 body 判断）。
 class HttpCodeException implements Exception {
-  const HttpCodeException([this.httpCode, this.message]);
+  const HttpCodeException([this.httpCode, this.message, this.body]);
 
   final int? httpCode;
   final String? message;
+  final dynamic body;
 
   @override
   String toString() =>
-      'http assect error, code: ${httpCode ?? -1}\nmessage:${message ?? 'none'}';
+      'http assect error, code: ${httpCode ?? -1}\nmessage:${message ?? 'none'}'
+      '${body == null ? '' : '\nbody:$body'}';
 }
 
 /// 业务层错误（响应体 code != 成功值）
