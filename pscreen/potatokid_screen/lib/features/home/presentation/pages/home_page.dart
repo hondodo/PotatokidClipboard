@@ -5,7 +5,6 @@ import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/live_player_widget.dart';
-import 'package:potatokid_screen/features/weather/presentation/widgets/weather_panel.dart';
 
 /// 首页（电视）：「首页」Tab 主体为全屏 IPTV 直播。
 /// 频道列表由全局 [IptvBloc] 提供（main 中已用缓存优先加载并自动播放首个频道），

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
@@ -17,6 +18,7 @@ import 'package:potatokid_screen/features/iptv/application/live_channel_controll
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
+import 'package:potatokid_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
 
@@ -541,6 +543,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                     children: [
                       Row(
                         children: [
+                          WeatherNowPanel(),
+                          SizedBox(width: 16),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -548,17 +552,28 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                               Text(sourceTips, style: TextStyle(color: textColor, fontSize: 14)),
                             ],
                           ),
-                          SizedBox(width: 8),
-                          WeatherNowPanel(),
-                          SizedBox(width: 8),
-                          WeatherDaysPanel(),
                         ],
                       ),
+                      SizedBox(height: 8),
                       Row(
                         children: [
-                          Text('按下', style: TextStyle(color: textColor, fontSize: 16)),
-                          DirectionWidget(hotLeft: true, hotRight: true),
-                          Text('更换播放源', style: TextStyle(color: textColor, fontSize: 16)),
+                          Column(
+                            children: [
+                              DirectionWidget(hotUp: true, hotDown: true, size: 52),
+                              Text('更换频道', style: TextStyle(color: textColor, fontSize: 14)),
+                            ],
+                          ),
+                          SizedBox(width: 8),
+                          Column(
+                            children: [
+                              DirectionWidget(hotLeft: true, hotRight: true, size: 52),
+                              Text('更换播放源', style: TextStyle(color: textColor, fontSize: 14)),
+                            ],
+                          ),
+                          SizedBox(width: 8),
+                          _ClockPanel(color: textColor),
+                          SizedBox(width: 8),
+                          WeatherDaysPanel(),
                         ],
                       ),
                     ],
@@ -569,6 +584,59 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 提示条里的时钟：`HH:mm:ss` + `年月日 农历 星期`，每秒刷新。
+///
+/// 刻意做成独立 StatefulWidget：定时刷新只重建这一小块，避免每秒
+/// `setState` 波及上层 Stack 里的 [Video]，造成播放器反复重建。
+class _ClockPanel extends StatefulWidget {
+  const _ClockPanel({required this.color});
+
+  final Color color;
+
+  @override
+  State<_ClockPanel> createState() => _ClockPanelState();
+}
+
+class _ClockPanelState extends State<_ClockPanel> {
+  static final DateFormat _timeFmt = DateFormat('HH:mm:ss', 'zh_CN');
+  static final DateFormat _dateFmt = DateFormat('y年M月d日', 'zh_CN');
+  static final DateFormat _weekdayFmt = DateFormat('EEEE', 'zh_CN');
+
+  Timer? _timer;
+  DateTime _now = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 农历按月日换算；超出农历表范围（1900~2099）时降级为只显示公历。
+    final LunarDate? lunar = lunarDateOf(DateTime(_now.year, _now.month, _now.day));
+    final String subtitle = <String>[_dateFmt.format(_now)].join(' ');
+    final String dateInChina = <String>[if (lunar != null) lunar.fullCnString, _weekdayFmt.format(_now)].join(' ');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Text(_timeFmt.format(_now), style: TextStyle(color: widget.color, fontSize: 32, height: 1.1)),
+        Text(subtitle, style: TextStyle(color: widget.color, fontSize: 14)),
+        Text(dateInChina, style: TextStyle(color: widget.color, fontSize: 14)),
+      ],
     );
   }
 }
