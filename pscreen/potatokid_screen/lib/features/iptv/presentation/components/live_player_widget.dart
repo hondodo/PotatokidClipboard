@@ -67,14 +67,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
   Timer? _bufferStallWatch;
   Duration _bufferingAccum = Duration.zero;
-  static const Duration _bufferStallThreshold = Duration(seconds: 30);
+  static const Duration _bufferStallThreshold = Duration(seconds: 10);
 
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
 
   /// 频道列表「10 秒无操作」自动收起的计时器。
   Timer? _channelsHideTimer;
-  static const Duration _channelsHideDelay = Duration(seconds: 10);
+  static const Duration _channelsHideDelay = Duration(seconds: 5);
 
   /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
   /// 确保进入播放前 hwdec 属性已正确设置）。
@@ -416,12 +416,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   void _showChannelToast(String name) {
     _toastTimer?.cancel();
     _toastNameVN.value = name;
-    // 提示可见时，首页「左/右」由壳层路由为切换源。
-    HomeNowPlayingController.instance.toastVisible = true;
     _toastTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
       _toastNameVN.value = null;
-      HomeNowPlayingController.instance.toastVisible = false;
     });
   }
 
@@ -431,7 +428,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.removeListener(_onChannelChanged);
     HomeNowPlayingController.instance.onSwitchSource = null;
     HomeNowPlayingController.instance.onShowToast = null;
-    HomeNowPlayingController.instance.toastVisible = false;
     _toastTimer?.cancel();
     _toastNameVN.dispose();
     _channelsHideTimer?.cancel();

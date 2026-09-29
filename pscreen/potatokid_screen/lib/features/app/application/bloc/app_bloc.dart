@@ -12,12 +12,14 @@ class _PersistedSettingsLoaded extends AppEvent {
     required this.showFloatingRemote,
     required this.hwdecEnabled,
     required this.aspectMode,
+    required this.weatherCity,
   });
 
   final ThemeMode themeMode;
   final bool showFloatingRemote;
   final bool hwdecEnabled;
   final VideoAspectMode aspectMode;
+  final String weatherCity;
 }
 
 /// 应用级全局状态机：由 main.dart 的 MultiBlocProvider 提供。
@@ -34,6 +36,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     on<SetFloatingRemote>(_onSetFloatingRemote);
     on<SetHardwareDecode>(_onSetHardwareDecode);
     on<ChangeAspectMode>(_onChangeAspectMode);
+    on<ChangeWeatherCity>(_onChangeWeatherCity);
     on<_PersistedSettingsLoaded>(_onPersistedSettingsLoaded);
 
     // 异步加载持久化设置（不阻塞首帧），加载完通过内部事件更新状态。
@@ -43,21 +46,27 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   Future<void> _loadPersistedSettings() async {
     await AppSettings.instance.ensureLoaded();
     final AppSettings s = AppSettings.instance;
-    add(_PersistedSettingsLoaded(
-      themeMode: s.themeMode,
-      showFloatingRemote: s.showFloatingRemote,
-      hwdecEnabled: s.hwdecEnabled,
-      aspectMode: s.aspectMode,
-    ));
+    add(
+      _PersistedSettingsLoaded(
+        themeMode: s.themeMode,
+        showFloatingRemote: s.showFloatingRemote,
+        hwdecEnabled: s.hwdecEnabled,
+        aspectMode: s.aspectMode,
+        weatherCity: s.weatherCity,
+      ),
+    );
   }
 
   void _onPersistedSettingsLoaded(_PersistedSettingsLoaded event, Emitter<AppState> emit) {
-    emit(state.copyWith(
-      themeMode: event.themeMode,
-      showFloatingRemote: event.showFloatingRemote,
-      hwdecEnabled: event.hwdecEnabled,
-      aspectMode: event.aspectMode,
-    ));
+    emit(
+      state.copyWith(
+        themeMode: event.themeMode,
+        showFloatingRemote: event.showFloatingRemote,
+        hwdecEnabled: event.hwdecEnabled,
+        aspectMode: event.aspectMode,
+        weatherCity: event.weatherCity,
+      ),
+    );
   }
 
   void _onChangeThemeMode(ChangeThemeMode event, Emitter<AppState> emit) {
@@ -97,5 +106,10 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   void _onChangeAspectMode(ChangeAspectMode event, Emitter<AppState> emit) {
     emit(state.copyWith(aspectMode: event.mode));
     AppSettings.instance.setAspectMode(event.mode);
+  }
+
+  void _onChangeWeatherCity(ChangeWeatherCity event, Emitter<AppState> emit) {
+    emit(state.copyWith(weatherCity: event.city));
+    AppSettings.instance.setWeatherCity(event.city);
   }
 }

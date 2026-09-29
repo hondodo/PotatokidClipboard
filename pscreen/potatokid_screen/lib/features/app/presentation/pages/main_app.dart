@@ -144,8 +144,10 @@ class MainApp extends StatelessWidget {
         _goTabWrapped(cur, delta);
         return true;
       }
-      // 导航条隐藏时，首页频道名提示可见 → 左右切换当前频道的源。
-      if (cur == 0 && HomeNowPlayingController.instance.toastVisible) {
+      // 导航条隐藏时，首页左/右始终用于切换当前频道的源。
+      // 提示条不可见也照样触发——切源本身会重新显示提示条，
+      // 并在 30 秒无操作后自动隐藏（隐藏规则见 LivePlayerWidget）。
+      if (cur == 0) {
         HomeNowPlayingController.instance.switchSource(delta);
         return true;
       }

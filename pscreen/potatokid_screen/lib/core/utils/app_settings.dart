@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:potatokid_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 
 /// 应用级设置持久化（全局单例）。
@@ -9,6 +10,7 @@ import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart
 /// - 悬浮遥控器显隐（showFloatingRemote）
 /// - 硬件解码开关（hwdecEnabled）
 /// - 画面显示模式（aspectMode）
+/// - 天气城市（weatherCity）
 ///
 /// 语言设置由 easy_localization 自行持久化，不在此处管理。
 class AppSettings {
@@ -21,6 +23,7 @@ class AppSettings {
   static const String _keyFloatingRemote = 'app_floating_remote_v1';
   static const String _keyHwdec = 'app_hwdec_v1';
   static const String _keyAspectMode = 'app_aspect_mode_v1';
+  static const String _keyWeatherCity = 'app_weather_city_v1';
 
   bool _loaded = false;
 
@@ -34,10 +37,16 @@ class AppSettings {
   /// 画面显示模式，默认「原始」。
   VideoAspectMode _aspectMode = VideoAspectMode.original;
 
+  /// 天气城市名；**空串表示「自动」**（IP 反查定位）。
+  String _weatherCity = '';
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
   bool get hwdecEnabled => _hwdecEnabled;
   VideoAspectMode get aspectMode => _aspectMode;
+
+  /// 天气城市：空串表示「自动」（IP 反查定位）。
+  String get weatherCity => _weatherCity;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() async {
@@ -60,6 +69,10 @@ class AppSettings {
 
       // 画面显示模式
       _aspectMode = VideoAspectMode.fromName(prefs.getString(_keyAspectMode));
+
+      // 天气城市：不在当前 .env 配置列表内（配置已改）则回退「自动」。
+      final String city = prefs.getString(_keyWeatherCity) ?? '';
+      _weatherCity = AppConfig.weatherCities.contains(city) ? city : '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -104,6 +117,17 @@ class AppSettings {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyAspectMode, mode.name);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
+  /// 保存天气城市（空串表示「自动」）。
+  Future<void> setWeatherCity(String city) async {
+    _weatherCity = city;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyWeatherCity, city);
     } catch (_) {
       // 写入失败不影响运行。
     }

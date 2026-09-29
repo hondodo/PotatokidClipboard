@@ -6,7 +6,6 @@ import 'package:potatokid_screen/features/time/application/time_style_controller
 import 'package:potatokid_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/time/presentation/components/analog_dial_clock.dart';
 import 'package:potatokid_screen/features/time/presentation/components/flowing_gradient_background.dart';
-import 'package:potatokid_screen/features/weather/presentation/widgets/weather_panel.dart';
 
 /// 「时间」Tab 页：多样化时钟，三屏共用的流动彩色背景 + 20% 黑蒙层。
 ///
@@ -47,12 +46,12 @@ class _TimePageState extends State<TimePage> {
       fit: StackFit.expand,
       children: <Widget>[
         const FlowingGradientBackground(),
-        // 天气小组件：右上角悬浮，无数据时自动隐藏。
-        const Positioned(
-          top: 12,
-          right: 12,
-          child: SafeArea(child: WeatherPanel()),
-        ),
+        // // 天气小组件：右上角悬浮，无数据时自动隐藏。
+        // const Positioned(
+        //   top: 12,
+        //   right: 12,
+        //   child: SafeArea(child: WeatherPanel()),
+        // ),
         Center(
           child: ListenableBuilder(
             listenable: TimeStyleController.instance,
@@ -81,17 +80,11 @@ class _TimePageState extends State<TimePage> {
       children: <Widget>[
         Text(
           _timeFmt.format(_now),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 120,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2,
-          ),
+          style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, letterSpacing: 2),
         ),
         const SizedBox(height: 16),
         Text(
-          '${_dateFmt.format(_now)} $lunarStr ${_weekdayFmt.format(_now)}'
-              .trim(),
+          '${_dateFmt.format(_now)} $lunarStr ${_weekdayFmt.format(_now)}'.trim(),
           style: const TextStyle(color: Colors.white, fontSize: 28),
         ),
       ],
@@ -102,12 +95,7 @@ class _TimePageState extends State<TimePage> {
   Widget _timeOnly() {
     return Text(
       _timeFmt.format(_now),
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 150,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 4,
-      ),
+      style: const TextStyle(color: Colors.white, fontSize: 150, fontWeight: FontWeight.bold, letterSpacing: 4),
     );
   }
 }

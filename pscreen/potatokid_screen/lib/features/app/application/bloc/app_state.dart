@@ -10,6 +10,7 @@ class AppState {
     required this.showChannels,
     required this.hwdecEnabled,
     required this.aspectMode,
+    required this.weatherCity,
   });
 
   /// 初始状态：跟随系统主题，导航条与频道条默认可见，
@@ -22,6 +23,7 @@ class AppState {
     showChannels: true,
     hwdecEnabled: false,
     aspectMode: VideoAspectMode.original,
+    weatherCity: '',
   );
 
   final ThemeMode themeMode;
@@ -41,6 +43,9 @@ class AppState {
   /// 视频画面显示模式（原始/拉伸/16:9/4:3/21:9）
   final VideoAspectMode aspectMode;
 
+  /// 天气城市名；空串表示「自动」（IP 反查定位）
+  final String weatherCity;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
@@ -48,6 +53,7 @@ class AppState {
     bool? showChannels,
     bool? hwdecEnabled,
     VideoAspectMode? aspectMode,
+    String? weatherCity,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
@@ -55,5 +61,6 @@ class AppState {
         showChannels: showChannels ?? this.showChannels,
         hwdecEnabled: hwdecEnabled ?? this.hwdecEnabled,
         aspectMode: aspectMode ?? this.aspectMode,
+        weatherCity: weatherCity ?? this.weatherCity,
       );
 }

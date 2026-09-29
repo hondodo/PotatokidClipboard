@@ -59,3 +59,10 @@ class ChangeAspectMode extends AppEvent {
 
   final VideoAspectMode mode;
 }
+
+/// 设置天气城市（空串表示「自动」，可选城市来自 `.env` 的 `WEATHER_CITIES`）
+class ChangeWeatherCity extends AppEvent {
+  const ChangeWeatherCity(this.city);
+
+  final String city;
+}

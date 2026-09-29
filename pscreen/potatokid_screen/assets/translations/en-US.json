@@ -35,5 +35,7 @@
   "video_aspect_cover": "Cover",
   "video_aspect_16_9": "16:9",
   "video_aspect_4_3": "4:3",
-  "video_aspect_21_9": "21:9"
+  "video_aspect_21_9": "21:9",
+  "weather_city": "Weather City",
+  "weather_city_auto": "Auto"
 }

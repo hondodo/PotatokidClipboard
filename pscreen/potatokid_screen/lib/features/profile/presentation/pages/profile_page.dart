@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:potatokid_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -10,6 +11,8 @@ import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
+import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 
 /// 支持切换的语言列表（Locale 与翻译文件 key 一一对应）
 const List<(Locale, String)> _supportedLanguages = <(Locale, String)>[
@@ -44,9 +47,23 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号（最后一行）。
   int get _refreshRow => ProfileFocusController.rowCount - 1;
 
+  /// 切换天气城市后延迟生效的时间：5 秒内再次变更则重新计时，以最后一次为准。
+  static const Duration _cityApplyDelay = Duration(seconds: 5);
+
+  /// 天气城市的可选项：首项空串代表「自动」（IP 反查），
+  /// 其余为 `.env` 中 `WEATHER_CITIES` 配置的城市名。
+  static List<String> get _weatherCityOptions =>
+      <String>['', ...AppConfig.weatherCities];
+
+  /// 天气城市选项的展示文案：空串为「自动」，其余直接显示城市名。
+  static String _weatherCityLabel(String city) =>
+      city.isEmpty ? 'weather_city_auto'.tr() : city;
+
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
   bool _refreshing = false;
+
+  Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
   final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(
@@ -74,8 +91,20 @@ class _ProfilePageState extends State<ProfilePage> {
     if (ProfileFocusController.instance.onActivateRow == _onActivateRow) {
       ProfileFocusController.instance.onActivateRow = null;
     }
+    _cityApplyTimer?.cancel();
     _refreshMsg.dispose();
     super.dispose();
+  }
+
+  /// 安排天气城市生效：取消上一次计时，5 秒后无新变更才真正重新拉取天气。
+  ///
+  /// 防止连续按左/右键步进城市时每档都发一次请求。
+  void _scheduleCityApply() {
+    _cityApplyTimer?.cancel();
+    _cityApplyTimer = Timer(_cityApplyDelay, () {
+      if (!mounted) return;
+      context.read<WeatherBloc>().add(const LoadWeather());
+    });
   }
 
   /// 焦点或行号变化时，让选中行滚入可视区，避免被屏幕边缘裁切。
@@ -158,7 +187,15 @@ class _ProfilePageState extends State<ProfilePage> {
         final int next = (val + delta).clamp(0, opts.length - 1);
         context.read<AppBloc>().add(ChangeAspectMode(opts[next]));
         break;
-      case 5: // 刷新频道（左/右键按下同样触发）
+      case 5: // 天气城市：自动 → .env 配置的城市 步进（5 秒后生效）
+        final List<String> opts = _weatherCityOptions;
+        final int cur = opts.indexOf(context.read<AppBloc>().state.weatherCity);
+        final int val = cur < 0 ? 0 : cur;
+        final int next = (val + delta).clamp(0, opts.length - 1);
+        context.read<AppBloc>().add(ChangeWeatherCity(opts[next]));
+        _scheduleCityApply();
+        break;
+      case 6: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
     }
@@ -187,7 +224,9 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 12),
               KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
               const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[5], child: _buildRefreshRow(inContent, c)),
+              KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
+              const SizedBox(height: 12),
+              KeyedSubtree(key: _rowKeys[6], child: _buildRefreshRow(inContent, c)),
             ],
           );
         },
@@ -315,6 +354,35 @@ class _ProfilePageState extends State<ProfilePage> {
           },
           onStepRight: () {
             c.select(4);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「天气城市」行：自动（IP 反查）→ `.env` 配置的城市 步进。
+  ///
+  /// 改动会在 5 秒后统一生效（见 [_scheduleCityApply]）。
+  Widget _buildWeatherCityRow(bool inContent, ProfileFocusController c) {
+    final List<String> options = _weatherCityOptions;
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final int cur = options.indexOf(state.weatherCity);
+        final int val = cur < 0 ? 0 : cur;
+        return _SettingRow(
+          highlighted: inContent && c.row == 5,
+          label: 'weather_city'.tr(),
+          value: _weatherCityLabel(options[val]),
+          canStepLeft: val > 0,
+          canStepRight: val < options.length - 1,
+          onTap: () => c.select(5),
+          onStepLeft: () {
+            c.select(5);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(5);
             c.step(1);
           },
         );

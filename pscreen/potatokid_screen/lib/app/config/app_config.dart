@@ -24,6 +24,11 @@ class AppConfig {
   static String seniverseIpGeoHost = 'https://ipwho.is/';
   static String seniverseIpGeoHostB = 'https://ipapi.co/json/';
 
+  /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
+  ///
+  /// 来源 `.env` 的 `WEATHER_CITIES`（逗号分隔），顺序即左/右步进顺序。
+  static List<String> weatherCities = const <String>[];
+
   static Future<void> initialize() async {
     try {
       await dotenv.load(fileName: '.env');
@@ -43,6 +48,8 @@ class AppConfig {
     seniverseWeatherHost = _readString('SENIVERSE_WEATHER_HOST', seniverseWeatherHost);
     seniverseIpGeoHost = _readString('SENIVERSE_IP_GEO_HOST', seniverseIpGeoHost);
     seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
+
+    weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
   }
 
   /// V3 请求用的 key：优先取显式配置的 V3 key，否则回退到私钥（二者常为同一值）。
@@ -59,4 +66,16 @@ class AppConfig {
 
   static bool _readBool(String key, bool fallback) =>
       _readString(key, fallback.toString()).toLowerCase() == 'true';
+
+  /// 读取逗号分隔的字符串列表；空值/全空白时返回 [fallback]。
+  static List<String> _readStringList(String key, List<String> fallback) {
+    final String raw = _readString(key, '');
+    if (raw.trim().isEmpty) return fallback;
+    final List<String> items = raw
+        .split(',')
+        .map((String s) => s.trim())
+        .where((String s) => s.isNotEmpty)
+        .toList();
+    return items.isEmpty ? fallback : items;
+  }
 }

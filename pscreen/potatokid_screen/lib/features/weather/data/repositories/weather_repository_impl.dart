@@ -1,11 +1,12 @@
 import 'package:potatokid_screen/core/logging/log_service.dart';
+import 'package:potatokid_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/weather/data/datasources/remote/ip_geo_service.dart';
 import 'package:potatokid_screen/features/weather/data/datasources/remote/weather_api_service.dart';
 import 'package:potatokid_screen/features/weather/domain/models/weather_models.dart';
 import 'package:potatokid_screen/features/weather/domain/repositories/weather_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 天气仓库实现：定位（IP 反查 + 缓存兜底）+ 拉取天气。
+/// 天气仓库实现：定位（手动城市 / IP 反查 + 缓存兜底）+ 拉取天气。
 class WeatherRepositoryImpl implements WeatherRepository {
   WeatherRepositoryImpl({WeatherApiService? api, IpGeoService? ipGeo})
       : _api = api ?? WeatherApiService(),
@@ -16,11 +17,19 @@ class WeatherRepositoryImpl implements WeatherRepository {
   final WeatherApiService _api;
   final IpGeoService _ipGeo;
 
-  /// 每次调用都重新 IP 反查，保证换网络/换出口 IP 后位置能自动纠正。
+  /// 解析天气查询用的位置。
   ///
-  /// 缓存仅在反查失败时作为兜底，避免瞬时失败导致定位丢失。
+  /// - 「我的」页选了固定城市 → 直接返回该城市名，不做 IP 反查；
+  /// - 选「自动」（城市名为空）→ 每次重新 IP 反查，换网络/换出口 IP 后位置能
+  ///   自动纠正，缓存仅在反查失败时作为兜底，避免瞬时失败导致定位丢失。
   @override
   Future<String?> resolveLocation() async {
+    // 设置在 AppBloc 构造时异步加载，这里确保读取前已完成。
+    await AppSettings.instance.ensureLoaded();
+
+    final String fixedCity = AppSettings.instance.weatherCity;
+    if (fixedCity.isNotEmpty) return fixedCity;
+
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String? cached = prefs.getString(_keyLocation);
 
