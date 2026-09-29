@@ -10,6 +10,7 @@ import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 /// 地址是**两跳**的：先请求 [AppConstants.iptvM3uUrl]，拿到的是一个指向真正
 /// 播放列表的第三方链接（纯文本，可能带空行/注释）；再请求该链接才是 m3u 内容。
 /// 复用 [DioManager]（连通性检查 + 重试），原始文本交由 [IptvM3uParser] 解析。
+/// 两跳中凡是指向 GitHub 的地址都会套加速前缀，见 [_withGithubProxy]。
 class IptvApiService {
   /// 拉取并解析远程频道列表。
   Future<List<IptvChannel>> fetchChannels() async {
@@ -32,11 +33,28 @@ class IptvApiService {
 
   Future<String> _getPlain(String url) async {
     final dynamic data = await DioManager().send(
-      url: url,
+      url: _withGithubProxy(url),
       responseType: ResponseType.plain,
       notTipNetError: true,
     );
     return data is String ? data : '';
+  }
+
+  /// GitHub 直链套加速前缀，其余域名原样返回。
+  ///
+  /// 第二跳拿到的常是 GitHub release 下载地址，国内直连会在连接阶段超时；
+  /// 前缀由 [AppConstants.githubProxyPrefix] 配置，为空则不改写。
+  static String _withGithubProxy(String url) {
+    final String prefix = AppConstants.githubProxyPrefix;
+    if (prefix.isEmpty || url.startsWith(prefix)) return url;
+    final Uri? uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    final String host = uri.host.toLowerCase();
+    final bool isGithub = host == 'github.com' ||
+        host.endsWith('.github.com') ||
+        host == 'githubusercontent.com' ||
+        host.endsWith('.githubusercontent.com');
+    return isGithub ? '$prefix$url' : url;
   }
 
   /// 取文本中第一个 http(s) 链接行（跳过 BOM/空行/注释）。

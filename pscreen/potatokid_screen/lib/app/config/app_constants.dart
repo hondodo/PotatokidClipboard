@@ -15,4 +15,10 @@ class AppConstants {
       'http://ptool.w1.luyouxia.net/guovinapiurl.txt';
   // 'https://ghproxy.net/raw.githubusercontent.com/Guovin/TV/gd/output/result.m3u';
   // 'https://github.com/Guovin/iptv-api/releases/download/playlist-20260928-123124-utc-plus-0800/result.m3u';
+
+  /// GitHub 直链加速前缀，用法为 `{prefix}{原始 GitHub URL}`。
+  ///
+  /// 上游 `guovinapiurl.txt` 返回的是 GitHub release 下载地址，国内网络直连
+  /// 会在连接阶段即超时；请求前套一层镜像前缀中转。留空则不做改写。
+  static const String githubProxyPrefix = 'https://gh-proxy.com/';
 }
