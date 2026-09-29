@@ -13,11 +13,12 @@ class AppState {
     required this.weatherCity,
   });
 
-  /// 初始状态：跟随系统主题，导航条与频道条默认可见，
+  /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
+  /// 导航条与频道条默认可见，
   /// 悬浮遥控器默认**隐藏**（需在「我的」页开启），
   /// 硬解默认**关闭**（TV 设备兼容性考虑，用户可在「我的」页开启）。
   factory AppState.initial() => const AppState._(
-    themeMode: ThemeMode.system,
+    themeMode: ThemeMode.dark,
     isChromeVisible: true,
     showFloatingRemote: false,
     showChannels: true,

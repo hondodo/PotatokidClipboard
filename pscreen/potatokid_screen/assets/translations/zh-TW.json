@@ -37,5 +37,7 @@
   "video_aspect_4_3": "4:3",
   "video_aspect_21_9": "21:9",
   "weather_city": "天氣城市",
-  "weather_city_auto": "自動"
+  "weather_city_auto": "自動",
+  "weather_data_source": "天氣資料來源",
+  "weather_source_seniverse": "心知天氣"
 }

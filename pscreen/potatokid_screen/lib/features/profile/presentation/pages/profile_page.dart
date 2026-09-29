@@ -44,8 +44,11 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号（最后一行）。
-  int get _refreshRow => ProfileFocusController.rowCount - 1;
+  /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号。
+  static const int _refreshRow = 6;
+
+  /// 「天气数据来源」行（只读说明行，始终为最后一行）。
+  static const int _weatherSourceRow = ProfileFocusController.rowCount - 1;
 
   /// 切换天气城市后延迟生效的时间：5 秒内再次变更则重新计时，以最后一次为准。
   static const Duration _cityApplyDelay = Duration(seconds: 5);
@@ -151,7 +154,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }));
   }
 
-  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/刷新频道）。
+  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/画面/天气城市/刷新频道）。
   void _stepRow(int row, int delta) {
     if (!mounted) return;
     switch (row) {
@@ -198,6 +201,8 @@ class _ProfilePageState extends State<ProfilePage> {
       case 6: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
+      case 7: // 天气数据来源：唯一选项，只读说明，无值可切换
+        break;
     }
   }
 
@@ -227,6 +232,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
               const SizedBox(height: 12),
               KeyedSubtree(key: _rowKeys[6], child: _buildRefreshRow(inContent, c)),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_weatherSourceRow],
+                child: _buildWeatherSourceRow(inContent, c),
+              ),
             ],
           );
         },
@@ -410,6 +420,23 @@ class _ProfilePageState extends State<ProfilePage> {
           },
         );
       },
+    );
+  }
+
+  /// 「天气数据来源」行：只读说明行。
+  ///
+  /// 当前仅接入心知天气一家，没有可切换的值，因此左右步进指示不显示、
+  /// 左右键也不改变任何内容；它仍可作为普通行被选中（高亮）。
+  Widget _buildWeatherSourceRow(bool inContent, ProfileFocusController c) {
+    return _SettingRow(
+      highlighted: inContent && c.row == _weatherSourceRow,
+      label: 'weather_data_source'.tr(),
+      value: 'weather_source_seniverse'.tr(),
+      canStepLeft: false,
+      canStepRight: false,
+      onTap: () => c.select(_weatherSourceRow),
+      onStepLeft: () => c.select(_weatherSourceRow),
+      onStepRight: () => c.select(_weatherSourceRow),
     );
   }
 }

@@ -1,14 +1,89 @@
+import 'package:potatokid_screen/app/config/app_config.dart';
+import 'package:potatokid_screen/features/iptv/data/datasources/local/iptv_asset_source.dart';
 import 'package:potatokid_screen/features/iptv/data/datasources/remote/iptv_api_service.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/domain/repositories/iptv_repository.dart';
 
-/// IPTV 仓库实现：调用数据源拉取原始文本，网络异常自然向上冒泡，
-/// 由 BLoC 统一捕获并转为 State。
+/// IPTV 仓库实现：负责「接口数据 → 最终播放列表」的合成。
+///
+/// 最终列表 = 包内 `collect.m3u`（置顶）+ 接口数据（或缓存/默认快照），
+/// 再按 `.env` 的 TV_NAME_ORDER 提权、剔除 TV_NAME_HIDE。
+/// 网络异常自然向上冒泡，由 BLoC 统一捕获并转为 State。
 class IptvRepositoryImpl implements IptvRepository {
-  IptvRepositoryImpl({IptvApiService? api}) : _api = api ?? IptvApiService();
+  IptvRepositoryImpl({IptvApiService? api, IptvAssetSource? assets})
+      : _api = api ?? IptvApiService(),
+        _assets = assets ?? IptvAssetSource();
 
   final IptvApiService _api;
+  final IptvAssetSource _assets;
+
+  /// collect 是随包资源、内容固定，首次读取后常驻内存。
+  List<IptvChannel>? _collect;
 
   @override
-  Future<List<IptvChannel>> fetchChannels() => _api.fetchChannels();
+  Future<List<IptvChannel>> fetchRemoteChannels() => _api.fetchChannels();
+
+  @override
+  Future<List<IptvChannel>> loadDefaultRemoteChannels() =>
+      _assets.loadDefaultApi();
+
+  @override
+  Future<List<IptvChannel>> buildPlaylist(List<IptvChannel> remote) async {
+    final List<IptvChannel> collect =
+        _collect ??= await _assets.loadCollect();
+    return _compose(collect: collect, remote: remote);
+  }
+
+  /// collect 前置 + remote，同名合并源（collect 的源在前），
+  /// 再剔除 TV_NAME_HIDE、按 TV_NAME_ORDER 置顶。
+  static List<IptvChannel> _compose({
+    required List<IptvChannel> collect,
+    required List<IptvChannel> remote,
+  }) {
+    // 1) 按名称合并：collect 先出现，故其顺序与源优先级都在前。
+    final Map<String, IptvChannel> byName = <String, IptvChannel>{};
+    for (final IptvChannel channel in <IptvChannel>[...collect, ...remote]) {
+      final IptvChannel? exist = byName[channel.name];
+      byName[channel.name] =
+          exist == null ? channel : _mergeSameName(exist, channel);
+    }
+    final List<IptvChannel> merged = byName.values.toList(growable: false);
+
+    // 2) 剔除需要隐藏的频道。
+    final Set<String> hide = AppConfig.tvNameHide.toSet();
+    final List<IptvChannel> visible = merged
+        .where((IptvChannel c) => !hide.contains(c.name))
+        .toList(growable: false);
+
+    // 3) TV_NAME_ORDER 中列出的频道按配置顺序置顶（列表里不存在的忽略）。
+    final List<IptvChannel> head = <IptvChannel>[];
+    final Set<String> used = <String>{};
+    for (final String name in AppConfig.tvNameOrder) {
+      if (!used.add(name)) continue;
+      final int index = visible.indexWhere((IptvChannel c) => c.name == name);
+      if (index >= 0) head.add(visible[index]);
+    }
+    if (head.isEmpty) return visible;
+
+    final Set<String> headNames =
+        head.map((IptvChannel c) => c.name).toSet();
+    return <IptvChannel>[
+      ...head,
+      ...visible.where((IptvChannel c) => !headNames.contains(c.name)),
+    ];
+  }
+
+  /// 同名合并：源按出现顺序去重拼接（[first] 的源在前），台标/分组取首个非空。
+  static IptvChannel _mergeSameName(IptvChannel first, IptvChannel second) {
+    final List<String> sources = <String>[...first.sources];
+    for (final String url in second.sources) {
+      if (!sources.contains(url)) sources.add(url);
+    }
+    return IptvChannel(
+      name: first.name,
+      sources: sources,
+      logo: first.logo ?? second.logo,
+      group: first.group ?? second.group,
+    );
+  }
 }

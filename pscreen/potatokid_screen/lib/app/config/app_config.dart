@@ -29,6 +29,14 @@ class AppConfig {
   /// 来源 `.env` 的 `WEATHER_CITIES`（逗号分隔），顺序即左/右步进顺序。
   static List<String> weatherCities = const <String>[];
 
+  /// 频道列表优先顺序（`.env` 的 `TV_NAME_ORDER`，逗号分隔）。
+  ///
+  /// 命中的频道按此处的先后顺序置顶，未列出的保持原顺序排在其后。
+  static List<String> tvNameOrder = const <String>[];
+
+  /// 需要排除的频道名（`.env` 的 `TV_NAME_HIDE`，逗号分隔）。
+  static List<String> tvNameHide = const <String>[];
+
   static Future<void> initialize() async {
     try {
       await dotenv.load(fileName: '.env');
@@ -50,6 +58,9 @@ class AppConfig {
     seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
 
     weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
+
+    tvNameOrder = _readStringList('TV_NAME_ORDER', tvNameOrder);
+    tvNameHide = _readStringList('TV_NAME_HIDE', tvNameHide);
   }
 
   /// V3 请求用的 key：优先取显式配置的 V3 key，否则回退到私钥（二者常为同一值）。

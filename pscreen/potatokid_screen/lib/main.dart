@@ -28,7 +28,23 @@ void main() {
         DeviceOrientation.landscapeRight,
       ]);
 
-      // 1.1 初始化媒体播放库（media_kit）
+      // 1.1 沉浸式全屏：隐藏状态栏/导航栏。
+      // 电视/直播场景必须铺满全屏；同时避免 One UI 等系统对「非全屏窗口」
+      // 绘制窗口圆角（表现为画面左上/左下被切出弧线）。
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarContrastEnforced: false,
+        ),
+      );
+
+      // 1.2 初始化媒体播放库（media_kit）
       MediaKit.ensureInitialized();
 
       // 2. 加载 .env 与环境配置

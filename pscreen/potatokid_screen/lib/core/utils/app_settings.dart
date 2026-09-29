@@ -27,7 +27,8 @@ class AppSettings {
 
   bool _loaded = false;
 
-  ThemeMode _themeMode = ThemeMode.system;
+  /// 主题模式默认**深色**（未持久化过任何选择时生效，用户可在「我的」页改）。
+  ThemeMode _themeMode = ThemeMode.dark;
   bool _showFloatingRemote = false;
 
   /// 默认关闭硬解：小米盒子等 Amlogic 芯片 TV 设备硬解路径兼容性差，

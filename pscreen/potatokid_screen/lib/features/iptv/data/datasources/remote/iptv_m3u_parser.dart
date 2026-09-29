@@ -30,6 +30,9 @@ class IptvM3uParser {
 
       final _ParsedEntry? entry = _parseEntry(lines, i);
       if (entry == null || entry.name.isEmpty || entry.url.isEmpty) continue;
+      // Guovin 等播放列表会在开头插入一条 group-title 为「🕘️更新时间」的条目，
+      // 其「频道名」实际是时间戳，属元信息而非频道，直接忽略。
+      if (_isMetaEntry(entry.group)) continue;
 
       final _RawEntry? existing = byName[entry.name];
       if (existing == null) {
@@ -50,6 +53,11 @@ class IptvM3uParser {
         byName[name]!.toChannel(),
     ];
   }
+
+  /// 是否为播放列表的元信息条目（非真实频道）。
+  /// 目前指 Guovin 输出的 `group-title` 含「更新时间」的时间戳条目。
+  static bool _isMetaEntry(String? group) =>
+      group != null && group.contains('更新时间');
 
   static _ParsedEntry? _parseEntry(List<String> lines, int index) {
     final String inf = lines[index];

@@ -88,6 +88,9 @@ flutter:
     - assets/translations/
     - assets/weather/white/
     - assets/weather/black/
+    # 频道列表资源：collect.m3u（自建精选，始终置顶）+
+    # guovin-api.m3u（接口不可用时的默认快照）
+    - assets/datas/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
