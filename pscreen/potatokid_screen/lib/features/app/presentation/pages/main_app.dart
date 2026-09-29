@@ -208,6 +208,12 @@ class MainApp extends StatelessWidget {
 
   void _pressOk(BuildContext context) {
     final AppState state = context.read<AppBloc>().state;
+    // 「我的」页正文焦点内：OK 激活当前行（刷新频道等按钮动作），不显隐导航条。
+    if (navigationShell.currentIndex == _profileBranchIndex &&
+        ProfileFocusController.instance.focused) {
+      ProfileFocusController.instance.activate();
+      return;
+    }
     // 导航条隐藏时，OK 键优先用于呼出导航（全屏播放时用户的主要意图），
     // 不交给焦点 widget 的 Activate 动作，避免焦点落在视频/列表项上时 OK 无效。
     if (!state.isChromeVisible &&

@@ -9,7 +9,9 @@ class IptvModule {
 
   static Future<void> register() async {
     getIt.registerLazySingleton<IptvRepository>(() => IptvRepositoryImpl());
-    getIt.registerFactory<IptvBloc>(
+    // IptvBloc 用单例，使「我的」页与首页共享同一个状态机，
+    // 修改/刷新频道列表后首页能跟随更新。
+    getIt.registerLazySingleton<IptvBloc>(
       () => IptvBloc(repository: getIt<IptvRepository>()),
     );
   }

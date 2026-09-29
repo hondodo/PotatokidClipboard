@@ -12,6 +12,8 @@ import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(
@@ -58,6 +60,12 @@ void main() {
           child: MultiBlocProvider(
             providers: [
               BlocProvider<AppBloc>(create: (_) => Injection.get<AppBloc>()),
+              // 直播频道状态机：全局共享（首页、我的页都用），
+              // 启动即用缓存优先加载，避免空屏等待。
+              BlocProvider<IptvBloc>(
+                create: (_) =>
+                    Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true)),
+              ),
             ],
             child: const App(),
           ),

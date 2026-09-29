@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 
 /// 支持切换的语言列表（Locale 与翻译文件 key 一一对应）
@@ -36,10 +40,18 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号（最后一行）。
+  int get _refreshRow => ProfileFocusController.rowCount - 1;
+
+  /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
+  final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
+  bool _refreshing = false;
+
   @override
   void initState() {
     super.initState();
     ProfileFocusController.instance.onStepRow = _stepRow;
+    ProfileFocusController.instance.onActivateRow = _onActivateRow;
   }
 
   @override
@@ -47,10 +59,38 @@ class _ProfilePageState extends State<ProfilePage> {
     if (ProfileFocusController.instance.onStepRow == _stepRow) {
       ProfileFocusController.instance.onStepRow = null;
     }
+    if (ProfileFocusController.instance.onActivateRow == _onActivateRow) {
+      ProfileFocusController.instance.onActivateRow = null;
+    }
+    _refreshMsg.dispose();
     super.dispose();
   }
 
-  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解）。
+  /// OK/触摸激活当前行：仅刷新频道行有动作。
+  void _onActivateRow(int row) {
+    if (row == _refreshRow && mounted) _refreshChannels();
+  }
+
+  /// 触发「刷新频道」：向全局 [IptvBloc] 派发后台刷新，并给出状态反馈。
+  void _refreshChannels() {
+    if (!mounted || _refreshing) return;
+    _refreshing = true;
+    _refreshMsg.value = 'settings_refreshing'.tr();
+    final Completer<bool> done = Completer<bool>();
+    context.read<IptvBloc>().add(LoadIptv(isRefresh: true, completer: done));
+    unawaited(done.future.then((bool ok) {
+      if (!mounted) return;
+      _refreshing = false;
+      _refreshMsg.value =
+          ok ? 'settings_refresh_done'.tr() : 'settings_refresh_failed'.tr();
+      // 几秒后恢复空闲，便于再次操作。
+      Timer(const Duration(seconds: 2), () {
+        if (mounted && !_refreshing) _refreshMsg.value = null;
+      });
+    }));
+  }
+
+  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/刷新频道）。
   void _stepRow(int row, int delta) {
     if (!mounted) return;
     switch (row) {
@@ -79,6 +119,9 @@ class _ProfilePageState extends State<ProfilePage> {
         final bool hwdec = context.read<AppBloc>().state.hwdecEnabled;
         context.read<AppBloc>().add(SetHardwareDecode(!hwdec));
         break;
+      case 4: // 刷新频道（左/右键按下同样触发）
+        _refreshChannels();
+        break;
     }
   }
 
@@ -102,6 +145,8 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildRemoteRow(inContent, c),
               const SizedBox(height: 12),
               _buildHwdecRow(inContent, c),
+              const SizedBox(height: 12),
+              _buildRefreshRow(inContent, c),
             ],
           );
         },
@@ -203,6 +248,29 @@ class _ProfilePageState extends State<ProfilePage> {
           onStepRight: () {
             c.select(3);
             c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「刷新频道」行：按下右箭头 / OK / 触摸即重新拉取线上频道列表。
+  Widget _buildRefreshRow(bool inContent, ProfileFocusController c) {
+    return ListenableBuilder(
+      listenable: _refreshMsg,
+      builder: (context, _) {
+        final bool busy = _refreshing;
+        return _SettingRow(
+          highlighted: inContent && c.row == _refreshRow,
+          label: 'settings_refresh_channels'.tr(),
+          value: _refreshMsg.value ?? '',
+          canStepLeft: false,
+          canStepRight: !busy,
+          onTap: () => c.select(_refreshRow),
+          onStepLeft: () => c.select(_refreshRow),
+          onStepRight: () {
+            c.select(_refreshRow);
+            _refreshChannels();
           },
         );
       },

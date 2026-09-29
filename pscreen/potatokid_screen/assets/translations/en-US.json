@@ -24,5 +24,9 @@
   "language_en_us": "English",
   "language_ja_jp": "日本語",
   "settings_floating_remote": "Floating Remote",
-  "settings_hwdec": "Hardware Decode"
+  "settings_hwdec": "Hardware Decode",
+  "settings_refresh_channels": "Refresh Channels",
+  "settings_refreshing": "Refreshing…",
+  "settings_refresh_done": "Updated",
+  "settings_refresh_failed": "Update failed"
 }

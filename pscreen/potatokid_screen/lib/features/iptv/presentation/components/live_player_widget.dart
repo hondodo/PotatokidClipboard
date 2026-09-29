@@ -127,10 +127,25 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   @override
   void didUpdateWidget(covariant LivePlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channels.length != widget.channels.length) {
+    if (!_sameChannels(oldWidget.channels, widget.channels)) {
       _syncChannels();
       _openChannel(_channelController.index, force: true);
     }
+  }
+
+  /// 两个频道列表是否内容一致（名称 + 源列表逐一比较）。
+  bool _sameChannels(List<IptvChannel> a, List<IptvChannel> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      final IptvChannel x = a[i];
+      final IptvChannel y = b[i];
+      if (x.name != y.name) return false;
+      if (x.sources.length != y.sources.length) return false;
+      for (int j = 0; j < x.sources.length; j++) {
+        if (x.sources[j] != y.sources[j]) return false;
+      }
+    }
+    return true;
   }
 
   void _syncChannels() {
@@ -147,11 +162,41 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 锁屏/切后台时 Android 会销毁播放 Surface；恢复前台需重开当前源才能继续播。
     if (state == AppLifecycleState.resumed) {
+      // 返回前台不再无条件重开：先做短时健康检测，只有确认播放已损坏才重开，
+      // 避免「短暂离开后回来其实还能正常播」也被强制重新加载（闪黑、重新缓冲）。
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _playCurrentSource();
+        if (!mounted) return;
+        _checkResumeHealth();
       });
+    }
+  }
+
+  /// 恢复前台后的播放健康检测（解决 RN/媒体 Surface 被销毁的固有风险）。
+  ///
+  /// 给播放器一点时间重建 Surface / 恢复解码，随后综合判断：
+  /// - [playing] 为 true、出现过视频帧（width>0）、且 position 相对「回前台起点」
+  ///   持续推进（说明解码管线仍在出帧）→ 健康，不打扰；
+  /// - 否则判定损坏（Surface 可能已销毁 / 解码停滞），对当前源重新 play。
+  Future<void> _checkResumeHealth() async {
+    final Player? p = _player;
+    if (p == null) return;
+    final Duration resumePos = p.state.position;
+    // 重建 Surface / 恢复解码的缓冲时间。正常播放时 1.5s 内 position 会持续推进。
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (!mounted || _player != p) return;
+    final dynamic s = p.state;
+    final bool playing = s.playing;
+    final bool hasFrame = (s.width ?? 0) > 0;
+    final bool advanced =
+        (s.position - resumePos) >= const Duration(milliseconds: 500);
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
+      '位置推进${(s.position - resumePos).inMilliseconds}ms',
+    );
+    if (!(playing && hasFrame && advanced)) {
+      // 确认有问题才重开当前源，且此时无需走 700ms 冷却 / 多源回退。
+      await _playCurrentSource();
     }
   }
 
@@ -284,7 +329,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _lastOpenAt = DateTime.now();
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
     _startHangWatchdog();
-    Injection.get<LogService>().info('[LivePlayerWidget] 播放频道${channel.name}源(${idx + 1}/${channel.sources.length})');
+    Injection.get<LogService>().info('[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length})');
     await _player?.open(Media(channel.sources[idx]));
   }
 
@@ -330,7 +375,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (channel == null || channel.sources.isEmpty) return;
     final int n = channel.sources.length;
     _currentSource = (_currentSource + delta + n) % n;
-    Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道${channel.name}源(${_currentSource + 1}/$n)');
+    Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
     if (mounted) _showChannelToast(_channelSourceLabel());
@@ -352,7 +397,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _handleFailureBusy = true;
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
-      '[LivePlayerWidget] 切换频道${channel.name}源'
+      '[LivePlayerWidget] 切换频道:${channel.name},源'
       '(${_currentSource + 1}/${channel.sources.length})，原因: $reason',
     );
     await _playCurrentSource();

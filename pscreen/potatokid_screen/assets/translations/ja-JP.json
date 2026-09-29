@@ -24,5 +24,9 @@
   "language_en_us": "English",
   "language_ja_jp": "日本語",
   "settings_floating_remote": "フローティングリモコン",
-  "settings_hwdec": "ハードウェアデコード"
+  "settings_hwdec": "ハードウェアデコード",
+  "settings_refresh_channels": "チャンネルを更新",
+  "settings_refreshing": "更新中…",
+  "settings_refresh_done": "更新完了",
+  "settings_refresh_failed": "更新に失敗"
 }

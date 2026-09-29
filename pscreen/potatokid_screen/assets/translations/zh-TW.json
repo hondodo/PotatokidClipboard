@@ -24,5 +24,9 @@
   "language_en_us": "English",
   "language_ja_jp": "日本語",
   "settings_floating_remote": "懸浮遙控器",
-  "settings_hwdec": "硬體解碼"
+  "settings_hwdec": "硬體解碼",
+  "settings_refresh_channels": "重新整理頻道",
+  "settings_refreshing": "重新整理中…",
+  "settings_refresh_done": "已重新整理",
+  "settings_refresh_failed": "重新整理失敗"
 }

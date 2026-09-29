@@ -24,5 +24,9 @@
   "language_en_us": "English",
   "language_ja_jp": "日本語",
   "settings_floating_remote": "悬浮遥控器",
-  "settings_hwdec": "硬件解码"
+  "settings_hwdec": "硬件解码",
+  "settings_refresh_channels": "刷新频道",
+  "settings_refreshing": "刷新中…",
+  "settings_refresh_done": "已刷新",
+  "settings_refresh_failed": "刷新失败"
 }
