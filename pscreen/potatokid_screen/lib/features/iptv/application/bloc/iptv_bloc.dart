@@ -15,12 +15,14 @@ import 'package:potatokid_screen/features/iptv/domain/repositories/iptv_reposito
 /// 加载策略（缓存优先 + 后台替换）：
 /// - 首次启动（[LoadIptv.useCache]）：先读持久化缓存撑起画面，再网络刷新替换，
 ///   即便离线/加载失败也能继续用上一次成功的列表播放；
+/// - 无缓存首启（全新安装）：直接用包内默认频道列表立即显示，后台拉取线上，
+///   成功后替换，失败则保留默认列表继续可用；
 /// - 手动刷新（[LoadIptv.isRefresh]）：保留当前频道后台拉取，失败保持现状。
 /// - 加载成功写回缓存，供下次启动使用。
 ///
 /// 持久化缓存**只存接口数据**；展示列表 = 包内 `collect.m3u` + 接口数据
 /// （含排序/剔除），每次加载/刷新都重新拼接（见 [IptvRepository.buildPlaylist]）。
-/// 接口失败且无缓存时，用包内 `collect.m3u` + `guovin-api.m3u` 兜底，避免白屏。
+/// 接口失败且无缓存也无默认时才进入错误视图。
 class IptvBloc extends Bloc<IptvEvent, IptvState> {
   IptvBloc({required IptvRepository repository})
       : _repository = repository,
@@ -42,12 +44,23 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
       }
     }
 
-    // 2) 已有可显示的频道（含缓存 / 现行）→ 保留画面后台刷新；
-    //    否则（无缓存首启 / 从错误页重试）→ 全屏转圈等网络。
+    // 1b) 无缓存（全新安装）时，直接用包内默认频道列表撑起画面，
+    //     避免首启全屏 loading；后台继续拉取线上，成功后替换。
+    if (cached.isEmpty && state.channels.isEmpty) {
+      final List<IptvChannel> defaults = await _repository.buildPlaylist(
+        await _repository.loadDefaultRemoteChannels(),
+      );
+      if (defaults.isNotEmpty) {
+        cached = defaults;
+      }
+    }
+
+    // 2) 已有可显示的频道（含缓存 / 现行 / 包内默认）→ 保留画面后台刷新；
+    //    否则（无缓存且无默认 / 从错误页重试）→ 全屏转圈等网络。
     final bool keepCurrent = state.channels.isNotEmpty || cached.isNotEmpty;
     if (keepCurrent) {
       if (state.channels.isEmpty && cached.isNotEmpty) {
-        // 先用缓存撑起播放器，避免网络在途时画面被置空。
+        // 先用缓存/默认列表撑起播放器，避免网络在途时画面被置空。
         emit(state.copyWith(channels: cached));
       }
       emit(state.copyWith(isLoading: false, isRefreshing: true, clearError: true));
