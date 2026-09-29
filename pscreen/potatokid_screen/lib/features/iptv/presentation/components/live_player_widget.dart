@@ -16,6 +16,9 @@ import 'package:potatokid_screen/features/iptv/application/home_now_playing_cont
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
+import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
+import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
+import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
 
 /// 全屏直播播放组件：持有 [Player]/[VideoController]，进入自动播放首个频道。
 ///
@@ -189,8 +192,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final dynamic s = p.state;
     final bool playing = s.playing;
     final bool hasFrame = (s.width ?? 0) > 0;
-    final bool advanced =
-        (s.position - resumePos) >= const Duration(milliseconds: 500);
+    final bool advanced = (s.position - resumePos) >= const Duration(milliseconds: 500);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
       '位置推进${(s.position - resumePos).inMilliseconds}ms',
@@ -334,12 +336,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await _player?.open(Media(channel.sources[idx]));
   }
 
-  /// 左下角频道名提示文案：`频道名称 (源 i/N)`。
+  /// 左下角频道名提示文案：`频道名称\n(源 i/N)`,如果要分割，可以用\n来切分。
   String _channelSourceLabel() {
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return '';
     final int i = (_currentSource + 1).clamp(1, channel.sources.length);
-    return '${channel.name} (源 $i/${channel.sources.length})';
+    return '${channel.name}\n源 $i/${channel.sources.length}';
   }
 
   /// 启动“打开后长时间无画面”看门狗。
@@ -463,8 +465,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         children: <Widget>[
           // 视频始终全屏铺满；fit/aspectRatio 跟随「我的」页的画面显示模式。
           BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) =>
-                previous.aspectMode != current.aspectMode,
+            buildWhen: (previous, current) => previous.aspectMode != current.aspectMode,
             builder: (context, state) {
               final VideoAspectMode mode = state.aspectMode;
               return ColoredBox(
@@ -512,8 +513,20 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
           ValueListenableBuilder<String?>(
             valueListenable: _toastNameVN,
-            builder: (context, name, _) {
-              if (name == null) return const SizedBox.shrink();
+            builder: (context, text, _) {
+              if (text == null) return const SizedBox.shrink();
+              Color textColor = Colors.white;
+              String name = text;
+              String sourceTips = '';
+              if (text.contains('\n')) {
+                var labels = text.split('\n');
+                if (labels.isNotEmpty) {
+                  name = labels.first;
+                }
+                if (labels.length > 1) {
+                  sourceTips = labels[1];
+                }
+              }
               return Positioned(
                 left: 16,
                 bottom: 24,
@@ -523,7 +536,33 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                     color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(name, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(name, style: TextStyle(color: textColor, fontSize: 16)),
+                              Text(sourceTips, style: TextStyle(color: textColor, fontSize: 14)),
+                            ],
+                          ),
+                          SizedBox(width: 8),
+                          WeatherNowPanel(),
+                          SizedBox(width: 8),
+                          WeatherDaysPanel(),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Text('按下', style: TextStyle(color: textColor, fontSize: 16)),
+                          DirectionWidget(hotLeft: true, hotRight: true),
+                          Text('更换播放源', style: TextStyle(color: textColor, fontSize: 16)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

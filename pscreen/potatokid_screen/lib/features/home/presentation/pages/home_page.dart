@@ -24,26 +24,23 @@ class HomePage extends StatelessWidget {
             children: <Widget>[
               LivePlayerWidget(channels: state.channels),
               if (state.isRefreshing) const _RefreshingBadge(),
-              // 天气小组件：右上角悬浮，无数据时自动隐藏。
-              const Positioned(
-                top: 12,
-                right: 12,
-                child: SafeArea(child: WeatherPanel()),
-              ),
+              // // 天气小组件：右上角悬浮，无数据时自动隐藏。
+              // const Positioned(
+              //   top: 12,
+              //   right: 12,
+              //   child: SafeArea(child: WeatherPanel()),
+              // ),
             ],
           );
         }
         // 暂无频道：加载中 / 出错 / 空。
         if (state.isLoading || state.isRefreshing) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          );
+          return const Center(child: CircularProgressIndicator(color: Colors.white));
         }
         if (state.errorMessage != null) {
           return _ErrorView(
             message: state.errorMessage!,
-            onRetry: () =>
-                context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
+            onRetry: () => context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
           );
         }
         return Center(child: Text('common_empty'.tr()));
@@ -72,8 +69,7 @@ class _RefreshingBadge extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               ),
               const SizedBox(width: 8),
-              Text('settings_refreshing'.tr(),
-                  style: const TextStyle(color: Colors.white, fontSize: 14)),
+              Text('settings_refreshing'.tr(), style: const TextStyle(color: Colors.white, fontSize: 14)),
             ],
           ),
         ),
@@ -96,10 +92,7 @@ class _ErrorView extends StatelessWidget {
         children: <Widget>[
           Text(message, style: const TextStyle(color: Colors.white)),
           const SizedBox(height: 12),
-          FilledButton(
-            onPressed: onRetry,
-            child: Text('common_retry'.tr()),
-          ),
+          FilledButton(onPressed: onRetry, child: Text('common_retry'.tr())),
         ],
       ),
     );
