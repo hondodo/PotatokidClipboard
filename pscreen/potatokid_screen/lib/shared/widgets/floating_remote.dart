@@ -19,7 +19,9 @@ enum RemoteButton {
 /// 底层不伪造系统按键事件（当前 Flutter 版本已无 [KeyEventSimulator]），
 /// 而是通过 [RemoteButton] 回调到壳层 MainApp，复用与真实遥控器一致的
 /// 处理逻辑（焦点移动切 tab/切频道、菜单键显隐导航条、上/下切时钟样式）。
-/// 显隐由全局 [AppState.showFloatingRemote] 控制（在「我的」页开关）。
+/// 显隐由全局 [AppState.showFloatingRemote]（在「我的」页开关）与
+/// [AppState.isChromeVisible] 共同决定：开启开关后，遥控器**跟随顶部导航条显隐**
+/// （点屏切换 / 10 秒自动收起时一并隐藏）；「我的」页 tabs 恒显示，故遥控器保持显示。
 class FloatingRemote extends StatefulWidget {
   const FloatingRemote({super.key, required this.onKey});
 
@@ -37,9 +39,13 @@ class _FloatingRemoteState extends State<FloatingRemote> {
   Widget build(BuildContext context) {
     return BlocBuilder<AppBloc, AppState>(
       buildWhen: (previous, current) =>
-          previous.showFloatingRemote != current.showFloatingRemote,
+          previous.showFloatingRemote != current.showFloatingRemote ||
+          previous.isChromeVisible != current.isChromeVisible,
       builder: (context, state) {
-        if (!state.showFloatingRemote) return const SizedBox.shrink();
+        // 跟随顶部导航条显隐：开关关闭或导航条隐藏时一并收起。
+        if (!state.showFloatingRemote || !state.isChromeVisible) {
+          return const SizedBox.shrink();
+        }
         return Positioned(
           left: _offset.dx,
           top: _offset.dy,
