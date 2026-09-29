@@ -629,7 +629,15 @@ class _ClockPanelState extends State<_ClockPanel> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Text(_timeFmt.format(_now), style: TextStyle(color: widget.color, fontSize: 32, height: 1.1)),
+        Text(
+          _timeFmt.format(_now),
+          style: TextStyle(
+            color: widget.color,
+            fontSize: 32,
+            height: 1.1,
+            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          ),
+        ),
         Text(subtitle, style: TextStyle(color: widget.color, fontSize: 14)),
         Text(dateInChina, style: TextStyle(color: widget.color, fontSize: 14)),
       ],
