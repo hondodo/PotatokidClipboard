@@ -10,6 +10,20 @@ class AppConfig {
   static bool enableProxy = false;
   static bool enableDevTools = true;
 
+  /// 心知天气 V3（免费版）：key 私钥鉴权
+  static String seniverseV3Key = '';
+  static String seniverseWeatherHostV3 = 'https://api.seniverse.com/v3';
+
+  /// IP 反查城市不受免费版覆盖（AP010006）时的默认回退城市。
+  static String seniverseDefaultLocation = '吴川';
+
+  /// 心知天气 V4（公钥签名验证，需购买 V4 数据产品权限）
+  static String seniversePublicKey = '';
+  static String seniverseSecretKey = '';
+  static String seniverseWeatherHost = 'https://api.seniverse.com/v4';
+  static String seniverseIpGeoHost = 'https://ipwho.is/';
+  static String seniverseIpGeoHostB = 'https://ipapi.co/json/';
+
   static Future<void> initialize() async {
     try {
       await dotenv.load(fileName: '.env');
@@ -20,7 +34,20 @@ class AppConfig {
     isDebug = _readBool('IS_DEBUG', isDebug);
     enableProxy = _readBool('ENABLE_PROXY', enableProxy);
     enableDevTools = _readBool('ENABLE_DEV_TOOLS', enableDevTools);
+
+    seniverseV3Key = _readString('SENIVERSE_V3_KEY', seniverseV3Key);
+    seniverseWeatherHostV3 = _readString('SENIVERSE_WEATHER_HOST_V3', seniverseWeatherHostV3);
+    seniverseDefaultLocation = _readString('SENIVERSE_DEFAULT_LOCATION', seniverseDefaultLocation);
+    seniversePublicKey = _readString('SENIVERSE_PUBLIC_KEY', seniversePublicKey);
+    seniverseSecretKey = _readString('SENIVERSE_SECRET_KEY', seniverseSecretKey);
+    seniverseWeatherHost = _readString('SENIVERSE_WEATHER_HOST', seniverseWeatherHost);
+    seniverseIpGeoHost = _readString('SENIVERSE_IP_GEO_HOST', seniverseIpGeoHost);
+    seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
   }
+
+  /// V3 请求用的 key：优先取显式配置的 V3 key，否则回退到私钥（二者常为同一值）。
+  static String get seniverseV3KeyEffective =>
+      seniverseV3Key.isNotEmpty ? seniverseV3Key : seniverseSecretKey;
 
   static String _readString(String key, String fallback) {
     try {

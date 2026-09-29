@@ -48,15 +48,26 @@ class _ProfilePageState extends State<ProfilePage> {
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
   bool _refreshing = false;
 
+  /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
+  final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(
+    ProfileFocusController.rowCount,
+    (_) => GlobalKey<State>(),
+  );
+
+  int _prevRow = 0;
+  bool _prevFocused = false;
+
   @override
   void initState() {
     super.initState();
     ProfileFocusController.instance.onStepRow = _stepRow;
     ProfileFocusController.instance.onActivateRow = _onActivateRow;
+    ProfileFocusController.instance.addListener(_onFocusChanged);
   }
 
   @override
   void dispose() {
+    ProfileFocusController.instance.removeListener(_onFocusChanged);
     if (ProfileFocusController.instance.onStepRow == _stepRow) {
       ProfileFocusController.instance.onStepRow = null;
     }
@@ -65,6 +76,26 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     _refreshMsg.dispose();
     super.dispose();
+  }
+
+  /// 焦点或行号变化时，让选中行滚入可视区，避免被屏幕边缘裁切。
+  void _onFocusChanged() {
+    final ProfileFocusController c = ProfileFocusController.instance;
+    if (!c.focused) return;
+    if (c.row == _prevRow && _prevFocused) return;
+    _prevRow = c.row;
+    _prevFocused = c.focused;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? ctx = _rowKeys[c.row].currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   /// OK/触摸激活当前行：仅刷新频道行有动作。
@@ -146,17 +177,17 @@ class _ProfilePageState extends State<ProfilePage> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
             children: <Widget>[
-              _buildThemeRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
               const SizedBox(height: 12),
-              _buildLanguageRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
               const SizedBox(height: 12),
-              _buildRemoteRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
               const SizedBox(height: 12),
-              _buildHwdecRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
               const SizedBox(height: 12),
-              _buildAspectRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
               const SizedBox(height: 12),
-              _buildRefreshRow(inContent, c),
+              KeyedSubtree(key: _rowKeys[5], child: _buildRefreshRow(inContent, c)),
             ],
           );
         },

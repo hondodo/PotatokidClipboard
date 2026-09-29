@@ -4,6 +4,7 @@ import 'package:potatokid_screen/core/di/modules/home_module.dart';
 import 'package:potatokid_screen/core/di/modules/iptv_module.dart';
 import 'package:potatokid_screen/core/di/modules/network_module.dart';
 import 'package:potatokid_screen/core/di/modules/router_module.dart';
+import 'package:potatokid_screen/core/di/modules/weather_module.dart';
 
 /// 依赖注入门面：按固定顺序编排各 Module 的注册/注销。
 /// 业务代码统一通过 `Injection.get<T>()` 获取实例。
@@ -17,9 +18,11 @@ class Injection {
     await AppModule.register();
     await HomeModule.register();
     await IptvModule.register();
+    await WeatherModule.register();
   }
 
   static Future<void> reset() async {
+    await WeatherModule.unregister();
     await IptvModule.unregister();
     await HomeModule.unregister();
     await AppModule.unregister();

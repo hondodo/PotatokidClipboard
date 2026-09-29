@@ -14,6 +14,8 @@ import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(
@@ -65,6 +67,12 @@ void main() {
               BlocProvider<IptvBloc>(
                 create: (_) =>
                     Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true)),
+              ),
+              // 天气状态机：全局共享，启动即加载（定位 + 拉取），
+              // 时间/屏保/主页直接消费，避免各页重复请求。
+              BlocProvider<WeatherBloc>(
+                create: (_) =>
+                    Injection.get<WeatherBloc>()..add(const LoadWeather()),
               ),
             ],
             child: const App(),
