@@ -39,5 +39,7 @@
   "weather_city": "天氣城市",
   "weather_city_auto": "自動",
   "weather_data_source": "天氣資料來源",
-  "weather_source_seniverse": "心知天氣"
+  "weather_source_seniverse": "心知天氣",
+  "disclaimer_title": "免責聲明",
+  "disclaimer_body": "本軟體僅聚合網路公開直播源用於播放，不儲存、不製作任何影音內容；所有頻道資料均來自網際網路，版權歸原權利人所有。若相關內容侵犯了您的合法權益，請透過 416049529@qq.com 告知，我們將及時處理。本軟體僅供個人學習與技術研究，請勿用於商業用途。"
 }

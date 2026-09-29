@@ -47,6 +47,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号。
   static const int _refreshRow = 6;
 
+  /// 「免责声明」行（只读说明行，倒数第二行）。
+  static const int _disclaimerRow = ProfileFocusController.rowCount - 2;
+
   /// 「天气数据来源」行（只读说明行，始终为最后一行）。
   static const int _weatherSourceRow = ProfileFocusController.rowCount - 1;
 
@@ -201,7 +204,9 @@ class _ProfilePageState extends State<ProfilePage> {
       case 6: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
-      case 7: // 天气数据来源：唯一选项，只读说明，无值可切换
+      case 7: // 免责声明：只读说明，无值可切换
+        break;
+      case 8: // 天气数据来源：只读说明，无值可切换
         break;
     }
   }
@@ -232,6 +237,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
               const SizedBox(height: 12),
               KeyedSubtree(key: _rowKeys[6], child: _buildRefreshRow(inContent, c)),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_disclaimerRow],
+                child: _buildDisclaimerRow(inContent, c),
+              ),
               const SizedBox(height: 12),
               KeyedSubtree(
                 key: _rowKeys[_weatherSourceRow],
@@ -423,6 +433,24 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 「免责声明」行：只读说明行。
+  ///
+  /// 声明频道数据来源与使用范围，没有可切换的值，因此不显示左右步进指示；
+  /// 文案较长，允许换行（见 [_SettingRow.wrapValue]）。
+  Widget _buildDisclaimerRow(bool inContent, ProfileFocusController c) {
+    return _SettingRow(
+      highlighted: inContent && c.row == _disclaimerRow,
+      label: 'disclaimer_title'.tr(),
+      value: 'disclaimer_body'.tr(),
+      canStepLeft: false,
+      canStepRight: false,
+      wrapValue: true,
+      onTap: () => c.select(_disclaimerRow),
+      onStepLeft: () => c.select(_disclaimerRow),
+      onStepRight: () => c.select(_disclaimerRow),
+    );
+  }
+
   /// 「天气数据来源」行：只读说明行。
   ///
   /// 当前仅接入心知天气一家，没有可切换的值，因此左右步进指示不显示、
@@ -445,6 +473,8 @@ class _ProfilePageState extends State<ProfilePage> {
 ///
 /// 选中行高亮；触摸/点击可直接移动选择并步进。具体改值由
 /// [ProfileFocusController.onStepRow]（即 [ProfilePage]）执行。
+/// [wrapValue] 为 true 时值文本允许多行换行（长说明文案用），
+/// 否则保持单行右对齐（普通短值）。
 class _SettingRow extends StatelessWidget {
   const _SettingRow({
     required this.highlighted,
@@ -455,6 +485,7 @@ class _SettingRow extends StatelessWidget {
     required this.onTap,
     required this.onStepLeft,
     required this.onStepRight,
+    this.wrapValue = false,
   });
 
   final bool highlighted;
@@ -465,6 +496,7 @@ class _SettingRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onStepLeft;
   final VoidCallback onStepRight;
+  final bool wrapValue;
 
   @override
   Widget build(BuildContext context) {
@@ -489,6 +521,9 @@ class _SettingRow extends StatelessWidget {
           ),
         ),
         child: Row(
+          crossAxisAlignment: wrapValue
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
           children: <Widget>[
             Text(
               label,
@@ -496,30 +531,38 @@ class _SettingRow extends StatelessWidget {
                 color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant,
               ),
             ),
-            const Spacer(),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (canStepLeft)
-                  _StepIcon(
-                    icon: Icons.chevron_left,
-                    color: accent,
-                    onTap: onStepLeft,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: wrapValue
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
+                children: <Widget>[
+                  if (canStepLeft)
+                    _StepIcon(
+                      icon: Icons.chevron_left,
+                      color: accent,
+                      onTap: onStepLeft,
+                    ),
+                  Flexible(
+                    child: Text(
+                      value,
+                      textAlign: wrapValue ? TextAlign.start : TextAlign.right,
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: accent,
+                      ),
+                    ),
                   ),
-                Text(
-                  value,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: accent,
-                  ),
-                ),
-                if (canStepRight)
-                  _StepIcon(
-                    icon: Icons.chevron_right,
-                    color: accent,
-                    onTap: onStepRight,
-                  ),
-              ],
+                  if (canStepRight)
+                    _StepIcon(
+                      icon: Icons.chevron_right,
+                      color: accent,
+                      onTap: onStepRight,
+                    ),
+                ],
+              ),
             ),
           ],
         ),
