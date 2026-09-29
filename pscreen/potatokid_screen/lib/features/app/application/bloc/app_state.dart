@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 
 /// 应用级全局状态（不可变，通过 copyWith 更新）
 class AppState {
@@ -8,6 +9,7 @@ class AppState {
     required this.showFloatingRemote,
     required this.showChannels,
     required this.hwdecEnabled,
+    required this.aspectMode,
   });
 
   /// 初始状态：跟随系统主题，导航条与频道条默认可见，
@@ -19,6 +21,7 @@ class AppState {
     showFloatingRemote: false,
     showChannels: true,
     hwdecEnabled: false,
+    aspectMode: VideoAspectMode.original,
   );
 
   final ThemeMode themeMode;
@@ -35,17 +38,22 @@ class AppState {
   /// 是否启用硬件解码（关闭时使用 FFmpeg 软解，TV 设备兼容性更好）
   final bool hwdecEnabled;
 
+  /// 视频画面显示模式（原始/拉伸/16:9/4:3/21:9）
+  final VideoAspectMode aspectMode;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
     bool? showFloatingRemote,
     bool? showChannels,
     bool? hwdecEnabled,
+    VideoAspectMode? aspectMode,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
         showFloatingRemote: showFloatingRemote ?? this.showFloatingRemote,
         showChannels: showChannels ?? this.showChannels,
         hwdecEnabled: hwdecEnabled ?? this.hwdecEnabled,
+        aspectMode: aspectMode ?? this.aspectMode,
       );
 }

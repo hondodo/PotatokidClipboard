@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 
 /// 应用级事件基类
 abstract class AppEvent {
@@ -50,4 +51,11 @@ class SetHardwareDecode extends AppEvent {
   const SetHardwareDecode(this.enabled);
 
   final bool enabled;
+}
+
+/// 设置视频画面显示模式（原始/拉伸/16:9/4:3/21:9）
+class ChangeAspectMode extends AppEvent {
+  const ChangeAspectMode(this.mode);
+
+  final VideoAspectMode mode;
 }

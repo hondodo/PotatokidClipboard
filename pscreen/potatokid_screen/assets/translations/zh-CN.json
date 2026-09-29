@@ -28,5 +28,11 @@
   "settings_refresh_channels": "刷新频道",
   "settings_refreshing": "刷新中…",
   "settings_refresh_done": "已刷新",
-  "settings_refresh_failed": "刷新失败"
+  "settings_refresh_failed": "刷新失败",
+  "video_aspect": "画面",
+  "video_aspect_original": "原始",
+  "video_aspect_stretch": "拉伸",
+  "video_aspect_16_9": "16:9",
+  "video_aspect_4_3": "4:3",
+  "video_aspect_21_9": "21:9"
 }

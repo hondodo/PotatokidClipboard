@@ -28,5 +28,11 @@
   "settings_refresh_channels": "チャンネルを更新",
   "settings_refreshing": "更新中…",
   "settings_refresh_done": "更新完了",
-  "settings_refresh_failed": "更新に失敗"
+  "settings_refresh_failed": "更新に失敗",
+  "video_aspect": "画面",
+  "video_aspect_original": "オリジナル",
+  "video_aspect_stretch": "ストレッチ",
+  "video_aspect_16_9": "16:9",
+  "video_aspect_4_3": "4:3",
+  "video_aspect_21_9": "21:9"
 }

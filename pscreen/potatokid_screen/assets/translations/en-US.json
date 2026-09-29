@@ -28,5 +28,11 @@
   "settings_refresh_channels": "Refresh Channels",
   "settings_refreshing": "Refreshing…",
   "settings_refresh_done": "Updated",
-  "settings_refresh_failed": "Update failed"
+  "settings_refresh_failed": "Update failed",
+  "video_aspect": "Aspect",
+  "video_aspect_original": "Original",
+  "video_aspect_stretch": "Stretch",
+  "video_aspect_16_9": "16:9",
+  "video_aspect_4_3": "4:3",
+  "video_aspect_21_9": "21:9"
 }

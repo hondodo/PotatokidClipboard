@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
@@ -119,7 +120,14 @@ class _ProfilePageState extends State<ProfilePage> {
         final bool hwdec = context.read<AppBloc>().state.hwdecEnabled;
         context.read<AppBloc>().add(SetHardwareDecode(!hwdec));
         break;
-      case 4: // 刷新频道（左/右键按下同样触发）
+      case 4: // 画面：原始/拉伸/16:9/4:3/21:9 步进
+        final List<VideoAspectMode> opts = VideoAspectMode.values;
+        final int cur = opts.indexOf(context.read<AppBloc>().state.aspectMode);
+        final int val = cur < 0 ? 0 : cur;
+        final int next = (val + delta).clamp(0, opts.length - 1);
+        context.read<AppBloc>().add(ChangeAspectMode(opts[next]));
+        break;
+      case 5: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
     }
@@ -145,6 +153,8 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildRemoteRow(inContent, c),
               const SizedBox(height: 12),
               _buildHwdecRow(inContent, c),
+              const SizedBox(height: 12),
+              _buildAspectRow(inContent, c),
               const SizedBox(height: 12),
               _buildRefreshRow(inContent, c),
             ],
@@ -247,6 +257,33 @@ class _ProfilePageState extends State<ProfilePage> {
           },
           onStepRight: () {
             c.select(3);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「画面」行：原始/拉伸/16:9/4:3/21:9 步进。
+  Widget _buildAspectRow(bool inContent, ProfileFocusController c) {
+    final List<VideoAspectMode> options = VideoAspectMode.values;
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final int cur = options.indexOf(state.aspectMode);
+        final int val = cur < 0 ? 0 : cur;
+        return _SettingRow(
+          highlighted: inContent && c.row == 4,
+          label: 'video_aspect'.tr(),
+          value: options[val].labelKey.tr(),
+          canStepLeft: val > 0,
+          canStepRight: val < options.length - 1,
+          onTap: () => c.select(4),
+          onStepLeft: () {
+            c.select(4);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(4);
             c.step(1);
           },
         );

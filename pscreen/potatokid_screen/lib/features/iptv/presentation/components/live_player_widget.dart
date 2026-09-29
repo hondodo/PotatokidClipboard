@@ -10,6 +10,7 @@ import 'package:potatokid_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
@@ -460,10 +461,22 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          // 视频始终全屏铺满。
-          ColoredBox(
-            color: Colors.black,
-            child: Video(controller: controller, controls: NoVideoControls),
+          // 视频始终全屏铺满；fit/aspectRatio 跟随「我的」页的画面显示模式。
+          BlocBuilder<AppBloc, AppState>(
+            buildWhen: (previous, current) =>
+                previous.aspectMode != current.aspectMode,
+            builder: (context, state) {
+              final VideoAspectMode mode = state.aspectMode;
+              return ColoredBox(
+                color: Colors.black,
+                child: Video(
+                  controller: controller,
+                  controls: NoVideoControls,
+                  fit: mode.fit,
+                  aspectRatio: mode.aspectRatio,
+                ),
+              );
+            },
           ),
           // 右侧频道条：显隐由 showChannels 开关控制（OK 同步 / 菜单键单独呼出）。
           Align(

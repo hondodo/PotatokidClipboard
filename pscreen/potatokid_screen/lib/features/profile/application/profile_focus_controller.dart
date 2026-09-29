@@ -7,10 +7,10 @@ import 'package:flutter/foundation.dart';
 ///
 /// 状态分两层：
 /// - [focused]：焦点是否在正文列表内（区别于位于顶部导航条）。
-/// - [row]：正文列表当前选中行（0=主题 / 1=语言 / 2=悬浮遥控器 / 3=启用硬解 / 4=刷新频道）。
+/// - [row]：正文列表当前选中行（0=主题 / 1=语言 / 2=悬浮遥控器 / 3=启用硬解 / 4=画面 / 5=刷新频道）。
 ///
 /// 按键语义（由壳层 [MainApp] 路由到这里）：
-/// - 上/下：[moveUp]/[moveDown] 在「导航条 ↔ 五列设置行」间移动；
+/// - 上/下：[moveUp]/[moveDown] 在「导航条 ↔ 六列设置行」间移动；
 /// - 左/右：仅当 [focused] 时由 [step] 步进选中行的值（不切顶部 tab）；
 /// - OK：[activate] 激活当前行（音频/视频页的按钮动作，如刷新频道），由壳层调用。
 class ProfileFocusController extends ChangeNotifier {
@@ -20,7 +20,7 @@ class ProfileFocusController extends ChangeNotifier {
   static final ProfileFocusController instance = ProfileFocusController._();
 
   /// 正文列表行数。
-  static const int rowCount = 5;
+  static const int rowCount = 6;
 
   bool _focused = false;
   int _row = 0;
@@ -34,7 +34,7 @@ class ProfileFocusController extends ChangeNotifier {
   /// 焦点是否在正文列表内。
   bool get focused => _focused;
 
-  /// 当前选中行：0=主题 / 1=语言 / 2=悬浮遥控器 / 3=启用硬解 / 4=刷新频道。
+  /// 当前选中行：0=主题 / 1=语言 / 2=悬浮遥控器 / 3=启用硬解 / 4=画面 / 5=刷新频道。
   int get row => _row;
 
   /// 向下：不在正文则进入正文并选中首行，否则下一行。
