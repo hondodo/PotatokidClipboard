@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
@@ -10,15 +12,29 @@ import 'package:potatokid_screen/features/weather/domain/models/weather_models.d
 import 'package:potatokid_screen/features/weather/domain/repositories/weather_repository.dart';
 
 /// 天气状态机：定位 → 拉取 → State。
+///
+/// 内置每分钟定时刷新（[LoadWeather] + force），使实时天气保持最新。
 class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
   WeatherBloc({required WeatherRepository repository})
       : _repository = repository,
         super(WeatherState.initial()) {
     on<LoadWeather>(_onLoadWeather);
     on<ClearWeather>(_onClearWeather);
+    // 每 1 分钟强制刷新一次（已有数据时也会重新拉取）。
+    _refreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => add(const LoadWeather(force: true)),
+    );
   }
 
   final WeatherRepository _repository;
+  Timer? _refreshTimer;
+
+  @override
+  Future<void> close() {
+    _refreshTimer?.cancel();
+    return super.close();
+  }
 
   Future<void> _onLoadWeather(
     LoadWeather event,

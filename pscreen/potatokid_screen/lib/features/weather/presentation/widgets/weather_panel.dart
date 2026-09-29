@@ -38,6 +38,8 @@ class WeatherPanel extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
               if (now case final WeatherNow n when n.temperature != null) ...<Widget>[
+                _weatherIcon(context, n.skycon, size: 30),
+                const SizedBox(width: 8),
                 Text(
                   '${n.temperature!.round()}°',
                   style: const TextStyle(
@@ -67,7 +69,7 @@ class WeatherPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 14),
               ],
-              ..._buildDays(days),
+              ..._buildDays(context, days),
                 ],
               ),
               // 免费版 V3 要求注明数据来源。
@@ -86,7 +88,7 @@ class WeatherPanel extends StatelessWidget {
   }
 
   /// 未来几天（今天起 3 天）：白天天气 + 最高/最低。
-  List<Widget> _buildDays(List<WeatherDay> days) {
+  List<Widget> _buildDays(BuildContext context, List<WeatherDay> days) {
     final String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     return <Widget>[
       for (final WeatherDay d in days)
@@ -113,14 +115,33 @@ class WeatherPanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                _emoji(d.skycon),
-                style: const TextStyle(fontSize: 16),
-              ),
+              _weatherIcon(context, d.skycon, size: 22),
             ],
           ),
         ),
     ];
+  }
+
+  /// 心知天气现象图标（V3 数字码，带 @2x 高清变体）。
+  ///
+  /// 深色主题加载 `assets/weather/black`，浅色主题加载 `assets/weather/white`。
+  /// code 为空或非数字码（如 V4 的字符串码）时回退到 `_emoji`。
+  Widget _weatherIcon(
+    BuildContext context,
+    String code, {
+    double size = 24,
+  }) {
+    if (code.isEmpty) return const SizedBox.shrink();
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final String folder = dark ? 'black' : 'white';
+    return Image.asset(
+      'assets/weather/$folder/$code@2x.png',
+      width: size,
+      height: size,
+      errorBuilder:
+          (BuildContext c, Object error, StackTrace? stack) =>
+              Text(_emoji(code), style: TextStyle(fontSize: size * 0.8)),
+    );
   }
 
   String _dayLabel(String date, String today) {
