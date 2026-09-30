@@ -61,3 +61,10 @@ class SetRemoveInvalidSources extends AppEvent {
 
   final bool enabled;
 }
+
+/// 设置是否开启「代理重试」（默认关）
+class SetProxyRetry extends AppEvent {
+  const SetProxyRetry(this.enabled);
+
+  final bool enabled;
+}

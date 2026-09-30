@@ -13,6 +13,7 @@ import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart
 /// - 画面显示模式（aspectMode）
 /// - 天气城市（weatherCity）
 /// - 清理失效源开关（removeInvalidSources）
+/// - 代理重试开关（proxyRetryEnabled）
 ///
 /// 语言设置由 easy_localization 自行持久化，不在此处管理。
 class AppSettings {
@@ -28,6 +29,7 @@ class AppSettings {
   static const String _keyAspectMode = 'app_aspect_mode_v1';
   static const String _keyWeatherCity = 'app_weather_city_v1';
   static const String _keyRemoveInvalidSources = 'app_remove_invalid_sources_v1';
+  static const String _keyProxyRetry = 'app_proxy_retry_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -52,6 +54,9 @@ class AppSettings {
   /// 清理失效源：默认**关闭**（开启后连续打不开的地址会被记录并移除）。
   bool _removeInvalidSources = false;
 
+  /// 代理重试：默认**关闭**（开启后直连失败的源会用免费代理重试一次）。
+  bool _proxyRetryEnabled = false;
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -65,6 +70,9 @@ class AppSettings {
 
   /// 是否开启「清理失效源」。
   bool get removeInvalidSources => _removeInvalidSources;
+
+  /// 是否开启「代理重试」。
+  bool get proxyRetryEnabled => _proxyRetryEnabled;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -97,6 +105,9 @@ class AppSettings {
 
       // 清理失效源
       _removeInvalidSources = prefs.getBool(_keyRemoveInvalidSources) ?? false;
+
+      // 代理重试
+      _proxyRetryEnabled = prefs.getBool(_keyProxyRetry) ?? false;
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -174,6 +185,17 @@ class AppSettings {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyRemoveInvalidSources, enabled);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
+  /// 保存「代理重试」开关。
+  Future<void> setProxyRetryEnabled(bool enabled) async {
+    _proxyRetryEnabled = enabled;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyProxyRetry, enabled);
     } catch (_) {
       // 写入失败不影响运行。
     }

@@ -16,12 +16,19 @@ import 'package:potatokid_screen/features/iptv/application/channel_failure_guard
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:potatokid_screen/features/iptv/data/datasources/remote/proxy_pool_service.dart';
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
 import 'package:potatokid_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
+
+/// 当前源的媒体类型（**只在运行时按真实轨道判定**，不看地址/名称）：
+/// - [unknown]：刚打开，尚未判定，一律按**视频**的严格标准要求（默认视频）；
+/// - [video]：确认存在真实视频轨（或已出画面）；
+/// - [audio]：确认无视频轨，只有音频（广播台），看门狗改用宽松标准。
+enum _MediaKind { unknown, video, audio }
 
 /// 全屏直播播放组件：持有 [Player]/[VideoController]，进入自动播放首个频道。
 ///
@@ -58,6 +65,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   Timer? _hangWatchdog;
   static const Duration _hangTimeout = Duration(seconds: 60);
 
+  /// 代理重试时的对应超时：免费代理普遍慢/不通，缩短以便尽快换下一个。
+  static const Duration _proxyHangTimeout = Duration(seconds: 20);
+
+  /// 当前生效的看门狗超时（代理模式更短）。
+  Duration get _hangTimeoutNow => _proxyUrl == null ? _hangTimeout : _proxyHangTimeout;
+
   /// 进入播放即取消看门狗。
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<int?>? _widthSub;
@@ -65,10 +78,49 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 黑屏判定：是否出现过真实视频帧（width>0）。
   bool _playedVideo = false;
 
+  /// 当前源的媒体类型判定结果。默认 [_MediaKind.unknown] → 按视频（严格）处理。
+  _MediaKind _mediaKind = _MediaKind.unknown;
+
+  /// 是否已收到过「真实视频轨」（排除 `auto`/`no` 以及封面图 albumart）。
+  bool _hasVideoTrack = false;
+
+  /// 当前源是否已上报过「播放成功」（音频源靠看门狗确认时去重）。
+  bool _kindSuccessRecorded = false;
+
+  /// 媒体类型判定计时器：起播后 [_kindProbeTimeout] 内既无视频轨也无画面，
+  /// 就认定为纯音频节目（广播台），改用音频的宽松健康标准。
+  Timer? _kindProbeTimer;
+
+  /// 判定窗口：打开后等轨道/画面出现的时间。直连与代理用同一窗口
+  /// （真实音频 HLS 通常 1~2 秒内轨道就稳定，8 秒足够；过短会误判视频为音频）。
+  static const Duration _kindProbeTimeout = Duration(seconds: 8);
+  static const Duration _proxyKindProbeTimeout = Duration(seconds: 8);
+
+  /// 等待判定时挂起的完成回调（供「看门狗到期」时按最终判定处理）。
+  VoidCallback? _pendingKindResolve;
+
+  /// 轨道 / 音频参数订阅（用于运行时区分音频与视频节目）。
+  StreamSubscription<Tracks>? _tracksSub;
+  StreamSubscription<AudioParams>? _audioParamsSub;
+
+  /// 音频输出参数是否已就绪（音频节目「已出声音」的证据）。
+  bool _audioParamsReady = false;
+
+  /// 当前生效的判定窗口。
+  Duration get _kindProbeTimeoutNow =>
+      _proxyUrl == null ? _kindProbeTimeout : _proxyKindProbeTimeout;
+
   /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
   Timer? _bufferStallWatch;
   Duration _bufferingAccum = Duration.zero;
-  static const Duration _bufferStallThreshold = Duration(seconds: 30);
+  static const Duration _bufferStallThreshold = Duration(seconds: 60);
+
+  /// 代理重试时的卡死阈值（同上，缩短）。
+  static const Duration _proxyStallThreshold = Duration(seconds: 20);
+
+  /// 当前生效的卡死阈值（代理模式更短）。
+  Duration get _stallThresholdNow =>
+      _proxyUrl == null ? _bufferStallThreshold : _proxyStallThreshold;
 
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
@@ -80,6 +132,21 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
   /// 确保进入播放前 hwdec 属性已正确设置）。
   Future<void>? _hwdecReady;
+
+  /// 当前正在使用的代理（`http://ip:port`）；null 表示直连。
+  ///
+  /// 「代理重试」开启时：直连失败会设上代理重试同一个源，成功后沿用；
+  /// 代理也失败则换下一个代理继续试，试满 [_maxProxyAttempts] 次仍不行才回退到下一个源。
+  String? _proxyUrl;
+
+  /// 当前源已尝试过的代理个数（换源/换台时清零）。
+  int _proxyAttempts = 0;
+
+  /// 单个源最多用几个代理去试（免费代理可用率低，多试几个才有机会）。
+  static const int _maxProxyAttempts = 3;
+
+  /// 已写入 mpv 的 `http-proxy` 值（null 表示还没写过），用于避免重复设置。
+  String? _appliedProxy;
 
   @override
   void initState() {
@@ -111,17 +178,50 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     // 记住当前频道可用的源。
     _playingSub = player.stream.playing.listen((value) {
       if (value) _rememberCurrentSource();
+      // 音频节目的「已出声」证据之一；判定挂起时据此立即结算看门狗。
+      _resolveMediaKindIfDecided();
     });
     // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
     _widthSub = player.stream.width.listen((w) {
       if (w != null && w > 0) {
         _playedVideo = true;
+        // 有画面即确认是视频节目（音频判定到此推翻，居中的音频封面随之淡出）。
+        _applyMediaKind(_MediaKind.video);
+        _kindProbeTimer?.cancel();
         _hangWatchdog?.cancel();
         // 出画面说明该频道可用：本轮「清理失效源」的连续失败计数清零。
         final IptvChannel? channel = _currentChannel();
         if (channel != null) {
           ChannelFailureGuard.instance.recordSuccess(channel.name);
         }
+      }
+    });
+    // 运行时区分「音频节目 / 视频节目」：只看真实轨道，不看地址与名称。
+    // mpv 的 tracks.video 恒含 `auto`/`no` 两条伪轨，必须排除；
+    // 纯音频文件常带封面图（albumart/image），这类也不算视频轨。
+    _tracksSub = player.stream.tracks.listen((Tracks tracks) {
+      final bool hasRealVideo = tracks.video.any((VideoTrack t) {
+        if (t.id == 'auto' || t.id == 'no') return false;
+        return !(t.image ?? false) && !(t.albumart ?? false);
+      });
+      if (hasRealVideo) {
+        _hasVideoTrack = true;
+        if (_mediaKind != _MediaKind.video) {
+          _applyMediaKind(_MediaKind.video);
+          Injection.get<LogService>().info(
+            '[LivePlayerWidget] 媒体类型判定:视频节目(有真实视频轨) '
+            '频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1})',
+          );
+        }
+        _kindProbeTimer?.cancel();
+      }
+      _resolveMediaKindIfDecided();
+    });
+    // 音频输出参数就绪 → 音频节目的「确实出声了」证据。
+    _audioParamsSub = player.stream.audioParams.listen((AudioParams p) {
+      if (p.channelCount != null || p.sampleRate != null || p.format != null) {
+        _audioParamsReady = true;
+        _resolveMediaKindIfDecided();
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
@@ -185,8 +285,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 恢复前台后的播放健康检测（解决 RN/媒体 Surface 被销毁的固有风险）。
   ///
   /// 给播放器一点时间重建 Surface / 恢复解码，随后综合判断：
-  /// - [playing] 为 true、出现过视频帧（width>0）、且 position 相对「回前台起点」
-  ///   持续推进（说明解码管线仍在出帧）→ 健康，不打扰；
+  /// - [playing] 为 true、且 position 相对「回前台起点」持续推进 → 健康，不打扰；
+  /// - 视频节目还要求出现过视频帧（width>0）；音频节目（广播台）本就没有视频帧，
+  ///   不能用它判健康，否则每次回前台都会无谓重载；
   /// - 否则判定损坏（Surface 可能已销毁 / 解码停滞），对当前源重新 play。
   Future<void> _checkResumeHealth() async {
     final Player? p = _player;
@@ -199,11 +300,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool playing = s.playing;
     final bool hasFrame = (s.width ?? 0) > 0;
     final bool advanced = (s.position - resumePos) >= const Duration(milliseconds: 500);
+    // 只有「判定为音频」才放宽视频帧要求；unknown 仍按视频严格处理（默认视频）。
+    final bool healthy = playing &&
+        advanced &&
+        (_mediaKind == _MediaKind.audio || hasFrame);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
+      '媒体类型=${_mediaKind.name} '
       '位置推进${(s.position - resumePos).inMilliseconds}ms',
     );
-    if (!(playing && hasFrame && advanced)) {
+    if (!healthy) {
       // 确认有问题才重开当前源，且此时无需走 700ms 冷却 / 多源回退。
       await _playCurrentSource();
     }
@@ -273,6 +379,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (!force && !changed) return;
     _currentIndex = index;
     _currentSource = 0;
+    // 换台后重新从直连开始试（换台失败才会再走代理）。
+    _proxyUrl = null;
+    _proxyAttempts = 0;
     // 优先从上次可用源起播（记忆的 URL 已不在此频道则回落首源）。
     final String? preferred = await ChannelSourceCache.instance.preferredSourceOf(widget.channels[index].name);
     if (preferred != null) {
@@ -313,7 +422,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool buffering = s.buffering;
     if (playing && buffering) {
       _bufferingAccum += const Duration(seconds: 1);
-      if (_bufferingAccum >= _bufferStallThreshold) {
+      final Duration threshold = _stallThresholdNow;
+      if (_bufferingAccum >= threshold) {
         final String name = _currentChannel()?.name ?? '?';
         Injection.get<LogService>().info(
           '[LivePlayerWidget] 看门狗 持续缓冲卡死 频道$name'
@@ -321,7 +431,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           'width=${s.width}',
         );
         _bufferingAccum = Duration.zero;
-        _onPlaybackIssue(reason: '持续缓冲卡死(${_bufferStallThreshold.inSeconds}s)');
+        _onPlaybackIssue(reason: '持续缓冲卡死(${threshold.inSeconds}s)');
       }
     } else {
       _bufferingAccum = Duration.zero;
@@ -352,20 +462,112 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (channel == null || channel.sources.isEmpty) return;
     // 确保硬解设置已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
     await _hwdecReady;
+    // 代理也需在 open 前设置（只影响之后打开的流）。
+    await _applyProxySetting(_proxyUrl);
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
+    // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道。
+    _resetMediaKindProbe();
     _startHangWatchdog();
     try {
       String source = channel.sources[idx];
       Injection.get<LogService>().info(
-        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',
+        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source'
+        '${_proxyUrl == null ? '' : '（代理 $_proxyUrl）'}',
       );
       await _player?.open(Media(channel.sources[idx]));
     } catch (e) {
       Injection.get<LogService>().error(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) 失败: $e',
       );
+    }
+  }
+
+  /// 更新媒体类型判定结果并刷新界面（音频节目要显示居中的收音机封面层）。
+  ///
+  /// 必须在轨道/判定回调里 setState：这些回调不经过 build，
+  /// 不 setState 的话音频封面要等到别的重建时机才出现。
+  void _applyMediaKind(_MediaKind kind) {
+    if (_mediaKind == kind) return;
+    _mediaKind = kind;
+    if (mounted) setState(() {});
+  }
+
+  /// 换源/换台后重置媒体类型判定，并开启新的判定窗口。
+  ///
+  /// 默认回到 [_MediaKind.unknown]（按视频的严格标准要求）：只有拿到确凿证据
+  /// （真实视频轨 / 已出画面 / 判定窗口内始终无视频轨）才改变结论。
+  /// 重置同时会淡出音频封面（新源可能是视频，不能让收音机图标压在画面上）。
+  void _resetMediaKindProbe() {
+    _kindProbeTimer?.cancel();
+    _applyMediaKind(_MediaKind.unknown);
+    _hasVideoTrack = false;
+    _audioParamsReady = false;
+    _kindSuccessRecorded = false;
+    _pendingKindResolve = null;
+    _kindProbeTimer = Timer(_kindProbeTimeoutNow, _onKindProbeTimeout);
+  }
+
+  /// 判定窗口到期：既没有真实视频轨、也没有出现过画面 → 认定为纯音频节目。
+  ///
+  /// 真实音频 HLS 通常打开后 1~2 秒内轨道表就稳定，8 秒足够；
+  /// 若视频流打开失败（mpv 已报错），这里改判音频也不会掩盖失败：
+  /// 音频的宽松标准仍要求「已进入播放状态」，失败源照旧回退。
+  void _onKindProbeTimeout() {
+    if (!mounted) return;
+    if (_mediaKind != _MediaKind.unknown) return;
+    if (_hasVideoTrack || _playedVideo) return;
+    _applyMediaKind(_MediaKind.audio);
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 媒体类型判定:音频节目(无视频轨) 频道${_currentChannel()?.name ?? '?'}'
+      '源(${_currentSource + 1})',
+    );
+    _resolveMediaKindIfDecided();
+  }
+
+  /// 判定已落定（音频且已出声 / 已确认视频）时，结算挂起的完成回调。
+  ///
+  /// 音频节目「确实在播」的证据是**已进入播放状态或音频输出参数就绪**，
+  /// 不能用 width>0（纯音频永远没有视频帧）。
+  void _resolveMediaKindIfDecided() {
+    if (_pendingKindResolve == null) return;
+    final bool decided = _mediaKind == _MediaKind.video ||
+        (_mediaKind == _MediaKind.audio &&
+            (_audioParamsReady || _player?.state.playing == true));
+    if (!decided) return;
+    final VoidCallback? done = _pendingKindResolve;
+    _pendingKindResolve = null;
+    done?.call();
+  }
+
+  /// 设置/清除 mpv 的 HTTP 代理（`http-proxy`）。
+  ///
+  /// media_kit 的 setProperty 不返回 mpv 的错误码，故设置后**读回校验**：
+  /// 读回值与写入值一致 → 说明 mpv 认这项属性（日志打「已生效」）；
+  /// 不一致 → 说明当前 mpv 不支持运行时改代理（日志打警告）。
+  /// 与上次相同的值会跳过，避免每次起播都重复设置/打日志。
+  Future<void> _applyProxySetting(String? proxy) async {
+    final String value = proxy ?? '';
+    if (_appliedProxy == value) return;
+    _appliedProxy = value;
+    final Player? p = _player;
+    if (p == null || p.platform is! NativePlayer) return;
+    try {
+      final NativePlayer native = p.platform as NativePlayer;
+      await native.setProperty('http-proxy', value);
+      final String readback = await native.getProperty('http-proxy');
+      if (readback == value) {
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] http-proxy 已生效: ${value.isEmpty ? '(直连)' : value}',
+        );
+      } else {
+        Injection.get<LogService>().warn(
+          '[LivePlayerWidget] http-proxy 设置未生效: 期望"$value" 实际"$readback"',
+        );
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('[LivePlayerWidget] 设置 http-proxy 失败: $e');
     }
   }
 
@@ -379,14 +581,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   /// 启动“打开后长时间无画面”看门狗。
   ///
-  /// 打开源后 [_hangTimeout]（60 秒）内若既未开始播放、或一直没出现视频帧
-  /// （黑屏），则回退下一个源。出现视频帧(width>0)即取消。
+  /// 打开源后 [_hangTimeout]（直连 60 秒 / 代理 20 秒）内若既未开始播放、
+  /// 或一直没出现视频帧（黑屏），则回退下一个源。出现视频帧(width>0)即取消。
   /// 特别注意：黑屏时 stream 的 position 仍可能推进，故**不用 position 作健康信号**。
+  ///
+  /// **音频节目分流**：判定为音频的源（广播台）本就没有视频帧，只要求
+  /// 「已进入播放或已出声」，不做「必须有视频帧」的断言；判定未定时
+  /// 先按视频严格处理（默认视频），判定窗口到期后自动改写类型再结算。
   void _startHangWatchdog() {
     // 重置健康信号，等待视频帧。
     _playedVideo = false;
     _hangWatchdog?.cancel();
-    _hangWatchdog = Timer(_hangTimeout, () {
+    final Duration timeout = _hangTimeoutNow;
+    _hangWatchdog = Timer(timeout, () {
       if (!mounted) return;
       // 已在使用其它源则忽略。
       if (_player?.state.playlist.index != _currentSource) return;
@@ -394,15 +601,43 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       final String name = _currentChannel()?.name ?? '?';
       Injection.get<LogService>().info(
         '[LivePlayerWidget] 看门狗到期 频道$name源(${_currentSource + 1}) '
-        'playing=$playing buffering=${_player?.state.buffering} '
-        'width=${_player?.state.width}',
+        '媒体类型=${_mediaKind.name} playing=$playing '
+        'buffering=${_player?.state.buffering} width=${_player?.state.width}',
       );
-      if (!playing) {
-        _onPlaybackIssue(reason: '打开${_hangTimeout.inSeconds}s后未进入播放');
-      } else if (!_playedVideo) {
-        _onPlaybackIssue(reason: '打开${_hangTimeout.inSeconds}s后无视频帧(黑屏)');
+      if (_mediaKind == _MediaKind.unknown) {
+        // 判定还没落定：先按最终判定收尾（换源立即结算；音频等出声后结算）。
+        _pendingKindResolve = _finishHangWatchdog;
+        _resolveMediaKindIfDecided();
+        return;
       }
+      _finishHangWatchdog();
     });
+  }
+
+  /// 看门狗到期的实际结算（按已确定的媒体类型给不同标准）。
+  void _finishHangWatchdog() {
+    if (!mounted) return;
+    final bool playing = _player?.state.playing ?? false;
+    final int timeoutSec = _hangTimeoutNow.inSeconds;
+    if (_mediaKind == _MediaKind.audio) {
+      // 音频节目：确有音频输出（播放状态 / 已解码出音频参数）即视为成功。
+      final bool audioAlive = playing || _audioParamsReady;
+      if (audioAlive) {
+        final IptvChannel? channel = _currentChannel();
+        if (channel != null && !_kindSuccessRecorded) {
+          _kindSuccessRecorded = true;
+          ChannelFailureGuard.instance.recordSuccess(channel.name);
+        }
+        return;
+      }
+      _onPlaybackIssue(reason: '音频源打开${timeoutSec}s后仍无音频输出');
+      return;
+    }
+    if (!playing) {
+      _onPlaybackIssue(reason: '打开${timeoutSec}s后未进入播放');
+    } else if (!_playedVideo) {
+      _onPlaybackIssue(reason: '打开${timeoutSec}s后无视频帧(黑屏)');
+    }
   }
 
   /// 左/右键手动切换当前频道的源（循环换向）。
@@ -417,7 +652,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (mounted) _showChannelToast(_channelSourceLabel());
   }
 
-  /// 播放失败/结束：循环回退到下一个源。
+  /// 播放失败/结束：先用代理重试同一个源，再循环回退到下一个源。
   ///
   /// 多源时按 1-2-3-4-1-2-… 循环；单源时反复重试同一源 1-1-1-…。
   /// [bypassCooldown] 供真实的 open 失败（如 `Failed to open`）跳过 700ms 冷却，
@@ -432,7 +667,45 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     }
     _handleFailureBusy = true;
     // 本次失败对应的源（自增回退前），供「清理失效源」统计失效地址。
-    final String failedUrl = channel.sources[_currentSource.clamp(0, channel.sources.length - 1)];
+    final int failedIndex = _currentSource.clamp(0, channel.sources.length - 1);
+    final String failedUrl = channel.sources[failedIndex];
+
+    // 「代理重试」第一段：这次失败发生在代理上 → 换下一个代理继续试同一个源。
+    if (_proxyUrl != null) {
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 代理未成功，换下一个: $_proxyUrl，原因: $reason',
+      );
+      _proxyUrl = null;
+    }
+
+    // 「代理重试」第二段：直连失败，或代理失败但还没试满 → 挑一个**探测可用**的代理
+    // 重试**同一个源**（探测能挡住「代理能连上但对这个源返回错误页」这类无效代理）。
+    if (AppSettings.instance.proxyRetryEnabled && _proxyAttempts < _maxProxyAttempts) {
+      final String? proxy = await ProxyPoolService.instance.nextUsableProxy(
+        targetUrl: failedUrl,
+      );
+      // 等待探测期间可能已切台/切源，需复核。
+      if (proxy != null && mounted && _currentChannel()?.name == channel.name) {
+        _proxyAttempts++;
+        _proxyUrl = proxy;
+        _currentSource = failedIndex;
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 改用代理重试(第$_proxyAttempts次):${channel.name},'
+          '源(${failedIndex + 1}/${channel.sources.length}) 代理=$proxy，原因: $reason',
+        );
+        await _playCurrentSource();
+        _handleFailureBusy = false;
+        _recordInvalidFailure(channel, failedUrl, reason);
+        if (mounted) _showChannelToast(_channelSourceLabel());
+        return;
+      }
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源',
+      );
+    }
+
+    // 代理都没救活（或未开启）→ 回退到下一个源，重新从直连开始。
+    _proxyAttempts = 0;
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 切换频道:${channel.name},源'
@@ -440,18 +713,21 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     );
     await _playCurrentSource();
     _handleFailureBusy = false;
-    // 「清理失效源」开启时统计连续 open 失败：达阈值会先探测确认（区分网络原因），
-    // 确认失效后由 [ChannelFailureGuard] 通知 IptvBloc 重新过滤频道列表。
-    if (AppSettings.instance.removeInvalidSources) {
-      ChannelFailureGuard.instance.recordFailure(
-        channelName: channel.name,
-        sourceUrl: failedUrl,
-        reason: reason,
-        channelSources: channel.sources,
-      );
-    }
+    _recordInvalidFailure(channel, failedUrl, reason);
     // 刷新左下角里的源序号提示。
     if (mounted) _showChannelToast(_channelSourceLabel());
+  }
+
+  /// 「清理失效源」开启时统计连续失败：达阈值会先探测确认（区分网络原因），
+  /// 确认失效后由 [ChannelFailureGuard] 通知 IptvBloc 重新过滤频道列表。
+  void _recordInvalidFailure(IptvChannel channel, String failedUrl, String reason) {
+    if (!AppSettings.instance.removeInvalidSources) return;
+    ChannelFailureGuard.instance.recordFailure(
+      channelName: channel.name,
+      sourceUrl: failedUrl,
+      reason: reason,
+      channelSources: channel.sources,
+    );
   }
 
   /// 左下角显示当前频道名与源序号，30 秒后自动消失。
@@ -475,11 +751,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _toastNameVN.dispose();
     _channelsHideTimer?.cancel();
     _hangWatchdog?.cancel();
+    _kindProbeTimer?.cancel();
     _bufferStallWatch?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
     _playingSub?.cancel();
     _widthSub?.cancel();
+    _tracksSub?.cancel();
+    _audioParamsSub?.cancel();
     _player?.dispose();
     _player = null;
     _controller = null;
@@ -519,6 +798,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                 ),
               );
             },
+          ),
+          // 音频节目（广播台）没有画面，纯黑底上居中显示收音机图标 + 频道名。
+          // 不可交互（IgnorePointer），不影响遥控器按键与频道条。
+          Positioned.fill(
+            child: IgnorePointer(
+              child: _AudioNowPlaying(
+                label: _channelSourceLabel(),
+                visible: _mediaKind == _MediaKind.audio,
+              ),
+            ),
           ),
           // 右侧频道条：显隐由 showChannels 开关控制（首页 OK 键切换 / 换台时自动显示）。
           Align(
@@ -622,6 +911,73 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 音频节目（广播台）的「封面」：纯黑背景上居中显示收音机图标 + 频道名。
+///
+/// 只在运行时判定为**音频**的源上显示（视频节目有画面，不需此层）；
+/// 显隐用淡入淡出避免切台瞬间突兀，且始终留在树上以便做过渡动画。
+class _AudioNowPlaying extends StatelessWidget {
+  const _AudioNowPlaying({required this.label, required this.visible});
+
+  /// 频道名与源序号（形如 `甘肃新闻综合\n源 1/2`，由
+  /// `LivePlayerWidget._channelSourceLabel()` 生成）。
+  final String label;
+
+  /// 是否显示（当前源判定为音频节目）。
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> lines = label.split('\n');
+    final String name = lines.isNotEmpty ? lines.first : label;
+    final String sourceTips = lines.length > 1 ? lines.sublist(1).join(' ') : '';
+    // 以短边为基准缩放，TV 大屏与手机上都协调。
+    final Size size = MediaQuery.sizeOf(context);
+    final double shortSide = size.shortestSide;
+    final double iconSize = (shortSide * 0.16).clamp(84.0, 220.0);
+    final double nameSize = (shortSide * 0.042).clamp(24.0, 54.0);
+    final double tipsSize = (shortSide * 0.026).clamp(16.0, 32.0);
+    return AnimatedOpacity(
+      opacity: visible ? 1 : 0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.radio_rounded,
+              size: iconSize,
+              color: Colors.white.withValues(alpha: 0.92),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              name,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: nameSize,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.5,
+              ),
+            ),
+            if (sourceTips.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 10),
+              Text(
+                sourceTips,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: tipsSize,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

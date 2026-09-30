@@ -50,6 +50,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「清理失效源」行在 [ProfileFocusController.row] 中的序号。
   static const int _removeInvalidRow = 7;
 
+  /// 「代理重试」行在 [ProfileFocusController.row] 中的序号。
+  static const int _proxyRetryRow = 8;
+
   /// 「免责声明」行（只读说明行，倒数第二行）。
   static const int _disclaimerRow = ProfileFocusController.rowCount - 2;
 
@@ -212,6 +215,10 @@ class _ProfilePageState extends State<ProfilePage> {
         context.read<AppBloc>().add(SetRemoveInvalidSources(!isOn));
         context.read<IptvBloc>().add(FilterInvalidChannels(!isOn));
         break;
+      case _proxyRetryRow: // 代理重试：开/关切换
+        final bool isOn = context.read<AppBloc>().state.proxyRetryEnabled;
+        context.read<AppBloc>().add(SetProxyRetry(!isOn));
+        break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
         break;
       case _weatherSourceRow: // 天气数据来源：只读说明，无值可切换
@@ -249,6 +256,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(
                 key: _rowKeys[_removeInvalidRow],
                 child: _buildRemoveInvalidRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_proxyRetryRow],
+                child: _buildProxyRetryRow(inContent, c),
               ),
               const SizedBox(height: 12),
               KeyedSubtree(
@@ -467,6 +479,34 @@ class _ProfilePageState extends State<ProfilePage> {
           },
           onStepRight: () {
             c.select(_removeInvalidRow);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「代理重试」行：开/关切换。
+  ///
+  /// 开启后，直连打不开/卡死的源会改用免费代理池（proxy.scdn.io）里的 HTTP 代理
+  /// 重试一次同一个源；代理也失败才换下一个源。
+  Widget _buildProxyRetryRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final bool isOn = state.proxyRetryEnabled;
+        return _SettingRow(
+          highlighted: inContent && c.row == _proxyRetryRow,
+          label: 'settings_proxy_retry'.tr(),
+          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
+          canStepLeft: isOn,
+          canStepRight: !isOn,
+          onTap: () => c.select(_proxyRetryRow),
+          onStepLeft: () {
+            c.select(_proxyRetryRow);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(_proxyRetryRow);
             c.step(1);
           },
         );

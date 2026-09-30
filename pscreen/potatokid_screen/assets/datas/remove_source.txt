@@ -12,3 +12,4 @@ https://live.264788.xyz/channel/neimengguweishi?streamid=81a015dbecf3031d7d847b7
 http://198.204.228.26/live/ssws.m3u8
 http://198.204.228.26/live/xzws.m3u8
 http://live.zohi.tv/video/s10001-fztv-1/index.m3u8
+http://63.141.230.178:82/gslb/zbdq5.m3u8?id=gdxw

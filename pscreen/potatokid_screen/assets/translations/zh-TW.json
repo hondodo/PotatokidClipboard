@@ -34,6 +34,7 @@
   "settings_refresh_done": "已重新整理",
   "settings_refresh_failed": "重新整理失敗",
   "settings_remove_invalid": "清理失效源",
+  "settings_proxy_retry": "代理重試",
   "video_aspect": "畫面",
   "video_aspect_original": "原始",
   "video_aspect_stretch": "拉伸",

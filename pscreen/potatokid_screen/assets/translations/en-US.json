@@ -34,6 +34,7 @@
   "settings_refresh_done": "Updated",
   "settings_refresh_failed": "Update failed",
   "settings_remove_invalid": "Clean invalid sources",
+  "settings_proxy_retry": "Proxy retry",
   "video_aspect": "Aspect",
   "video_aspect_original": "Original",
   "video_aspect_stretch": "Stretch",

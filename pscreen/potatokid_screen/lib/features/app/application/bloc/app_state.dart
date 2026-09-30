@@ -12,6 +12,7 @@ class AppState {
     required this.aspectMode,
     required this.weatherCity,
     required this.removeInvalidSources,
+    required this.proxyRetryEnabled,
   });
 
   /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
@@ -28,6 +29,7 @@ class AppState {
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
     removeInvalidSources: false,
+    proxyRetryEnabled: false,
   );
 
   final ThemeMode themeMode;
@@ -53,6 +55,9 @@ class AppState {
   /// 是否开启「清理失效源」（连续打不开的地址会被记录并移除）
   final bool removeInvalidSources;
 
+  /// 是否开启「代理重试」（直连失败的源会改用免费代理重试）
+  final bool proxyRetryEnabled;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
@@ -62,6 +67,7 @@ class AppState {
     VideoAspectMode? aspectMode,
     String? weatherCity,
     bool? removeInvalidSources,
+    bool? proxyRetryEnabled,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
@@ -71,5 +77,6 @@ class AppState {
         aspectMode: aspectMode ?? this.aspectMode,
         weatherCity: weatherCity ?? this.weatherCity,
         removeInvalidSources: removeInvalidSources ?? this.removeInvalidSources,
+        proxyRetryEnabled: proxyRetryEnabled ?? this.proxyRetryEnabled,
       );
 }

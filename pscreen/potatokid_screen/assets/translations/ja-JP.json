@@ -34,6 +34,7 @@
   "settings_refresh_done": "更新完了",
   "settings_refresh_failed": "更新に失敗",
   "settings_remove_invalid": "無効なソースを整理",
+  "settings_proxy_retry": "プロキシ再試行",
   "video_aspect": "画面",
   "video_aspect_original": "オリジナル",
   "video_aspect_stretch": "ストレッチ",

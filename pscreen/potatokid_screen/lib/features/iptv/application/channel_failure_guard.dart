@@ -80,6 +80,10 @@ class ChannelFailureGuard extends ChangeNotifier {
   int _pendingCount = 0;
   final Set<String> _pendingUrls = <String>{};
 
+  /// 每个频道最近一次「播放成功」的计数，用于确认流程复核（见 [recordSuccess]）。
+  final Map<String, int> _successTicks = <String, int>{};
+  int _tick = 0;
+
   /// 已判定的失效地址（只读）。
   Set<String> get invalidUrls => _invalidUrls;
 
@@ -136,8 +140,12 @@ class ChannelFailureGuard extends ChangeNotifier {
   }
 
   /// 播放成功（出画面）：该频道本轮连续失败清零。
+  ///
+  /// 同时记录「成功计数」，供确认流程复核：探测期间若该频道又播成功过
+  /// （例如换代理后能播），就不再把它的地址记为失效。
   void recordSuccess(String channelName) {
     if (_pendingName == channelName) _resetPending();
+    _successTicks[channelName] = ++_tick;
   }
 
   /// 失败原因是否属于「地址打不开」类（media_kit/mpv 的 open 失败、连接超时、
@@ -165,6 +173,7 @@ class ChannelFailureGuard extends ChangeNotifier {
   Future<void> _confirmAndRecord(String channelName, List<String> candidates) async {
     if (_confirming) return;
     _confirming = true;
+    final int startTick = _successTicks[channelName] ?? 0;
     List<String> confirmed;
     try {
       confirmed = await _confirmInvalid(candidates);
@@ -181,6 +190,13 @@ class ChannelFailureGuard extends ChangeNotifier {
       return;
     }
     _confirming = false;
+    // 探测期间该频道又播成功过（例如换代理后能播）→ 说明地址并非真失效，放弃记录。
+    if ((_successTicks[channelName] ?? 0) != startTick) {
+      Injection.get<LogService>().info(
+        '[ChannelFailureGuard] 频道$channelName 在确认期间已恢复播放，取消记录失效地址',
+      );
+      return;
+    }
     if (confirmed.isEmpty) {
       Injection.get<LogService>().info(
         '[ChannelFailureGuard] 频道$channelName 候选地址经确认未判定失效，已忽略',
