@@ -61,7 +61,8 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
 
   /// 计算展示列表。
   ///
-  /// - `remove_source.txt` 里的源**始终**剔除（与开关无关）；
+  /// - `remove_source.txt` 里的源**始终**剔除（整行相等，与开关无关）；
+  /// - `remove_source_contains.txt` 里的片段命中的源**始终**剔除（包含即命中）；
   /// - 开启「清理失效源」时，再剔除已判定的失效地址，但 `not_remove_source.txt`
   ///   里的源豁免（永不被自动移除）；
   /// - 某频道的源被剔光则整体移除该频道。
@@ -85,12 +86,14 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
     return _applySourceRules(
       full,
       removed: rules.removedUrls,
+      removedContains: rules.removedContainsPatterns,
       protected: rules.protectedUrls,
       invalid: invalid,
     );
   }
 
-  /// 按规则计算展示列表：剔除 [removed]（强制移除）与 [invalid]（失效黑名单，
+  /// 按规则计算展示列表：剔除 [removed]（整行相等的强制移除）、
+  /// [removedContains]（地址包含即命中的强制移除）与 [invalid]（失效黑名单，
   /// 但 [protected] 内的地址豁免）；某频道源被剔光则整体移除。
   ///
   /// 黑名单只记 URL 不记频道名：接口更新后频道若带来新地址，新地址不在黑名单里，
@@ -98,15 +101,21 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
   static List<IptvChannel> _applySourceRules(
     List<IptvChannel> channels, {
     required Set<String> removed,
+    required Set<String> removedContains,
     required Set<String> protected,
     Set<String>? invalid,
   }) {
-    if (removed.isEmpty && (invalid == null || invalid.isEmpty)) return channels;
+    if (removed.isEmpty &&
+        removedContains.isEmpty &&
+        (invalid == null || invalid.isEmpty)) {
+      return channels;
+    }
     final List<IptvChannel> out = <IptvChannel>[];
     for (final IptvChannel c in channels) {
       final List<String> sources = c.sources
           .where((String url) =>
               !removed.contains(url) &&
+              !_containsAny(url, removedContains) &&
               !(invalid != null && invalid.contains(url) && !protected.contains(url)))
           .toList(growable: false);
       if (sources.isEmpty) continue;
@@ -117,6 +126,14 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
       );
     }
     return out;
+  }
+
+  /// 地址是否包含任意一条片段。
+  static bool _containsAny(String url, Set<String> patterns) {
+    for (final String pattern in patterns) {
+      if (url.contains(pattern)) return true;
+    }
+    return false;
   }
 
   Future<void> _onLoadIptv(LoadIptv event, Emitter<IptvState> emit) async {

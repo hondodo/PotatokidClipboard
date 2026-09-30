@@ -3,3 +3,12 @@ http://107.150.60.122/live/gdwshd.m3u8
 http://63.141.230.178:82/gslb/zbdq5.m3u8?id=ahwshd
 http://107.150.60.122/live/ahwshd.m3u8
 http://198.204.228.26/live/ahwshd.m3u8
+https://event.pull.hebtv.com/live/live101.m3u8
+http://iptv.huuc.edu.cn/hls/hebhd.m3u8
+https://live.264788.xyz/channel/jiangxiweishi?streamid=555198f31caa33506ac6abb70d788959&livekey=01WgOR41rriMmMkzNsd0UoaxJRwetZdxIvtVk
+http://iptv.huuc.edu.cn/hls/jxhd.m3u8
+https://live.264788.xyz/channel/neimengguweishi?streamid=3e7340acf8869ac1c7dad1bb836dcd35&livekey=01WgOR41rriMmMkzNsd0UoaxJRwetZdxIvtVk
+https://live.264788.xyz/channel/neimengguweishi?streamid=81a015dbecf3031d7d847b7a9b059f67&livekey=01WgOR41rriMmMkzNsd0UoaxJRwetZdxIvtVk
+http://198.204.228.26/live/ssws.m3u8
+http://198.204.228.26/live/xzws.m3u8
+http://live.zohi.tv/video/s10001-fztv-1/index.m3u8

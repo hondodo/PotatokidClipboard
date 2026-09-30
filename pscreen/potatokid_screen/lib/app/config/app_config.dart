@@ -15,7 +15,7 @@ class AppConfig {
   static String seniverseWeatherHostV3 = 'https://api.seniverse.com/v3';
 
   /// IP 反查城市不受免费版覆盖（AP010006）时的默认回退城市。
-  static String seniverseDefaultLocation = '吴川';
+  static String seniverseDefaultLocation = '湛江';
 
   /// 心知天气 V4（公钥签名验证，需购买 V4 数据产品权限）
   static String seniversePublicKey = '';
@@ -64,8 +64,7 @@ class AppConfig {
   }
 
   /// V3 请求用的 key：优先取显式配置的 V3 key，否则回退到私钥（二者常为同一值）。
-  static String get seniverseV3KeyEffective =>
-      seniverseV3Key.isNotEmpty ? seniverseV3Key : seniverseSecretKey;
+  static String get seniverseV3KeyEffective => seniverseV3Key.isNotEmpty ? seniverseV3Key : seniverseSecretKey;
 
   static String _readString(String key, String fallback) {
     try {
@@ -75,18 +74,13 @@ class AppConfig {
     }
   }
 
-  static bool _readBool(String key, bool fallback) =>
-      _readString(key, fallback.toString()).toLowerCase() == 'true';
+  static bool _readBool(String key, bool fallback) => _readString(key, fallback.toString()).toLowerCase() == 'true';
 
   /// 读取逗号分隔的字符串列表；空值/全空白时返回 [fallback]。
   static List<String> _readStringList(String key, List<String> fallback) {
     final String raw = _readString(key, '');
     if (raw.trim().isEmpty) return fallback;
-    final List<String> items = raw
-        .split(',')
-        .map((String s) => s.trim())
-        .where((String s) => s.isNotEmpty)
-        .toList();
+    final List<String> items = raw.split(',').map((String s) => s.trim()).where((String s) => s.isNotEmpty).toList();
     return items.isEmpty ? fallback : items;
   }
 }

@@ -68,7 +68,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
   Timer? _bufferStallWatch;
   Duration _bufferingAccum = Duration.zero;
-  static const Duration _bufferStallThreshold = Duration(seconds: 10);
+  static const Duration _bufferStallThreshold = Duration(seconds: 30);
 
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;

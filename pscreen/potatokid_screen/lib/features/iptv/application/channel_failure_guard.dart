@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -13,14 +12,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 「清理失效源」的判定、确认与持久化（全局单例）。
 ///
 /// 判定流程（仅在开关开启时统计）：
-/// 1. 同一频道**连续** [failureThreshold] 次播放失败，且失败原因都是
-///    `Failed to open`（media_kit 的 open 失败）；
+/// 1. 同一频道**连续** [failureThreshold] 次播放失败，且失败原因都属于
+///    「地址打不开」类（见 [_unreachableMarkers]，如 `Failed to open`、
+///    `Connection timed out`）；
 /// 2. 这一轮失败已覆盖该频道的**全部源**（说明整个频道都打不开）；
 /// 3. 进入**确认**环节：逐个探测这些地址，只把能确定失效的记入黑名单。
 ///
 /// 为什么要第 3 步：地址真失效与网络临时不通都会报 `Failed to open`，
-/// 直接记录会在网络抖动时把好地址误删。确认时以「能否拿到 HTTP 响应」区分：
-/// 拿不到响应一律视为不确定，宁可不记（见 [_confirmInvalid]）。
+/// 直接记录会在网络抖动时把好地址误删。确认时逐个探测地址，并对「连接层失败」
+/// 用参照地址复核本机网络；只有本机网络正常、目标地址确实不通/返回 4xx 才记录
+/// （见 [_confirmInvalid]）。
 ///
 /// 只记 **URL** 不记频道名：接口更新后若频道带来新地址，新地址不在黑名单里，
 /// 频道会自动重新显示；旧地址仍被剔除。
@@ -40,21 +41,39 @@ class ChannelFailureGuard extends ChangeNotifier {
   /// 判定失效所需的「同一频道连续 open 失败」次数。
   static const int failureThreshold = 5;
 
-  /// media_kit open 失败的原因关键字。
-  static const String _openFailedMarker = 'Failed to open';
+  /// 视为「地址打不开」的失败原因关键字（小写匹配）。
+  ///
+  /// mpv 在不同场景下的报法不同：域名/无法打开时是 `Failed to open <url>.`，
+  /// 服务器不通时是 `tcp: Connection to tcp://host:port failed: Connection timed out`
+  /// 之类，这里一并纳入。
+  static const List<String> _unreachableMarkers = <String>[
+    'failed to open',
+    'connection timed out',
+    'connection refused',
+    'network is unreachable',
+    'no route to host',
+    'could not resolve',
+    'failed to resolve',
+  ];
 
   /// 单个地址的探测超时。
   static const Duration _probeTimeout = Duration(seconds: 6);
 
   /// DNS 相关判定的参照地址：任一能拿到 HTTP 响应即认为「本机网络与 DNS 正常」，
-  /// 用于区分「域名真的不存在」与「本机网络/DNS 出了问题」。
+  /// 用于区分「地址真的不通」与「本机网络/DNS 出了问题」。
+  /// 三个都是本应用本来就会访问的第三方域名，尽量保证其中至少一个可用；
+  /// 顺序按可达性优先，避免前面的域名不通时白等超时。
   static List<String> get _referenceUrls => <String>[
-    AppHosts.ipGeoPrimaryHost,
     AppHosts.weatherHost,
+    AppHosts.ipGeoPrimaryHost,
+    AppHosts.ipGeoSecondaryHost,
   ];
 
   final Set<String> _invalidUrls = <String>{};
   bool _loaded = false;
+
+  /// 是否有一轮确认正在进行（避免同时发起多轮探测）。
+  bool _confirming = false;
 
   /// 本轮连续失败统计（同一频道 + 明确 open 失败 + 覆盖全部源）。
   String? _pendingName;
@@ -95,8 +114,8 @@ class ChannelFailureGuard extends ChangeNotifier {
     required String reason,
     required List<String> channelSources,
   }) {
-    // 非「明确失效」的失败（超时/黑屏/completed 等）视为不确定，重新起算。
-    if (!reason.contains(_openFailedMarker)) {
+    // 非「地址打不开」类失败（黑屏/缓冲卡死/completed 等）视为不确定，重新起算。
+    if (!_isUnreachableReason(reason)) {
       _resetPending();
       return;
     }
@@ -121,6 +140,19 @@ class ChannelFailureGuard extends ChangeNotifier {
     if (_pendingName == channelName) _resetPending();
   }
 
+  /// 失败原因是否属于「地址打不开」类（media_kit/mpv 的 open 失败、连接超时、
+  /// 连接被拒、网络不可达、DNS 解析失败）。
+  ///
+  /// 只有这类原因才计入「清理失效源」统计；黑屏、持续缓冲卡死、播放结束等
+  /// 属于不确定原因，不计入（且会清零本轮统计）。
+  static bool _isUnreachableReason(String reason) {
+    final String lower = reason.toLowerCase();
+    for (final String marker in _unreachableMarkers) {
+      if (lower.contains(marker)) return true;
+    }
+    return false;
+  }
+
   void _resetPending() {
     _pendingName = null;
     _pendingCount = 0;
@@ -128,7 +160,11 @@ class ChannelFailureGuard extends ChangeNotifier {
   }
 
   /// 确认并记录失效地址。
+  ///
+  /// 同一时刻只允许一轮确认（探测可能较慢），避免卡在同一频道时反复发起探测。
   Future<void> _confirmAndRecord(String channelName, List<String> candidates) async {
+    if (_confirming) return;
+    _confirming = true;
     List<String> confirmed;
     try {
       confirmed = await _confirmInvalid(candidates);
@@ -141,11 +177,13 @@ class ChannelFailureGuard extends ChangeNotifier {
             .toList(growable: false);
       }
     } catch (_) {
+      _confirming = false;
       return;
     }
+    _confirming = false;
     if (confirmed.isEmpty) {
       Injection.get<LogService>().info(
-        '[ChannelFailureGuard] 频道$channelName 候选地址经确认未判定失效(疑似网络原因)，已忽略',
+        '[ChannelFailureGuard] 频道$channelName 候选地址经确认未判定失效，已忽略',
       );
       return;
     }
@@ -162,12 +200,13 @@ class ChannelFailureGuard extends ChangeNotifier {
 
   /// 逐个探测候选地址，返回**可确定失效**的地址。
   ///
-  /// 判定规则：
+  /// 判定规则（核心是区分「地址真的不通」与「本机网络有问题」）：
   /// - 拿到 HTTP 响应：4xx → 地址失效（记录）；2xx/3xx → 地址可用（不记录）；
   ///   5xx → 服务端临时故障（不确定，不记录）。
-  /// - DNS 解析失败：再探测参照地址，参照通 → 域名确实不存在（记录）；
-  ///   参照也不通 → 本机网络/DNS 问题（不记录）。
-  /// - 其它网络错误（超时/连接被拒等）→ 不确定，不记录。
+  /// - **连接层失败**（DNS 解析失败 / 连接被拒 / TLS 握手失败 / 超时 / 网络不可达）
+  ///   → 先探测参照地址确认本机网络与 DNS 正常：参照通 → 该地址确实不通（记录）；
+  ///   参照也不通 → 本机网络问题（不记录）。
+  /// - 其它异常（非网络类，如地址/参数/解析错误）→ 不确定，不记录。
   Future<List<String>> _confirmInvalid(List<String> candidates) async {
     final Dio dio = Dio(
       BaseOptions(
@@ -178,21 +217,33 @@ class ChannelFailureGuard extends ChangeNotifier {
         validateStatus: (_) => true,
       ),
     );
+    final LogService log = Injection.get<LogService>();
     final List<String> confirmed = <String>[];
-    // 参照地址是否可达：仅在出现 DNS 失败时才探测一次，结果复用。
+    // 参照地址是否可达：仅在出现连接层失败时才探测一次，结果复用。
     bool? referenceOk;
     try {
-      for (final String url in candidates) {
-        final _ProbeOutcome outcome = await _probe(dio, url);
+      // 并行探测：多源时逐个等待会累加超时（每个最长 6s），并行可显著缩短。
+      final List<_ProbeOutcome> outcomes =
+          await Future.wait(candidates.map((String url) => _probe(dio, url)));
+      for (int i = 0; i < candidates.length; i++) {
+        final String url = candidates[i];
+        final _ProbeOutcome outcome = outcomes[i];
         final int? status = outcome.statusCode;
         if (status != null) {
+          log.info('[ChannelFailureGuard] 探测 $url → HTTP $status');
           if (status >= 400 && status < 500) confirmed.add(url);
           continue;
         }
-        if (outcome.hostNotFound) {
-          referenceOk ??= await _referenceReachable(dio);
-          if (referenceOk) confirmed.add(url);
+        if (!outcome.connectionFailed) {
+          log.info('[ChannelFailureGuard] 探测 $url → 不确定(${outcome.detail})，跳过');
+          continue;
         }
+        referenceOk ??= await _referenceReachable(dio);
+        log.info(
+          '[ChannelFailureGuard] 探测 $url → 连接失败(${outcome.detail})，'
+          '参照地址可达=$referenceOk',
+        );
+        if (referenceOk) confirmed.add(url);
       }
     } finally {
       dio.close(force: true);
@@ -209,7 +260,7 @@ class ChannelFailureGuard extends ChangeNotifier {
     return false;
   }
 
-  /// 单次探测：拿到响应返回状态码；DNS 失败标记 [hostNotFound]；其余视为不确定。
+  /// 单次探测：拿到响应返回状态码；连接层失败标记 [connectionFailed]。
   Future<_ProbeOutcome> _probe(Dio dio, String url) async {
     final CancelToken token = CancelToken();
     try {
@@ -224,13 +275,33 @@ class ChannelFailureGuard extends ChangeNotifier {
           );
       return _ProbeOutcome(statusCode: res.statusCode);
     } on DioException catch (e) {
-      final Object? error = e.error;
-      if (error is SocketException && error.message.toLowerCase().contains('host lookup')) {
-        return const _ProbeOutcome(hostNotFound: true);
+      // 主动取消 / 响应层错误都不是网络不通，不做「失效」判定。
+      if (e.type == DioExceptionType.cancel) {
+        return const _ProbeOutcome(detail: 'cancel');
       }
-      return const _ProbeOutcome();
-    } catch (_) {
-      return const _ProbeOutcome();
+      if (e.type == DioExceptionType.badResponse) {
+        return _ProbeOutcome(statusCode: e.response?.statusCode, detail: 'badResponse');
+      }
+      final Object? error = e.error;
+      // 明显的非网络类异常（地址/参数/解析问题等）不参与失效判定。
+      if (error is FormatException ||
+          error is ArgumentError ||
+          error is StateError ||
+          error is TypeError) {
+        return _ProbeOutcome(detail: 'unknown: ${error.runtimeType}: $error');
+      }
+      // 其余异常（SocketException / HttpException / HandshakeException / 证书错误 /
+      // 超时 / unknown 包装的网络异常等）都算连接层失败，交由参照地址复核。
+      return _ProbeOutcome(
+        connectionFailed: true,
+        detail: '${e.type.name}: ${e.message ?? ''}'
+            '${error == null ? '' : ' / ${error.runtimeType}: $error'}',
+      );
+    } on TimeoutException catch (e) {
+      return _ProbeOutcome(connectionFailed: true, detail: 'timeout: ${e.message}');
+    } catch (e) {
+      // 非网络类异常（参数/解析等）：不确定，不记录。
+      return _ProbeOutcome(detail: 'unexpected: $e');
     }
   }
 
@@ -246,11 +317,15 @@ class ChannelFailureGuard extends ChangeNotifier {
 
 /// 单个地址的探测结果。
 class _ProbeOutcome {
-  const _ProbeOutcome({this.statusCode, this.hostNotFound = false});
+  const _ProbeOutcome({this.statusCode, this.connectionFailed = false, this.detail = ''});
 
   /// 非空表示拿到了 HTTP 响应（传输层可达）。
   final int? statusCode;
 
-  /// DNS 解析失败（域名不存在，或本机 DNS 不可用，需再对照参照地址判断）。
-  final bool hostNotFound;
+  /// 连接层失败（DNS 解析失败 / 连接被拒 / 超时 / 网络不可达），
+  /// 需结合参照地址判断是否为本机网络问题。
+  final bool connectionFailed;
+
+  /// 供日志排查的简要描述。
+  final String detail;
 }
