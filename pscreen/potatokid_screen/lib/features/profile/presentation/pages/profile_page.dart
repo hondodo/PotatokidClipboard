@@ -47,6 +47,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号。
   static const int _refreshRow = 6;
 
+  /// 「清理失效源」行在 [ProfileFocusController.row] 中的序号。
+  static const int _removeInvalidRow = 7;
+
   /// 「免责声明」行（只读说明行，倒数第二行）。
   static const int _disclaimerRow = ProfileFocusController.rowCount - 2;
 
@@ -157,7 +160,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }));
   }
 
-  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/画面/天气城市/刷新频道）。
+  /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/画面/天气城市/刷新频道/清理失效源）。
   void _stepRow(int row, int delta) {
     if (!mounted) return;
     switch (row) {
@@ -204,9 +207,14 @@ class _ProfilePageState extends State<ProfilePage> {
       case 6: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
-      case 7: // 免责声明：只读说明，无值可切换
+      case _removeInvalidRow: // 清理失效源：开/关切换（切换后按新开关重算频道列表）
+        final bool isOn = context.read<AppBloc>().state.removeInvalidSources;
+        context.read<AppBloc>().add(SetRemoveInvalidSources(!isOn));
+        context.read<IptvBloc>().add(FilterInvalidChannels(!isOn));
         break;
-      case 8: // 天气数据来源：只读说明，无值可切换
+      case _disclaimerRow: // 免责声明：只读说明，无值可切换
+        break;
+      case _weatherSourceRow: // 天气数据来源：只读说明，无值可切换
         break;
     }
   }
@@ -237,6 +245,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
               const SizedBox(height: 12),
               KeyedSubtree(key: _rowKeys[6], child: _buildRefreshRow(inContent, c)),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_removeInvalidRow],
+                child: _buildRemoveInvalidRow(inContent, c),
+              ),
               const SizedBox(height: 12),
               KeyedSubtree(
                 key: _rowKeys[_disclaimerRow],
@@ -427,6 +440,34 @@ class _ProfilePageState extends State<ProfilePage> {
           onStepRight: () {
             c.select(_refreshRow);
             _refreshChannels();
+          },
+        );
+      },
+    );
+  }
+
+  /// 「清理失效源」行：开/关切换。
+  ///
+  /// 开启后，同一频道连续 5 次「明确打不开」（覆盖全部源）时会先探测确认，
+  /// 确属失效的地址记入持久化黑名单并从列表移除；关闭后列表恢复完整。
+  Widget _buildRemoveInvalidRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final bool isOn = state.removeInvalidSources;
+        return _SettingRow(
+          highlighted: inContent && c.row == _removeInvalidRow,
+          label: 'settings_remove_invalid'.tr(),
+          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
+          canStepLeft: isOn,
+          canStepRight: !isOn,
+          onTap: () => c.select(_removeInvalidRow),
+          onStepLeft: () {
+            c.select(_removeInvalidRow);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(_removeInvalidRow);
+            c.step(1);
           },
         );
       },

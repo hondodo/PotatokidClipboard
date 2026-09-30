@@ -54,3 +54,10 @@ class ChangeWeatherCity extends AppEvent {
 
   final String city;
 }
+
+/// 设置是否开启「清理失效源」（默认关）
+class SetRemoveInvalidSources extends AppEvent {
+  const SetRemoveInvalidSources(this.enabled);
+
+  final bool enabled;
+}

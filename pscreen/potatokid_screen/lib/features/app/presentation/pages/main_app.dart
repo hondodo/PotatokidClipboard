@@ -51,7 +51,7 @@ class MainApp extends StatelessWidget {
       Icons.wallpaper_outlined,
       Icons.wallpaper,
     ),
-    _TabDescriptor('profile_title', Icons.person_outline, Icons.person),
+    _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
   ];
 
   void _goTab(int index) {

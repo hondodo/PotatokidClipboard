@@ -12,6 +12,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
+import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
@@ -116,6 +117,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       if (w != null && w > 0) {
         _playedVideo = true;
         _hangWatchdog?.cancel();
+        // 出画面说明该频道可用：本轮「清理失效源」的连续失败计数清零。
+        final IptvChannel? channel = _currentChannel();
+        if (channel != null) {
+          ChannelFailureGuard.instance.recordSuccess(channel.name);
+        }
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
@@ -350,8 +356,17 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _lastOpenAt = DateTime.now();
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
     _startHangWatchdog();
-    Injection.get<LogService>().info('[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length})');
-    await _player?.open(Media(channel.sources[idx]));
+    try {
+      String source = channel.sources[idx];
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',
+      );
+      await _player?.open(Media(channel.sources[idx]));
+    } catch (e) {
+      Injection.get<LogService>().error(
+        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) 失败: $e',
+      );
+    }
   }
 
   /// 左下角频道名提示文案：`频道名称\n(源 i/N)`,如果要分割，可以用\n来切分。
@@ -416,6 +431,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       return;
     }
     _handleFailureBusy = true;
+    // 本次失败对应的源（自增回退前），供「清理失效源」统计失效地址。
+    final String failedUrl = channel.sources[_currentSource.clamp(0, channel.sources.length - 1)];
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 切换频道:${channel.name},源'
@@ -423,6 +440,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     );
     await _playCurrentSource();
     _handleFailureBusy = false;
+    // 「清理失效源」开启时统计连续 open 失败：达阈值会先探测确认（区分网络原因），
+    // 确认失效后由 [ChannelFailureGuard] 通知 IptvBloc 重新过滤频道列表。
+    if (AppSettings.instance.removeInvalidSources) {
+      ChannelFailureGuard.instance.recordFailure(
+        channelName: channel.name,
+        sourceUrl: failedUrl,
+        reason: reason,
+        channelSources: channel.sources,
+      );
+    }
     // 刷新左下角里的源序号提示。
     if (mounted) _showChannelToast(_channelSourceLabel());
   }

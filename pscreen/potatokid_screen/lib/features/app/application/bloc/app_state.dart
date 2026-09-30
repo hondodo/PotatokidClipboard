@@ -11,12 +11,14 @@ class AppState {
     required this.hwdecEnabled,
     required this.aspectMode,
     required this.weatherCity,
+    required this.removeInvalidSources,
   });
 
   /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
   /// 导航条与频道条默认可见，
   /// 悬浮遥控器默认**隐藏**（需在「我的」页开启），
-  /// 硬解默认**关闭**（TV 设备兼容性考虑，用户可在「我的」页开启）。
+  /// 硬解默认**关闭**（TV 设备兼容性考虑，用户可在「我的」页开启），
+  /// 清理失效源默认**关闭**。
   factory AppState.initial() => const AppState._(
     themeMode: ThemeMode.dark,
     isChromeVisible: true,
@@ -25,6 +27,7 @@ class AppState {
     hwdecEnabled: false,
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
+    removeInvalidSources: false,
   );
 
   final ThemeMode themeMode;
@@ -47,6 +50,9 @@ class AppState {
   /// 天气城市名；空串表示「自动」（IP 反查定位）
   final String weatherCity;
 
+  /// 是否开启「清理失效源」（连续打不开的地址会被记录并移除）
+  final bool removeInvalidSources;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
@@ -55,6 +61,7 @@ class AppState {
     bool? hwdecEnabled,
     VideoAspectMode? aspectMode,
     String? weatherCity,
+    bool? removeInvalidSources,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
@@ -63,5 +70,6 @@ class AppState {
         hwdecEnabled: hwdecEnabled ?? this.hwdecEnabled,
         aspectMode: aspectMode ?? this.aspectMode,
         weatherCity: weatherCity ?? this.weatherCity,
+        removeInvalidSources: removeInvalidSources ?? this.removeInvalidSources,
       );
 }

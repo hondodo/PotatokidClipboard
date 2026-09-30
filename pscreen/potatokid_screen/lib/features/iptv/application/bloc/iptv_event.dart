@@ -19,3 +19,13 @@ class LoadIptv extends IptvEvent {
   /// 是否手动/后台刷新：保留当前频道，加载失败保持现状（不切错误页）。
   final bool isRefresh;
 }
+
+/// 按「清理失效源」重新计算展示列表。
+///
+/// [enabled] 为开关当前值：开启时剔除失效地址（源被剔光的频道整体移除），
+/// 关闭时用完整列表还原。开关切换、以及刚记录到新的失效地址时都会派发。
+class FilterInvalidChannels extends IptvEvent {
+  const FilterInvalidChannels(this.enabled);
+
+  final bool enabled;
+}
