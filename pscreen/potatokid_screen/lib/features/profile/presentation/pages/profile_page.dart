@@ -2,8 +2,13 @@ import 'dart:async';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
+import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/logging/log_service.dart';
+import 'package:potatokid_screen/core/utils/app_settings.dart';
+import 'package:potatokid_screen/core/utils/app_version.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -13,6 +18,8 @@ import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart'
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
+import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:restart_app/restart_app.dart';
 
 /// 支持切换的语言列表（Locale 与翻译文件 key 一一对应）
 const List<(Locale, String)> _supportedLanguages = <(Locale, String)>[
@@ -53,11 +60,17 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「代理重试」行在 [ProfileFocusController.row] 中的序号。
   static const int _proxyRetryRow = 8;
 
-  /// 「免责声明」行（只读说明行，倒数第二行）。
-  static const int _disclaimerRow = ProfileFocusController.rowCount - 2;
+  /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
+  static const int _resetRow = 9;
 
-  /// 「天气数据来源」行（只读说明行，始终为最后一行）。
-  static const int _weatherSourceRow = ProfileFocusController.rowCount - 1;
+  /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
+  static const int _versionRow = ProfileFocusController.rowCount - 3;
+
+  /// 「天气数据来源」行（只读说明行）。
+  static const int _weatherSourceRow = ProfileFocusController.rowCount - 2;
+
+  /// 「免责声明」行（只读说明行，文案最长，放最后一行）。
+  static const int _disclaimerRow = ProfileFocusController.rowCount - 1;
 
   /// 切换天气城市后延迟生效的时间：5 秒内再次变更则重新计时，以最后一次为准。
   static const Duration _cityApplyDelay = Duration(seconds: 5);
@@ -74,6 +87,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
   bool _refreshing = false;
+
+  /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
+  bool _resetting = false;
 
   Timer? _cityApplyTimer;
 
@@ -139,9 +155,59 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// OK/触摸激活当前行：仅刷新频道行有动作。
+  /// OK/触摸激活当前行：刷新频道行与重置行有动作。
   void _onActivateRow(int row) {
     if (row == _refreshRow && mounted) _refreshChannels();
+    if (row == _resetRow && mounted) _resetAll();
+  }
+
+  /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
+  ///
+  /// 重启说明（restart_app）：
+  /// - Android 默认重启只重建 Activity，**进程可能保留**，内存里的单例
+  ///   （AppSettings/Bloc/缓存）不会回到默认值；因此这里用
+  ///   [RestartMode.process] + `forceKill: true` 让插件先拉起新 Activity、
+  ///   再结束旧进程（插件内部执行 `Runtime.exit(0)`），实现真正的冷启动；
+  /// - 插件返回失败（无启动 Activity、launch intent 解析失败等）或异常时，
+  ///   退化为 [SystemNavigator.pop] 结束应用——用户下次进入即为干净状态，
+  ///   满足「无法重启则退出程序」的要求。
+  Future<void> _resetAll() async {
+    if (!mounted || _resetting) return;
+    _resetting = true;
+    bool confirmed = false;
+    try {
+      confirmed = await ConfirmDialog.show(
+        context,
+        title: 'settings_reset_title'.tr(),
+        message: 'settings_reset_message'.tr(),
+        cancelLabel: 'settings_reset_cancel'.tr(),
+        confirmLabel: 'settings_reset_ok'.tr(),
+      );
+    } finally {
+      _resetting = false;
+    }
+    if (!confirmed || !mounted) return;
+
+    Injection.get<LogService>().info('[ProfilePage] 重置：开始清空全部持久化缓存');
+    // 1) 清空所有持久化缓存（当前全部落在 SharedPreferences），并复位内存设置。
+    await AppSettings.instance.clearAllPersisted();
+
+    // 2) 重启应用；失败则退出程序。
+    try {
+      final RestartResult result = await Restart.restartApp(
+        mode: RestartMode.process,
+        forceKill: true,
+      );
+      Injection.get<LogService>().info(
+        '[ProfilePage] 重置：重启结果 success=${result.success} '
+        'mode=${result.mode.name} code=${result.code} message=${result.message}',
+      );
+      if (result.success) return;
+    } catch (e) {
+      Injection.get<LogService>().error('[ProfilePage] 重置：重启异常', error: e);
+    }
+    // 走到这里说明没能重启：直接结束应用（下次进入即为默认设置）。
+    await SystemNavigator.pop();
   }
 
   /// 触发「刷新频道」：向全局 [IptvBloc] 派发后台刷新，并给出状态反馈。
@@ -219,7 +285,12 @@ class _ProfilePageState extends State<ProfilePage> {
         final bool isOn = context.read<AppBloc>().state.proxyRetryEnabled;
         context.read<AppBloc>().add(SetProxyRetry(!isOn));
         break;
+      case _resetRow: // 重置（右/左/OK 均触发确认弹窗）
+        _resetAll();
+        break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
+        break;
+      case _versionRow: // 版本：只读说明，无值可切换
         break;
       case _weatherSourceRow: // 天气数据来源：只读说明，无值可切换
         break;
@@ -264,13 +335,23 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 12),
               KeyedSubtree(
-                key: _rowKeys[_disclaimerRow],
-                child: _buildDisclaimerRow(inContent, c),
+                key: _rowKeys[_resetRow],
+                child: _buildResetRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_versionRow],
+                child: _buildVersionRow(inContent, c),
               ),
               const SizedBox(height: 12),
               KeyedSubtree(
                 key: _rowKeys[_weatherSourceRow],
                 child: _buildWeatherSourceRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_disclaimerRow],
+                child: _buildDisclaimerRow(inContent, c),
               ),
             ],
           );
@@ -514,6 +595,26 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 「重置」行：与「刷新频道」同样是按钮行，按下右箭头 / OK / 触摸即触发。
+  ///
+  /// 区别在于**必须先二次确认**（是否重置所有选项？重置后将退出应用。），
+  /// 确认后清空全部持久化缓存并重启应用（无法重启则退出应用）。
+  Widget _buildResetRow(bool inContent, ProfileFocusController c) {
+    return _SettingRow(
+      highlighted: inContent && c.row == _resetRow,
+      label: 'settings_reset'.tr(),
+      value: '',
+      canStepLeft: false,
+      canStepRight: !_resetting,
+      onTap: () => c.select(_resetRow),
+      onStepLeft: () => c.select(_resetRow),
+      onStepRight: () {
+        c.select(_resetRow);
+        _resetAll();
+      },
+    );
+  }
+
   /// 「免责声明」行：只读说明行。
   ///
   /// 声明频道数据来源与使用范围，没有可切换的值，因此不显示左右步进指示；
@@ -529,6 +630,23 @@ class _ProfilePageState extends State<ProfilePage> {
       onTap: () => c.select(_disclaimerRow),
       onStepLeft: () => c.select(_disclaimerRow),
       onStepRight: () => c.select(_disclaimerRow),
+    );
+  }
+
+  /// 「版本」行：只读说明行，与「天气数据来源」同样只展示不可切换。
+  ///
+  /// 值来自 [AppVersion]（DI 单例，启动时用 package_info_plus 读取平台打包信息，
+  /// 即 pubspec 的 `version:`），因此发版只需改 pubspec、无需改代码。
+  Widget _buildVersionRow(bool inContent, ProfileFocusController c) {
+    return _SettingRow(
+      highlighted: inContent && c.row == _versionRow,
+      label: 'settings_version'.tr(),
+      value: Injection.get<AppVersion>().display,
+      canStepLeft: false,
+      canStepRight: false,
+      onTap: () => c.select(_versionRow),
+      onStepLeft: () => c.select(_versionRow),
+      onStepRight: () => c.select(_versionRow),
     );
   }
 

@@ -51,6 +51,12 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.1
 
+  # 设置页「版本」行：运行时读取平台打包的版本号（值来自本文件的 version:，无需手工维护）
+  package_info_plus: ^10.2.1
+
+  # 设置页「重置」：清空全部持久化缓存后重启应用（Android 走 process 模式真正冷启动）
+  restart_app: ^1.8.3
+
   # IPTV 直播播放（libmpv，支持安卓电视网络直播流）
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1

@@ -201,6 +201,35 @@ class AppSettings {
     }
   }
 
+  /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
+  ///
+  /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
+  /// 采用「先取全部键再逐个删除」而非 `clear()`：语义可控、不与
+  /// SharedPreferences 插件的缓存写回混在一起，且删除是异步落盘的，
+  /// 必须 await 完成后才允许重启，否则重启后可能读到旧值。
+  ///
+  /// 持久化内容目前**全部**在 SharedPreferences 里（主题/语言之外的所有设置项、
+  /// 频道列表缓存、频道源记忆、失效源黑名单、天气定位），故清空它即清空所有选项。
+  Future<void> clearAllPersisted() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      for (final String key in prefs.getKeys().toList(growable: false)) {
+        await prefs.remove(key);
+      }
+    } catch (_) {
+      // 删除失败不阻断：后续重启仍会重新读取能读到的值。
+    }
+    _loading = null;
+    _themeMode = ThemeMode.dark;
+    _showFloatingRemote = false;
+    _floatingRemoteLocked = false;
+    _hwdecEnabled = false;
+    _aspectMode = VideoAspectMode.original;
+    _weatherCity = '';
+    _removeInvalidSources = false;
+    _proxyRetryEnabled = false;
+  }
+
   static String _themeModeToString(ThemeMode mode) {
     switch (mode) {
       case ThemeMode.system:

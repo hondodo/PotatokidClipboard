@@ -12,6 +12,7 @@ import 'package:potatokid_screen/features/profile/application/profile_focus_cont
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
 import 'package:potatokid_screen/core/utils/key_repeat_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
+import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:potatokid_screen/shared/widgets/exit_confirm_scope.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 
@@ -66,6 +67,10 @@ class MainApp extends StatelessWidget {
   }
 
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
+    // 确认弹窗（退出/重置）打开期间一律让位：把按键交给弹窗自己的焦点树，
+    // 否则方向键被这里吃掉（选不中弹窗按钮）、OK 还会触发下层的设置行。
+    if (ConfirmDialog.isShowing) return KeyEventResult.ignored;
+
     final bool isVertical = event.logicalKey == LogicalKeyboardKey.arrowUp ||
         event.logicalKey == LogicalKeyboardKey.arrowDown;
     final bool isHorizontal = event.logicalKey == LogicalKeyboardKey.arrowLeft ||
