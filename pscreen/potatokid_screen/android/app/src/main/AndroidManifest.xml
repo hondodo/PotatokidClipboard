@@ -27,8 +27,13 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- HOME + DEFAULT：让本应用可以注册为系统桌面（launcher）。
+                 开机后系统会让用户选择默认桌面，选中并「始终」后即可开机直进本应用；
+                 这也是极光盒子这类设备上最可靠的开机自启方式（不依赖 BOOT_COMPLETED）。 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
