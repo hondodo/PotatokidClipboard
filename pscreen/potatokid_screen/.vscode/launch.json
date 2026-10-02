@@ -26,6 +26,13 @@
             "deviceId": "e724dd69",
         },
         {
+            "name": "potatokid_screen 腾讯极光 (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.0.9:5555",
+        },
+        {
             "name": "potatokid_screen (profile mode)",
             "request": "launch",
             "type": "dart",
