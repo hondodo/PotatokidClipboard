@@ -32,6 +32,15 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# MSVC 源码一律按 UTF-8 解析。
+# 部分插件（如 connectivity_plus）源码是 UTF-8 无 BOM，注释里含 U+2014「—」等字符，
+# 在中文 Windows 默认的 GBK(936) 代码页下会触发 C4819 警告，
+# 而插件目标编译带 /WX（警告即错误），会直接导致 C2220 编译失败。
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+# /FS：PDB 串行写入。多个 CL.EXE 并发写同一个 .pdb 时会报 fatal error C1041，
+# 加上 /FS 后由 MSPDBSRV 统一串行写盘，避免并行构建（或被中断构建的残留进程）互相抢锁。
+add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/FS>")
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
