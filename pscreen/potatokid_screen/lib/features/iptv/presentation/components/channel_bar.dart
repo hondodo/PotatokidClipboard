@@ -93,6 +93,12 @@ class _ChannelBarState extends State<ChannelBar> {
     }
   }
 
+  /// 序号显示位数：按频道总数的位数决定（0-9 显示 1 位，10-99 显示 2 位……）。
+  int get _numberWidth {
+    final int total = widget.channels.length;
+    return total <= 1 ? 1 : total.toString().length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -110,6 +116,8 @@ class _ChannelBarState extends State<ChannelBar> {
         itemBuilder: (context, index) {
           return _ChannelTile(
             channel: widget.channels[index],
+            // 序号从 1 开始，按频道总数的位数左侧补零（8 个频道→`1`，120 个→`001`）。
+            number: (index + 1).toString().padLeft(_numberWidth, '0'),
             selected: index == widget.selectedIndex,
             onTap: () => widget.onChanged(index),
           );
@@ -122,13 +130,21 @@ class _ChannelBarState extends State<ChannelBar> {
 class _ChannelTile extends StatelessWidget {
   const _ChannelTile({
     required this.channel,
+    required this.number,
     required this.selected,
     required this.onTap,
   });
 
   final IptvChannel channel;
+
+  /// 已补齐的频道序号（如 `01` / `12`），显示在频道名前，便于数字键直选。
+  final String number;
+
   final bool selected;
   final VoidCallback onTap;
+
+  /// 序号列宽（容纳最多 4 位序号）。
+  static const double _numberWidth = 34;
 
   @override
   Widget build(BuildContext context) {
@@ -149,18 +165,36 @@ class _ChannelTile extends StatelessWidget {
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  channel.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              child: Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: _numberWidth,
+                    child: Text(
+                      number,
+                      maxLines: 1,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: selected ? 0.95 : 0.6),
+                        fontSize: 13,
+                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      channel.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

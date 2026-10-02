@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
@@ -118,15 +119,40 @@ class MainApp extends StatelessWidget {
     _handleLogical(context, key);
   }
 
+  /// 数字键（主键盘数字区 / 小键盘）→ 0~9；非数字键返回 null。
+  static int? _digitOf(LogicalKeyboardKey key) => switch (key) {
+    LogicalKeyboardKey.digit0 || LogicalKeyboardKey.numpad0 => 0,
+    LogicalKeyboardKey.digit1 || LogicalKeyboardKey.numpad1 => 1,
+    LogicalKeyboardKey.digit2 || LogicalKeyboardKey.numpad2 => 2,
+    LogicalKeyboardKey.digit3 || LogicalKeyboardKey.numpad3 => 3,
+    LogicalKeyboardKey.digit4 || LogicalKeyboardKey.numpad4 => 4,
+    LogicalKeyboardKey.digit5 || LogicalKeyboardKey.numpad5 => 5,
+    LogicalKeyboardKey.digit6 || LogicalKeyboardKey.numpad6 => 6,
+    LogicalKeyboardKey.digit7 || LogicalKeyboardKey.numpad7 => 7,
+    LogicalKeyboardKey.digit8 || LogicalKeyboardKey.numpad8 => 8,
+    LogicalKeyboardKey.digit9 || LogicalKeyboardKey.numpad9 => 9,
+    _ => null,
+  };
+
   /// 统一的按键逻辑（按「导航条显隐」分模式）：
   /// - 左右：导航条显示时切 tab；隐藏时首页切换当前频道的源。
   /// - 上下：首页切频道、时间页切样式，其余滚动/焦点移动。
   /// - OK：首页显示/隐藏「频道信息 + 频道列表」，「我的」页激活设置行。
   /// - 菜单：显示/隐藏顶部导航条。
   /// - 返回：二次确认后退出应用。
+  /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
+
+    // 数字键：仅首页生效 —— 累积输入频道号，2 秒无输入后跳台（超范围会提示）。
+    if (cur == 0) {
+      final int? digit = _digitOf(key);
+      if (digit != null) {
+        ChannelNumberInputController.instance.input(digit);
+        return true;
+      }
+    }
 
     final bool ok =
         key == LogicalKeyboardKey.select ||

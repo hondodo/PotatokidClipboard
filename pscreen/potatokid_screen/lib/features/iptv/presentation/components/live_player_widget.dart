@@ -1,8 +1,8 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
@@ -13,6 +13,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
+import 'package:potatokid_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
@@ -840,6 +841,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
               },
             ),
           ),
+          // 数字键直选频道时的回显：左上角显示已按下的数字（`1`/`12`/`123`），
+          // 号码超出范围时改显示提示文案，让用户随时知道自己按到了第几号。
+          const Positioned(left: 24, top: 84, child: _ChannelNumberOverlay()),
           // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
           ValueListenableBuilder<String?>(
             valueListenable: _toastNameVN,
@@ -912,6 +916,46 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 数字键直选频道的输入回显：显示已按下的数字（`1` / `12` / `123`），
+/// 号码超出范围时改显示「频道号超出范围」提示。
+///
+/// 只监听 [ChannelNumberInputController]，局部刷新，不影响播放器重建。
+class _ChannelNumberOverlay extends StatelessWidget {
+  const _ChannelNumberOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ChannelNumberInputController.instance,
+      builder: (context, _) {
+        final ChannelNumberInputController input = ChannelNumberInputController.instance;
+        if (!input.visible) return const SizedBox.shrink();
+        final bool outOfRange = input.outOfRange;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            outOfRange ? 'iptv_channel_number_out_of_range'.tr() : input.digits,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: outOfRange ? 24 : 56,
+              fontWeight: FontWeight.bold,
+              height: 1.1,
+              letterSpacing: outOfRange ? 0 : 4,
+              fontFeatures: outOfRange
+                  ? null
+                  : const <FontFeature>[FontFeature.tabularFigures()],
+            ),
+          ),
+        );
+      },
     );
   }
 }
