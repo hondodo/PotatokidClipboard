@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
@@ -81,7 +82,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   bool _playedVideo = false;
 
   /// 当前源的媒体类型判定结果。默认 [_MediaKind.unknown] → 按视频（严格）处理。
+  ///
+  /// 注意：**界面显示**不只看它是否为 audio —— [unknown]（还在连接）也显示音频界面，
+  /// 见下方 `_AudioNowPlaying` 的 `visible`；它只决定「声条跳不跳」和看门狗标准。
   _MediaKind _mediaKind = _MediaKind.unknown;
+
+  /// 声条是否跳动（只由 [_syncBarsActive] 更新）。
+  ///
+  /// 用 ValueNotifier 而不是 setState：播放状态变化很频繁，setState 会把上层
+  /// [Video] 一起重建，切台时画面会闪。
+  final ValueNotifier<bool> _barsActiveVN = ValueNotifier<bool>(false);
 
   /// 是否已收到过「真实视频轨」（排除 `auto`/`no` 以及封面图 albumart）。
   bool _hasVideoTrack = false;
@@ -89,12 +99,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 当前源是否已上报过「播放成功」（音频源靠看门狗确认时去重）。
   bool _kindSuccessRecorded = false;
 
-  /// 媒体类型判定计时器：起播后 [_kindProbeTimeout] 内既无视频轨也无画面，
-  /// 就认定为纯音频节目（广播台），改用音频的宽松健康标准。
+  /// 媒体类型判定的**兜底**计时器。
+  ///
+  /// 正常路径由轨道表立刻定论（见 `_tracksSub`），这个计时器只在
+  /// 「轨道表一直没给出可用结论」时兜一下，避免 [unknown] 永远悬着 ——
+  /// 那会让看门狗到期后无法结算，坏源就卡在黑屏上不切走了。
   Timer? _kindProbeTimer;
 
-  /// 判定窗口：打开后等轨道/画面出现的时间。直连与代理用同一窗口
-  /// （真实音频 HLS 通常 1~2 秒内轨道就稳定，8 秒足够；过短会误判视频为音频）。
+  /// 兜底判定窗口：这么久了轨道表还没结论，就按音频处理（宽松标准）。
   static const Duration _kindProbeTimeout = Duration(seconds: 8);
   static const Duration _proxyKindProbeTimeout = Duration(seconds: 8);
 
@@ -180,6 +192,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       if (value) _rememberCurrentSource();
       // 音频节目的「已出声」证据之一；判定挂起时据此立即结算看门狗。
       _resolveMediaKindIfDecided();
+      // 真的进入播放了 → 声条可以开始跳。
+      _syncBarsActive();
     });
     // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
     _widthSub = player.stream.width.listen((w) {
@@ -197,8 +211,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       }
     });
     // 运行时区分「音频节目 / 视频节目」：只看真实轨道，不看地址与名称。
-    // mpv 的 tracks.video 恒含 `auto`/`no` 两条伪轨，必须排除；
+    // mpv 的 tracks 恒含 `auto`/`no` 两条伪轨，必须排除；
     // 纯音频文件常带封面图（albumart/image），这类也不算视频轨。
+    //
+    // 这里是**主要的判定入口**：轨道表在打开的瞬间就是完整的，
+    // 「有音频轨、没有视频轨」即可立刻断定是音频台，不用再干等判定窗口。
     _tracksSub = player.stream.tracks.listen((Tracks tracks) {
       final bool hasRealVideo = tracks.video.any((VideoTrack t) {
         if (t.id == 'auto' || t.id == 'no') return false;
@@ -214,6 +231,23 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           );
         }
         _kindProbeTimer?.cancel();
+        _resolveMediaKindIfDecided();
+        return;
+      }
+      // 没有视频轨，但有真实音频轨 → 音频节目，立即下结论。
+      //
+      // 要求「得有音频轨」是为了排掉刚 open 时那张空轨道表：
+      // 若拿空表当依据，视频源会被误判成音频、闪一下广播界面。
+      final bool hasRealAudio =
+          tracks.audio.any((AudioTrack t) => t.id != 'auto' && t.id != 'no');
+      if (hasRealAudio && _mediaKind != _MediaKind.audio) {
+        _applyMediaKind(_MediaKind.audio);
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 媒体类型判定:音频节目(无视频轨) '
+          '频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1})',
+        );
+        // 结论已出，兜底窗口没用了。
+        _kindProbeTimer?.cancel();
       }
       _resolveMediaKindIfDecided();
     });
@@ -222,6 +256,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       if (p.channelCount != null || p.sampleRate != null || p.format != null) {
         _audioParamsReady = true;
         _resolveMediaKindIfDecided();
+        // 音频输出参数就绪 → 确实在出声，声条开始跳。
+        _syncBarsActive();
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
@@ -482,36 +518,56 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     }
   }
 
-  /// 更新媒体类型判定结果并刷新界面（音频节目要显示居中的收音机封面层）。
+  /// 更新媒体类型判定结果并刷新界面（音频界面要显示/淡出收音机层）。
   ///
   /// 必须在轨道/判定回调里 setState：这些回调不经过 build，
-  /// 不 setState 的话音频封面要等到别的重建时机才出现。
+  /// 不 setState 的话音频界面要等到别的重建时机才出现。
   void _applyMediaKind(_MediaKind kind) {
-    if (_mediaKind == kind) return;
-    _mediaKind = kind;
-    if (mounted) setState(() {});
+    if (_mediaKind != kind) {
+      _mediaKind = kind;
+      if (mounted) setState(() {});
+    }
+    // 类型没变时也可能要更新声条（例如换源后重置回 unknown、或音频参数就绪）。
+    _syncBarsActive();
   }
 
-  /// 换源/换台后重置媒体类型判定，并开启新的判定窗口。
+  /// 声条是否跳动：只有**已经断定是音频、而且确实出声了**才跳。
+  ///
+  /// - [unknown]（还在连接）或视频节目 → 不跳。这些情况下广播界面要么黑屏、
+  ///   要么根本不可见，跳了只是白白逐帧重绘；
+  /// - 音频且已出声（进入播放 / 音频输出参数就绪）→ 跳。
+  ///
+  /// 音频的判定由轨道表立刻给出，所以这里基本不会出现「画面在播、声条却不跳」的延迟。
+  void _syncBarsActive() {
+    final bool outputReady = _audioParamsReady || (_player?.state.playing ?? false);
+    final bool active = _mediaKind == _MediaKind.audio && outputReady;
+    if (_barsActiveVN.value != active) _barsActiveVN.value = active;
+  }
+
+  /// 换源/换台后重置媒体类型判定，并挂上兜底计时器。
   ///
   /// 默认回到 [_MediaKind.unknown]（按视频的严格标准要求）：只有拿到确凿证据
-  /// （真实视频轨 / 已出画面 / 判定窗口内始终无视频轨）才改变结论。
-  /// 重置同时会淡出音频封面（新源可能是视频，不能让收音机图标压在画面上）。
+  /// （真实视频轨 / 真实音频轨 / 已出画面）才改变结论。
+  /// 重置同时会淡出音频封面（新源可能是视频，不能让收音机图标压在画面上）；
+  /// 声条也一并停掉，等新源真正出声的信号到了再跳。
   void _resetMediaKindProbe() {
     _kindProbeTimer?.cancel();
-    _applyMediaKind(_MediaKind.unknown);
     _hasVideoTrack = false;
     _audioParamsReady = false;
     _kindSuccessRecorded = false;
     _pendingKindResolve = null;
+    _applyMediaKind(_MediaKind.unknown);
+    // 直接关掉声条：此刻 _player.state.playing 很可能还是**上一个源**的值
+    // （新源正在连接），靠 _syncBarsActive 的判据会误判成「已经在播」。
+    _barsActiveVN.value = false;
     _kindProbeTimer = Timer(_kindProbeTimeoutNow, _onKindProbeTimeout);
   }
 
-  /// 判定窗口到期：既没有真实视频轨、也没有出现过画面 → 认定为纯音频节目。
+  /// 兜底判定：这么久了轨道表仍未给出结论，就按音频处理（宽松标准）。
   ///
-  /// 真实音频 HLS 通常打开后 1~2 秒内轨道表就稳定，8 秒足够；
-  /// 若视频流打开失败（mpv 已报错），这里改判音频也不会掩盖失败：
-  /// 音频的宽松标准仍要求「已进入播放状态」，失败源照旧回退。
+  /// 正常情况走不到这里 —— 音频台在轨道表一到就判成音频了。
+  /// 兜底是为了让看门狗到期能结算：坏源（既没轨道也没出声）据此走
+  /// `_onPlaybackIssue` 回退下一个源，而不是一直卡在黑屏。
   void _onKindProbeTimeout() {
     if (!mounted) return;
     if (_mediaKind != _MediaKind.unknown) return;
@@ -737,6 +793,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     HomeNowPlayingController.instance.onToggleChannelPanel = null;
     _toastTimer?.cancel();
     _toastNameVN.dispose();
+    _barsActiveVN.dispose();
     _channelsHideTimer?.cancel();
     _hangWatchdog?.cancel();
     _kindProbeTimer?.cancel();
@@ -791,7 +848,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           // 不可交互（IgnorePointer），不影响遥控器按键与频道条。
           Positioned.fill(
             child: IgnorePointer(
-              child: _AudioNowPlaying(label: _channelSourceLabel(), visible: _mediaKind == _MediaKind.audio),
+              child: _AudioNowPlaying(
+                label: _channelSourceLabel(),
+                // 只在下结论为音频时显示：[unknown]（还在连接/未判定）保持黑屏，
+                // 结论由轨道表立刻给出（见 _tracksSub），不等判定窗口。
+                visible: _mediaKind == _MediaKind.audio,
+                barsActive: _barsActiveVN,
+              ),
             ),
           ),
           // 右侧频道条：显隐由 showChannels 开关控制（首页 OK 键切换 / 换台时自动显示）。
@@ -954,17 +1017,27 @@ class _ChannelNumberOverlay extends StatelessWidget {
 ///   ▁▃▅▇█▆▄▂▁▃▅▇█▆▄▂▁▃▅▇ (跳动声条，贴底氛围层)
 /// ```
 ///
-/// 只在运行时判定为**音频**的源上显示（视频节目有画面，不需此层）；
+/// **显示条件**：只在判定为音频时显示。[unknown]（还没拿到轨道表、仍在连接）
+/// 保持黑屏；音频的判定由轨道表立刻给出，不用等兜底窗口。
+///
 /// 显隐用淡入淡出避免切台瞬间突兀，且始终留在树上以便做过渡动画。
 class _AudioNowPlaying extends StatelessWidget {
-  const _AudioNowPlaying({required this.label, required this.visible});
+  const _AudioNowPlaying({
+    required this.label,
+    required this.visible,
+    required this.barsActive,
+  });
 
   /// 频道名与源序号（形如 `甘肃新闻综合\n源 1/2`，由
   /// `LivePlayerWidget._channelSourceLabel()` 生成）。
   final String label;
 
-  /// 是否显示（当前源判定为音频节目）。
+  /// 是否显示。
   final bool visible;
+
+  /// 声条是否跳动。与 [visible] 分开：连接中（unknown）界面已显示，
+  /// 但还没出声，声条不跳，避免造成「已经在播」的错觉。
+  final ValueListenable<bool> barsActive;
 
   @override
   Widget build(BuildContext context) {
@@ -986,13 +1059,19 @@ class _AudioNowPlaying extends StatelessWidget {
         fit: StackFit.expand,
         children: <Widget>[
           // 氛围层：贴底的跳动声条。低透明度，只做背景，不抢前景信息。
+          // 用 ValueListenableBuilder 局部刷新：播放状态变化只重建这一层，
+          // 不会牵连上面的 [Video]。
           Align(
             alignment: Alignment.bottomCenter,
             child: RepaintBoundary(
               child: SizedBox(
                 height: shortSide * 0.3,
                 width: double.infinity,
-                child: _EqualizerBars(active: visible),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: barsActive,
+                  builder: (BuildContext context, bool active, Widget? _) =>
+                      _EqualizerBars(active: active),
+                ),
               ),
             ),
           ),
@@ -1047,11 +1126,12 @@ class _AudioNowPlaying extends StatelessWidget {
 /// 多条不同频率正弦叠加已经足够，且零依赖、可控开销。
 ///
 /// [active] 为 false 时停掉动画：该层始终留在树上（做淡入淡出），
-/// 不主动停会导致不播音频时也在后台逐帧空转。
+/// 不主动停会导致「连接中/不播音频」时也在后台逐帧空转。
 class _EqualizerBars extends StatefulWidget {
   const _EqualizerBars({required this.active});
 
-  /// 是否正在播放音频（决定动画是否运行）。
+  /// 是否让声条跳动（由 `LivePlayerWidget._barsActiveVN` 驱动：
+  /// 确认是音频节目且确实出声了才为 true）。
   final bool active;
 
   @override
