@@ -64,6 +64,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   int _currentSource = 0;
   bool _handleFailureBusy = false;
   DateTime _lastOpenAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 本轮已试过的源序号：集齐该频道所有源即「一轮失败」，需要退避后再进下一轮。
+  final Set<int> _triedSourcesThisRound = <int>{};
+
+  /// 连续失败到「一整轮都没打开」的轮数：决定回到第一个源之前等多久。
+  int _failedRounds = 0;
+
+  /// 一整轮（该频道所有源都试过）都打不开后，回到第一个源之前的基础等待。
+  static const Duration _roundRetryBaseDelay = Duration(seconds: 1);
+
+  /// 退避的翻倍上限：1s → 2s → 4s → 8s。设为 0 即固定 1 秒不翻倍。
+  static const int _maxRoundRetryShift = 3;
+
   StreamSubscription<String>? _errorSub;
   StreamSubscription<bool>? _completedSub;
 
@@ -192,7 +205,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     });
     // 记住当前频道可用的源。
     _playingSub = player.stream.playing.listen((value) {
-      if (value) _rememberCurrentSource();
+      if (value) {
+        // 真的开始播放了：本轮退避清零，下次再坏重新从 1 秒起算。
+        _resetRound();
+        _rememberCurrentSource();
+      }
       // 音频节目的「已出声」证据之一；判定挂起时据此立即结算看门狗。
       _resolveMediaKindIfDecided();
       // 真的进入播放了 → 声条可以开始跳。
@@ -427,6 +444,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (!force && !changed) return;
     _currentIndex = index;
     _currentSource = 0;
+    // 换台是全新一轮试源：退避从 1 秒重新起算。
+    _resetRound();
     // 本次打开请求的序号：await 期间若又切了台，过期请求直接丢弃，
     // 避免两次 open 交错（重复 open/stop 正是长按卡顿的成因）。
     final int seq = ++_openSeq;
@@ -726,6 +745,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (channel == null || channel.sources.isEmpty) return;
     final int n = channel.sources.length;
     _currentSource = (_currentSource + delta + n) % n;
+    // 手动换源是用户主动重试：本轮退避清零。
+    _resetRound();
     Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
@@ -780,6 +801,29 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
     // 代理都没救活（或未开启）→ 回退到下一个源，重新从直连开始。
     _proxyAttempts = 0;
+    // 该频道所有源都各试过一次 = 一轮结束：回到第一个源之前先退避一会儿。
+    // 否则「全源都打不开」时会以 mpv 报错的速度（实测 20~140ms）不停 open/失败，
+    // 每个 open 都要重建解码器与 Surface，盒子会持续抖动、日志也会被刷爆。
+    _triedSourcesThisRound.add(failedIndex);
+    if (_triedSourcesThisRound.length >= channel.sources.length) {
+      _triedSourcesThisRound.clear();
+      _failedRounds++;
+      final Duration wait = _roundRetryDelay();
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 频道${channel.name} 全部 ${channel.sources.length} 个源都打不开，'
+        '第$_failedRounds轮，${wait.inMilliseconds}ms 后重试',
+      );
+      final int failedSource = _currentSource;
+      await Future<void>.delayed(wait);
+      // 等待期间可能已换台 / 手动换源 / 退出：过期就放弃这次回退，
+      // 否则会把用户刚选好的源又顶掉。
+      if (!mounted ||
+          _currentChannel()?.name != channel.name ||
+          _currentSource != failedSource) {
+        _handleFailureBusy = false;
+        return;
+      }
+    }
     _currentSource = (_currentSource + 1) % channel.sources.length;
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 切换频道:${channel.name},源'
@@ -790,6 +834,23 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _recordInvalidFailure(channel, failedUrl, reason);
     // 刷新左下角里的源序号提示。
     if (mounted) _showChannelToast(_channelSourceLabel());
+  }
+
+  /// 本轮退避时长：1s、2s、4s、8s（上限）。
+  ///
+  /// 坏台会一直重试，固定 1 秒虽然远好过空转，但长期看仍是每分钟 60 次 open；
+  /// 递增后逐步降到每分钟 7~8 次，持续不可用时不至于拖累盒子。
+  Duration _roundRetryDelay() {
+    final int shift = (_failedRounds - 1).clamp(0, _maxRoundRetryShift);
+    return Duration(
+      milliseconds: _roundRetryBaseDelay.inMilliseconds << shift,
+    );
+  }
+
+  /// 开始新的一轮试源（换台 / 手动换源 / 播放成功后调用）：退避重新从 1 秒起算。
+  void _resetRound() {
+    _triedSourcesThisRound.clear();
+    _failedRounds = 0;
   }
 
   /// 「清理失效源」开启时统计连续失败：达阈值会先探测确认（区分网络原因），

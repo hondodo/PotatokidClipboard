@@ -38,6 +38,9 @@ class AppConfig {
 
   /// 需要排除的频道名（`tv_name_hide.txt`）。
   ///
+  /// 支持精确全等与 `*` 通配（通配忽略大小写），且频道名与条目都会先归一化
+  /// （`CCTV1` 与 `CCTV-1` 视作同一个台），匹配逻辑见
+  /// `features/iptv/domain/channel_name_matcher.dart`。
   /// 取值来源同 [weatherCities]（`.env` 的 `TV_NAME_HIDE` 仅作兜底）。
   static List<String> tvNameHide = const <String>[];
 
