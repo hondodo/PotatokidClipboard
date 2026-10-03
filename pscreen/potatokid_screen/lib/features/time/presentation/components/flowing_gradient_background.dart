@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 /// 流动彩色背景：缓慢旋转/流动的多色渐变 + 20% 黑色蒙层。
