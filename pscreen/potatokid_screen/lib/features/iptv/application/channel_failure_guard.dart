@@ -46,10 +46,17 @@ class ChannelFailureGuard extends ChangeNotifier {
   /// mpv 在不同场景下的报法不同：域名/无法打开时是 `Failed to open <url>.`，
   /// 服务器不通时是 `tcp: Connection to tcp://host:port failed: Connection timed out`
   /// 之类，这里一并纳入。
+  ///
+  /// 最后一条 `connection to ` 对应 FFmpeg tcp 协议层的连接失败原文
+  /// `tcp: Connection to tcp://host:port failed: ...`。它后面跟的可能是
+  /// `Connection timed out`，也可能是 FFmpeg 没能映射成文案的裸错误码
+  /// （`Error number -138 occurred` —— 这种报法不含任何系统错误关键字，
+  /// 少了这条就永远进不了失效统计，坏源会一直重试下去）。
   static const List<String> _unreachableMarkers = <String>[
     'failed to open',
     'connection timed out',
     'connection refused',
+    'connection to ',
     'network is unreachable',
     'no route to host',
     'could not resolve',

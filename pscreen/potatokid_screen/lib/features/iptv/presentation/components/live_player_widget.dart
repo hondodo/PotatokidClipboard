@@ -258,8 +258,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       //
       // 要求「得有音频轨」是为了排掉刚 open 时那张空轨道表：
       // 若拿空表当依据，视频源会被误判成音频、闪一下广播界面。
-      final bool hasRealAudio =
-          tracks.audio.any((AudioTrack t) => t.id != 'auto' && t.id != 'no');
+      final bool hasRealAudio = tracks.audio.any((AudioTrack t) => t.id != 'auto' && t.id != 'no');
       if (hasRealAudio && _mediaKind != _MediaKind.audio) {
         _applyMediaKind(_MediaKind.audio);
         Injection.get<LogService>().info(
@@ -817,9 +816,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       await Future<void>.delayed(wait);
       // 等待期间可能已换台 / 手动换源 / 退出：过期就放弃这次回退，
       // 否则会把用户刚选好的源又顶掉。
-      if (!mounted ||
-          _currentChannel()?.name != channel.name ||
-          _currentSource != failedSource) {
+      if (!mounted || _currentChannel()?.name != channel.name || _currentSource != failedSource) {
         _handleFailureBusy = false;
         return;
       }
@@ -843,7 +840,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   Duration _roundRetryDelay() {
     final int shift = (_failedRounds - 1).clamp(0, _maxRoundRetryShift);
     return Duration(
-      milliseconds: _roundRetryBaseDelay.inMilliseconds << shift,
+      milliseconds: 50, // _roundRetryBaseDelay.inMilliseconds << shift,
     );
   }
 
@@ -1119,11 +1116,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
 ///
 /// 显隐用淡入淡出避免切台瞬间突兀，且始终留在树上以便做过渡动画。
 class _AudioNowPlaying extends StatelessWidget {
-  const _AudioNowPlaying({
-    required this.label,
-    required this.visible,
-    required this.barsActive,
-  });
+  const _AudioNowPlaying({required this.label, required this.visible, required this.barsActive});
 
   /// 频道名与源序号（形如 `甘肃新闻综合\n源 1/2`，由
   /// `LivePlayerWidget._channelSourceLabel()` 生成）。
@@ -1166,8 +1159,7 @@ class _AudioNowPlaying extends StatelessWidget {
                 width: double.infinity,
                 child: ValueListenableBuilder<bool>(
                   valueListenable: barsActive,
-                  builder: (BuildContext context, bool active, Widget? _) =>
-                      _EqualizerBars(active: active),
+                  builder: (BuildContext context, bool active, Widget? _) => _EqualizerBars(active: active),
                 ),
               ),
             ),
