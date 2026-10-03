@@ -15,6 +15,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
@@ -57,11 +58,14 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「清理失效源」行在 [ProfileFocusController.row] 中的序号。
   static const int _removeInvalidRow = 7;
 
+  /// 「复制失效源」行（只读动作行：按 OK 把已记录的失效地址复制到剪贴板）的序号。
+  static const int _copyInvalidRow = 8;
+
   /// 「代理重试」行在 [ProfileFocusController.row] 中的序号。
-  static const int _proxyRetryRow = 8;
+  static const int _proxyRetryRow = 9;
 
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
-  static const int _resetRow = 9;
+  static const int _resetRow = 10;
 
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
@@ -87,6 +91,10 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
   bool _refreshing = false;
+
+  /// 复制失效源的结果提示：null=空闲，非空=「已复制 N 条」/「暂无失效源记录」。
+  final ValueNotifier<String?> _copyMsg = ValueNotifier<String?>(null);
+  Timer? _copyMsgTimer;
 
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
@@ -120,7 +128,9 @@ class _ProfilePageState extends State<ProfilePage> {
       ProfileFocusController.instance.onActivateRow = null;
     }
     _cityApplyTimer?.cancel();
+    _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
+    _copyMsg.dispose();
     super.dispose();
   }
 
@@ -155,9 +165,10 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// OK/触摸激活当前行：刷新频道行与重置行有动作。
+  /// OK/触摸激活当前行：刷新频道行、复制失效源行与重置行有动作。
   void _onActivateRow(int row) {
     if (row == _refreshRow && mounted) _refreshChannels();
+    if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
   }
 
@@ -288,6 +299,8 @@ class _ProfilePageState extends State<ProfilePage> {
       case _resetRow: // 重置（右/左/OK 均触发确认弹窗）
         _resetAll();
         break;
+      case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
+        break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
         break;
       case _versionRow: // 版本：只读说明，无值可切换
@@ -327,6 +340,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(
                 key: _rowKeys[_removeInvalidRow],
                 child: _buildRemoveInvalidRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_copyInvalidRow],
+                child: _buildCopyInvalidRow(inContent, c),
               ),
               const SizedBox(height: 12),
               KeyedSubtree(
@@ -565,6 +583,58 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       },
     );
+  }
+
+  /// 「复制失效源」行：只读动作行（无左右步进）。
+  ///
+  /// 按 OK（或触摸）把「清理失效源」已记录的失效地址复制到剪贴板，便于调试排查；
+  /// 右侧显示复制结果（「已复制 N 条」/「暂无失效源记录」），2 秒后恢复空闲。
+  /// 数据来自 [ChannelFailureGuard] 的持久化记录（键 `iptv_invalid_sources_v1`）。
+  Widget _buildCopyInvalidRow(bool inContent, ProfileFocusController c) {
+    return ListenableBuilder(
+      listenable: _copyMsg,
+      builder: (context, _) => _SettingRow(
+        highlighted: inContent && c.row == _copyInvalidRow,
+        label: 'settings_copy_invalid'.tr(),
+        value: _copyMsg.value ?? '',
+        canStepLeft: false,
+        canStepRight: false,
+        // 触摸/点击行即复制；遥控器按 OK 走 [ProfileFocusController.activate]。
+        onTap: () {
+          c.select(_copyInvalidRow);
+          _copyInvalidSources();
+        },
+        onStepLeft: () => c.select(_copyInvalidRow),
+        onStepRight: () => c.select(_copyInvalidRow),
+      ),
+    );
+  }
+
+  /// 把已记录的失效地址复制到剪贴板（每行一个，便于直接粘贴排查）。
+  Future<void> _copyInvalidSources() async {
+    final ChannelFailureGuard guard = ChannelFailureGuard.instance;
+    await guard.ensureLoaded();
+    if (!mounted) return;
+    final List<String> urls = guard.invalidUrls.toList(growable: false);
+    final LogService log = Injection.get<LogService>();
+    if (urls.isEmpty) {
+      log.info('[ProfilePage] 复制失效源：暂无记录');
+      _showCopyMsg('settings_copy_invalid_empty'.tr());
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: urls.join('\n')));
+    if (!mounted) return;
+    log.info('[ProfilePage] 已复制 ${urls.length} 个失效地址到剪贴板');
+    _showCopyMsg('settings_copy_invalid_done'.tr(args: <String>['${urls.length}']));
+  }
+
+  /// 显示复制结果提示，2 秒后恢复空闲（与「刷新频道」的提示节奏一致）。
+  void _showCopyMsg(String msg) {
+    _copyMsgTimer?.cancel();
+    _copyMsg.value = msg;
+    _copyMsgTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) _copyMsg.value = null;
+    });
   }
 
   /// 「代理重试」行：开/关切换。
