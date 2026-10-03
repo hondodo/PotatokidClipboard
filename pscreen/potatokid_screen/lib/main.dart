@@ -8,6 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:potatokid_screen/app/app.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
+import 'package:potatokid_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
@@ -51,6 +52,11 @@ void main() {
       await AppConfig.initialize();
       AppHosts.init();
 
+      // 2.1 数据文件（tv_name_order / tv_name_hide / weather_cities）：
+      //     先用本地值（持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值；
+      //     git 同步放在依赖注入之后（见 4.1），失败/超时都沿用本地值。
+      await DataFiles.instance.loadLocal();
+
       // 3. 国际化
       await EasyLocalization.ensureInitialized();
       await initializeDateFormatting('zh_CN');
@@ -60,6 +66,11 @@ void main() {
 
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
+
+      // 4.1 同步数据文件最新版（GitHub，三个文件并发拉取）。本地值已在 2.1
+      //     就绪，这里最坏等 DataFiles 内部超时（约 10s）后沿用本地值，
+      //     不会抛出、不阻断启动。
+      await DataFiles.instance.ensureSynced();
 
       // 5. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();

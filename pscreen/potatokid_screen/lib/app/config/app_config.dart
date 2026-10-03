@@ -26,15 +26,19 @@ class AppConfig {
 
   /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
   ///
-  /// 来源 `.env` 的 `WEATHER_CITIES`（逗号分隔），顺序即左/右步进顺序。
+  /// 实际取值由 DataFiles 决定（`weather_cities.txt`：git 同步结果 → 本地缓存 →
+  /// 包内 assets 默认），`.env` 的 `WEATHER_CITIES` 仅作兼容兜底。
   static List<String> weatherCities = const <String>[];
 
-  /// 频道列表优先顺序（`.env` 的 `TV_NAME_ORDER`，逗号分隔）。
+  /// 频道列表优先顺序（`tv_name_order.txt`）。
   ///
   /// 命中的频道按此处的先后顺序置顶，未列出的保持原顺序排在其后。
+  /// 取值来源同 [weatherCities]（`.env` 的 `TV_NAME_ORDER` 仅作兜底）。
   static List<String> tvNameOrder = const <String>[];
 
-  /// 需要排除的频道名（`.env` 的 `TV_NAME_HIDE`，逗号分隔）。
+  /// 需要排除的频道名（`tv_name_hide.txt`）。
+  ///
+  /// 取值来源同 [weatherCities]（`.env` 的 `TV_NAME_HIDE` 仅作兜底）。
   static List<String> tvNameHide = const <String>[];
 
   static Future<void> initialize() async {

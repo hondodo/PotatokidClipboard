@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:potatokid_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/network/net_exceptions.dart';
@@ -137,6 +138,12 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
   }
 
   Future<void> _onLoadIptv(LoadIptv event, Emitter<IptvState> emit) async {
+    // 0) 手动刷新时顺带重新拉取数据文件最新版（频道顺序 / 隐藏频道），
+    //    让「刷新频道」同时刷新配置；失败保留原值，不阻断加载。
+    if (event.isRefresh) {
+      await DataFiles.instance.refresh();
+    }
+
     // 1) 初始加载先读持久化缓存（仅接口数据），补上 collect 后作为加载成功前的兜底列表。
     List<IptvChannel> cached = const <IptvChannel>[];
     if (event.useCache) {
