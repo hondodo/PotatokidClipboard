@@ -1,10 +1,4 @@
 #EXTM3U x-tvg-url="https://raw.githubusercontent.com/imDazui/Tvlist-awesome-m3u-m3u8/master/m3u/%E5%B9%BF%E6%92%AD%E7%94%B5%E5%8F%B0202506.m3u"
-#EXTINF:-1 ,大湾区之声
-https://ngcdn007.cnr.cn/live/hxzs/index.m3u8
-#EXTINF:-1 ,东莞FM104音乐广播
-http://ls.qingting.fm/live/93619.m3u8
-#EXTINF:-1 ,东莞畅享1075交通广播
-http://ls.qingting.fm/live/1288.m3u8
 #EXTINF:-1 ,广东城市之声
 https://satellitepull.cnr.cn/live/wxgdcszs/playlist.m3u8  
 #EXTINF:-1 ,广东南方生活广播 FM93.6

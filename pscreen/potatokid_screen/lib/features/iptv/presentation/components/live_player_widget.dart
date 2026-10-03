@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -960,7 +961,17 @@ class _ChannelNumberOverlay extends StatelessWidget {
   }
 }
 
-/// 音频节目（广播台）的「封面」：纯黑背景上居中显示收音机图标 + 频道名。
+/// 音频节目（广播台）的「正在播放」整屏。
+///
+/// 排版（纵向居中，自下而上铺氛围层）：
+/// ```text
+///            18:42:07            ← 大号时间 + 日期/农历
+///                📻              ← 收音机图标
+///            甘肃新闻综合          ← 频道名
+///              源 1/2
+///      ☁️ 26° 湛江  今 28°/22° …   ← 天气：当前 + 未来 3 天
+///   ▁▃▅▇█▆▄▂▁▃▅▇█▆▄▂▁▃▅▇ (跳动声条，贴底氛围层)
+/// ```
 ///
 /// 只在运行时判定为**音频**的源上显示（视频节目有画面，不需此层）；
 /// 显隐用淡入淡出避免切台瞬间突兀，且始终留在树上以便做过渡动画。
@@ -982,59 +993,199 @@ class _AudioNowPlaying extends StatelessWidget {
     // 以短边为基准缩放，TV 大屏与手机上都协调。
     final Size size = MediaQuery.sizeOf(context);
     final double shortSide = size.shortestSide;
-    final double iconSize = (shortSide * 0.16).clamp(84.0, 220.0);
+    final double iconSize = (shortSide * 0.11).clamp(56.0, 132.0);
     final double nameSize = (shortSide * 0.042).clamp(24.0, 54.0);
     final double tipsSize = (shortSide * 0.026).clamp(16.0, 32.0);
+    final double timeSize = (shortSide * 0.075).clamp(48.0, 92.0);
     return AnimatedOpacity(
       opacity: visible ? 1 : 0,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(
-              Icons.radio_rounded,
-              size: iconSize,
-              color: Colors.white.withValues(alpha: 0.92),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              name,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: nameSize,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1.5,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          // 氛围层：贴底的跳动声条。低透明度，只做背景，不抢前景信息。
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: RepaintBoundary(
+              child: SizedBox(
+                height: shortSide * 0.3,
+                width: double.infinity,
+                child: _EqualizerBars(active: visible),
               ),
             ),
-            if (sourceTips.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 10),
-              Text(
-                sourceTips,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: tipsSize,
+          ),
+          // 前景信息：时间 → 频道 → 天气，纵向居中。
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _ClockPanel(color: Colors.white, timeSize: timeSize),
+                const SizedBox(height: 36),
+                Icon(
+                  Icons.radio_rounded,
+                  size: iconSize,
+                  color: Colors.white.withValues(alpha: 0.92),
                 ),
-              ),
-            ],
-          ],
-        ),
+                const SizedBox(height: 16),
+                Text(
+                  name,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: nameSize,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                if (sourceTips.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    sourceTips,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: tipsSize,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 36),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const <Widget>[
+                    WeatherNowPanel(),
+                    SizedBox(width: 24),
+                    WeatherDaysPanel(),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// 提示条里的时钟：`HH:mm:ss` + `年月日 农历 星期`，每秒刷新。
+/// 跳动声条（音频整屏的背景氛围层）。
 ///
-/// 刻意做成独立 StatefulWidget：定时刷新只重建这一小块，避免每秒
+/// **是模拟动画，不是真实频谱**：取真实频谱需要从原生侧拿 PCM 数据做 FFT，
+/// 而 media_kit/mpv 没有把这层暴露给 Dart；对「正在播放」的氛围表达，
+/// 多条不同频率正弦叠加已经足够，且零依赖、可控开销。
+///
+/// [active] 为 false 时停掉动画：该层始终留在树上（做淡入淡出），
+/// 不主动停会导致不播音频时也在后台逐帧空转。
+class _EqualizerBars extends StatefulWidget {
+  const _EqualizerBars({required this.active});
+
+  /// 是否正在播放音频（决定动画是否运行）。
+  final bool active;
+
+  @override
+  State<_EqualizerBars> createState() => _EqualizerBarsState();
+}
+
+class _EqualizerBarsState extends State<_EqualizerBars>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 6),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _controller.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EqualizerBars oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active == oldWidget.active) return;
+    if (widget.active) {
+      _controller.repeat();
+    } else {
+      _controller.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _EqualizerBarsPainter(
+        animation: _controller,
+        color: Colors.white.withValues(alpha: 0.22),
+      ),
+    );
+  }
+}
+
+/// 声条绘制：把时间轴映射成每条柱子的高度。
+class _EqualizerBarsPainter extends CustomPainter {
+  _EqualizerBarsPainter({required this.animation, required this.color})
+      : super(repaint: animation);
+
+  final Animation<double> animation;
+  final Color color;
+
+  /// 柱子数量：够密才有氛围，又不至于在低端盒子上浪费绘制。
+  static const int _barCount = 44;
+
+  /// 最低高度占比：留一条视觉基线，避免柱子「归零」后整排消失。
+  static const double _minRatio = 0.06;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    // 一个动画周期内走 3 个来回，速度接近真人声/音乐的起伏。
+    final double t = animation.value * 2 * math.pi * 3;
+    final double slot = size.width / _barCount;
+    final double barWidth = slot * 0.62;
+    final Radius radius = Radius.circular(barWidth / 2);
+    final Paint paint = Paint()..color = color;
+    for (int i = 0; i < _barCount; i++) {
+      // 三条频率不同、相位按序号错开的正弦叠加：形成此起彼伏、不重复的跳动。
+      final double phase = i * 0.9;
+      final double wave = 0.5 * math.sin(t + phase) +
+          0.3 * math.sin(t * 1.7 + phase * 1.6) +
+          0.2 * math.sin(t * 3.1 + phase * 0.7);
+      final double ratio = _minRatio + (1 - _minRatio) * ((wave + 1) / 2);
+      final double barHeight = size.height * ratio;
+      final double left = i * slot + (slot - barWidth) / 2;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight),
+          radius,
+        ),
+        paint,
+      );
+    }
+  }
+
+  /// 逐帧重绘由 `super(repaint: animation)` 驱动，这里只比较静态属性。
+  @override
+  bool shouldRepaint(covariant _EqualizerBarsPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// 时钟：`HH:mm:ss` + `年月日 农历 星期`，每秒刷新。
+///
+/// 时刻做成独立 StatefulWidget：定时刷新只重建这一小块，避免每秒
 /// `setState` 波及上层 Stack 里的 [Video]，造成播放器反复重建。
 class _ClockPanel extends StatefulWidget {
-  const _ClockPanel({required this.color});
+  const _ClockPanel({required this.color, this.timeSize = 32});
 
   final Color color;
+
+  /// 时间的字号；下方日期/农历按比例缩放。
+  /// 左下角提示条用小号，音频整屏用大号。
+  final double timeSize;
 
   @override
   State<_ClockPanel> createState() => _ClockPanelState();
@@ -1068,6 +1219,8 @@ class _ClockPanelState extends State<_ClockPanel> {
     final LunarDate? lunar = lunarDateOf(DateTime(_now.year, _now.month, _now.day));
     final String subtitle = <String>[_dateFmt.format(_now)].join(' ');
     final String dateInChina = <String>[if (lunar != null) lunar.fullCnString, _weekdayFmt.format(_now)].join(' ');
+    // 副行字号跟随主时间缩放（提示条里 timeSize=32 → 14，与原来一致）。
+    final double subSize = (widget.timeSize * 0.44).clamp(14.0, 28.0);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1076,13 +1229,13 @@ class _ClockPanelState extends State<_ClockPanel> {
           _timeFmt.format(_now),
           style: TextStyle(
             color: widget.color,
-            fontSize: 32,
+            fontSize: widget.timeSize,
             height: 1.1,
             fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
           ),
         ),
-        Text(subtitle, style: TextStyle(color: widget.color, fontSize: 14)),
-        Text(dateInChina, style: TextStyle(color: widget.color, fontSize: 14)),
+        Text(subtitle, style: TextStyle(color: widget.color, fontSize: subSize)),
+        Text(dateInChina, style: TextStyle(color: widget.color, fontSize: subSize)),
       ],
     );
   }
