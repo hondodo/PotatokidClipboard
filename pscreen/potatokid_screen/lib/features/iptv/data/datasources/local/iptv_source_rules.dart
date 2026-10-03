@@ -1,33 +1,29 @@
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:potatokid_screen/app/config/data_files.dart';
 
-/// 包内「源规则」清单（全局单例，内容固定、只读一次）。
+/// 源规则清单（全局单例），内容由 [DataFiles] 提供：
+/// git 同步结果 → 本地缓存 → 包内 `assets/datas` 默认值。
 ///
-/// - [removeSourcePath]：**强制移除**的源地址（每行一个，**整行完全相等**才命中）。
+/// 三份清单（均为「每行一个」，支持空行与 `#` 起始的注释行）：
+/// - `remove_source.txt`：**强制移除**的源地址。**整行完全相等**才命中，
 ///   无论「清理失效源」开关是否开启，这些地址都不会出现在频道列表里；
-/// - [removeSourceContainsPath]：**强制移除**的源地址片段（每行一个，源地址
-///   **包含**其中任意一行即命中）；
-/// - [notRemoveSourcePath]：**强制保留**的源地址（每行一个）。永远不会被判定
-///   失效而自动移除（即使用户的失效黑名单里已有它）。
+/// - `remove_source_contains.txt`：**强制移除**的源地址片段，源地址
+///   **包含**其中任意一行即命中；
+/// - `not_remove_source.txt`：**强制保留**的源地址。永远不会被判定失效
+///   而自动移除（即使用户的失效黑名单里已有它）。
 ///
-/// 三个文件都支持空行与 `#` 起始的注释行；文件缺失/读取失败按「无规则」处理，
-/// 不阻断频道加载。
+/// 内容缺失/读取失败按「无规则」处理，不阻断频道加载。
 class IptvSourceRules {
   IptvSourceRules._();
 
   /// 全局单例。
   static final IptvSourceRules instance = IptvSourceRules._();
 
-  /// 强制移除清单（整行相等）。
-  static const String removeSourcePath = 'assets/datas/remove_source.txt';
-
-  /// 强制移除清单（源地址包含即命中）。
-  static const String removeSourceContainsPath = 'assets/datas/remove_source_contains.txt';
-
-  /// 强制保留清单。
-  static const String notRemoveSourcePath = 'assets/datas/not_remove_source.txt';
-
-  /// 首次加载的 Future；并发调用共享同一次加载。
+  /// 并发调用共享的加载 Future。
   Future<void>? _loading;
+
+  /// 上次解析时 [DataFiles.revision] 的值：内容变过就重新解析，
+  /// 这样「刷新频道」拉到的 git 新规则才会生效。
+  int _loadedRevision = -1;
 
   Set<String> _removed = <String>{};
   Set<String> _removedContains = <String>{};
@@ -42,26 +38,22 @@ class IptvSourceRules {
   /// 强制保留的源地址（不会被自动移除）。
   Set<String> get protectedUrls => _protected;
 
-  /// 加载三份清单（仅首次真正读取）。
-  Future<void> ensureLoaded() => _loading ??= _load();
-
-  Future<void> _load() async {
-    _removed = await _loadUrlSet(removeSourcePath);
-    _removedContains = await _loadUrlSet(removeSourceContainsPath);
-    _protected = await _loadUrlSet(notRemoveSourcePath);
+  /// 加载三份清单；内容未变时直接复用上次结果。
+  Future<void> ensureLoaded() {
+    final Future<void>? inFlight = _loading;
+    if (inFlight != null) return inFlight;
+    if (_loadedRevision == DataFiles.instance.revision) {
+      return Future<void>.value();
+    }
+    return _loading = _load().whenComplete(() => _loading = null);
   }
 
-  /// 读取「每行一个地址」的清单；空行与 `#` 注释行忽略。
-  static Future<Set<String>> _loadUrlSet(String path) async {
-    try {
-      final String raw = await rootBundle.loadString(path);
-      return raw
-          .split('\n')
-          .map((String line) => line.trim())
-          .where((String line) => line.isNotEmpty && !line.startsWith('#'))
-          .toSet();
-    } catch (_) {
-      return <String>{};
-    }
+  Future<void> _load() async {
+    // 数据文件由 DataFiles 统一提供；幂等且只做本地 IO，很快。
+    await DataFiles.instance.loadLocal();
+    _removed = parseLineSet(DataFiles.instance.text(DataFiles.idRemoveSource));
+    _removedContains = parseLineSet(DataFiles.instance.text(DataFiles.idRemoveSourceContains));
+    _protected = parseLineSet(DataFiles.instance.text(DataFiles.idNotRemoveSource));
+    _loadedRevision = DataFiles.instance.revision;
   }
 }

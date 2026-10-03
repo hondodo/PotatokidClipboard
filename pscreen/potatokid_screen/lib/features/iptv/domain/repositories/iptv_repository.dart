@@ -9,9 +9,10 @@ abstract class IptvRepository {
   /// 仅在「接口失败且无持久化缓存」时作为兜底使用。
   Future<List<IptvChannel>> loadDefaultRemoteChannels();
 
-  /// 合成最终播放列表：包内 `collect.m3u` 置顶 + [remote]，
-  /// 再按 `.env` 的 `TV_NAME_ORDER` 提权、剔除 `TV_NAME_HIDE`（同名频道合并源）。
-  ///
-  /// 持久化缓存只保存接口数据，展示列表每次都由本方法动态拼接。
+  /// 合成最终播放列表：`collect.m3u` 置顶 + [remote] + `audio.m3u`（广播电台）收尾，
+/// 再按 `TV_NAME_ORDER` 提权、剔除 `TV_NAME_HIDE`，同名频道合并源。
+///
+/// 三部分的可热更新数据文件都由 DataFiles 提供，展示列表每次都由本方法动态拼接；
+/// 持久化缓存只保存接口数据。
   Future<List<IptvChannel>> buildPlaylist(List<IptvChannel> remote);
 }

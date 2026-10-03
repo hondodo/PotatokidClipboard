@@ -6,8 +6,10 @@ import 'package:potatokid_screen/features/iptv/domain/repositories/iptv_reposito
 
 /// IPTV 仓库实现：负责「接口数据 → 最终播放列表」的合成。
 ///
-/// 最终列表 = 包内 `collect.m3u`（置顶）+ 接口数据（或缓存/默认快照），
-/// 再按 `.env` 的 TV_NAME_ORDER 提权、剔除 TV_NAME_HIDE。
+/// 最终列表 = `collect.m3u`（置顶）+ 接口数据（或缓存/默认快照）+ `audio.m3u`
+/// （广播电台收尾），再按 TV_NAME_ORDER 提权、剔除 TV_NAME_HIDE。
+/// 这些配置与 m3u 都由 DataFiles 提供，可随 git 同步更新，
+/// 因此不做「只读一次」的内存常驻。
 /// 网络异常自然向上冒泡，由 BLoC 统一捕获并转为 State。
 class IptvRepositoryImpl implements IptvRepository {
   IptvRepositoryImpl({IptvApiService? api, IptvAssetSource? assets})
@@ -16,9 +18,6 @@ class IptvRepositoryImpl implements IptvRepository {
 
   final IptvApiService _api;
   final IptvAssetSource _assets;
-
-  /// collect 是随包资源、内容固定，首次读取后常驻内存。
-  List<IptvChannel>? _collect;
 
   @override
   Future<List<IptvChannel>> fetchRemoteChannels() => _api.fetchChannels();
@@ -29,20 +28,22 @@ class IptvRepositoryImpl implements IptvRepository {
 
   @override
   Future<List<IptvChannel>> buildPlaylist(List<IptvChannel> remote) async {
-    final List<IptvChannel> collect =
-        _collect ??= await _assets.loadCollect();
-    return _compose(collect: collect, remote: remote);
+    // 两者都只是读内存里的文本再解析，顺序 await 即可。
+    final List<IptvChannel> collect = await _assets.loadCollect();
+    final List<IptvChannel> audio = await _assets.loadAudio();
+    return _compose(collect: collect, remote: remote, audio: audio);
   }
 
-  /// collect 前置 + remote，同名合并源（collect 的源在前），
+  /// collect 前置 + remote + audio 收尾，同名合并源（collect 的源在最前），
   /// 再剔除 TV_NAME_HIDE、按 TV_NAME_ORDER 置顶。
   static List<IptvChannel> _compose({
     required List<IptvChannel> collect,
     required List<IptvChannel> remote,
+    required List<IptvChannel> audio,
   }) {
-    // 1) 按名称合并：collect 先出现，故其顺序与源优先级都在前。
+    // 1) 按名称合并：collect/remote 先出现，故其顺序与源优先级都在 audio 之前。
     final Map<String, IptvChannel> byName = <String, IptvChannel>{};
-    for (final IptvChannel channel in <IptvChannel>[...collect, ...remote]) {
+    for (final IptvChannel channel in <IptvChannel>[...collect, ...remote, ...audio]) {
       final IptvChannel? exist = byName[channel.name];
       byName[channel.name] =
           exist == null ? channel : _mergeSameName(exist, channel);
