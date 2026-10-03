@@ -908,11 +908,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                       if (state.showChannels) _markChannelsActivity();
                       return false;
                     },
-                    child: ChannelBar(
-                      channels: widget.channels,
-                      selectedIndex: _channelController.index,
-                      onChanged: _channelController.select,
-                      visible: state.showChannels,
+                    // 频道条直接监听「选中」通知：高亮与滚动跟随必须**立即**，
+                    // 不能等播放提交（_openChannel 的 setState）——那是 400ms 之后的事。
+                    child: ListenableBuilder(
+                      listenable: _channelController,
+                      builder: (context, _) => ChannelBar(
+                        channels: widget.channels,
+                        selectedIndex: _channelController.index,
+                        onChanged: _channelController.select,
+                        visible: state.showChannels,
+                      ),
                     ),
                   ),
                 );

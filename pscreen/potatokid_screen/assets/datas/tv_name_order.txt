@@ -1,4 +1,19 @@
-# 频道列表优先顺序
+# 频道列表优先顺序（tv_name_order.txt）
+#
+# 【格式】逗号分隔，换行与逗号等价：可以折成多行书写，行尾逗号可留可不留；
+#        空行与空白项自动丢弃；LF / CRLF 均可；频道名本身含逗号时无法表达。
+# 【注释】只有「行首是 #」的行会整行忽略（行中间的 # 会算进频道名）。
+# 【匹配】频道名**精确全等**：大小写、空格、`+`、全角字符都要与实际频道名一致；
+#        不支持通配符 / 包含匹配 / 正则。
+# 【语义】此处列出的频道按这里的先后顺序置顶；未列出的频道保持原有相对顺序
+#        跟在后面；这里写了但频道列表里没有的名字直接忽略；重复的名字只取第一次。
+# 【生效】先按 tv_name_hide.txt 剔除，再按本文件排序。
+# 【同步】从 GitHub 同步（启动时 + 「刷新频道」时）：git 最新 > 本地持久化缓存 >
+#        包内 assets 默认值；线上改完要 App 下次启动 / 刷新频道才生效
+#        （重新打包 APK 可立即带上）。
+#
+# 解析代码：lib/app/config/data_files.dart 的 parseList()
+# 生效代码：lib/features/iptv/data/repositories/iptv_repository_impl.dart 的 _compose()
 珠江台,大湾区卫视,广东新闻,广东体育,广东珠江,广东民生,广州综合,香港卫视,凤凰资讯,凤凰香港,
 CCTV-1,CCTV-2,CCTV-3,CCTV-4,CCTV-5,CCTV-5+,CCTV-6,CCTV-7,CCTV-8,CCTV-9,CCTV-10,
 CCTV-11,CCTV-12,CCTV-13,CCTV-14,CCTV-15,CCTV-16,CCTV-17,CCTV-18,CCTV-19,CCTV-20,

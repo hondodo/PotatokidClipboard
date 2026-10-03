@@ -5,7 +5,7 @@ import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
 ///
-/// - 当前频道高亮显示，并用 [ScrollController] 滚动到可视区（「跟随」），
+/// - 当前频道高亮显示，并用 [ScrollController] 滚动到可视区**垂直居中**（「跟随」），
 ///   收起后又呼出时也自动定位到当前频道，避免像两个无关控件。
 /// - 「上/下」切台由壳层驱动 controller，「点按」直接选中。
 class ChannelBar extends StatefulWidget {
@@ -75,13 +75,17 @@ class _ChannelBarState extends State<ChannelBar> {
     super.dispose();
   }
 
+  /// 把选中项滚到列表**垂直居中**处。
+  ///
+  /// 首尾各半屏的项因为滚不到负偏移 / 超出底部而自动贴边（要真居中得给列表
+  /// 加等高的上下留白，代价是首尾露出半屏空白，故不做）。
   void _scrollToSelected({required bool animate}) {
     if (!_scrollController.hasClients) return;
-    final double target =
-        (widget.selectedIndex * _itemExtent).clamp(
-          0,
-          _scrollController.position.maxScrollExtent,
-        );
+    final ScrollPosition position = _scrollController.position;
+    // 选中项中心对准可视区中心：index*项高 - (视口高 - 项高)/2。
+    final double centered =
+        widget.selectedIndex * _itemExtent - (position.viewportDimension - _itemExtent) / 2;
+    final double target = centered.clamp(0, position.maxScrollExtent);
     if (animate) {
       _scrollController.animateTo(
         target,
