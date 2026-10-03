@@ -109,8 +109,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   bool _audioParamsReady = false;
 
   /// 当前生效的判定窗口。
-  Duration get _kindProbeTimeoutNow =>
-      _proxyUrl == null ? _kindProbeTimeout : _proxyKindProbeTimeout;
+  Duration get _kindProbeTimeoutNow => _proxyUrl == null ? _kindProbeTimeout : _proxyKindProbeTimeout;
 
   /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
   Timer? _bufferStallWatch;
@@ -121,8 +120,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   static const Duration _proxyStallThreshold = Duration(seconds: 20);
 
   /// 当前生效的卡死阈值（代理模式更短）。
-  Duration get _stallThresholdNow =>
-      _proxyUrl == null ? _bufferStallThreshold : _proxyStallThreshold;
+  Duration get _stallThresholdNow => _proxyUrl == null ? _bufferStallThreshold : _proxyStallThreshold;
 
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
@@ -303,9 +301,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool hasFrame = (s.width ?? 0) > 0;
     final bool advanced = (s.position - resumePos) >= const Duration(milliseconds: 500);
     // 只有「判定为音频」才放宽视频帧要求；unknown 仍按视频严格处理（默认视频）。
-    final bool healthy = playing &&
-        advanced &&
-        (_mediaKind == _MediaKind.audio || hasFrame);
+    final bool healthy = playing && advanced && (_mediaKind == _MediaKind.audio || hasFrame);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
       '媒体类型=${_mediaKind.name} '
@@ -534,9 +530,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 不能用 width>0（纯音频永远没有视频帧）。
   void _resolveMediaKindIfDecided() {
     if (_pendingKindResolve == null) return;
-    final bool decided = _mediaKind == _MediaKind.video ||
-        (_mediaKind == _MediaKind.audio &&
-            (_audioParamsReady || _player?.state.playing == true));
+    final bool decided =
+        _mediaKind == _MediaKind.video ||
+        (_mediaKind == _MediaKind.audio && (_audioParamsReady || _player?.state.playing == true));
     if (!decided) return;
     final VoidCallback? done = _pendingKindResolve;
     _pendingKindResolve = null;
@@ -560,13 +556,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       await native.setProperty('http-proxy', value);
       final String readback = await native.getProperty('http-proxy');
       if (readback == value) {
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] http-proxy 已生效: ${value.isEmpty ? '(直连)' : value}',
-        );
+        Injection.get<LogService>().info('[LivePlayerWidget] http-proxy 已生效: ${value.isEmpty ? '(直连)' : value}');
       } else {
-        Injection.get<LogService>().warn(
-          '[LivePlayerWidget] http-proxy 设置未生效: 期望"$value" 实际"$readback"',
-        );
+        Injection.get<LogService>().warn('[LivePlayerWidget] http-proxy 设置未生效: 期望"$value" 实际"$readback"');
       }
     } catch (e) {
       Injection.get<LogService>().warn('[LivePlayerWidget] 设置 http-proxy 失败: $e');
@@ -674,18 +666,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
     // 「代理重试」第一段：这次失败发生在代理上 → 换下一个代理继续试同一个源。
     if (_proxyUrl != null) {
-      Injection.get<LogService>().info(
-        '[LivePlayerWidget] 代理未成功，换下一个: $_proxyUrl，原因: $reason',
-      );
+      Injection.get<LogService>().info('[LivePlayerWidget] 代理未成功，换下一个: $_proxyUrl，原因: $reason');
       _proxyUrl = null;
     }
 
     // 「代理重试」第二段：直连失败，或代理失败但还没试满 → 挑一个**探测可用**的代理
     // 重试**同一个源**（探测能挡住「代理能连上但对这个源返回错误页」这类无效代理）。
     if (AppSettings.instance.proxyRetryEnabled && _proxyAttempts < _maxProxyAttempts) {
-      final String? proxy = await ProxyPoolService.instance.nextUsableProxy(
-        targetUrl: failedUrl,
-      );
+      final String? proxy = await ProxyPoolService.instance.nextUsableProxy(targetUrl: failedUrl);
       // 等待探测期间可能已切台/切源，需复核。
       if (proxy != null && mounted && _currentChannel()?.name == channel.name) {
         _proxyAttempts++;
@@ -701,9 +689,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         if (mounted) _showChannelToast(_channelSourceLabel());
         return;
       }
-      Injection.get<LogService>().info(
-        '[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源',
-      );
+      Injection.get<LogService>().info('[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源');
     }
 
     // 代理都没救活（或未开启）→ 回退到下一个源，重新从直连开始。
@@ -805,10 +791,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           // 不可交互（IgnorePointer），不影响遥控器按键与频道条。
           Positioned.fill(
             child: IgnorePointer(
-              child: _AudioNowPlaying(
-                label: _channelSourceLabel(),
-                visible: _mediaKind == _MediaKind.audio,
-              ),
+              child: _AudioNowPlaying(label: _channelSourceLabel(), visible: _mediaKind == _MediaKind.audio),
             ),
           ),
           // 右侧频道条：显隐由 showChannels 开关控制（首页 OK 键切换 / 换台时自动显示）。
@@ -950,9 +933,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
               fontWeight: FontWeight.bold,
               height: 1.1,
               letterSpacing: outOfRange ? 0 : 4,
-              fontFeatures: outOfRange
-                  ? null
-                  : const <FontFeature>[FontFeature.tabularFigures()],
+              fontFeatures: outOfRange ? null : const <FontFeature>[FontFeature.tabularFigures()],
             ),
           ),
         );
@@ -1022,11 +1003,7 @@ class _AudioNowPlaying extends StatelessWidget {
               children: <Widget>[
                 _ClockPanel(color: Colors.white, timeSize: timeSize),
                 const SizedBox(height: 36),
-                Icon(
-                  Icons.radio_rounded,
-                  size: iconSize,
-                  color: Colors.white.withValues(alpha: 0.92),
-                ),
+                Icon(Icons.radio_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.92)),
                 const SizedBox(height: 16),
                 Text(
                   name,
@@ -1043,20 +1020,16 @@ class _AudioNowPlaying extends StatelessWidget {
                   Text(
                     sourceTips,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: tipsSize,
-                    ),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: tipsSize),
                   ),
                 ],
-                const SizedBox(height: 36),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const <Widget>[
-                    WeatherNowPanel(),
-                    SizedBox(width: 24),
-                    WeatherDaysPanel(),
-                  ],
+                const SizedBox(height: 56),
+                Transform.scale(
+                  scale: 2.0,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const <Widget>[WeatherNowPanel(), SizedBox(width: 24), WeatherDaysPanel()],
+                  ),
                 ),
               ],
             ),
@@ -1085,12 +1058,8 @@ class _EqualizerBars extends StatefulWidget {
   State<_EqualizerBars> createState() => _EqualizerBarsState();
 }
 
-class _EqualizerBarsState extends State<_EqualizerBars>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 6),
-  );
+class _EqualizerBarsState extends State<_EqualizerBars> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this, duration: const Duration(seconds: 6));
 
   @override
   void initState() {
@@ -1118,18 +1087,14 @@ class _EqualizerBarsState extends State<_EqualizerBars>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _EqualizerBarsPainter(
-        animation: _controller,
-        color: Colors.white.withValues(alpha: 0.22),
-      ),
+      painter: _EqualizerBarsPainter(animation: _controller, color: Colors.white.withValues(alpha: 0.22)),
     );
   }
 }
 
 /// 声条绘制：把时间轴映射成每条柱子的高度。
 class _EqualizerBarsPainter extends CustomPainter {
-  _EqualizerBarsPainter({required this.animation, required this.color})
-      : super(repaint: animation);
+  _EqualizerBarsPainter({required this.animation, required this.color}) : super(repaint: animation);
 
   final Animation<double> animation;
   final Color color;
@@ -1152,17 +1117,13 @@ class _EqualizerBarsPainter extends CustomPainter {
     for (int i = 0; i < _barCount; i++) {
       // 三条频率不同、相位按序号错开的正弦叠加：形成此起彼伏、不重复的跳动。
       final double phase = i * 0.9;
-      final double wave = 0.5 * math.sin(t + phase) +
-          0.3 * math.sin(t * 1.7 + phase * 1.6) +
-          0.2 * math.sin(t * 3.1 + phase * 0.7);
+      final double wave =
+          0.5 * math.sin(t + phase) + 0.3 * math.sin(t * 1.7 + phase * 1.6) + 0.2 * math.sin(t * 3.1 + phase * 0.7);
       final double ratio = _minRatio + (1 - _minRatio) * ((wave + 1) / 2);
       final double barHeight = size.height * ratio;
       final double left = i * slot + (slot - barWidth) / 2;
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight),
-          radius,
-        ),
+        RRect.fromRectAndRadius(Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight), radius),
         paint,
       );
     }
@@ -1170,8 +1131,7 @@ class _EqualizerBarsPainter extends CustomPainter {
 
   /// 逐帧重绘由 `super(repaint: animation)` 驱动，这里只比较静态属性。
   @override
-  bool shouldRepaint(covariant _EqualizerBarsPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(covariant _EqualizerBarsPainter oldDelegate) => oldDelegate.color != color;
 }
 
 /// 时钟：`HH:mm:ss` + `年月日 农历 星期`，每秒刷新。
@@ -1234,8 +1194,14 @@ class _ClockPanelState extends State<_ClockPanel> {
             fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
           ),
         ),
-        Text(subtitle, style: TextStyle(color: widget.color, fontSize: subSize)),
-        Text(dateInChina, style: TextStyle(color: widget.color, fontSize: subSize)),
+        Text(
+          subtitle,
+          style: TextStyle(color: widget.color, fontSize: subSize),
+        ),
+        Text(
+          dateInChina,
+          style: TextStyle(color: widget.color, fontSize: subSize),
+        ),
       ],
     );
   }

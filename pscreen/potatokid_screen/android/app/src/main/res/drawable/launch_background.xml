@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- 启动屏（LaunchTheme 的 windowBackground）：白底 + 居中应用图标。
+     图标素材自带接近纯白的底（#FBFBFB~#FFFFFF），所以底色用白，
+     不会在图标四周露出明显的方块边。
+     图标本体只有 48dp（TV 上太小），这里用 drawable-nodpi 下的 400px 高清图，
+     按 1:1 像素绘制，1080p 电视上约占屏高 1/3。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@drawable/splash_logo" />
+    </item>
 </layer-list>
