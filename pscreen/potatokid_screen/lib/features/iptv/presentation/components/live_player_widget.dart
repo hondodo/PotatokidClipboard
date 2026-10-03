@@ -57,6 +57,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   final ValueNotifier<String?> _toastNameVN = ValueNotifier<String?>(null);
   int _currentIndex = 0;
 
+  /// 打开频道请求的序号（见 `_openChannel`）：用于丢弃 await 期间已过期的打开请求。
+  int _openSeq = 0;
+
   /// 当前频道正使用的源序号（同频道多源，失败时递增回退）。
   int _currentSource = 0;
   bool _handleFailureBusy = false;
@@ -264,7 +267,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _bufferStallWatch = Timer.periodic(const Duration(seconds: 1), (_) => _checkBufferStall());
     // 同步频道数与当前选中频道，随后监听上/下键的切换。
     _syncChannels();
-    _channelController.addListener(_onChannelChanged);
+    // 「选中」立即刷新界面，「播放提交」延迟换源（两者分开的原因见控制器注释）。
+    _channelController.addListener(_onChannelSelected);
+    _channelController.onPlayCommit.addListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
     HomeNowPlayingController.instance.onToggleChannelPanel = _toggleChannelPanel;
     _restoreLastChannel();
@@ -298,11 +303,20 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.setCount(widget.channels.length);
   }
 
-  void _onChannelChanged() {
-    _openChannel(_channelController.index);
+  /// 选中变化（**立即**）：只刷新界面——显示频道列表 + 左下角频道名，
+  /// 这里**不** open，播放交给 [_onPlayCommit] 延迟提交。
+  /// 长按连切时选中照旧飞快跟手，但不会每 80ms 就换一次流。
+  void _onChannelSelected() {
     // 换台算一次列表操作：显示列表并重置 30 秒计时。
     _markChannelsActivity();
-    // 记录当前频道，下次启动据此恢复。
+    // 频道名立即跟着选中走（此时源序号按首源显示，提交后会用真实源号再刷一次）。
+    if (mounted) _showChannelToast(_selectedChannelLabel());
+  }
+
+  /// 播放提交（停止切换 `LiveChannelController.commitDelay` 后）：真正换源。
+  void _onPlayCommit() {
+    _openChannel(_channelController.index);
+    // 记录当前频道，下次启动据此恢复（写盘也一并挪到这里，避免长按时反复写）。
     _rememberCurrentChannel();
   }
 
@@ -360,7 +374,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     }
     // 目标即当前索引（如首台）时 select 不会触发 listener，需手动打开。
     if (target != _channelController.index) {
-      _channelController.select(target); // 触发 _onChannelChanged → 打开并记录
+      _channelController.select(target); // 立即提交 → _onPlayCommit → 打开并记录
     } else {
       await _openChannel(target, force: true);
     }
@@ -413,11 +427,15 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (!force && !changed) return;
     _currentIndex = index;
     _currentSource = 0;
+    // 本次打开请求的序号：await 期间若又切了台，过期请求直接丢弃，
+    // 避免两次 open 交错（重复 open/stop 正是长按卡顿的成因）。
+    final int seq = ++_openSeq;
     // 换台后重新从直连开始试（换台失败才会再走代理）。
     _proxyUrl = null;
     _proxyAttempts = 0;
     // 优先从上次可用源起播（记忆的 URL 已不在此频道则回落首源）。
     final String? preferred = await ChannelSourceCache.instance.preferredSourceOf(widget.channels[index].name);
+    if (!mounted || seq != _openSeq) return;
     if (preferred != null) {
       final int idx = widget.channels[index].sources.indexOf(preferred);
       if (idx >= 0) _currentSource = idx;
@@ -629,6 +647,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     return '${channel.name}\n源 $i/${channel.sources.length}';
   }
 
+  /// 左下角提示文案（按**选中**频道算），供选中瞬间立即回显频道名。
+  ///
+  /// 此刻还没提交播放、源号未知，先按首源显示；提交后 `_openChannel` 会用
+  /// [_channelSourceLabel] 按真实源号再刷一次。
+  String _selectedChannelLabel() {
+    final int index = _channelController.index;
+    if (index < 0 || index >= widget.channels.length) return '';
+    final IptvChannel channel = widget.channels[index];
+    if (channel.sources.isEmpty) return channel.name;
+    return '${channel.name}\n源 1/${channel.sources.length}';
+  }
+
   /// 启动“打开后长时间无画面”看门狗。
   ///
   /// 打开源后 [_hangTimeout]（直连 60 秒 / 代理 20 秒）内若既未开始播放、
@@ -788,7 +818,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _channelController.removeListener(_onChannelChanged);
+    _channelController.removeListener(_onChannelSelected);
+    _channelController.onPlayCommit.removeListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = null;
     HomeNowPlayingController.instance.onToggleChannelPanel = null;
     _toastTimer?.cancel();
