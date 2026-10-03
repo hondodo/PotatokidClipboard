@@ -839,9 +839,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 递增后逐步降到每分钟 7~8 次，持续不可用时不至于拖累盒子。
   Duration _roundRetryDelay() {
     final int shift = (_failedRounds - 1).clamp(0, _maxRoundRetryShift);
-    return Duration(
-      milliseconds: 50, // _roundRetryBaseDelay.inMilliseconds << shift,
-    );
+    return Duration(milliseconds: _roundRetryBaseDelay.inMilliseconds << shift);
   }
 
   /// 开始新的一轮试源（换台 / 手动换源 / 播放成功后调用）：退避重新从 1 秒起算。
