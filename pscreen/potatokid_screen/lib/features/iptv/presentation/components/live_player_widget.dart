@@ -1165,31 +1165,38 @@ class _AudioNowPlaying extends StatelessWidget {
           // 前景信息：时间 → 频道 → 天气，纵向居中。
           Center(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              //mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: <Widget>[
+                const SizedBox(height: 32),
                 _ClockPanel(color: Colors.white, timeSize: timeSize, horizontalSize: true),
-                const SizedBox(height: 24),
-                Icon(Icons.radio_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.92)),
                 const SizedBox(height: 16),
-                Text(
-                  name,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: nameSize,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.5,
-                  ),
+                Column(
+                  children: [
+                    Icon(Icons.radio_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.92)),
+                    const SizedBox(height: 16),
+                    Text(
+                      name,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: nameSize,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+
+                    if (sourceTips.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 8),
+                      Text(
+                        sourceTips,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: tipsSize),
+                      ),
+                    ],
+                  ],
                 ),
-                if (sourceTips.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(
-                    sourceTips,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: tipsSize),
-                  ),
-                ],
-                const SizedBox(height: 26),
+                const SizedBox(height: 16),
                 Transform.scale(
                   scale: 2.0,
                   child: Row(
@@ -1197,6 +1204,7 @@ class _AudioNowPlaying extends StatelessWidget {
                     children: const <Widget>[WeatherNowPanel(), SizedBox(width: 24), WeatherDaysPanel()],
                   ),
                 ),
+                const SizedBox(height: 32),
               ],
             ),
           ),
