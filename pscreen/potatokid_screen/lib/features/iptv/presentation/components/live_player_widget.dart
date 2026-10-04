@@ -97,6 +97,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 黑屏判定：是否出现过真实视频帧（width>0）。
   bool _playedVideo = false;
 
+  /// 当前源是否已记录过一次「忽略音频解码错误」，避免同一错误反复刷日志。
+  bool _audioDecodeErrorLogged = false;
+
   /// 当前源的媒体类型判定结果。默认 [_MediaKind.unknown] → 按视频（严格）处理。
   ///
   /// 注意：**界面显示**不只看它是否为 audio —— [unknown]（还在连接）也显示音频界面，
@@ -194,6 +197,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       // 都属于非致命（源本身可播，画面会闪一下），整组忽略、不触发回退。
       if (trimmed.contains('Cannot seek in this stream') || trimmed.contains('--force-seekable')) {
         Injection.get<LogService>().info('[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed');
+        return;
+      }
+      // 音轨解码失败但画面正常：重开整个流只会黑屏一下、声音中断，
+      // 单源频道还会陷入「重开 → 报错 → 重开」的循环（实测 1~2 秒一次）。
+      // 这类源的毛病只在音轨，画面既然已经正常，就让它继续播。
+      if (_isAudioDecodeError(trimmed) && _isPlaybackHealthy()) {
+        if (!_audioDecodeErrorLogged) {
+          _audioDecodeErrorLogged = true;
+          Injection.get<LogService>().info(
+            '[LivePlayerWidget] 忽略音频解码错误(画面正常，不重开该源): $trimmed',
+          );
+        }
         return;
       }
       final String detail = trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
@@ -526,6 +541,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await (player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
   }
 
+  /// 是否为「音轨解码失败」类错误（画面可能完全正常）。
+  static bool _isAudioDecodeError(String msg) =>
+      msg.contains('Error decoding audio') || msg.contains('Failed to decode audio');
+
+  /// 画面是否已经健康：出过真实视频帧、已判定为「有视频轨的节目」、或已在播放。
+  ///
+  /// 只有这种情况下的音轨报错才值得忽略。连视频都没起来的源仍按原逻辑回退，
+  /// 交给看门狗与回退机制处理，避免「音轨坏 = 整个源不可用」的误判反过来漏掉真坏源。
+  bool _isPlaybackHealthy() =>
+      _playedVideo ||
+      _mediaKind == _MediaKind.video ||
+      (_player?.state.playing ?? false);
+
   /// 打开当前频道的当前源。
   Future<void> _playCurrentSource() async {
     final IptvChannel? channel = _currentChannel();
@@ -536,6 +564,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await _applyProxySetting(_proxyUrl);
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
+    // 每次 open 重新允许记录一次「忽略音频解码错误」。
+    _audioDecodeErrorLogged = false;
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道。
     _resetMediaKindProbe();
