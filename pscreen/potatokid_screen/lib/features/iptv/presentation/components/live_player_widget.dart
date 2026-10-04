@@ -1167,8 +1167,8 @@ class _AudioNowPlaying extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                _ClockPanel(color: Colors.white, timeSize: timeSize),
-                const SizedBox(height: 36),
+                _ClockPanel(color: Colors.white, timeSize: timeSize, horizontalSize: true),
+                const SizedBox(height: 24),
                 Icon(Icons.radio_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.92)),
                 const SizedBox(height: 16),
                 Text(
@@ -1189,7 +1189,7 @@ class _AudioNowPlaying extends StatelessWidget {
                     style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: tipsSize),
                   ),
                 ],
-                const SizedBox(height: 56),
+                const SizedBox(height: 26),
                 Transform.scale(
                   scale: 2.0,
                   child: Row(
@@ -1306,13 +1306,15 @@ class _EqualizerBarsPainter extends CustomPainter {
 /// 时刻做成独立 StatefulWidget：定时刷新只重建这一小块，避免每秒
 /// `setState` 波及上层 Stack 里的 [Video]，造成播放器反复重建。
 class _ClockPanel extends StatefulWidget {
-  const _ClockPanel({required this.color, this.timeSize = 32});
+  const _ClockPanel({required this.color, this.timeSize = 32, this.horizontalSize = false});
 
   final Color color;
 
   /// 时间的字号；下方日期/农历按比例缩放。
   /// 左下角提示条用小号，音频整屏用大号。
   final double timeSize;
+
+  final bool horizontalSize;
 
   @override
   State<_ClockPanel> createState() => _ClockPanelState();
@@ -1348,6 +1350,32 @@ class _ClockPanelState extends State<_ClockPanel> {
     final String dateInChina = <String>[if (lunar != null) lunar.fullCnString, _weekdayFmt.format(_now)].join(' ');
     // 副行字号跟随主时间缩放（提示条里 timeSize=32 → 14，与原来一致）。
     final double subSize = (widget.timeSize * 0.44).clamp(14.0, 28.0);
+    if (widget.horizontalSize) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            _timeFmt.format(_now),
+            style: TextStyle(
+              color: widget.color,
+              fontSize: widget.timeSize,
+              height: 1.1,
+              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+            ),
+          ),
+          SizedBox(width: 32),
+          Text(
+            subtitle,
+            style: TextStyle(color: widget.color, fontSize: subSize),
+          ),
+          SizedBox(width: 32),
+          Text(
+            dateInChina,
+            style: TextStyle(color: widget.color, fontSize: subSize),
+          ),
+        ],
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
