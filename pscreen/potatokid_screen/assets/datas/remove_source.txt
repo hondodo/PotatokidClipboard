@@ -292,6 +292,11 @@ http://119.6.59.216:60033/tsfile/live/1007_1.m3u8?key=txiptv
 http://live.dameijunlian.cn:80/live1/live1.m3u8
 http://live.pzhkai.com/xwzhtl/sd/live.m3u8
 http://live.zhgbtv.cn:3100/hls/kwqtkbbi/index.m3u8
+http://112.30.194.221:20080/live/eac499adad7b49ff9cfa79ba84693959/hls.m3u8
+http://[2409:8087:1a01:df::7005]/ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226330/index.m3u8
+http://[2409:8087:1a15:10d1::31]/ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226437/index.m3u8
+http://iptv.4666888.xyz/iptv2A.php?id=30
+http://ali.hlspull.yximgs.com/live/awei_mydy.flv
 
 
 
@@ -303,9 +308,17 @@ http://iptv.4666888.xyz/iptv2A.php?id=19
 http://112.27.235.94:8000/hls/28/index.m3u8
 https://other.ottiptv.cc/cwjd.m3u8
 http://111.22.153.159:35455/itv/5000000010000026105.m3u8?cdn=bestzb
-https://zby.130519.xyz/PLTV/11/224/3221225748/index.m3u8.
+https://zby.130519.xyz/PLTV/11/224/3221225748/index.m3u8
 https://gdcucc.v1.mk/gdcucc/brtv8k.m3u8
 https://hdl-vip-ws.qf.56.com/live/lc_11730.flv
 http://120.76.248.139/live/bfgd/4200000113.m3u8
 http://120.76.248.139/live/bfgd/4200000249.m3u8
 http://stream.hrbtv.net/ylpd/sd/live.m3u8?zheild
+http://120.76.248.139/live/bfgd/4200000282.m3u8
+http://38.75.136.137:98/gslb/dsdqpub/jxwshd.m3u8?auth=testpub
+http://222.241.154.37:9901/tsfile/live/23027_1.m3u8
+http://[2409:8087:1a01:df::7005]/ottrrs.hl.chinamobile.com/PLTV/88888888/224/3221226330/index.m3u8
+https://bcovlive-a.akamaihd.net/rce33d845cb9e42dfa302c7ac345f7858/ap-northeast-1/6282251407001/playlist.m3u8
+http://api.kkitv.itv888.vip:8080/streams/au9u4ktua3t/index.m3u8
+http://api.kkitv.itv888.vip:8080/streams/au9u4ktua3t/index.m3u8
+http://api.kkitv.itv888.vip:8080/streams/emzampd6m1i/index.m3u8

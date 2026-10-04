@@ -11,3 +11,4 @@ t.061899.xyz
 112.46.105.20
 vip.lqcc.xyz
 tvbox6.icu
+api.kkitv.itv888.vip:8080
