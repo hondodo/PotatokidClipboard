@@ -218,3 +218,8 @@ http://112.46.105.20:8009/hls/28/index.m3u8
 http://20240504.shunyue1809.com:6321/udp/239.49.8.120:8000
 http://tvfile.swrmt.com:80/nmip-media/channellive/channel100064/playlist.m3u8
 http://vip.lqcc.xyz:15511/rtp/239.254.201.139:7203
+http://107.150.60.122/live/xzws.m3u8
+http://107.150.60.122/live/ynwshd.m3u8
+https://live.chinacert.cftest5.cn/cnmg/live/639731715
+http://tvbox6.icu/tv/mgtv.php?id=346
+http://107.150.60.122/live/gxgj.m3u8
