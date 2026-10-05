@@ -30,6 +30,7 @@ class AppSettings {
   static const String _keyWeatherCity = 'app_weather_city_v1';
   static const String _keyRemoveInvalidSources = 'app_remove_invalid_sources_v1';
   static const String _keyProxyRetry = 'app_proxy_retry_v1';
+  static const String _keyBackgroundPlayback = 'app_background_playback_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -57,6 +58,9 @@ class AppSettings {
   /// 代理重试：默认**关闭**（开启后直连失败的源会用免费代理重试一次）。
   bool _proxyRetryEnabled = false;
 
+  /// 后台播放：默认**关闭**（关闭时 App 退到后台即暂停，与系统默认行为一致）。
+  bool _backgroundPlayback = false;
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -73,6 +77,9 @@ class AppSettings {
 
   /// 是否开启「代理重试」。
   bool get proxyRetryEnabled => _proxyRetryEnabled;
+
+  /// 是否开启「后台播放」（关闭时退到后台即暂停）。
+  bool get backgroundPlayback => _backgroundPlayback;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -108,6 +115,9 @@ class AppSettings {
 
       // 代理重试
       _proxyRetryEnabled = prefs.getBool(_keyProxyRetry) ?? false;
+
+      // 后台播放
+      _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -201,6 +211,17 @@ class AppSettings {
     }
   }
 
+  /// 保存「后台播放」开关。
+  Future<void> setBackgroundPlayback(bool enabled) async {
+    _backgroundPlayback = enabled;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyBackgroundPlayback, enabled);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
   /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
   ///
   /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
@@ -228,6 +249,7 @@ class AppSettings {
     _weatherCity = '';
     _removeInvalidSources = false;
     _proxyRetryEnabled = false;
+    _backgroundPlayback = false;
   }
 
   static String _themeModeToString(ThemeMode mode) {

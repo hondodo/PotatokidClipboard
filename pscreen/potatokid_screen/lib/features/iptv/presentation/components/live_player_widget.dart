@@ -447,7 +447,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       _channelsHideTimer = null;
       context.read<AppBloc>().add(const SetChannels(false));
     } else {
-      _showChannelToast(_channelSourceLabel());
+      _showChannelToast(_channelSourceLabel(withNumber: true));
       _markChannelsActivity();
     }
   }
@@ -479,7 +479,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       _handleFailureBusy = true;
       await _playCurrentSource();
       _handleFailureBusy = false;
-      _showChannelToast(_channelSourceLabel());
+      _showChannelToast(_channelSourceLabel(withNumber: true));
     }
   }
 
@@ -687,24 +687,37 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     }
   }
 
+  /// 频道在列表中的显示序号：从 1 开始，按频道总数的位数左侧补零，
+  /// 与右侧频道列表（[ChannelBar]）的序号规则完全一致。
+  String _channelNumber(int index) {
+    final int total = widget.channels.length;
+    final int width = total <= 1 ? 1 : total.toString().length;
+    return (index + 1).toString().padLeft(width, '0');
+  }
+
   /// 左下角频道名提示文案：`频道名称\n(源 i/N)`,如果要分割，可以用\n来切分。
-  String _channelSourceLabel() {
+  ///
+  /// [withNumber] 为 true 时在频道名前加显示序号（供左下角提示用，
+  /// 音频整屏 [_AudioNowPlaying] 仍用不带序号的版本）。
+  String _channelSourceLabel({bool withNumber = false}) {
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return '';
     final int i = (_currentSource + 1).clamp(1, channel.sources.length);
-    return '${channel.name}\n源 $i/${channel.sources.length}';
+    final String prefix = withNumber ? '${_channelNumber(_currentIndex)} ' : '';
+    return '$prefix${channel.name}\n源 $i/${channel.sources.length}';
   }
 
   /// 左下角提示文案（按**选中**频道算），供选中瞬间立即回显频道名。
   ///
   /// 此刻还没提交播放、源号未知，先按首源显示；提交后 `_openChannel` 会用
-  /// [_channelSourceLabel] 按真实源号再刷一次。
+  /// [_channelSourceLabel] 按真实源号再刷一次。文案带频道显示序号。
   String _selectedChannelLabel() {
     final int index = _channelController.index;
     if (index < 0 || index >= widget.channels.length) return '';
     final IptvChannel channel = widget.channels[index];
-    if (channel.sources.isEmpty) return channel.name;
-    return '${channel.name}\n源 1/${channel.sources.length}';
+    final String name = '${_channelNumber(index)} ${channel.name}';
+    if (channel.sources.isEmpty) return name;
+    return '$name\n源 1/${channel.sources.length}';
   }
 
   /// 启动“打开后长时间无画面”看门狗。
@@ -779,7 +792,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
-    if (mounted) _showChannelToast(_channelSourceLabel());
+    if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
   }
 
   /// 播放失败/结束：先用代理重试同一个源，再循环回退到下一个源。
@@ -822,7 +835,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         await _playCurrentSource();
         _handleFailureBusy = false;
         _recordInvalidFailure(channel, failedUrl, reason);
-        if (mounted) _showChannelToast(_channelSourceLabel());
+        if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
         return;
       }
       Injection.get<LogService>().info('[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源');
@@ -860,7 +873,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _handleFailureBusy = false;
     _recordInvalidFailure(channel, failedUrl, reason);
     // 刷新左下角里的源序号提示。
-    if (mounted) _showChannelToast(_channelSourceLabel());
+    if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
   }
 
   /// 本轮退避时长：1s、2s、4s、8s（上限）。
@@ -947,7 +960,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         children: <Widget>[
           // 视频始终全屏铺满；fit/aspectRatio 跟随「我的」页的画面显示模式。
           BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) => previous.aspectMode != current.aspectMode,
+            buildWhen: (previous, current) =>
+                previous.aspectMode != current.aspectMode ||
+                previous.backgroundPlayback != current.backgroundPlayback,
             builder: (context, state) {
               final VideoAspectMode mode = state.aspectMode;
               return ColoredBox(
@@ -957,6 +972,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                   controls: NoVideoControls,
                   fit: mode.fit,
                   aspectRatio: mode.aspectRatio,
+                  // 「后台播放」开关（默认关）：关闭时保持 media_kit 默认行为——退到后台即暂停；
+                  // 开启后不暂停，安卓退到后台/息屏时声音继续播。
+                  pauseUponEnteringBackgroundMode: !state.backgroundPlayback,
                 ),
               );
             },

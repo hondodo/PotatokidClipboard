@@ -13,6 +13,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
+import 'package:potatokid_screen/features/app/application/sleep_timer_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
@@ -52,20 +53,26 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  /// 「定时关闭」行在 [ProfileFocusController.row] 中的序号。
+  static const int _sleepTimerRow = 6;
+
+  /// 「后台播放」行在 [ProfileFocusController.row] 中的序号。
+  static const int _backgroundPlaybackRow = 7;
+
   /// 「刷新频道」行在 [ProfileFocusController.row] 中的序号。
-  static const int _refreshRow = 6;
+  static const int _refreshRow = 8;
 
   /// 「清理失效源」行在 [ProfileFocusController.row] 中的序号。
-  static const int _removeInvalidRow = 7;
+  static const int _removeInvalidRow = 9;
 
   /// 「复制失效源」行（只读动作行：按 OK 把已记录的失效地址复制到剪贴板）的序号。
-  static const int _copyInvalidRow = 8;
+  static const int _copyInvalidRow = 10;
 
   /// 「代理重试」行在 [ProfileFocusController.row] 中的序号。
-  static const int _proxyRetryRow = 9;
+  static const int _proxyRetryRow = 11;
 
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
-  static const int _resetRow = 10;
+  static const int _resetRow = 12;
 
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
@@ -87,6 +94,11 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 天气城市选项的展示文案：空串为「自动」，其余直接显示城市名。
   static String _weatherCityLabel(String city) =>
       city.isEmpty ? 'weather_city_auto'.tr() : city;
+
+  /// 定时关闭选项的展示文案：null 为「关闭」，其余显示「N 分钟」。
+  static String _sleepTimerLabel(int? minutes) => minutes == null
+      ? 'common_off'.tr()
+      : 'sleep_timer_minutes'.tr(args: <String>['$minutes']);
 
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
@@ -284,7 +296,18 @@ class _ProfilePageState extends State<ProfilePage> {
         context.read<AppBloc>().add(ChangeWeatherCity(opts[next]));
         _scheduleCityApply();
         break;
-      case 6: // 刷新频道（左/右键按下同样触发）
+      case _sleepTimerRow: // 定时关闭：关闭 → 5 → 10 → … → 90 分钟步进
+        final List<int?> opts = SleepTimerController.options;
+        final int cur = opts.indexOf(SleepTimerController.instance.minutes);
+        final int val = cur < 0 ? 0 : cur;
+        final int next = (val + delta).clamp(0, opts.length - 1);
+        SleepTimerController.instance.setMinutes(opts[next]);
+        break;
+      case _backgroundPlaybackRow: // 后台播放：开/关切换
+        final bool isOn = context.read<AppBloc>().state.backgroundPlayback;
+        context.read<AppBloc>().add(SetBackgroundPlayback(!isOn));
+        break;
+      case _refreshRow: // 刷新频道（左/右键按下同样触发）
         _refreshChannels();
         break;
       case _removeInvalidRow: // 清理失效源：开/关切换（切换后按新开关重算频道列表）
@@ -335,7 +358,20 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 12),
               KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
               const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[6], child: _buildRefreshRow(inContent, c)),
+              KeyedSubtree(
+                key: _rowKeys[_sleepTimerRow],
+                child: _buildSleepTimerRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_backgroundPlaybackRow],
+                child: _buildBackgroundPlaybackRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_refreshRow],
+                child: _buildRefreshRow(inContent, c),
+              ),
               const SizedBox(height: 12),
               KeyedSubtree(
                 key: _rowKeys[_removeInvalidRow],
@@ -527,6 +563,65 @@ class _ProfilePageState extends State<ProfilePage> {
           },
           onStepRight: () {
             c.select(5);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「定时关闭」行：关闭 / 5~90 分钟步进。
+  ///
+  /// 选中非「关闭」后立即开始按秒倒计时，首页左上角实时显示剩余时间，
+  /// 到点自动退出应用（见 [SleepTimerController]）。监听控制器以同步显示当前倒计时。
+  Widget _buildSleepTimerRow(bool inContent, ProfileFocusController c) {
+    return ListenableBuilder(
+      listenable: SleepTimerController.instance,
+      builder: (context, _) {
+        final List<int?> options = SleepTimerController.options;
+        final int cur = options.indexOf(SleepTimerController.instance.minutes);
+        final int val = cur < 0 ? 0 : cur;
+        return _SettingRow(
+          highlighted: inContent && c.row == _sleepTimerRow,
+          label: 'settings_sleep_timer'.tr(),
+          value: _sleepTimerLabel(options[val]),
+          canStepLeft: val > 0,
+          canStepRight: val < options.length - 1,
+          onTap: () => c.select(_sleepTimerRow),
+          onStepLeft: () {
+            c.select(_sleepTimerRow);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(_sleepTimerRow);
+            c.step(1);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「后台播放」行：开/关切换（默认关）。
+  ///
+  /// 关闭时保持 media_kit 默认行为——App 退到后台即暂停；
+  /// 开启后退到后台/息屏不暂停，声音继续播放。
+  Widget _buildBackgroundPlaybackRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final bool isOn = state.backgroundPlayback;
+        return _SettingRow(
+          highlighted: inContent && c.row == _backgroundPlaybackRow,
+          label: 'settings_background_playback'.tr(),
+          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
+          canStepLeft: isOn,
+          canStepRight: !isOn,
+          onTap: () => c.select(_backgroundPlaybackRow),
+          onStepLeft: () {
+            c.select(_backgroundPlaybackRow);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(_backgroundPlaybackRow);
             c.step(1);
           },
         );

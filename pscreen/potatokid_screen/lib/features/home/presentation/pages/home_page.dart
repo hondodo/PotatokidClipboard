@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:potatokid_screen/features/app/application/sleep_timer_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_state.dart';
@@ -23,6 +24,8 @@ class HomePage extends StatelessWidget {
             children: <Widget>[
               LivePlayerWidget(channels: state.channels),
               if (state.isRefreshing) const _RefreshingBadge(),
+              // 定时关闭倒计时：左上角按秒刷新，未开启时自动隐藏。
+              const Positioned(left: 16, top: 84, child: _SleepCountdownBadge()),
               // // 天气小组件：右上角悬浮，无数据时自动隐藏。
               // const Positioned(
               //   top: 12,
@@ -73,6 +76,56 @@ class _RefreshingBadge extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 定时关闭倒计时：首页左上角的「⏱ mm:ss」小角标。
+///
+/// 监听全局 [SleepTimerController]，每秒刷新剩余时间；未开启时隐藏。
+/// 用局部 ListenableBuilder 刷新，避免每秒重建整个首页（播放器不会闪）。
+class _SleepCountdownBadge extends StatelessWidget {
+  const _SleepCountdownBadge();
+
+  /// 把剩余时间格式化为 `mm:ss`（≥1 小时则为 `H:mm:ss`）。
+  static String _format(Duration d) {
+    final String mm = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final String ss = (d.inSeconds % 60).toString().padLeft(2, '0');
+    if (d.inHours > 0) return '${d.inHours}:$mm:$ss';
+    return '$mm:$ss';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SleepTimerController.instance,
+      builder: (context, _) {
+        final SleepTimerController timer = SleepTimerController.instance;
+        if (!timer.active) return const SizedBox.shrink();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(Icons.timer_outlined, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                _format(timer.remaining),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

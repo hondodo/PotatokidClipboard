@@ -13,6 +13,7 @@ class AppState {
     required this.weatherCity,
     required this.removeInvalidSources,
     required this.proxyRetryEnabled,
+    required this.backgroundPlayback,
   });
 
   /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
@@ -30,6 +31,7 @@ class AppState {
     weatherCity: '',
     removeInvalidSources: false,
     proxyRetryEnabled: false,
+    backgroundPlayback: false,
   );
 
   final ThemeMode themeMode;
@@ -58,6 +60,9 @@ class AppState {
   /// 是否开启「代理重试」（直连失败的源会改用免费代理重试）
   final bool proxyRetryEnabled;
 
+  /// 是否开启「后台播放」（关闭时 App 退到后台即暂停，默认关闭）
+  final bool backgroundPlayback;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
@@ -68,6 +73,7 @@ class AppState {
     String? weatherCity,
     bool? removeInvalidSources,
     bool? proxyRetryEnabled,
+    bool? backgroundPlayback,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
@@ -78,5 +84,6 @@ class AppState {
         weatherCity: weatherCity ?? this.weatherCity,
         removeInvalidSources: removeInvalidSources ?? this.removeInvalidSources,
         proxyRetryEnabled: proxyRetryEnabled ?? this.proxyRetryEnabled,
+        backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
       );
 }

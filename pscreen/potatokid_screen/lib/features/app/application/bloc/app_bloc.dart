@@ -15,6 +15,7 @@ class _PersistedSettingsLoaded extends AppEvent {
     required this.weatherCity,
     required this.removeInvalidSources,
     required this.proxyRetryEnabled,
+    required this.backgroundPlayback,
   });
 
   final ThemeMode themeMode;
@@ -24,6 +25,7 @@ class _PersistedSettingsLoaded extends AppEvent {
   final String weatherCity;
   final bool removeInvalidSources;
   final bool proxyRetryEnabled;
+  final bool backgroundPlayback;
 }
 
 /// 应用级全局状态机：由 main.dart 的 MultiBlocProvider 提供。
@@ -41,6 +43,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     on<ChangeWeatherCity>(_onChangeWeatherCity);
     on<SetRemoveInvalidSources>(_onSetRemoveInvalidSources);
     on<SetProxyRetry>(_onSetProxyRetry);
+    on<SetBackgroundPlayback>(_onSetBackgroundPlayback);
     on<_PersistedSettingsLoaded>(_onPersistedSettingsLoaded);
 
     // 异步加载持久化设置（不阻塞首帧），加载完通过内部事件更新状态。
@@ -59,6 +62,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
         weatherCity: s.weatherCity,
         removeInvalidSources: s.removeInvalidSources,
         proxyRetryEnabled: s.proxyRetryEnabled,
+        backgroundPlayback: s.backgroundPlayback,
       ),
     );
   }
@@ -73,6 +77,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
         weatherCity: event.weatherCity,
         removeInvalidSources: event.removeInvalidSources,
         proxyRetryEnabled: event.proxyRetryEnabled,
+        backgroundPlayback: event.backgroundPlayback,
       ),
     );
   }
@@ -119,5 +124,13 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   void _onSetProxyRetry(SetProxyRetry event, Emitter<AppState> emit) {
     emit(state.copyWith(proxyRetryEnabled: event.enabled));
     AppSettings.instance.setProxyRetryEnabled(event.enabled);
+  }
+
+  void _onSetBackgroundPlayback(
+    SetBackgroundPlayback event,
+    Emitter<AppState> emit,
+  ) {
+    emit(state.copyWith(backgroundPlayback: event.enabled));
+    AppSettings.instance.setBackgroundPlayback(event.enabled);
   }
 }
