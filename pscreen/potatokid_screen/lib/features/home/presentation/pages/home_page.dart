@@ -25,7 +25,7 @@ class HomePage extends StatelessWidget {
               LivePlayerWidget(channels: state.channels),
               if (state.isRefreshing) const _RefreshingBadge(),
               // 定时关闭倒计时：左上角按秒刷新，未开启时自动隐藏。
-              const Positioned(left: 16, top: 84, child: _SleepCountdownBadge()),
+              const Positioned(left: 16, top: 16, child: _SleepCountdownBadge()),
               // // 天气小组件：右上角悬浮，无数据时自动隐藏。
               // const Positioned(
               //   top: 12,
@@ -104,10 +104,7 @@ class _SleepCountdownBadge extends StatelessWidget {
         if (!timer.active) return const SizedBox.shrink();
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(8),
-          ),
+          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.6), borderRadius: BorderRadius.circular(8)),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
