@@ -3,9 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  alog_windows
   connectivity_plus
   media_kit_libs_windows_video
   media_kit_video
+  nim_core_v2_windows
   restart_app
 )
 

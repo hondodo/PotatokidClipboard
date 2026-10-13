@@ -2,6 +2,8 @@
 class AppConstants {
   const AppConstants._();
 
+  static const String nimAppKey = '8e3cb3b1cf5f8ae073c269ad461a69b5';
+
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 20);
   static const Duration sendTimeout = Duration(seconds: 20);
