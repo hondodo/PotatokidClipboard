@@ -56,9 +56,6 @@ abstract class RemoteLoginRepository {
   /// 已持久化的账号（空串表示未设置）。
   String get savedAccount;
 
-  /// 当前登录状态（供 Bloc 初始值/跳过判定参考）。
-  RemoteLoginStatus get currentStatus;
-
   /// SDK 事件流转发（登录状态 / 数据同步 / 登录失败 / 被踢下线）。
   Stream<NIMLoginStatus> get onLoginStatus;
   Stream<NIMDataSyncDetail> get onDataSync;
@@ -107,7 +104,7 @@ class RemoteLoginState {
 | `RemoteLoginDataSyncChanged(NIMDataSyncDetail)` | 订阅 repository | main 同步 completed→loggedIn |
 | `RemoteLoginFailed(NIMError)` / `RemoteLoginKickedOffline(NIMKickedOfflineDetail)` | 订阅 repository | →error |
 
-Bloc 构造时以 `repository.savedAccount` / `repository.currentStatus` 构造初始 State。
+Bloc 构造时以 `repository.savedAccount` 构造初始 State：空串 → 未设置；非空 → 正在登录（autoLogin 事件随即到达驱动后续流转）。
 
 **提交规则（`RemoteLoginSubmit`）：**
 
