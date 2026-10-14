@@ -19,10 +19,10 @@ import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart'
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
-import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:restart_app/restart_app.dart';
 
@@ -826,7 +826,7 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'settings_remote'.tr(),
           value: value,
           canStepLeft: false,
-          canStepRight: true,
+          canStepRight: state.status != RemoteLoginStatus.notConfigured,
           onTap: () {
             c.select(_remoteRow);
             _beginRemoteEdit();
