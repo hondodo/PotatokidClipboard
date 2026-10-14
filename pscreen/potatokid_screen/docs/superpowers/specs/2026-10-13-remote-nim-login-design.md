@@ -100,9 +100,11 @@ class RemoteLoginState {
 | --- | --- | --- |
 | `RemoteLoginAutoLogin` | main.dart（NIM init 完成后，无论成败） | 无账号→notConfigured；有账号→loggingIn + `repository.autoLogin()` |
 | `RemoteLoginSubmit(String account)` | 设置页输入提交 | 见下方提交规则 |
-| `RemoteLoginStatusChanged(NIMLoginStatus)` | 订阅 repository | logining→loggingIn；logined→syncing；logout→按账号判定 |
+| `RemoteLoginStatusChanged(NIMLoginStatus)` | 订阅 repository | logining→loggingIn；logined→syncing；logout/unlogin→忽略（不驱动展示） |
 | `RemoteLoginDataSyncChanged(NIMDataSyncDetail)` | 订阅 repository | main 同步 completed→loggedIn |
 | `RemoteLoginFailed(NIMError)` / `RemoteLoginKickedOffline(NIMKickedOfflineDetail)` | 订阅 repository | →error |
+
+> 注：logout/unlogin 事件一律忽略、不驱动展示。服务端登出且未触发被踢事件时，UI 会保持当前展示态直到用户下次提交（已知限制）。
 
 Bloc 构造时以 `repository.savedAccount` 构造初始 State：空串 → 未设置；非空 → 正在登录（autoLogin 事件随即到达驱动后续流转）。
 
