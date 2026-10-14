@@ -51,11 +51,16 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
   /// 同步兜底时长：登录成功后超过该时长未见主数据同步完成即视为已登录。
   static const Duration _syncFallbackDelay = Duration(seconds: 15);
 
+  /// 操作世代号：仅最新一次 autoLogin/submit 的失败可写入 error 态，
+  /// 防止慢操作迟到失败覆盖新操作的结果。
+  int _opSeq = 0;
+
   Future<void> _onAutoLogin(
     RemoteLoginAutoLogin event,
     Emitter<RemoteLoginState> emit,
   ) async {
     if (state.account.isEmpty) return;
+    final int seq = ++_opSeq;
     emit(state.copyWith(
       status: RemoteLoginStatus.loggingIn,
       clearErrorMessage: true,
@@ -63,8 +68,10 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     try {
       await _repository.autoLogin();
     } catch (e, s) {
-      Injection.get<LogService>().error('自动登录失败', error: e, stackTrace: s);
-      emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
+      Injection.get<LogService>().error('远程自动登录失败', error: e, stackTrace: s);
+      if (seq == _opSeq) {
+        emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
+      }
     }
   }
 
@@ -78,6 +85,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
         state.status == RemoteLoginStatus.syncing ||
         state.status == RemoteLoginStatus.loggedIn;
     if (account == state.account && sessionActive) return;
+    final int seq = ++_opSeq;
     _syncFallbackTimer?.cancel();
     emit(state.copyWith(
       account: account,
@@ -88,7 +96,9 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
       await _repository.switchAccount(account);
     } catch (e, s) {
       Injection.get<LogService>().error('切换账号失败: $account', error: e, stackTrace: s);
-      emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
+      if (seq == _opSeq) {
+        emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
+      }
     }
   }
 

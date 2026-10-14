@@ -20,6 +20,7 @@ class FakeRemoteLoginRepository extends Mock implements RemoteLoginRepository {
   String account;
   Object? autoLoginError;
   Object? switchAccountError;
+  Completer<void>? autoLoginGate;
   final List<String> calls = <String>[];
 
   final StreamController<NIMLoginStatus> loginStatusController =
@@ -49,6 +50,10 @@ class FakeRemoteLoginRepository extends Mock implements RemoteLoginRepository {
   @override
   Future<void> autoLogin() async {
     calls.add('autoLogin');
+    final Completer<void>? gate = autoLoginGate;
+    if (gate != null) {
+      await gate.future;
+    }
     if (autoLoginError != null) {
       throw autoLoginError!;
     }
@@ -119,6 +124,26 @@ void main() {
     await pumpEventQueue();
     expect(repository.calls, <String>['autoLogin']);
     expect(bloc.state.status, RemoteLoginStatus.error);
+    await bloc.close();
+  });
+
+  test('AutoLogin 迟到失败不覆盖新提交状态', () async {
+    repository.account = 'ABCD';
+    repository.autoLoginError = Exception('timeout');
+    repository.autoLoginGate = Completer<void>();
+    final RemoteLoginBloc bloc = buildBloc();
+    bloc.add(const RemoteLoginAutoLogin());
+    await pumpEventQueue();
+
+    bloc.add(const RemoteLoginSubmit('NEW'));
+    await pumpEventQueue();
+    expect(bloc.state.account, 'NEW');
+    expect(bloc.state.status, RemoteLoginStatus.loggingIn);
+
+    repository.autoLoginGate!.complete();
+    await pumpEventQueue();
+    expect(bloc.state.status, RemoteLoginStatus.loggingIn);
+    expect(bloc.state.account, 'NEW');
     await bloc.close();
   });
 
