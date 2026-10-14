@@ -23,6 +23,9 @@ class FakeNimManager extends Mock implements NimManager {
   /// logout 抛异常开关（验证「登出失败忽略」）。
   bool throwOnLogout = false;
 
+  /// logout 返回结果。
+  NIMResult<void> logoutResult = NIMResult<void>.success();
+
   @override
   Future<NIMResult<void>> login({required String accountId, required String token}) async {
     calls.add('login:$accountId:$token');
@@ -35,7 +38,7 @@ class FakeNimManager extends Mock implements NimManager {
     if (throwOnLogout) {
       throw Exception('logout failed');
     }
-    return NIMResult<void>.success();
+    return logoutResult;
   }
 
   @override
@@ -47,7 +50,7 @@ void main() {
   late RemoteLoginRepositoryImpl repository;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
+    // 先清空（同时使 singleton 加载缓存失效），再注入 mock 存储，最后重新加载。
     await AppSettings.instance.clearAllPersisted();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     nim = FakeNimManager();
@@ -62,7 +65,6 @@ void main() {
   });
 
   test('autoLogin 有持久化账号：用固定 token 登录', () async {
-    SharedPreferences.setMockInitialValues(<String, Object>{'app_nim_account_v1': 'ABCD'});
     await AppSettings.instance.clearAllPersisted();
     SharedPreferences.setMockInitialValues(<String, Object>{'app_nim_account_v1': 'ABCD'});
     await repository.ensureLoaded();
@@ -84,9 +86,31 @@ void main() {
     expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
   });
 
+  test('switchAccount 正在登录：同样先登出再登录', () async {
+    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogining);
+
+    await repository.switchAccount('EFGH');
+    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
+  });
+
+  test('switchAccount 状态查询失败：跳过登出直接登录', () async {
+    nim.loginStatusResult = NIMResult<NIMLoginStatus>.failure(code: -1, message: 'query failed');
+
+    await repository.switchAccount('EFGH');
+    expect(nim.calls, <String>['login:EFGH:12345678']);
+  });
+
   test('switchAccount 登出失败：忽略并继续登录', () async {
     nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogined);
     nim.throwOnLogout = true;
+
+    await repository.switchAccount('EFGH');
+    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
+  });
+
+  test('switchAccount 登出返回失败结果：忽略并继续登录', () async {
+    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogined);
+    nim.logoutResult = NIMResult<void>.failure(code: 500, message: 'logout rejected');
 
     await repository.switchAccount('EFGH');
     expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
