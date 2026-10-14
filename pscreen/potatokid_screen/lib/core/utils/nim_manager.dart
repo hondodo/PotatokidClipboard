@@ -67,15 +67,15 @@ class NimManager {
   }
 
   void _handleLoginFailed(NIMError event) {
-    Log.i('[NimManager] _handleLoginFailed: $event');
+    Log.i('[NimManager] _handleLoginFailed: ${event.toJson()}');
   }
 
   void _handleKickedOffline(NIMKickedOfflineDetail event) {
-    Log.i('[NimManager] _handleKickedOffline: $event');
+    Log.i('[NimManager] _handleKickedOffline: ${event.toJson()}');
   }
 
   void _handleLoginClientChanged(NIMLoginClientChangeEvent event) {
-    Log.i('[NimManager] _handleLoginClientChanged: $event');
+    Log.i('[NimManager] _handleLoginClientChanged: ${event.toJson()}');
   }
 
   Future<NIMResult<void>> login({required String accountId, required String token}) async {
