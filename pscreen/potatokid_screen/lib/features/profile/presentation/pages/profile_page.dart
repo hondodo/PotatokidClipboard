@@ -19,6 +19,9 @@ import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart'
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:restart_app/restart_app.dart';
@@ -74,6 +77,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
   static const int _resetRow = 12;
 
+  /// 「远程」行（云信账号登录：常态展示账号+状态，激活后行内输入框）的序号。
+  static const int _remoteRow = 13;
+
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
 
@@ -111,6 +117,14 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
 
+  /// 「远程」行是否处于输入编辑态。
+  bool _editingRemote = false;
+
+  /// 「远程」行输入框的控制器与焦点节点。
+  final TextEditingController _remoteInputController =
+      TextEditingController();
+  final FocusNode _remoteInputFocusNode = FocusNode();
+
   Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
@@ -143,6 +157,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
     _copyMsg.dispose();
+    _remoteInputController.dispose();
+    _remoteInputFocusNode.dispose();
     super.dispose();
   }
 
@@ -160,6 +176,10 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 焦点或行号变化时，让选中行滚入可视区，避免被屏幕边缘裁切。
   void _onFocusChanged() {
     final ProfileFocusController c = ProfileFocusController.instance;
+    // 焦点离开「远程」行时取消输入编辑态（不提交）。
+    if (_editingRemote && c.row != _remoteRow) {
+      _endRemoteEdit();
+    }
     if (!c.focused) return;
     if (c.row == _prevRow && _prevFocused) return;
     _prevRow = c.row;
@@ -182,6 +202,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _refreshRow && mounted) _refreshChannels();
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
+    if (row == _remoteRow && mounted) _beginRemoteEdit();
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -322,6 +343,9 @@ class _ProfilePageState extends State<ProfilePage> {
       case _resetRow: // 重置（右/左/OK 均触发确认弹窗）
         _resetAll();
         break;
+      case _remoteRow: // 远程：左/右键打开行内输入框
+        _beginRemoteEdit();
+        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -391,6 +415,11 @@ class _ProfilePageState extends State<ProfilePage> {
               KeyedSubtree(
                 key: _rowKeys[_resetRow],
                 child: _buildResetRow(inContent, c),
+              ),
+              const SizedBox(height: 12),
+              KeyedSubtree(
+                key: _rowKeys[_remoteRow],
+                child: _buildRemoteLoginRow(inContent, c),
               ),
               const SizedBox(height: 12),
               KeyedSubtree(
@@ -780,6 +809,136 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 「远程」行：常态展示账号与登录状态（`ABCD 正在登录`），点击 `>` / OK /
+  /// 左右键进入行内输入；编辑态替换为输入框（见 [_buildRemoteEditRow]）。
+  Widget _buildRemoteLoginRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<RemoteLoginBloc, RemoteLoginState>(
+      builder: (context, state) {
+        if (_editingRemote) {
+          return _buildRemoteEditRow();
+        }
+        final String value =
+            state.status == RemoteLoginStatus.notConfigured
+                ? 'remote_not_set'.tr()
+                : '${state.account} ${_remoteStatusLabel(state.status)}';
+        return _SettingRow(
+          highlighted: inContent && c.row == _remoteRow,
+          label: 'settings_remote'.tr(),
+          value: value,
+          canStepLeft: false,
+          canStepRight: true,
+          onTap: () {
+            c.select(_remoteRow);
+            _beginRemoteEdit();
+          },
+          onStepLeft: () => c.select(_remoteRow),
+          onStepRight: () {
+            c.select(_remoteRow);
+            _beginRemoteEdit();
+          },
+        );
+      },
+    );
+  }
+
+  /// 「远程」行的登录状态文案。
+  String _remoteStatusLabel(RemoteLoginStatus status) {
+    switch (status) {
+      case RemoteLoginStatus.notConfigured:
+        return 'remote_not_set'.tr();
+      case RemoteLoginStatus.loggingIn:
+        return 'remote_logging_in'.tr();
+      case RemoteLoginStatus.syncing:
+        return 'remote_syncing'.tr();
+      case RemoteLoginStatus.loggedIn:
+        return 'remote_logged_in'.tr();
+      case RemoteLoginStatus.error:
+        return 'remote_error'.tr();
+    }
+  }
+
+  /// 进入「远程」行输入编辑态：预填当前账号，下一帧聚焦弹出输入法。
+  void _beginRemoteEdit() {
+    if (_editingRemote || !mounted) return;
+    _remoteInputController.text =
+        context.read<RemoteLoginBloc>().state.account;
+    _editingRemote = true;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _remoteInputFocusNode.requestFocus();
+    });
+  }
+
+  /// 提交输入：空串等价取消；有值则 trim 后派发 [RemoteLoginSubmit]。
+  void _submitRemoteEdit() {
+    if (!_editingRemote) return;
+    final String account = _remoteInputController.text.trim();
+    _endRemoteEdit();
+    if (account.isEmpty || !mounted) return;
+    context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+  }
+
+  /// 退出输入编辑态（取消，不提交）。
+  void _endRemoteEdit() {
+    if (!_editingRemote) return;
+    _editingRemote = false;
+    _remoteInputFocusNode.unfocus();
+    if (mounted) setState(() {});
+  }
+
+  /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
+  Widget _buildRemoteEditRow() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary, width: 2),
+      ),
+      child: Row(
+        children: <Widget>[
+          Text(
+            'settings_remote'.tr(),
+            style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: TextField(
+              controller: _remoteInputController,
+              focusNode: _remoteInputFocusNode,
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: scheme.primary,
+              ),
+              decoration: InputDecoration(
+                hintText: 'remote_input_hint'.tr(),
+                isDense: true,
+                border: InputBorder.none,
+              ),
+              onSubmitted: (_) => _submitRemoteEdit(),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+            onPressed: _endRemoteEdit,
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.check, color: scheme.primary),
+            onPressed: _submitRemoteEdit,
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 「免责声明」行：只读说明行。
   ///
   /// 声明频道数据来源与使用范围，没有可切换的值，因此不显示左右步进指示；
@@ -913,6 +1072,8 @@ class _SettingRow extends StatelessWidget {
                     child: Text(
                       value,
                       textAlign: wrapValue ? TextAlign.start : TextAlign.right,
+                      maxLines: wrapValue ? null : 1,
+                      overflow: wrapValue ? null : TextOverflow.ellipsis,
                       style: textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: accent,

@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 /// - [row]：正文列表当前选中行（0=主题 / 1=语言 / 2=悬浮遥控器 / 3=启用硬解 / 4=画面 / 5=天气城市 / 6=定时关闭 / 7=后台播放 / 8=刷新频道 / 9=清理失效源 / 10=复制失效源 / 11=代理重试 / 12=重置 / 13=远程 / 14=版本 / 15=天气数据来源 / 16=免责声明）。
 ///
 /// 按键语义（由壳层 [MainApp] 路由到这里）：
-/// - 上/下：[moveUp]/[moveDown] 在「导航条 ↔ 十六列设置行」间移动；
+/// - 上/下：[moveUp]/[moveDown] 在「导航条 ↔ 十七列设置行」间移动；
 /// - 左/右：仅当 [focused] 时由 [step] 步进选中行的值（不切顶部 tab）；
 /// - OK：[activate] 激活当前行（音频/视频页的按钮动作，如刷新频道），由壳层调用。
 class ProfileFocusController extends ChangeNotifier {
