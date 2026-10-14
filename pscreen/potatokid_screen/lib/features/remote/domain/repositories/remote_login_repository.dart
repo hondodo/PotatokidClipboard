@@ -3,7 +3,7 @@ import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.da
 
 /// 远程登录数据访问接口：账号持久化 + 云信 SDK 登录/登出 + 事件流。
 abstract class RemoteLoginRepository {
-  /// 已持久化的账号（空串表示未设置）。
+  /// 已持久化的账号（空串表示未设置；实现保证持久化已加载后可信）。
   String get savedAccount;
 
   /// SDK 登录状态事件流。
