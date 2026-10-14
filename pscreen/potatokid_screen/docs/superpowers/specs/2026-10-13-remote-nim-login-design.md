@@ -102,7 +102,7 @@ class RemoteLoginState {
 | `RemoteLoginSubmit(String account)` | 设置页输入提交 | 见下方提交规则 |
 | `RemoteLoginStatusChanged(NIMLoginStatus)` | 订阅 repository | logining→loggingIn；logined→syncing；logout/unlogin→忽略（不驱动展示） |
 | `RemoteLoginDataSyncChanged(NIMDataSyncDetail)` | 订阅 repository | main 同步 completed→loggedIn |
-| `RemoteLoginFailed(NIMError)` / `RemoteLoginKickedOffline(NIMKickedOfflineDetail)` | 订阅 repository | →error |
+| `RemoteLoginLoginFailed(NIMError)` / `RemoteLoginKickedOffline(String reasonDesc)` | 订阅 repository | →error（被踢 reasonDesc 由 `NIMKickedOfflineDetail.reasonDesc ?? ''` 转换） |
 
 > 注：logout/unlogin 事件一律忽略、不驱动展示。服务端登出且未触发被踢事件时，UI 会保持当前展示态直到用户下次提交（已知限制）。
 
@@ -212,3 +212,9 @@ class RemoteModule {
 - 不做消息收发/远程指令处理（后续 feature）；
 - 不做账号注册、不校验 accid 字符集（交给 NIM 服务端拒绝）；
 - 不迁移 appKey 到 .env（维持 `AppConstants.nimAppKey` 现状）。
+
+## 10. 已知限制
+
+- **登录阶段无超时**：15 秒兜底仅覆盖「同步数据」阶段（§3.3）；若 SDK 在 `loggingIn` 阶段既不回调成功也不回调失败，UI 保持「正在登录」直至用户下次提交。
+- **服务端登出静默**：服务端登出且未触发被踢事件时，UI 保持当前展示态直到用户下次提交（详见 §3.3 注）。
+- **行内编辑左右键不移光标**：编辑态左右键被根键处理器消费，不移动输入框光标；修改账号需重新输入，或用 ✕ 取消后重新进入编辑。
