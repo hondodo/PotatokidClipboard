@@ -11,13 +11,14 @@ import 'package:potatokid_screen/app/app_log.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/app/config/app_constants.dart';
 import 'package:potatokid_screen/app/config/data_files.dart';
-import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/core/utils/nim_manager.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 
@@ -69,12 +70,18 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
-      // 4.1 初始化网易云信 NIM（DI 单例；不阻塞启动，失败仅记录日志）
+      // 4.1 初始化网易云信 NIM（DI 单例；不阻塞启动，失败仅记录日志）。
+      //     初始化收尾后（无论成败）派发自动登录：初始化失败时 login 会抛异常，
+      //     由 RemoteLoginBloc 捕获转「登录异常」态。
       unawaited(
         Injection.get<NimManager>()
             .init(appKey: AppConstants.nimAppKey)
             .then((_) {
               Injection.get<NimManager>().startListen();
+            })
+            .whenComplete(() {
+              Injection.get<RemoteLoginBloc>()
+                  .add(const RemoteLoginAutoLogin());
             })
             .catchError((Object e, StackTrace s) {
               Log.error('NIM initialize failed: $e');
@@ -109,6 +116,11 @@ void main() {
               // 天气状态机：全局共享，启动即加载（定位 + 拉取），
               // 时间/屏保/主页直接消费，避免各页重复请求。
               BlocProvider<WeatherBloc>(create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather())),
+              // 远程云信登录状态机：全局共享（设置页「远程」行消费），
+              // 自动登录已在 4.1 派发，这里只负责 provide。
+              BlocProvider<RemoteLoginBloc>(
+                create: (_) => Injection.get<RemoteLoginBloc>(),
+              ),
             ],
             child: const App(),
           ),
