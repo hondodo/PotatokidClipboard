@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
+import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/features/remote/domain/repositories/remote_login_repository.dart';
@@ -60,7 +62,8 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     ));
     try {
       await _repository.autoLogin();
-    } catch (e) {
+    } catch (e, s) {
+      Injection.get<LogService>().error('自动登录失败', error: e, stackTrace: s);
       emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
     }
   }
@@ -83,7 +86,8 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     ));
     try {
       await _repository.switchAccount(account);
-    } catch (e) {
+    } catch (e, s) {
+      Injection.get<LogService>().error('切换账号失败: $account', error: e, stackTrace: s);
       emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
     }
   }
@@ -99,8 +103,11 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
         }
         break;
       case NIMLoginStatus.loginStatusLogined:
-        emit(state.copyWith(status: RemoteLoginStatus.syncing));
-        _startSyncFallbackTimer();
+        // 空账号（未设置）不允许被 SDK 残留会话驱动展示，只允许显示「未设置」。
+        if (state.status != RemoteLoginStatus.notConfigured) {
+          emit(state.copyWith(status: RemoteLoginStatus.syncing));
+          _startSyncFallbackTimer();
+        }
         break;
       case NIMLoginStatus.loginStatusLogout:
       case NIMLoginStatus.loginStatusUnlogin:
@@ -115,7 +122,12 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
   ) {
     final NIMDataSyncDetail detail = event.detail;
     if (detail.type == NIMDataSyncType.nimDataSyncMain &&
-        detail.state == NIMDataSyncState.nimDataSyncStateCompleted) {
+        detail.state == NIMDataSyncState.nimDataSyncStateCompleted &&
+        // 守卫：仅登录中/同步中响应主数据完成；阻断迟到事件在
+        // error/notConfigured/loggedIn 态造成错误的「已登录」展示。
+        // loggingIn 允许是为兼容 completed 先于 logined 到达的竞态。
+        (state.status == RemoteLoginStatus.syncing ||
+            state.status == RemoteLoginStatus.loggingIn)) {
       _syncFallbackTimer?.cancel();
       emit(state.copyWith(status: RemoteLoginStatus.loggedIn));
     }
@@ -126,6 +138,8 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     Emitter<RemoteLoginState> emit,
   ) {
     _syncFallbackTimer?.cancel();
+    Injection.get<LogService>()
+        .error('云信登录失败: code=${event.error.code} desc=${event.error.desc}');
     emit(state.copyWith(
       status: RemoteLoginStatus.error,
       errorMessage: 'code=${event.error.code} desc=${event.error.desc}',
@@ -137,6 +151,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     Emitter<RemoteLoginState> emit,
   ) {
     _syncFallbackTimer?.cancel();
+    Injection.get<LogService>().error('云信被踢下线: ${event.reasonDesc}');
     emit(state.copyWith(
       status: RemoteLoginStatus.error,
       errorMessage: event.reasonDesc,

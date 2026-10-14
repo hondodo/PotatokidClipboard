@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
+import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
@@ -75,11 +77,15 @@ void main() {
   RemoteLoginBloc buildBloc() => RemoteLoginBloc(repository: repository);
 
   setUp(() {
+    // Bloc 错误路径经 Injection.get<LogService>() 记录；测试环境注册真实
+    // const LogService（无状态，仅 debugPrint）。
+    getIt.registerSingleton<LogService>(const LogService());
     repository = FakeRemoteLoginRepository();
   });
 
-  tearDown(() {
+  tearDown(() async {
     repository.dispose();
+    await getIt.unregister<LogService>();
   });
 
   test('初始无账号：未设置', () {
@@ -173,6 +179,7 @@ void main() {
   });
 
   test('登录成功：同步数据 → 主数据同步完成转已登录', () async {
+    repository.account = 'ABCD';
     final RemoteLoginBloc bloc = buildBloc();
     repository.loginStatusController.add(NIMLoginStatus.loginStatusLogined);
     await pumpEventQueue();
@@ -206,6 +213,7 @@ void main() {
 
   test('同步兜底：15 秒未见主数据完成转已登录', () {
     fakeAsync((FakeAsync async) {
+      repository.account = 'ABCD';
       final RemoteLoginBloc bloc = buildBloc();
       repository.loginStatusController.add(NIMLoginStatus.loginStatusLogined);
       async.flushMicrotasks();
@@ -217,5 +225,43 @@ void main() {
       bloc.close();
       async.flushMicrotasks();
     });
+  });
+
+  test('被踢下线后兜底不生效：仍为 error', () {
+    fakeAsync((FakeAsync async) {
+      repository.account = 'ABCD';
+      final RemoteLoginBloc bloc = buildBloc();
+      repository.loginStatusController.add(NIMLoginStatus.loginStatusLogined);
+      async.flushMicrotasks();
+      expect(bloc.state.status, RemoteLoginStatus.syncing);
+
+      repository.kickedController
+          .add(NIMKickedOfflineDetail(reasonDesc: 'kicked by other'));
+      async.flushMicrotasks();
+      expect(bloc.state.status, RemoteLoginStatus.error);
+
+      async.elapse(const Duration(seconds: 15));
+      async.flushMicrotasks();
+      expect(bloc.state.status, RemoteLoginStatus.error);
+      bloc.close();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('未设置时 logined 事件被忽略', () async {
+    final RemoteLoginBloc bloc = buildBloc();
+    repository.loginStatusController.add(NIMLoginStatus.loginStatusLogined);
+    await pumpEventQueue();
+    expect(bloc.state.status, RemoteLoginStatus.notConfigured);
+    await bloc.close();
+  });
+
+  test('logout 事件为无操作', () async {
+    final RemoteLoginBloc bloc = buildBloc();
+    final RemoteLoginState initialState = bloc.state;
+    repository.loginStatusController.add(NIMLoginStatus.loginStatusLogout);
+    await pumpEventQueue();
+    expect(bloc.state, initialState);
+    await bloc.close();
   });
 }
