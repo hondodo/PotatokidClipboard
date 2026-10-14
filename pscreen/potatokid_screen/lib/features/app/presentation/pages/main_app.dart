@@ -165,8 +165,12 @@ class MainApp extends StatelessWidget {
       // 编辑「远程」行时 OK = 提交输入，不走 activate。
       // 悬浮遥控器直调本方法、不经焦点链，页面 Focus 拦截不到，故在此优先处理；
       // 物理/蓝牙遥控器的 OK 已被页面 Focus 消费（见 ProfilePage._handlePageKey）。
+      // 仅在「我的」分支生效：ProfilePage State 在 IndexedStack 常驻，
+      // 切走后 editingRemote 可能仍为 true，不限分支会吞掉其它页的 OK。
       final VoidCallback? submitRemote = ProfilePage.onSubmitRemoteEdit;
-      if (ProfilePage.editingRemote && submitRemote != null) {
+      if (cur == _profileBranchIndex &&
+          ProfilePage.editingRemote &&
+          submitRemote != null) {
         submitRemote();
         return true;
       }
@@ -179,8 +183,11 @@ class MainApp extends StatelessWidget {
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
       // 编辑「远程」行时返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
+      // 同样仅限「我的」分支，理由同上。
       final VoidCallback? cancelRemote = ProfilePage.onCancelRemoteEdit;
-      if (ProfilePage.editingRemote && cancelRemote != null) {
+      if (cur == _profileBranchIndex &&
+          ProfilePage.editingRemote &&
+          cancelRemote != null) {
         cancelRemote();
         return true;
       }
