@@ -360,85 +360,88 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return ColoredBox(
-      color: scheme.surface,
-      child: ListenableBuilder(
-        listenable: ProfileFocusController.instance,
-        builder: (context, _) {
-          final ProfileFocusController c = ProfileFocusController.instance;
-          final bool inContent = c.focused;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
-            children: <Widget>[
-              KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_sleepTimerRow],
-                child: _buildSleepTimerRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_backgroundPlaybackRow],
-                child: _buildBackgroundPlaybackRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_refreshRow],
-                child: _buildRefreshRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_removeInvalidRow],
-                child: _buildRemoveInvalidRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_copyInvalidRow],
-                child: _buildCopyInvalidRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_proxyRetryRow],
-                child: _buildProxyRetryRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_resetRow],
-                child: _buildResetRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_remoteRow],
-                child: _buildRemoteLoginRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_versionRow],
-                child: _buildVersionRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_weatherSourceRow],
-                child: _buildWeatherSourceRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_disclaimerRow],
-                child: _buildDisclaimerRow(inContent, c),
-              ),
-            ],
-          );
-        },
+    return Focus(
+      onKeyEvent: _handlePageKey,
+      child: ColoredBox(
+        color: scheme.surface,
+        child: ListenableBuilder(
+          listenable: ProfileFocusController.instance,
+          builder: (context, _) {
+            final ProfileFocusController c = ProfileFocusController.instance;
+            final bool inContent = c.focused;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
+              children: <Widget>[
+                KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_sleepTimerRow],
+                  child: _buildSleepTimerRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_backgroundPlaybackRow],
+                  child: _buildBackgroundPlaybackRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_refreshRow],
+                  child: _buildRefreshRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_removeInvalidRow],
+                  child: _buildRemoveInvalidRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_copyInvalidRow],
+                  child: _buildCopyInvalidRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_proxyRetryRow],
+                  child: _buildProxyRetryRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_resetRow],
+                  child: _buildResetRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_remoteRow],
+                  child: _buildRemoteLoginRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_versionRow],
+                  child: _buildVersionRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_weatherSourceRow],
+                  child: _buildWeatherSourceRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_disclaimerRow],
+                  child: _buildDisclaimerRow(inContent, c),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -884,6 +887,34 @@ class _ProfilePageState extends State<ProfilePage> {
     _editingRemote = false;
     _remoteInputFocusNode.unfocus();
     if (mounted) setState(() {});
+  }
+
+  /// 编辑态下拦截返回（取消编辑）与 OK/Enter/空格（提交），
+  /// 防止冒泡到 MainApp 根键处理器触发退出确认或 activate no-op。
+  /// 未编辑态一律 ignored，保持既有焦点导航/激活/退出行为不变；
+  /// 上下左右键也保持 ignored（上/下移焦会经 _onFocusChanged 取消编辑，符合设计）。
+  ///
+  /// 返回与 OK 两类键集合与 `MainApp._handleLogical` 镜像。
+  KeyEventResult _handlePageKey(FocusNode node, KeyEvent event) {
+    if (!_editingRemote) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final LogicalKeyboardKey key = event.logicalKey;
+    // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）→ 取消编辑。
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _endRemoteEdit();
+      return KeyEventResult.handled;
+    }
+    // OK 键 → 提交输入。
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA) {
+      _submitRemoteEdit();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
