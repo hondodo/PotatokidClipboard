@@ -47,10 +47,10 @@ class NimManager {
 
   Future startListen() async {
     Log.startEndD('[NimManager] startListen', () {
-      subsriptions.add(NimCore.instance.loginService.onLoginStatus.listen(onLoginStatus));
-      subsriptions.add(NimCore.instance.loginService.onLoginFailed.listen(onLoginFailed));
-      subsriptions.add(NimCore.instance.loginService.onKickedOffline.listen(onKickedOffline));
-      subsriptions.add(NimCore.instance.loginService.onLoginClientChanged.listen(onLoginClientChanged));
+      subsriptions.add(NimCore.instance.loginService.onLoginStatus.listen(_handleLoginStatus));
+      subsriptions.add(NimCore.instance.loginService.onLoginFailed.listen(_handleLoginFailed));
+      subsriptions.add(NimCore.instance.loginService.onKickedOffline.listen(_handleKickedOffline));
+      subsriptions.add(NimCore.instance.loginService.onLoginClientChanged.listen(_handleLoginClientChanged));
     });
   }
 
@@ -62,24 +62,45 @@ class NimManager {
     });
   }
 
-  void onLoginStatus(NIMLoginStatus event) {
-    Log.i('[NimManager] onLoginStatus: $event');
+  void _handleLoginStatus(NIMLoginStatus event) {
+    Log.i('[NimManager] _handleLoginStatus: $event');
   }
 
-  void onLoginFailed(NIMError event) {
-    Log.i('[NimManager] onLoginFailed: $event');
+  void _handleLoginFailed(NIMError event) {
+    Log.i('[NimManager] _handleLoginFailed: $event');
   }
 
-  void onKickedOffline(NIMKickedOfflineDetail event) {
-    Log.i('[NimManager] onKickedOffline: $event');
+  void _handleKickedOffline(NIMKickedOfflineDetail event) {
+    Log.i('[NimManager] _handleKickedOffline: $event');
   }
 
-  void onLoginClientChanged(NIMLoginClientChangeEvent event) {
-    Log.i('[NimManager] onLoginClientChanged: $event');
+  void _handleLoginClientChanged(NIMLoginClientChangeEvent event) {
+    Log.i('[NimManager] _handleLoginClientChanged: $event');
   }
 
   Future<NIMResult<void>> login({required String accountId, required String token}) async {
     final loginResult = await NimCore.instance.loginService.login(accountId, token, NIMLoginOption());
     return loginResult;
   }
+
+  /// 登出当前账号。
+  Future<NIMResult<void>> logout() => NimCore.instance.loginService.logout();
+
+  /// 当前登录账号（未登录返回 null）。
+  Future<NIMResult<String?>> getLoginUser() => NimCore.instance.loginService.getLoginUser();
+
+  /// 当前登录状态。
+  Future<NIMResult<NIMLoginStatus>> getLoginStatus() => NimCore.instance.loginService.getLoginStatus();
+
+  /// 登录状态事件流（透传 SDK，供上层订阅）。
+  Stream<NIMLoginStatus> get onLoginStatus => NimCore.instance.loginService.onLoginStatus;
+
+  /// 数据同步事件流。
+  Stream<NIMDataSyncDetail> get onDataSync => NimCore.instance.loginService.onDataSync;
+
+  /// 登录失败事件流。
+  Stream<NIMError> get onLoginFailed => NimCore.instance.loginService.onLoginFailed;
+
+  /// 被踢下线事件流。
+  Stream<NIMKickedOfflineDetail> get onKickedOffline => NimCore.instance.loginService.onKickedOffline;
 }
