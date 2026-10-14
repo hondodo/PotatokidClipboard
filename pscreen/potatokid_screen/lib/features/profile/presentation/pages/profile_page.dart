@@ -51,6 +51,20 @@ const List<({String labelKey, ThemeMode mode})> _themeOptions =
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
+  /// 「远程」行是否处于输入编辑态（跨组件静态信号）。
+  ///
+  /// 悬浮遥控器按键不经过 Flutter 焦点链（[MainApp] 的 FloatingRemote.onKey
+  /// 直调 `_handleLogical`），页面级 Focus 拦截不到，故壳层在返回/OK 分支
+  /// 优先读取此信号；物理/蓝牙遥控器仍由页面 Focus 先拦截（见
+  /// `_ProfilePageState._handlePageKey`）。
+  static bool editingRemote = false;
+
+  /// 取消「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器返回键触发）。
+  static VoidCallback? onCancelRemoteEdit;
+
+  /// 提交「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器 OK 键触发）。
+  static VoidCallback? onSubmitRemoteEdit;
+
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -117,8 +131,10 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
 
-  /// 「远程」行是否处于输入编辑态。
-  bool _editingRemote = false;
+  /// 「远程」行是否处于输入编辑态：真值源为 [ProfilePage.editingRemote]
+  /// （跨组件静态信号，悬浮遥控器直调路径读取）。
+  bool get _editingRemote => ProfilePage.editingRemote;
+  set _editingRemote(bool value) => ProfilePage.editingRemote = value;
 
   /// 「远程」行输入框的控制器与焦点节点。
   final TextEditingController _remoteInputController =
@@ -142,6 +158,8 @@ class _ProfilePageState extends State<ProfilePage> {
     ProfileFocusController.instance.onStepRow = _stepRow;
     ProfileFocusController.instance.onActivateRow = _onActivateRow;
     ProfileFocusController.instance.addListener(_onFocusChanged);
+    ProfilePage.onCancelRemoteEdit = _endRemoteEdit;
+    ProfilePage.onSubmitRemoteEdit = _submitRemoteEdit;
   }
 
   @override
@@ -153,6 +171,14 @@ class _ProfilePageState extends State<ProfilePage> {
     if (ProfileFocusController.instance.onActivateRow == _onActivateRow) {
       ProfileFocusController.instance.onActivateRow = null;
     }
+    if (ProfilePage.onCancelRemoteEdit == _endRemoteEdit) {
+      ProfilePage.onCancelRemoteEdit = null;
+    }
+    if (ProfilePage.onSubmitRemoteEdit == _submitRemoteEdit) {
+      ProfilePage.onSubmitRemoteEdit = null;
+    }
+    // 防御：编辑态中被销毁时复位静态信号，避免残留 true 卡住壳层按键。
+    ProfilePage.editingRemote = false;
     _cityApplyTimer?.cancel();
     _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
@@ -891,6 +917,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 编辑态下拦截返回（取消编辑）与 OK/Enter/空格（提交），
   /// 防止冒泡到 MainApp 根键处理器触发退出确认或 activate no-op。
+  ///
+  /// 仅覆盖经焦点链冒泡的按键（物理/蓝牙遥控器、键盘）。悬浮遥控器不走
+  /// 焦点链（FloatingRemote.onKey 直调 `MainApp._handleLogical`），由
+  /// [MainApp] 在返回/OK 分支优先检查 [ProfilePage.editingRemote] 处理。
+  ///
   /// 未编辑态一律 ignored，保持既有焦点导航/激活/退出行为不变；
   /// 上下左右键也保持 ignored（上/下移焦会经 _onFocusChanged 取消编辑，符合设计）。
   ///
@@ -899,7 +930,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!_editingRemote) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final LogicalKeyboardKey key = event.logicalKey;
-    // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）→ 取消编辑。
+    // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
       _endRemoteEdit();

@@ -10,6 +10,7 @@ import 'package:potatokid_screen/features/iptv/application/channel_number_input_
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
+import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
 import 'package:potatokid_screen/core/utils/key_repeat_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
@@ -161,6 +162,14 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA;
     if (ok) {
+      // 编辑「远程」行时 OK = 提交输入，不走 activate。
+      // 悬浮遥控器直调本方法、不经焦点链，页面 Focus 拦截不到，故在此优先处理；
+      // 物理/蓝牙遥控器的 OK 已被页面 Focus 消费（见 ProfilePage._handlePageKey）。
+      final VoidCallback? submitRemote = ProfilePage.onSubmitRemoteEdit;
+      if (ProfilePage.editingRemote && submitRemote != null) {
+        submitRemote();
+        return true;
+      }
       _pressOk(context);
       return true;
     }
@@ -169,6 +178,12 @@ class MainApp extends StatelessWidget {
     // 与系统返回一致，走二次确认，避免盒子上误触直接退出。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
+      // 编辑「远程」行时返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
+      final VoidCallback? cancelRemote = ProfilePage.onCancelRemoteEdit;
+      if (ProfilePage.editingRemote && cancelRemote != null) {
+        cancelRemote();
+        return true;
+      }
       ExitConfirmScope.requestExit(context);
       return true;
     }
