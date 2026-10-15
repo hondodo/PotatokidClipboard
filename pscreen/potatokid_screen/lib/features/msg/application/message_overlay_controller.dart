@@ -36,7 +36,7 @@ class MessageOverlayController extends ChangeNotifier {
   /// 详情窗是否打开。
   bool get detail => _detail;
 
-  /// 新消息到达：defer 时缓存；否则直接替换内容并重置计时。
+  /// 新消息到达：defer 时缓存；否则直接替换内容（详情中保持详情，spec §5.2）。
   void show(String text) {
     _pending = text;
     if (deferActive) return;
@@ -50,16 +50,20 @@ class MessageOverlayController extends ChangeNotifier {
     _display(pendingText);
   }
 
+  /// 替换内容并显示；已开详情时保持详情不关、不重置计时（详情期间暂停计时）。
   void _display(String text) {
     _text = text;
     _visible = true;
-    _detail = false;
-    _resetIdleTimer();
+    _pending = null;
+    if (!_detail) {
+      _resetIdleTimer();
+    }
     notifyListeners();
   }
 
   /// 关闭浮层。
   void close() {
+    if (!_visible) return;
     _idleTimer?.cancel();
     _idleTimer = null;
     _visible = false;
