@@ -20,6 +20,14 @@ void main() {
         parseIncomingText('{"t":"cmd","name":"volume_up"}');
     expect(m.kind, EnvelopeKind.command);
     expect(m.commandName, 'volume_up');
+    expect(m.args, isNull);
+  });
+
+  test('前后空白容忍', () {
+    final ParsedMessage m =
+        parseIncomingText('  {"t":"cmd","name":"mute"}  ');
+    expect(m.kind, EnvelopeKind.command);
+    expect(m.commandName, 'mute');
   });
 
   test('cmd 信封带 args', () {

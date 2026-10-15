@@ -32,16 +32,17 @@ class ParsedMessage {
 
 /// 解析入站文本消息（设计 §3.1）。
 ///
-/// - 非 `{` 开头 → plainText
+/// - trim 后非 `{` 开头 → plainText
 /// - `{` 开头但 JSON 解析失败 / 无 `t` / `t` 不认识 / `cmd` 无 `name` → plainText 回退（原样）
 /// - `{"t":"txt","content":String}` → text
 /// - `{"t":"cmd","name":String,"args":Map?}` → command
 ParsedMessage parseIncomingText(String raw) {
-  if (!raw.startsWith('{')) {
+  final String trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) {
     return ParsedMessage.plain(raw);
   }
   try {
-    final dynamic decoded = jsonDecode(raw);
+    final dynamic decoded = jsonDecode(trimmed);
     if (decoded is! Map<String, dynamic>) {
       return ParsedMessage.plain(raw);
     }
