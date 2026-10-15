@@ -15,6 +15,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
+import 'package:potatokid_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
@@ -332,6 +333,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   void _syncChannels() {
     _channelController.setCount(widget.channels.length);
+    // 频道列表真值同步给上报/命令解析用的查询服务（initState 与刷新均经此处）。
+    ChannelInfoProvider.instance.setChannels(widget.channels);
   }
 
   /// 选中变化（**立即**）：只刷新界面——显示频道列表 + 左下角频道名，
