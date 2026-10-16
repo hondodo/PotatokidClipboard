@@ -40,6 +40,7 @@ dependencies:
   nim_core_v2: ^10.9.91
   mobile_scanner: ^6.0.0
   easy_localization: ^3.0.8
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
