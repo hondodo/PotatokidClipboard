@@ -60,6 +60,14 @@ void main() {
     expect(cubit.state.targets, isNot(contains('TV_001')));
   });
 
+  test('setSingleTarget 替换为单台', () {
+    cubit
+      ..toggleTarget('TV_001')
+      ..toggleTarget('TV_002')
+      ..setSingleTarget('TV_003');
+    expect(cubit.state.targets, <String>['TV_003']);
+  });
+
   test('发送纯文本到多台，逐台结果', () async {
     cubit
       ..toggleTarget('TV_001')
@@ -159,14 +167,15 @@ void main() {
     expect(cubit.state.isSending, isFalse);
   });
 
-  // 注意：此测试必须放在最后 —— 它会加载 AppSettings（单例，无法卸载），
-  // 之后构造的 SendCubit 会从持久化恢复目标。
-  test('SendCubit 从持久化恢复最近目标', () async {
+  // 注意：此测试必须放在最后 —— 它会加载 AppSettings（单例，无法卸载）。
+  // 默认构造 persistTargets: false（家人角色）不恢复/不写回共享 key，
+  // 仅管理员显式 persistTargets: true 才恢复。
+  test('SendCubit persistTargets: true 从持久化恢复最近目标', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'selected_tv_accounts': <String>['TV_001', 'TV_002'],
     });
     await AppSettings.instance.ensureLoaded();
-    final SendCubit c = SendCubit(nim: FakeNimClient());
+    final SendCubit c = SendCubit(nim: FakeNimClient(), persistTargets: true);
     expect(c.state.targets, <String>['TV_001', 'TV_002']);
     await c.close();
   });

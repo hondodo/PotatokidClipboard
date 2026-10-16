@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:nim_core_v2/nim_core.dart';
 import 'package:pscreen_control/app/config/app_config.dart';
 import 'package:pscreen_control/app/di/injection.dart';
 import 'package:pscreen_control/app/storage/app_settings.dart';
@@ -22,9 +23,46 @@ class SendPage extends StatelessWidget {
     final String account = AppSettings.instance.nimAccount;
     final bool isAdmin = account == AppConfig.adminAccount;
     return BlocProvider<SendCubit>(
-      create: (_) => SendCubit(nim: getIt<NimClient>()),
+      create: (_) => SendCubit(
+        nim: getIt<NimClient>(),
+        persistTargets: isAdmin,
+      ),
       child: isAdmin ? const _AdminSendShell() : const _FamilySendPage(),
     );
+  }
+}
+
+/// 断线提示 mixin：被踢下线或登录态转「未登录」（网络断开时 SDK 状态变化）时提示。
+///
+/// `hideCurrentSnackBar` 先收起旧提示，避免重连期间提示堆积。
+mixin _DisconnectHintMixin<T extends StatefulWidget> on State<T> {
+  StreamSubscription<dynamic>? _kickSub;
+  StreamSubscription<NIMLoginStatus>? _loginSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final NimClient nim = getIt<NimClient>();
+    _kickSub = nim.onKickedOffline.listen((_) => _showDisconnected());
+    _loginSub = nim.onLoginStatus.listen((NIMLoginStatus s) {
+      // 离线/未登录态提示（网络断开时 SDK 登录态会转为未登录）。
+      if (s == NIMLoginStatus.loginStatusUnlogin) _showDisconnected();
+    });
+  }
+
+  @override
+  void dispose() {
+    _kickSub?.cancel();
+    _loginSub?.cancel();
+    super.dispose();
+  }
+
+  void _showDisconnected() {
+    if (!mounted) return;
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('连接断开，正在重连…')));
   }
 }
 
@@ -36,25 +74,13 @@ class _FamilySendPage extends StatefulWidget {
   State<_FamilySendPage> createState() => _FamilySendPageState();
 }
 
-class _FamilySendPageState extends State<_FamilySendPage> {
+class _FamilySendPageState extends State<_FamilySendPage>
+    with _DisconnectHintMixin<_FamilySendPage> {
   final TextEditingController _text = TextEditingController();
   final TextEditingController _manual = TextEditingController();
-  StreamSubscription<dynamic>? _kickSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _kickSub = getIt<NimClient>().onKickedOffline.listen((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('连接断开，正在重连…')),
-      );
-    });
-  }
 
   @override
   void dispose() {
-    _kickSub?.cancel();
     _text.dispose();
     _manual.dispose();
     super.dispose();
@@ -66,7 +92,7 @@ class _FamilySendPageState extends State<_FamilySendPage> {
       context,
     ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     if (account != null && account.isNotEmpty) {
-      cubit.toggleTarget(account);
+      cubit.setSingleTarget(account);
     }
   }
 
@@ -99,7 +125,7 @@ class _FamilySendPageState extends State<_FamilySendPage> {
                         onPressed: () {
                           final String v = _manual.text.trim();
                           if (v.isNotEmpty) {
-                            context.read<SendCubit>().toggleTarget(v);
+                            context.read<SendCubit>().setSingleTarget(v);
                             _manual.clear();
                           }
                         },
@@ -205,10 +231,9 @@ class _BroadcastTab extends StatefulWidget {
 }
 
 class _BroadcastTabState extends State<_BroadcastTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, _DisconnectHintMixin<_BroadcastTab> {
   final TextEditingController _text = TextEditingController();
   final TextEditingController _manual = TextEditingController();
-  StreamSubscription<dynamic>? _kickSub;
 
   @override
   bool get wantKeepAlive => true;
@@ -217,17 +242,10 @@ class _BroadcastTabState extends State<_BroadcastTab>
   void initState() {
     super.initState();
     getIt<TvDirectory>().loadFromAssets();
-    _kickSub = getIt<NimClient>().onKickedOffline.listen((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('连接断开，正在重连…')),
-      );
-    });
   }
 
   @override
   void dispose() {
-    _kickSub?.cancel();
     _text.dispose();
     _manual.dispose();
     super.dispose();

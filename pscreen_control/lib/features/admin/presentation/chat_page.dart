@@ -19,18 +19,27 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _text = TextEditingController();
-  late final Stream<List<ChatMessageItem>> _messages;
+  final List<ChatMessageItem> _messages = <ChatMessageItem>[];
+  StreamSubscription<List<ChatMessageItem>>? _msgSub;
 
   @override
   void initState() {
     super.initState();
-    _messages = getIt<NimClient>().watchMessages(widget.account);
     // 进入聊天页即标为已读（内部 fire-and-forget，失败仅记日志）。
     unawaited(getIt<NimClient>().markConversationRead(widget.account));
+    // 流按批次到达（批内旧→新）；insertAll(0) 使最新在索引 0，
+    // 配合 ListView(reverse: true) 最新消息显示在底部。
+    _msgSub = getIt<NimClient>()
+        .watchMessages(widget.account)
+        .listen((List<ChatMessageItem> batch) {
+      if (!mounted || batch.isEmpty) return;
+      setState(() => _messages.insertAll(0, batch));
+    });
   }
 
   @override
   void dispose() {
+    _msgSub?.cancel();
     _text.dispose();
     super.dispose();
   }
@@ -52,29 +61,21 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: <Widget>[
           Expanded(
-            child: StreamBuilder<List<ChatMessageItem>>(
-              stream: _messages,
-              builder: (BuildContext context, AsyncSnapshot snapshot) {
-                final List<ChatMessageItem> items =
-                    snapshot.data as List<ChatMessageItem>? ??
-                        <ChatMessageItem>[];
-                return ListView.builder(
-                  reverse: true,
-                  itemCount: items.length,
-                  itemBuilder: (BuildContext context, int i) {
-                    final ChatMessageItem m = items[i];
-                    return Align(
-                      alignment: m.isOutgoing
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Text(m.text),
-                        ),
-                      ),
-                    );
-                  },
+            child: ListView.builder(
+              reverse: true,
+              itemCount: _messages.length,
+              itemBuilder: (BuildContext context, int i) {
+                final ChatMessageItem m = _messages[i];
+                return Align(
+                  alignment: m.isOutgoing
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(m.text),
+                    ),
+                  ),
                 );
               },
             ),

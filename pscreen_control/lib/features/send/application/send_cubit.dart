@@ -8,10 +8,16 @@ part 'send_state.dart';
 
 /// 发送端 Cubit：管理目标勾选 + 发送（文本/命令）。
 class SendCubit extends Cubit<SendState> {
-  SendCubit({required this.nim})
-      : super(SendState(targets: AppSettings.instance.selectedTvAccounts));
+  SendCubit({required this.nim, this.persistTargets = false})
+      : super(SendState(
+            targets: persistTargets
+                ? AppSettings.instance.selectedTvAccounts
+                : const <String>[]));
 
   final NimClient nim;
+
+  /// 仅管理员勾选目标需要持久化/恢复（spec §4.3）；家人单页不共享该 key。
+  final bool persistTargets;
 
   void toggleTarget(String account) {
     final List<String> next = List<String>.from(state.targets);
@@ -23,13 +29,20 @@ class SendCubit extends Cubit<SendState> {
     emit(state.copyWith(targets: next));
   }
 
+  /// 家人单页：替换为单一台（不支持多选，spec §4.2）。
+  void setSingleTarget(String account) {
+    emit(state.copyWith(targets: <String>[account]));
+  }
+
   void clearResults() {
     emit(state.copyWith(sendResults: const <String, bool>{}));
   }
 
   /// 发送纯文本（不加信封）到所有已勾选目标。
-  Future<void> sendPlainText(String text) =>
-      _sendToTargets(buildPlainText(text));
+  Future<void> sendPlainText(String text) {
+    if (text.trim().isEmpty) return Future<void>.value();
+    return _sendToTargets(buildPlainText(text));
+  }
 
   /// 发送命令信封到所有已勾选目标。
   Future<void> sendCommand(String name, {Map<String, dynamic>? args}) =>
@@ -57,6 +70,7 @@ class SendCubit extends Cubit<SendState> {
   Future<void> _sendToTargets(String body) async {
     if (state.isSending) return;
     if (state.targets.isEmpty) return;
+    if (body.isEmpty) return;
     emit(state.copyWith(isSending: true, lastBody: body));
     final Map<String, bool> results = <String, bool>{};
     for (final String target in state.targets) {
@@ -70,6 +84,7 @@ class SendCubit extends Cubit<SendState> {
   }
 
   Future<void> _persistTargets() async {
+    if (!persistTargets) return;
     try {
       await AppSettings.instance
           .setSelectedTvAccounts(List<String>.from(state.targets));
