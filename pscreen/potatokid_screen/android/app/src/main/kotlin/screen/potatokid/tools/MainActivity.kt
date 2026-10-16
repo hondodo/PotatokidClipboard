@@ -19,7 +19,7 @@ class MainActivity : FlutterActivity() {
                         audio.adjustStreamVolume(
                             AudioManager.STREAM_MUSIC,
                             AudioManager.ADJUST_RAISE,
-                            0
+                            AudioManager.FLAG_SHOW_UI
                         )
                         result.success(null)
                     }
@@ -27,7 +27,7 @@ class MainActivity : FlutterActivity() {
                         audio.adjustStreamVolume(
                             AudioManager.STREAM_MUSIC,
                             AudioManager.ADJUST_LOWER,
-                            0
+                            AudioManager.FLAG_SHOW_UI
                         )
                         result.success(null)
                     }

@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:potatokid_screen/core/di/get_it.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/utils/app_settings.dart';
@@ -25,7 +24,6 @@ import 'package:potatokid_screen/features/iptv/data/datasources/remote/proxy_poo
 import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
-import 'package:potatokid_screen/features/msg/application/reporting_service.dart';
 import 'package:potatokid_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
@@ -304,7 +302,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     // 「选中」立即刷新界面，「播放提交」延迟换源（两者分开的原因见控制器注释）。
     _channelController.addListener(_onChannelSelected);
     _channelController.onPlayCommit.addListener(_onPlayCommit);
-    _channelController.onPlayCommit.addListener(_onPlayCommitForMsg);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
     HomeNowPlayingController.instance.onToggleChannelPanel = _toggleChannelPanel;
     _restoreLastChannel();
@@ -355,13 +352,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _openChannel(_channelController.index);
     // 记录当前频道，下次启动据此恢复（写盘也一并挪到这里，避免长按时反复写）。
     _rememberCurrentChannel();
-  }
-
-  /// 切台确认钩子（消息上报）：通知 [ReportingService] 防抖后发「切换频道」。
-  void _onPlayCommitForMsg() {
-    if (getIt.isRegistered<ReportingService>()) {
-      getIt<ReportingService>().notifyChannelCommitted();
-    }
   }
 
   @override
@@ -932,7 +922,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _channelController.removeListener(_onChannelSelected);
     _channelController.onPlayCommit.removeListener(_onPlayCommit);
-    _channelController.onPlayCommit.removeListener(_onPlayCommitForMsg);
     HomeNowPlayingController.instance.onSwitchSource = null;
     HomeNowPlayingController.instance.onToggleChannelPanel = null;
     _toastTimer?.cancel();

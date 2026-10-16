@@ -17,6 +17,8 @@ import 'package:potatokid_screen/features/app/application/sleep_timer_controller
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
+import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:potatokid_screen/features/msg/presentation/widgets/message_overlay.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
@@ -928,9 +930,39 @@ class _ProfilePageState extends State<ProfilePage> {
   ///
   /// 返回与 OK 两类键集合与 `MainApp._handleLogical` 镜像。
   KeyEventResult _handlePageKey(FocusNode node, KeyEvent event) {
-    if (!_editingRemote) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final LogicalKeyboardKey key = event.logicalKey;
+    // 消息悬浮层可见时优先拦截物理按键（与 MainApp._handleLogical 镜像），
+    // 避免与下方远程编辑态的 OK/返回分支抢占焦点输入。
+    if (MessageOverlayController.instance.visible) {
+      MessageOverlayController.instance.onAnyKey();
+      final bool isBack = key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack;
+      if (isBack) {
+        MessageOverlayController.instance.handleBack();
+        return KeyEventResult.handled;
+      }
+      final bool ok = key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.space;
+      if (ok) {
+        MessageOverlayController.instance.handleOk();
+        return KeyEventResult.handled;
+      }
+      if (MessageOverlayController.instance.detail) {
+        final bool isArrow = key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown;
+        if (isArrow) {
+          MessageOverlay.scrollDetail(
+              key == LogicalKeyboardKey.arrowUp ? -1 : 1);
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.handled; // 吞掉其余按键
+    }
+    if (!_editingRemote) return KeyEventResult.ignored;
     // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
