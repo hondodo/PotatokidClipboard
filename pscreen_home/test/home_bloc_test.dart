@@ -259,4 +259,111 @@ void main() {
       expect(bloc.state.selectedAreaId, '');
     });
   });
+
+  group('HomeBloc 家庭分组', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('light.jk_living', 'on'),
+          _entity('light.jk_bedroom', 'on'),
+          _entity('light.td_living', 'off'),
+          _entity('switch.legacy', 'off'),
+        ],
+      )
+        ..registry = const HaRegistry(
+          areas: <HaArea>[
+            HaArea(areaId: 'legacy', name: '客厅'),
+            HaArea(areaId: 'jk_kt', name: '金科1204 客厅'),
+            HaArea(areaId: 'jk_ws', name: '金科1204 卧室'),
+            HaArea(areaId: 'td_kt', name: '棠德304 客厅'),
+          ],
+          areaIdByEntity: <String, String>{
+            'light.jk_living': 'jk_kt',
+            'light.jk_bedroom': 'jk_ws',
+            'light.td_living': 'td_kt',
+            'switch.legacy': 'legacy',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('availableHomes 仅含命名家庭，数量统计正确', () {
+      expect(
+        bloc.state.availableHomes,
+        <String>['金科1204', '棠德304'],
+        reason: '未分配家庭的 legacy 客厅不进家庭标签',
+      );
+      expect(bloc.state.homeCount('金科1204'), 2);
+      expect(bloc.state.homeCount('棠德304'), 1);
+      expect(bloc.state.visibleAreas.length, 4, reason: '未选家庭时展示全部房间');
+    });
+
+    test('HomeSelected 按家庭过滤，未分配家庭的实体被排除', () async {
+      bloc.add(const HomeSelected('金科1204'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedHomeName == '金科1204');
+      expect(
+        bloc.state.quickControls.map((e) => e.entityId).toList(),
+        <String>['light.jk_bedroom', 'light.jk_living'],
+      );
+      expect(
+        bloc.state.visibleAreas.map((a) => a.areaId).toList(),
+        <String>['jk_kt', 'jk_ws'],
+      );
+      expect(
+        bloc.state.areaLabelFor('light.jk_living'),
+        '客厅',
+        reason: '选中家庭时卡片房间用短名',
+      );
+    });
+
+    test('切换家庭清空房间选择；未选家庭时卡片用完整区域名', () async {
+      bloc.add(const HomeSelected('金科1204'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedHomeName == '金科1204');
+      bloc.add(const AreaSelected('jk_kt'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedAreaId == 'jk_kt');
+
+      bloc.add(const HomeSelected('棠德304'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedHomeName == '棠德304');
+      expect(bloc.state.selectedAreaId, '', reason: '切换家庭必须清空房间选择');
+      expect(bloc.state.quickControls.single.entityId, 'light.td_living');
+
+      bloc.add(const HomeSelected(''));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedHomeName.isEmpty);
+      expect(bloc.state.areaLabelFor('light.jk_living'), '金科1204 客厅');
+      expect(bloc.state.quickControls.length, 4);
+    });
+
+    test('所选家庭失效时回退「全部」', () async {
+      bloc.add(const HomeSelected('不存在的家'));
+      await bloc.stream.firstWhere(
+        (HomeState s) =>
+            s.selectedHomeName == '不存在的家' &&
+            s.effectiveHomeName.isEmpty,
+      );
+      expect(bloc.state.quickControls.length, 4);
+    });
+
+    test('重新加载后所选家庭从注册表消失则自动清空', () async {
+      bloc.add(const HomeSelected('金科1204'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedHomeName == '金科1204');
+
+      repo.registry = const HaRegistry(
+        areas: <HaArea>[HaArea(areaId: 'td_kt', name: '棠德304 客厅')],
+      );
+      expect(await _load(bloc), isTrue);
+      expect(bloc.state.selectedHomeName, '');
+      expect(bloc.state.selectedAreaId, '');
+    });
+  });
 }

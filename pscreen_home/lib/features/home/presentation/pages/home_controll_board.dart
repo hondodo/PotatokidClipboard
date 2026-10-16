@@ -14,10 +14,11 @@ import 'package:pscreen_home/features/home/presentation/components/light_widget.
 
 /// 主页面：中控台。
 ///
-/// 布局规划（对应原构想注释）：
-/// - 第一行：常用设备横向列表（M3 实现，设置页勾选常用实体）
-/// - 第二行：地区（房间）标签切换（✅ 已实现，基于 area/device/entity 注册表）
-///   下方网格按选中房间过滤，卡片标注实体所属房间。
+/// 布局（对应原构想注释）：
+/// - 顶部第一行：**家庭**标签（✅ 区域名前缀解析：薯仔4号的家 / 金科1204 / 棠德304）
+/// - 第二行：**房间**标签（✅ 基于 area 注册表，受家庭筛选，后缀为可控实体数）
+/// - 下方网格：按 家庭 ▸ 房间 两级过滤，卡片标注实体所属房间
+/// - 待实现：常用设备横向列表（M3，设置页勾选常用实体）
 class HomeControllBoard extends StatelessWidget {
   const HomeControllBoard({super.key});
 
@@ -121,6 +122,7 @@ class _Body extends StatelessWidget {
         if (!conn.isReady) return _ConnectionPlaceholder(state: conn);
         return const Column(
           children: <Widget>[
+            _HomeBar(),
             _AreaBar(),
             Expanded(child: _ControlGrid()),
           ],
@@ -130,7 +132,53 @@ class _Body extends StatelessWidget {
   }
 }
 
-/// 第二行：房间标签（原构想的「地区名称」行）。
+/// 第一行：家庭标签（区域名前缀解析出的家庭分组，如「金科1204」）。
+/// 仅当存在两个及以上家庭时展示。
+class _HomeBar extends StatelessWidget {
+  const _HomeBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<HomeBloc, HomeState>(
+      builder: (BuildContext context, HomeState state) {
+        final List<String> homes = state.availableHomes;
+        if (homes.length <= 1) return const SizedBox.shrink();
+        final String current = state.effectiveHomeName;
+        return SizedBox(
+          height: 52,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            itemCount: homes.length + 1,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: 8),
+            itemBuilder: (BuildContext context, int index) {
+              if (index == 0) {
+                return ChoiceChip(
+                  label: const Text('全部'),
+                  selected: current.isEmpty,
+                  onSelected: (_) => context
+                      .read<HomeBloc>()
+                      .add(const HomeSelected('')),
+                );
+              }
+              final String home = homes[index - 1];
+              return ChoiceChip(
+                label: Text('${state.homeLabel(home)} ${state.homeCount(home)}'),
+                selected: current == home,
+                onSelected: (_) => context
+                    .read<HomeBloc>()
+                    .add(HomeSelected(home)),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 第二行：房间标签（原构想的「地区名称」行），受家庭标签筛选。
 /// 仅展示含可控实体的房间，标签后缀为该房间的可控实体数量。
 class _AreaBar extends StatelessWidget {
   const _AreaBar();
@@ -139,14 +187,15 @@ class _AreaBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
-        final List<HaArea> areas = state.availableAreas;
+        final List<HaArea> areas = state.visibleAreas;
         if (areas.isEmpty) return const SizedBox.shrink();
         final String current = state.effectiveAreaId;
+        final bool scopedByHome = state.effectiveHomeName.isNotEmpty;
         return SizedBox(
           height: 52,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             itemCount: areas.length + 1,
             separatorBuilder: (BuildContext context, int index) =>
                 const SizedBox(width: 8),
@@ -161,8 +210,11 @@ class _AreaBar extends StatelessWidget {
                 );
               }
               final HaArea area = areas[index - 1];
+              // 已选家庭时房间名天然不重复，用短名；否则用完整区域名区分
+              final String label =
+                  scopedByHome ? area.roomName : area.name;
               return ChoiceChip(
-                label: Text('${area.name} ${state.areaCount(area.areaId)}'),
+                label: Text('$label ${state.areaCount(area.areaId)}'),
                 selected: current == area.areaId,
                 onSelected: (_) => context
                     .read<HomeBloc>()

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 
 void main() {
   group('HaEntityStateModel', () {
@@ -51,6 +52,37 @@ void main() {
         attributes: const <String, dynamic>{},
       );
       expect(entity.displayName, 'bedroom_light');
+    });
+  });
+
+  group('HaArea 家庭/房间拆分', () {
+    test('首个空格前为家庭名', () {
+      const HaArea area =
+          HaArea(areaId: 'jin_ke_1204_ke_ting', name: '金科1204 客厅');
+      expect(area.homeName, '金科1204');
+      expect(area.roomName, '客厅');
+    });
+
+    test('家庭名外的部分整体作为房间名', () {
+      const HaArea area =
+          HaArea(areaId: 'shu_zi_4hao_de_jia_1lou_chu_fang', name: '薯仔4号的家 1楼厨房');
+      expect(area.homeName, '薯仔4号的家');
+      expect(area.roomName, '1楼厨房');
+    });
+
+    test('无空格视为未分配家庭，房间名等于区域名', () {
+      const HaArea area = HaArea(areaId: 'ke_ting', name: '客厅');
+      expect(area.homeName, '');
+      expect(area.roomName, '客厅');
+    });
+
+    test('HaRegistry 归属解析：命中返回完整区域名，未收录返回 null', () {
+      const HaRegistry registry = HaRegistry(
+        areas: <HaArea>[HaArea(areaId: 'jk_kt', name: '金科1204 客厅')],
+        areaIdByEntity: <String, String>{'light.a': 'jk_kt'},
+      );
+      expect(registry.areaNameOf('light.a'), '金科1204 客厅');
+      expect(registry.areaNameOf('light.b'), isNull);
     });
   });
 }

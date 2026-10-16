@@ -97,7 +97,7 @@ lib/
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
-│       │   ├── models/ha_registry_model.dart       # 注册表模型（房间/设备/实体归属）
+│       │   ├── models/ha_registry_model.dart       # 注册表模型（家庭/房间/设备/实体归属）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
 └── shared/                            # 跨 feature 公共组件（暂空，按需创建）
@@ -147,7 +147,7 @@ lib/
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
 | `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `ConnectionInfoChanged` |
-| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `AreaSelected` / `ClearHomeError` |
+| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
 
 ---
 
@@ -300,10 +300,15 @@ void main() {
 
 - **M0 ✅** 连通性：`.env` + WS 认证 + `get_states` + 注册表 + `call_service` 验证。
 - **M1 ✅** 最小闭环：连接状态机 + 实体状态机 + 全部 light/switch 快捷控件网格（点击开关闭环）。
-- **M2 🚧 房间分组（✅ 已实现）**：`config/{area,device,entity}_registry/list` 组装 `HaRegistry`
-  （归属规则：实体自身 area_id > 所属设备 area_id），页面第二行房间标签行筛选网格、
-  卡片标注「状态 · 房间」、仅展示含可控实体的房间（后缀为数量）、
-  注册表拉取失败自动降级为空（不影响主页）、所选房间失效自动回退「全部」。
+- **M2 🚧 家庭 ▸ 房间 两级分组（✅ 已实现）**：
+  - **家庭层级**：HA 无独立家庭表（floor / label 注册表均为空），按约定
+    **区域名 = `家庭名 房间名`** 解析（`HaArea.homeName / roomName`，首个空格切分，
+    **家庭名不能含空格**）；顶部家庭标签行 + 房间标签行受其筛选。
+  - **房间归属**：`config/{area,device,entity}_registry/list` 组装 `HaRegistry`
+    （归属规则：实体自身 area_id > 所属设备 area_id）；卡片标注「状态 · 房间」
+    （选中家庭时用短房间名，否则用完整区域名）。
+  - 容错：注册表拉取失败降级为空、所选家庭/房间失效自动回退「全部」、
+    仅展示含可控实体的家庭与房间（后缀为数量）。
   剩余：区域 ▸ 设备 ▸ 实体 三级浏览页 + 名称过滤（原 `home_assistant_register.dart` 构想）。
 - **M3** 首页布局（原 `home_controll_board.dart` 构想）：第一行常用设备横向列表，
   第二行房间标签切换；`light_widget` / `button_widget` 按 domain 扩展 cover/climate/media_player 等。

@@ -1,4 +1,9 @@
 /// Home Assistant 区域（房间）。
+///
+/// **家庭归属约定**：区域名按 `家庭名 房间名` 存储（如「金科1204 客厅」），
+/// 首个空格前为家庭名；无空格的区域视为未分配家庭。
+/// HA 注册表本身没有独立的「家庭」层级（floor / label 均为空表），
+/// 家庭信息只能从命名解析，因此**家庭名不能包含空格**。
 class HaArea {
   const HaArea({
     required this.areaId,
@@ -11,6 +16,18 @@ class HaArea {
 
   /// HA 前端的区域排序值（缺失视为 0，保持注册表原始顺序）
   final int position;
+
+  /// 家庭名（区域名首个空格之前；无前缀返回 `''`）
+  String get homeName {
+    final int index = name.indexOf(' ');
+    return index > 0 ? name.substring(0, index) : '';
+  }
+
+  /// 房间名（家庭名之后的部分；无家庭前缀时等于区域名）
+  String get roomName {
+    final int index = name.indexOf(' ');
+    return index > 0 ? name.substring(index + 1) : name;
+  }
 }
 
 /// Home Assistant 设备：实体未直接指定房间时，回退到设备所属房间。

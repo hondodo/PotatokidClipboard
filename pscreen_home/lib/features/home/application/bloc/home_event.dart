@@ -32,6 +32,13 @@ class ToggleEntity extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 选择家庭标签（homeName 为 `''` 表示「全部」）。切换家庭会清空已选房间。
+class HomeSelected extends HomeEvent {
+  const HomeSelected(this.homeName);
+
+  final String homeName;
+}
+
 /// 选择房间标签（areaId 为 `''` 表示「全部」）。
 class AreaSelected extends HomeEvent {
   const AreaSelected(this.areaId);

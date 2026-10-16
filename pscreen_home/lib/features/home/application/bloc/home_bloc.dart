@@ -23,6 +23,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<LoadHome>(_onLoadHome);
     on<EntityStateChanged>(_onEntityStateChanged);
     on<ToggleEntity>(_onToggleEntity);
+    on<HomeSelected>(_onHomeSelected);
     on<AreaSelected>(_onAreaSelected);
     on<ClearHomeError>(_onClearHomeError);
     _subscription = _repository.watchStateChanges().listen(
@@ -49,18 +50,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final List<HaEntityStateModel> states =
           results[0] as List<HaEntityStateModel>;
       final HaRegistry registry = results[1] as HaRegistry;
-      // 所选房间若已不存在（改归属 / 消失），回退「全部」
-      final String selectedArea = state.selectedAreaId.isNotEmpty &&
-              !registry.areas
-                  .any((HaArea a) => a.areaId == state.selectedAreaId)
-          ? ''
-          : state.selectedAreaId;
+      // 所选家庭/房间若已不存在（改归属 / 消失），回退「全部」
+      String selectedHome = state.selectedHomeName;
+      String selectedArea = state.selectedAreaId;
+      if (selectedHome.isNotEmpty &&
+          !registry.areas.any((HaArea a) => a.homeName == selectedHome)) {
+        selectedHome = '';
+        selectedArea = '';
+      }
+      if (selectedArea.isNotEmpty &&
+          !registry.areas.any((HaArea a) => a.areaId == selectedArea)) {
+        selectedArea = '';
+      }
       emit(state.copyWith(
         isLoading: false,
         entities: <String, HaEntityStateModel>{
           for (final HaEntityStateModel s in states) s.entityId: s,
         },
         registry: registry,
+        selectedHomeName: selectedHome,
         selectedAreaId: selectedArea,
       ));
       completeBlocEvent(event.completer, success: true);
@@ -134,6 +142,17 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       ));
       completeBlocEvent(event.completer, success: false);
     }
+  }
+
+  void _onHomeSelected(
+    HomeSelected event,
+    Emitter<HomeState> emit,
+  ) {
+    // 切换家庭后房间行会重新计算，清空已选房间避免无效筛选
+    emit(state.copyWith(
+      selectedHomeName: event.homeName,
+      selectedAreaId: '',
+    ));
   }
 
   void _onAreaSelected(
