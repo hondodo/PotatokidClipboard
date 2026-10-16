@@ -34,6 +34,7 @@ class SendCubit extends Cubit<SendState> {
       _sendToTargets(buildCommandEnvelope(name, args));
 
   Future<void> _sendToTargets(String body) async {
+    if (state.isSending) return;
     if (state.targets.isEmpty) return;
     emit(state.copyWith(isSending: true));
     final Map<String, bool> results = <String, bool>{};

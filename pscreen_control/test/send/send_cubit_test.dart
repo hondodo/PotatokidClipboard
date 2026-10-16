@@ -91,4 +91,30 @@ void main() {
     expect(nim.sent, isEmpty);
     expect(cubit.state.sendResults, isEmpty);
   });
+
+  test('clearResults 清空结果但保留目标', () async {
+    cubit.toggleTarget('TV_001');
+    await cubit.sendPlainText('你好');
+    expect(cubit.state.sendResults, isNotEmpty);
+    cubit.clearResults();
+    expect(cubit.state.sendResults, isEmpty);
+    expect(cubit.state.targets, contains('TV_001'));
+  });
+
+  test('逐台 emit：sendResults 随每台发送增长', () async {
+    cubit
+      ..toggleTarget('TV_001')
+      ..toggleTarget('TV_002');
+    final List<Map<String, bool>> snapshots = <Map<String, bool>>[];
+    final sub = cubit.stream.listen((s) => snapshots.add(s.sendResults));
+    await cubit.sendPlainText('你好');
+    await Future<void>.delayed(Duration.zero);
+    await sub.cancel();
+    // isSending:true 那次 emit 时 sendResults 仍空；随后每台一个非空快照
+    final List<Map<String, bool>> nonEmpty =
+        snapshots.where((m) => m.isNotEmpty).toList();
+    expect(nonEmpty.length, greaterThanOrEqualTo(2));
+    expect(nonEmpty.first.keys, ['TV_001']);
+    expect(nonEmpty.last.keys, ['TV_001', 'TV_002']);
+  });
 }
