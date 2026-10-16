@@ -268,6 +268,29 @@ class _BroadcastTabState extends State<_BroadcastTab>
                     }
                   },
                 ),
+                // 非预设目标（手动/扫码/历史）以可移除 chip 展示
+                Builder(builder: (BuildContext context) {
+                  final Set<String> presetAccounts =
+                      dir.devices.map((TvDevice d) => d.account).toSet();
+                  final List<String> extra = state.targets
+                      .where((String a) => !presetAccounts.contains(a))
+                      .toList();
+                  if (extra.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: extra
+                          .map((String a) => Chip(
+                                label: Text(dir.nameOf(a)),
+                                onDeleted: () =>
+                                    context.read<SendCubit>().toggleTarget(a),
+                              ))
+                          .toList(),
+                    ),
+                  );
+                }),
                 const Divider(),
                 CommandPanel(
                   onCommand: (String body) {

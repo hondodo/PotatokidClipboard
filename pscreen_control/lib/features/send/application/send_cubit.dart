@@ -47,6 +47,7 @@ class SendCubit extends Cubit<SendState> {
     final Map<String, bool> results = Map<String, bool>.from(state.sendResults);
     for (final String account in accounts) {
       final bool ok = await nim.sendText(toAccount: account, text: body);
+      if (isClosed) return;
       results[account] = ok;
       emit(state.copyWith(sendResults: Map<String, bool>.from(results)));
     }
@@ -60,16 +61,20 @@ class SendCubit extends Cubit<SendState> {
     final Map<String, bool> results = <String, bool>{};
     for (final String target in state.targets) {
       final bool ok = await nim.sendText(toAccount: target, text: body);
+      if (isClosed) return;
       results[target] = ok;
       emit(state.copyWith(sendResults: Map<String, bool>.from(results)));
     }
+    emit(state.copyWith(isSending: false)); // 先恢复 isSending
+    await _persistTargets(); // 再持久化（此时已无 emit）
+  }
+
+  Future<void> _persistTargets() async {
     try {
-      await AppSettings.instance.setSelectedTvAccounts(
-        List<String>.from(state.targets),
-      );
+      await AppSettings.instance
+          .setSelectedTvAccounts(List<String>.from(state.targets));
     } catch (_) {
-      // 持久化失败不影响发送流程。
+      // prefs 未加载/写入失败均非致命
     }
-    emit(state.copyWith(isSending: false));
   }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pscreen_control/app/storage/app_settings.dart';
 import 'package:pscreen_control/core/nim_client.dart';
 import 'package:pscreen_control/features/send/application/send_cubit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Fake NimClient：记录 sendText 调用，可控失败。
 class FakeNimClient implements NimClient {
@@ -155,5 +157,17 @@ void main() {
     expect(nim.sent.length, 1);
     await pending;
     expect(cubit.state.isSending, isFalse);
+  });
+
+  // 注意：此测试必须放在最后 —— 它会加载 AppSettings（单例，无法卸载），
+  // 之后构造的 SendCubit 会从持久化恢复目标。
+  test('SendCubit 从持久化恢复最近目标', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'selected_tv_accounts': <String>['TV_001', 'TV_002'],
+    });
+    await AppSettings.instance.ensureLoaded();
+    final SendCubit c = SendCubit(nim: FakeNimClient());
+    expect(c.state.targets, <String>['TV_001', 'TV_002']);
+    await c.close();
   });
 }
