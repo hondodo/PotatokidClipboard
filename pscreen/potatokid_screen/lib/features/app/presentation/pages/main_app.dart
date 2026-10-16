@@ -146,8 +146,9 @@ class MainApp extends StatelessWidget {
   /// - 返回：二次确认后退出应用。
   /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
-    // 消息浮层可见：OK 开详情 / 返回 关闭；其余按键吞掉（详情内滚动由浮层
-    // 自身 Focus 处理），并重置自动关闭计时。
+    // 消息浮层可见：OK 开详情 / 返回 关闭；详情内上下键转发浮层滚动全文
+    //（D-pad，长按经 KeyRepeatController 连续滚）；其余按键吞掉（防止浮层下
+    // 页面被操作，详情内 OK 亦忽略），并重置自动关闭计时。
     if (MessageOverlayController.instance.visible) {
       MessageOverlayController.instance.onAnyKey();
       if (key == LogicalKeyboardKey.escape ||
@@ -162,10 +163,20 @@ class MainApp extends StatelessWidget {
           key == LogicalKeyboardKey.space ||
           key == LogicalKeyboardKey.gameButtonA;
       if (ok) {
-        MessageOverlayController.instance.handleOk();
+        MessageOverlayController.instance.handleOk(); // 详情内为 no-op（忽略）
         return true;
       }
-      return true; // 吞掉其余按键，防止浮层下页面被操作
+      if (MessageOverlayController.instance.detail &&
+          key == LogicalKeyboardKey.arrowUp) {
+        MessageOverlay.scrollDetail(-1);
+        return true;
+      }
+      if (MessageOverlayController.instance.detail &&
+          key == LogicalKeyboardKey.arrowDown) {
+        MessageOverlay.scrollDetail(1);
+        return true;
+      }
+      return true; // 吞掉其余按键
     }
 
     final AppState state = context.read<AppBloc>().state;
@@ -390,7 +401,8 @@ class MainApp extends StatelessWidget {
             ),
           ),
         ),
-        // 消息浮层：全局最上层，独立于 rootOkHandler 焦点链（详情内自处理滚动）。
+        // 消息浮层：全局最上层，独立于 rootOkHandler 焦点链；详情内 D-pad
+        // 滚动由上面的拦截层转发 [MessageOverlay.scrollDetail]。
         const Positioned.fill(child: MessageOverlay()),
       ],
     );
