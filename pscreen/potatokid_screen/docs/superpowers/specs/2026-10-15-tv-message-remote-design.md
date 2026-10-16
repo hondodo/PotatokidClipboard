@@ -172,3 +172,6 @@ TV 上报服务只发给系统管理员 `1000001`，内容为人类可读纯文�
 - 群发预设列表打包在发送端资产内，更新需发版（管理员手动输入可临时绕过）
 - 断线期间错过的上报心跳不补发
 - 上报目标写死 `1000001`（常量，如需多管理员后续再议）
+- pscreen_control 聊天页仅显示实时消息流（历史消息本地拉取待后续）；自己发送的消息不出现在聊天流（isOutgoing 恒 false）
+- pscreen_control 断线仅提示，自动重连依赖 SDK 默认行为，无手动重试按钮
+- 会话列表/聊天过滤基于 localConversationService；conversationId→对方账号用 SDK conversationTargetId + 解析回退，真机需验证消息上报会话可见性
