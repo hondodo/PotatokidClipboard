@@ -27,13 +27,13 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     // 进入聊天页即标为已读（内部 fire-and-forget，失败仅记日志）。
     unawaited(getIt<NimClient>().markConversationRead(widget.account));
-    // 流按批次到达（批内旧→新）；insertAll(0) 使最新在索引 0，
+    // 流按批次到达（批内旧→新）；reversed 后 insertAll(0) 使最新在索引 0，
     // 配合 ListView(reverse: true) 最新消息显示在底部。
     _msgSub = getIt<NimClient>()
         .watchMessages(widget.account)
         .listen((List<ChatMessageItem> batch) {
       if (!mounted || batch.isEmpty) return;
-      setState(() => _messages.insertAll(0, batch));
+      setState(() => _messages.insertAll(0, batch.reversed));
     });
   }
 
