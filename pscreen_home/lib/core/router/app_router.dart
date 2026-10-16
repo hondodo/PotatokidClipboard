@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/features/home/presentation/pages/device_detail_page.dart';
 import 'package:pscreen_home/features/home/presentation/pages/home_controll_board.dart';
+import 'package:pscreen_home/features/settings/presentation/pages/settings_page.dart';
 
 /// 路由核心：封装 GoRouter。
 ///
@@ -57,6 +58,11 @@ class AppRouter {
             builder: (context, state) => DeviceDetailPage(
               deviceId: state.pathParameters['deviceId'] ?? '',
             ),
+          ),
+          GoRoute(
+            path: RouteNames.settings,
+            name: RouteNames.settings,
+            builder: (context, state) => const SettingsPage(),
           ),
         ],
       ),

@@ -14,6 +14,7 @@ class ConnectionBloc extends Bloc<ConnectionEvent, ConnectionState> {
       : super(ConnectionState.initial()) {
     on<StartConnection>(_onStartConnection);
     on<RetryConnection>(_onRetryConnection);
+    on<Reconnect>(_onReconnect);
     on<ConnectionInfoChanged>(_onConnectionInfoChanged);
     _subscription = _repository.watchConnection().listen(
           (info) => add(ConnectionInfoChanged(info)),
@@ -34,6 +35,23 @@ class ConnectionBloc extends Bloc<ConnectionEvent, ConnectionState> {
     Emitter<ConnectionState> emit,
   ) =>
       _connect();
+
+  /// 配置变更后重建连接。
+  ///
+  /// 必须先断开：`HaWsClient.connect` 在已连接时幂等返回，
+  /// 不断开的话新地址 / 新令牌不会生效。
+  Future<void> _onReconnect(
+    Reconnect event,
+    Emitter<ConnectionState> emit,
+  ) async {
+    try {
+      await _repository.disconnect();
+      await _repository.connect();
+    } catch (e, s) {
+      Injection.get<LogService>().error('应用新配置并重新连接失败',
+          error: e, stackTrace: s);
+    }
+  }
 
   Future<void> _connect() async {
     try {

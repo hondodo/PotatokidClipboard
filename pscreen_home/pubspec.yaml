@@ -44,6 +44,8 @@ dependencies:
   flutter_dotenv: ^6.0.1
   # Home Assistant WebSocket 长连接（状态订阅 / 服务调用）
   web_socket_channel: ^3.0.0
+  # 本地持久化（手动设置的 HA 地址 / 令牌，优先于 .env）
+  shared_preferences: ^2.3.0
 
 dev_dependencies:
   flutter_test:

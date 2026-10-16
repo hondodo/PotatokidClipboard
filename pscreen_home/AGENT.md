@@ -43,6 +43,7 @@ dependencies:
   get_it: ^9.3.0                # 依赖注入
   flutter_dotenv: ^6.0.1        # .env（AS_HOST / AS_KEY）
   web_socket_channel: ^3.0.0    # Home Assistant WebSocket
+  shared_preferences: ^2.3.0    # 手动 HA 地址 / 令牌持久化（优先于 .env）
 
 dev_dependencies:
   flutter_lints: ^6.0.0
@@ -70,11 +71,14 @@ lib/
 │   ├── router/
 │   │   ├── app_router.dart            # GoRouter 封装（initialize 必须在 runApp 前）
 │   │   └── route_names.dart           # 路由路径常量，禁止硬编码
+│   ├── storage/
+│   │   └── settings_store.dart        # 本地持久化：手动 HA 地址 / 令牌（覆盖 .env）
 │   ├── di/
 │   │   ├── get_it.dart                # 全局 getIt 实例
 │   │   ├── injection.dart             # 门面：按序编排 Module 注册/注销
 │   │   └── modules/
 │   │       ├── network_module.dart    # LogService + HaWsClient
+│   │       ├── storage_module.dart    # SettingsStore（依赖 LogService，需在其后）
 │   │       ├── router_module.dart     # AppRouter
 │   │       ├── connection_module.dart # 连接 feature
 │   │       └── home_module.dart       # 主页 feature
@@ -103,6 +107,8 @@ lib/
 │       │   ├── models/ha_device_group.dart         # 设备分组模型（同设备实体合并成卡）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
+│   └── settings/                       # 设置（HA 连接配置）
+│       └── presentation/pages/settings_page.dart   # 地址 / 令牌表单（复用 ConnectionBloc）
 └── shared/                            # 跨 feature 公共组件（暂空，按需创建）
 ```
 
@@ -113,7 +119,8 @@ lib/
 - 所有路径集中在 `RouteNames`，业务代码禁止硬编码路径。
 - `AppRouter.initialize()` 异步初始化，**必须在 `runApp` 前 await**；未初始化访问 `router` 抛 `StateError`。
 - 当前路由：`home = '/'`（HomeControllBoard）、`home` 子路由 `device/:deviceId`
-  （DeviceDetailPage，完整路径经 `RouteNames.deviceDetailPath(id)` 拼接）。
+  （DeviceDetailPage，完整路径经 `RouteNames.deviceDetailPath(id)` 拼接）、
+  `home` 子路由 `settings`（SettingsPage，`RouteNames.settingsPath`）。
   新增页面时在 `RouteNames` 加常量 → `AppRouter._buildRoutes()` 注册 `GoRoute` → 页面入 `presentation/pages/`。
 - 多 Tab 外壳需要时再引入 `StatefulShellRoute.indexedStack`（参考 potatokid_screen 第 3.4 节）。
 
@@ -150,7 +157,7 @@ lib/
 
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
-| `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `ConnectionInfoChanged` |
+| `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `Reconnect`（配置变更：先断开再连） / `ConnectionInfoChanged` |
 | `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
 
 ---
@@ -229,10 +236,14 @@ lib/
 void main() {
   runZonedGuarded<Future<void>>(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    await AppConfig.initialize();        // 1. 加载 .env（AS_HOST / AS_KEY）
-    await Injection.init();              // 2. 依赖注入（网络、路由、业务模块）
-    await Injection.get<AppRouter>().initialize();  // 3. 路由（必须在 runApp 前）
-    runApp(                              // 4. 启动
+    await AppConfig.initialize();        // 1. 加载 .env 默认值（AS_HOST / AS_KEY）
+    await Injection.init();              // 2. 依赖注入（网络、存储、路由、业务模块）
+    AppConfig.applyOverrides(            // 3. 应用持久化的手动配置（空则回落 .env）
+      host: Injection.get<SettingsStore>().hostOverride,
+      token: Injection.get<SettingsStore>().tokenOverride,
+    );
+    await Injection.get<AppRouter>().initialize();  // 4. 路由（必须在 runApp 前）
+    runApp(                              // 5. 启动
       MultiBlocProvider(
         providers: [
           BlocProvider<ConnectionBloc>(
@@ -247,9 +258,15 @@ void main() {
 }
 ```
 
-**顺序不可颠倒：** `Injection.init()` → `AppRouter.initialize()` → `runApp`。
+**顺序不可颠倒：** `Injection.init()` → `AppConfig.applyOverrides()` → `AppRouter.initialize()` → `runApp`。
 连接由 `StartConnection` 触发；连接就绪后页面（BlocListener）派发 `LoadHome`，
 **重连成功会再次触发 `LoadHome`** 自动恢复数据。
+
+**连接配置两层结构**（设置页见第 3 节路由）：
+生效值 = `SettingsStore` 持久化覆盖 > `.env` 默认值（`AppConfig` 计算）。
+设置页保存后若生效值变化 → `ConnectionBloc` 发 `Reconnect`
+（**必须先 `disconnect` 再 `connect`**，`HaWsClient.connect` 在已连接时幂等返回）→
+就绪后主页自动 `LoadHome` 刷新。清空输入保存 = 删除覆盖回落 `.env`。
 
 ---
 
@@ -324,5 +341,5 @@ void main() {
   剩余：区域 ▸ 设备 ▸ 实体 三级浏览页 + 名称过滤（原 `home_assistant_register.dart` 构想）。
 - **M3** 首页布局（原 `home_controll_board.dart` 构想）：第一行常用设备横向列表，
   第二行房间标签切换；`light_widget` / `button_widget` 按 domain 扩展 cover/climate/media_player 等。
-- **M4** 配置持久化：设置页勾选「常用实体」（shared_preferences），断网横幅、乐观更新确认超时回滚。
+- **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
 - **M5** 部署：屏幕常亮（wakelock）、开机自启、kiosk 模式（按目标设备选型）。

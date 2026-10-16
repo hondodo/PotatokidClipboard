@@ -58,7 +58,15 @@ class HomeControllBoard extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('中控台'),
-          actions: const <Widget>[_ConnectionStatus()],
+          actions: <Widget>[
+            const _ConnectionStatus(),
+            IconButton(
+              tooltip: '设置',
+              icon: const Icon(Icons.settings_rounded),
+              onPressed: () =>
+                  Injection.get<AppRouter>().push(RouteNames.settingsPath),
+            ),
+          ],
         ),
         body: const _Body(),
       ),

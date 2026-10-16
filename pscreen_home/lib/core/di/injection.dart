@@ -3,6 +3,7 @@ import 'package:pscreen_home/core/di/modules/connection_module.dart';
 import 'package:pscreen_home/core/di/modules/home_module.dart';
 import 'package:pscreen_home/core/di/modules/network_module.dart';
 import 'package:pscreen_home/core/di/modules/router_module.dart';
+import 'package:pscreen_home/core/di/modules/storage_module.dart';
 
 /// 依赖注入门面：按固定顺序编排各 Module 的注册/注销。
 /// 业务代码统一通过 `Injection.get<T>()` 获取实例。
@@ -12,6 +13,7 @@ class Injection {
   static Future<void> init() async {
     await GetItConfig.init();
     await NetworkModule.register();
+    await StorageModule.register();
     await RouterModule.register();
     await ConnectionModule.register();
     await HomeModule.register();
@@ -21,6 +23,7 @@ class Injection {
     await HomeModule.unregister();
     await ConnectionModule.unregister();
     await RouterModule.unregister();
+    await StorageModule.unregister();
     await NetworkModule.unregister();
     await GetItConfig.reset();
   }

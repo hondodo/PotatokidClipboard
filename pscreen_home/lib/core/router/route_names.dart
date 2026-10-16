@@ -11,4 +11,10 @@ class RouteNames {
 
   /// 设备详情页完整路径
   static String deviceDetailPath(String deviceId) => '/device/$deviceId';
+
+  // 设置页（home 的子路由：HA 地址 / 令牌）
+  static const String settings = 'settings';
+
+  /// 设置页完整路径
+  static String get settingsPath => '/$settings';
 }
