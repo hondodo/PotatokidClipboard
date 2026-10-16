@@ -111,8 +111,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
     // isSending:true 那次 emit 时 sendResults 仍空；随后每台一个非空快照
-    final List<Map<String, bool>> nonEmpty =
-        snapshots.where((m) => m.isNotEmpty).toList();
+    final List<Map<String, bool>> nonEmpty = snapshots
+        .where((m) => m.isNotEmpty)
+        .toList();
     expect(nonEmpty.length, greaterThanOrEqualTo(2));
     expect(nonEmpty.first.keys, ['TV_001']);
     expect(nonEmpty.last.keys, ['TV_001', 'TV_002']);
@@ -144,5 +145,15 @@ void main() {
   test('retryFailed 无 lastBody 时不发送', () async {
     await cubit.retryFailed(['TV_X']);
     expect(nim.sent, isEmpty);
+  });
+
+  test('retryFailed 在发送中被忽略', () async {
+    cubit.toggleTarget('TV_001');
+    final Future<void> pending = cubit.sendPlainText('x');
+    expect(cubit.state.isSending, isTrue);
+    await cubit.retryFailed(['TV_001']);
+    expect(nim.sent.length, 1);
+    await pending;
+    expect(cubit.state.isSending, isFalse);
   });
 }

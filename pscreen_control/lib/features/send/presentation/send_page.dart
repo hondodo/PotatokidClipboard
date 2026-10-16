@@ -47,9 +47,9 @@ class _FamilySendPageState extends State<_FamilySendPage> {
 
   Future<void> _scan() async {
     final SendCubit cubit = context.read<SendCubit>();
-    final String? account = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const QrScanPage()),
-    );
+    final String? account = await Navigator.of(
+      context,
+    ).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     if (account != null && account.isNotEmpty) {
       cubit.toggleTarget(account);
     }
@@ -61,63 +61,92 @@ class _FamilySendPageState extends State<_FamilySendPage> {
       appBar: AppBar(title: const Text('发指令')),
       body: BlocBuilder<SendCubit, SendState>(
         builder: (BuildContext context, SendState state) {
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('目标: ${state.targets.join(", ")}'),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: TextField(
-                        controller: _manual,
-                        decoration:
-                            const InputDecoration(hintText: '手动输入 TV 账号'),
+          return SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('目标: ${state.targets.join(", ")}'),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: TextField(
+                          controller: _manual,
+                          decoration: const InputDecoration(
+                            hintText: '手动输入 TV 账号',
+                          ),
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add),
-                      onPressed: () {
-                        final String v = _manual.text.trim();
-                        if (v.isNotEmpty) {
-                          context.read<SendCubit>().toggleTarget(v);
-                          _manual.clear();
-                        }
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.qr_code_scanner),
-                      onPressed: _scan,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                CommandPanel(
-                  onCommand: (String body) =>
-                      context.read<SendCubit>().sendRaw(body),
-                ),
-                const Spacer(),
-                TextField(
-                  controller: _text,
-                  decoration: const InputDecoration(hintText: '输入消息'),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: state.isSending
-                        ? null
-                        : () {
-                            context
-                                .read<SendCubit>()
-                                .sendPlainText(_text.text.trim());
-                            _text.clear();
-                          },
-                    child: const Text('发送'),
+                      IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () {
+                          final String v = _manual.text.trim();
+                          if (v.isNotEmpty) {
+                            context.read<SendCubit>().toggleTarget(v);
+                            _manual.clear();
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: _scan,
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  CommandPanel(
+                    onCommand: (String body) {
+                      if (context.read<SendCubit>().state.targets.isEmpty) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(const SnackBar(content: Text('请先选择目标')));
+                        return;
+                      }
+                      context.read<SendCubit>().sendRaw(body);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _text,
+                    decoration: const InputDecoration(hintText: '输入消息'),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: state.isSending
+                          ? null
+                          : () async {
+                              final SendCubit cubit = context.read<SendCubit>();
+                              if (cubit.state.targets.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('请先选择目标')),
+                                );
+                                return;
+                              }
+                              await cubit.sendPlainText(_text.text.trim());
+                              _text.clear();
+                              if (!context.mounted) return;
+                              final Map<String, bool> r =
+                                  cubit.state.sendResults;
+                              final int ok = r.values
+                                  .where((bool v) => v)
+                                  .length;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    r.isEmpty ? '未发送' : '已发 $ok/${r.length} 台',
+                                  ),
+                                ),
+                              );
+                            },
+                      child: const Text('发送'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -145,10 +174,7 @@ class _AdminSendShell extends StatelessWidget {
           ),
         ),
         body: const TabBarView(
-          children: <Widget>[
-            _BroadcastTab(),
-            ConversationListPage(),
-          ],
+          children: <Widget>[_BroadcastTab(), ConversationListPage()],
         ),
       ),
     );
@@ -190,62 +216,79 @@ class _BroadcastTabState extends State<_BroadcastTab>
     return BlocBuilder<SendCubit, SendState>(
       builder: (BuildContext context, SendState state) {
         final TvDirectory dir = getIt<TvDirectory>();
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: <Widget>[
-              TargetPicker(
-                devices: dir.devices,
-                selected: state.targets.toSet(),
-                onToggle: context.read<SendCubit>().toggleTarget,
-                onScan: () async {
-                  final SendCubit cubit = context.read<SendCubit>();
-                  final String? account = await Navigator.of(context).push<
-                      String>(
-                    MaterialPageRoute(builder: (_) => const QrScanPage()),
-                  );
-                  if (account != null && account.isNotEmpty) {
-                    cubit.toggleTarget(account);
-                  }
-                },
-                manualController: _manual,
-                onManualAdd: () {
-                  final String v = _manual.text.trim();
-                  if (v.isNotEmpty) {
-                    context.read<SendCubit>().toggleTarget(v);
-                    _manual.clear();
-                  }
-                },
-              ),
-              const Divider(),
-              CommandPanel(
-                onCommand: (String body) =>
-                    context.read<SendCubit>().sendRaw(body),
-              ),
-              const Spacer(),
-              _SendResultBanner(results: state.sendResults, directory: dir),
-              TextField(
-                controller: _text,
-                decoration: const InputDecoration(hintText: '群发文本'),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: state.isSending
-                      ? null
-                      : () {
-                          context
-                              .read<SendCubit>()
-                              .sendPlainText(_text.text.trim());
-                          _text.clear();
-                        },
-                  child: Text(
-                    state.isSending ? '发送中…' : '群发（${state.targets.length} 台）',
+        return SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TargetPicker(
+                  devices: dir.devices,
+                  selected: state.targets.toSet(),
+                  onToggle: context.read<SendCubit>().toggleTarget,
+                  onScan: () async {
+                    final SendCubit cubit = context.read<SendCubit>();
+                    final String? account = await Navigator.of(context)
+                        .push<String>(
+                          MaterialPageRoute(builder: (_) => const QrScanPage()),
+                        );
+                    if (account != null && account.isNotEmpty) {
+                      cubit.toggleTarget(account);
+                    }
+                  },
+                  manualController: _manual,
+                  onManualAdd: () {
+                    final String v = _manual.text.trim();
+                    if (v.isNotEmpty) {
+                      context.read<SendCubit>().toggleTarget(v);
+                      _manual.clear();
+                    }
+                  },
+                ),
+                const Divider(),
+                CommandPanel(
+                  onCommand: (String body) {
+                    if (context.read<SendCubit>().state.targets.isEmpty) {
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('请先选择目标')));
+                      return;
+                    }
+                    context.read<SendCubit>().sendRaw(body);
+                  },
+                ),
+                const SizedBox(height: 12),
+                _SendResultBanner(results: state.sendResults, directory: dir),
+                TextField(
+                  controller: _text,
+                  decoration: const InputDecoration(hintText: '群发文本'),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: state.isSending
+                        ? null
+                        : () {
+                            final SendCubit cubit = context.read<SendCubit>();
+                            if (cubit.state.targets.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('请先选择目标')),
+                              );
+                              return;
+                            }
+                            cubit.sendPlainText(_text.text.trim());
+                            _text.clear();
+                          },
+                    child: Text(
+                      state.isSending
+                          ? '发送中…'
+                          : '群发（${state.targets.length} 台）',
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -265,8 +308,10 @@ class _SendResultBanner extends StatelessWidget {
     if (results.isEmpty) return const SizedBox.shrink();
     final int total = results.length;
     final int success = results.values.where((bool v) => v).length;
-    final List<String> failed =
-        results.entries.where((e) => !e.value).map((e) => e.key).toList();
+    final List<String> failed = results.entries
+        .where((e) => !e.value)
+        .map((e) => e.key)
+        .toList();
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -274,9 +319,13 @@ class _SendResultBanner extends StatelessWidget {
           Text('已发 $success/$total 台'),
           if (failed.isNotEmpty) ...<Widget>[
             const SizedBox(width: 12),
-            Text(
-              '失败: ${failed.map(directory.nameOf).join(", ")}',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            Expanded(
+              child: Text(
+                '失败: ${failed.map(directory.nameOf).join(", ")}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
             TextButton(
               onPressed: () => context.read<SendCubit>().retryFailed(failed),
