@@ -117,4 +117,32 @@ void main() {
     expect(nonEmpty.first.keys, ['TV_001']);
     expect(nonEmpty.last.keys, ['TV_001', 'TV_002']);
   });
+
+  test('sendRaw 发送已构造 body', () async {
+    cubit.toggleTarget('TV_001');
+    await cubit.sendRaw('{"t":"cmd","name":"mute"}');
+    expect(nim.sent.single.$2, '{"t":"cmd","name":"mute"}');
+    expect(cubit.state.lastBody, '{"t":"cmd","name":"mute"}');
+  });
+
+  test('retryFailed 重发 lastBody 到失败目标', () async {
+    nim.failFirst = true;
+    cubit
+      ..toggleTarget('TV_A')
+      ..toggleTarget('TV_B');
+    await cubit.sendPlainText('测试');
+    expect(cubit.state.sendResults['TV_A'], isFalse);
+    // 重试：now succeed
+    final int before = nim.sent.length;
+    await cubit.retryFailed(['TV_A']);
+    expect(nim.sent.length, before + 1);
+    expect(nim.sent.last.$1, 'TV_A');
+    expect(nim.sent.last.$2, '测试');
+    expect(cubit.state.sendResults['TV_A'], isTrue);
+  });
+
+  test('retryFailed 无 lastBody 时不发送', () async {
+    await cubit.retryFailed(['TV_X']);
+    expect(nim.sent, isEmpty);
+  });
 }
