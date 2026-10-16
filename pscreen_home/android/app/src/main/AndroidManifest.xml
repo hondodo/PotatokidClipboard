@@ -1,8 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 网络访问（debug/profile 构建由 Flutter 模板额外注入，主构建必须自带，
+         否则 release 包完全无法联网） -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="pscreen_home"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <!-- Android 9+ 默认禁止明文流量，而墙控面板连接的局域网 Home Assistant
+             通常是 http://192.168.x.x:8123 → ws:// 明文 WebSocket，必须放行 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
