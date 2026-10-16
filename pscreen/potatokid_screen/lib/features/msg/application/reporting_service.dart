@@ -19,7 +19,10 @@ class ReportingService {
     required this.channelInfo,
     required this.liveChannel,
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now {
+    Duration? heartbeatInterval,
+  })  : _now = now ?? DateTime.now,
+        _heartbeatInterval =
+            heartbeatInterval ?? ReportingService.heartbeatInterval {
     _playCommitListener = () => notifyChannelCommitted();
     liveChannel.onPlayCommit.addListener(_playCommitListener);
   }
@@ -27,7 +30,7 @@ class ReportingService {
   /// 系统管理员账号。
   static const String adminAccount = '1000001';
 
-  /// 心跳间隔。
+  /// 心跳间隔（默认 5 分钟，测试可注入短间隔）。
   static const Duration heartbeatInterval = Duration(minutes: 5);
 
   /// 切台确认防抖。
@@ -39,6 +42,9 @@ class ReportingService {
   final LiveChannelController liveChannel;
   final DateTime Function() _now;
 
+  /// 实际生效的心跳间隔（构造时可覆盖，默认 [heartbeatInterval]）。
+  final Duration _heartbeatInterval;
+
   late final VoidCallback _playCommitListener;
 
   Timer? _heartbeat;
@@ -47,19 +53,28 @@ class ReportingService {
   bool _started = false;
   String? _model;
 
+  /// 启动纪元：stop/重启时自增，使仍在 await 中的 start 作废。
+  int _epoch = 0;
+
   /// 登录成功（RemoteLoginState.loggedIn 边沿）时调用；先取设备型号再发前两条。
   Future<void> start(String account) async {
     if (_started) return;
     _started = true;
-    _loginAt = _now();
-    _model = await deviceModel();
-    _send('$account于${_fmt(_loginAt!)}使用$_deviceModelCache登录成功。');
+    final int epoch = ++_epoch;
+    final DateTime loginAt = _now();
+    _loginAt = loginAt;
+    final String model = await deviceModel();
+    if (!_started || epoch != _epoch) return; // await 期间 stop/重启
+    _model = model;
+    _send('$account于${_fmt(loginAt)}使用$_deviceModelCache登录成功。');
     _send('正在收看${positionText()}');
-    _heartbeat = Timer.periodic(heartbeatInterval, (_) => _onHeartbeat());
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(_heartbeatInterval, (_) => _onHeartbeat());
   }
 
   /// 登出/停止（error/notConfigured 边沿、dispose 时）。
   void stop() {
+    _epoch++; // 作废在途的 start
     _started = false;
     _loginAt = null;
     _heartbeat?.cancel();
