@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pscreen_control/app/config/app_config.dart';
 import 'package:pscreen_control/app/storage/app_settings.dart';
 import 'package:pscreen_control/app/utils/app_log.dart';
+import 'package:pscreen_control/features/admin/application/chat_message_item.dart';
 
 /// NIM 客户端薄封装（模式同 TV 端 NimManager；init/login 调用序列照抄）。
 class NimClient {
@@ -145,4 +146,29 @@ class NimClient {
       NimCore.instance.loginService.onLoginFailed;
   Stream<NIMKickedOfflineDetail> get onKickedOffline =>
       NimCore.instance.loginService.onKickedOffline;
+
+  /// 会话服务（供 ConversationSource 使用）。
+  ConversationService get conversationService =>
+      NimCore.instance.conversationService;
+
+  /// 某账号的消息流（简化：仅实时接收消息；历史消息拉取不在本期范围）。
+  ///
+  /// 已知限制：`onReceiveMessages` 仅含他人发来的消息，故 isOutgoing 恒为 false。
+  Stream<List<ChatMessageItem>> watchMessages(String account) {
+    return NimCore.instance.messageService.onReceiveMessages
+        .map((List<NIMMessage> messages) => messages
+            .where((NIMMessage m) => _peerOf(m) == account)
+            .map((NIMMessage m) => ChatMessageItem(
+                  text: _textOf(m) ?? '[非文本]',
+                  isOutgoing: false,
+                ))
+            .toList());
+  }
+
+  /// P2P 收到的消息：发送者即对方账号。
+  String? _peerOf(NIMMessage m) => m.senderId;
+
+  /// 文本消息取 text；非文本返回 null。
+  String? _textOf(NIMMessage m) =>
+      m.messageType == NIMMessageType.text ? m.text : null;
 }

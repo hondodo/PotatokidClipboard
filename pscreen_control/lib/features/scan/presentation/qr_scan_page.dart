@@ -1,18 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
-/// 扫码页占位（Task 5 填充真 UI；返回扫码得到的账号字符串）。
-class QrScanPage extends StatelessWidget {
+/// 扫码页：扫 TV 端「远程」行二维码，返回账号字符串。
+class QrScanPage extends StatefulWidget {
   const QrScanPage({super.key});
+
+  @override
+  State<QrScanPage> createState() => _QrScanPageState();
+}
+
+class _QrScanPageState extends State<QrScanPage> {
+  bool _done = false;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('扫码')),
-      body: Center(
-        child: TextButton(
-          onPressed: () => Navigator.of(context).pop<String>('TV_001'),
-          child: const Text('占位：返回 TV_001（Task 5 填充）'),
-        ),
+      body: MobileScanner(
+        onDetect: (BarcodeCapture capture) {
+          if (_done) return;
+          final String? value = capture.barcodes.isEmpty
+              ? null
+              : capture.barcodes.first.rawValue;
+          if (value == null || value.isEmpty) return;
+          _done = true;
+          Navigator.of(context).pop(value);
+        },
       ),
     );
   }
