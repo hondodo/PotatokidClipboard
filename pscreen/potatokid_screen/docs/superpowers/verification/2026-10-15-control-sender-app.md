@@ -1,8 +1,8 @@
 # pscreen_control 发送端 验证报告
 
 ## 自动化
-- flutter analyze: No issues found (9.8s)
-- flutter test: 30/30 All tests passed
+- flutter analyze: No issues found (11.5s)
+- flutter test: 32/32 All tests passed
 
 ## 提交序列（feature/remote_msg, pscreen_control）
 ```
@@ -17,6 +17,9 @@ c158d6f fix: banner overflow keyboard scroll and send feedback
 41be982 feat: qr scan conversation list and chat page
 c5591f9 fix: conversation peer derivation, local source, cubit guards, mark read
 74bf53a feat: offline hint selected targets persistence
+c6715d8 docs: sender app known limitations and verification report
+3a7ebed fix: cubit close guards, persist after final emit, non-preset target chips
+51e8f75 fix: family single target role-scoped persistence chat accumulation disconnect detection
 ```
 
 ## 手动清单状态
@@ -33,6 +36,6 @@ c5591f9 fix: conversation peer derivation, local source, cubit guards, mark read
 | 9 | 断网 → 提示「连接断开」 | 待真机 |
 
 ## 已知遗留
-- 评审中标记为 Minor 的未修项：无记录（Task1..5 序列中未留存 Minor 评审清单；如有遗漏可在真机验证时补充）
+- 终审 Minor（未修）：`clearResults` 无 UI 调用点；`easy_localization` 死依赖；发送文本在结果未知前即清空输入框；`TvDirectory.loadFromAssets` 异常未防护；AppSettings 初始化失败静默；ConversationListPage 无 keep-alive（切 Tab 状态丢失）；发送中 CommandPanel 未禁用；AppSettings 各 setter 错误处理不对称；`logout`/`onLoginStatus` 等 API 暂无调用点；`.vscode/` 未纳入版本控制
 - watchMessages 仅实时流、isOutgoing 恒 false（已入 spec §8）
 - 上述 9 项均需真机 + TV 端配合，无法自动化（按任务说明不模拟）
