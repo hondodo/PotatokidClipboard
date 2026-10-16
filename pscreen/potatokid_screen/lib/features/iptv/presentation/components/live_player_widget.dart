@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:potatokid_screen/core/di/get_it.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/utils/app_settings.dart';
@@ -358,10 +359,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   /// 切台确认钩子（消息上报）：通知 [ReportingService] 防抖后发「切换频道」。
   void _onPlayCommitForMsg() {
-    try {
-      Injection.get<ReportingService>().notifyChannelCommitted();
-    } catch (_) {
-      // 测试环境未注册 DI 时忽略
+    if (getIt.isRegistered<ReportingService>()) {
+      getIt<ReportingService>().notifyChannelCommitted();
     }
   }
 

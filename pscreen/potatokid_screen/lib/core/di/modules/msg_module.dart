@@ -34,9 +34,14 @@ class MsgModule {
 
   static StreamSubscription<List<NIMMessage>>? _sub;
   static StreamSubscription<RemoteLoginState>? _stateSub;
-  static ReportingService? _reporting;
+  static String _lastStartedAccount = '';
 
   static Future<void> register() async {
+    await _sub?.cancel();
+    _sub = null;
+    await _stateSub?.cancel();
+    _stateSub = null;
+
     final MessageRouter router = MessageRouter(
       overlay: MessageOverlayController.instance,
       executor: MessageCommandExecutor(
@@ -51,7 +56,6 @@ class MsgModule {
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
     );
-    _reporting = reporting;
     getIt.registerLazySingleton<ReportingService>(
       () => reporting,
       dispose: (_) async => reporting.dispose(),
@@ -70,10 +74,15 @@ class MsgModule {
     // 登录态边沿驱动上报启停。
     _stateSub = getIt<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
       if (state.status == RemoteLoginStatus.loggedIn) {
+        if (_lastStartedAccount != state.account) {
+          reporting.stop();
+          _lastStartedAccount = state.account;
+        }
         unawaited(reporting.start(state.account));
       } else if (state.status == RemoteLoginStatus.notConfigured ||
           state.status == RemoteLoginStatus.error) {
         reporting.stop();
+        _lastStartedAccount = '';
       }
     });
   }
@@ -90,8 +99,7 @@ class MsgModule {
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
-    _reporting?.dispose();
-    _reporting = null;
+    _lastStartedAccount = '';
     if (getIt.isRegistered<ReportingService>()) {
       await getIt.unregister<ReportingService>();
     }
