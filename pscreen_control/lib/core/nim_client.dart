@@ -78,7 +78,6 @@ class NimClient {
     required String account,
     required String token,
   }) async {
-    await AppSettings.instance.setNimToken(token);
     return _login(account, token: token);
   }
 
@@ -88,6 +87,9 @@ class NimClient {
       final NIMResult<void> result = await NimCore.instance.loginService
           .login(account, useToken, NIMLoginOption());
       if (result.isSuccess) {
+        if (token != null) {
+          await AppSettings.instance.setNimToken(token);
+        }
         await AppSettings.instance.setNimAccount(account);
         return true;
       }

@@ -3,6 +3,7 @@ import 'package:pscreen_control/app/di/injection.dart';
 import 'package:pscreen_control/app/storage/app_settings.dart';
 import 'package:pscreen_control/app/utils/app_log.dart';
 import 'package:pscreen_control/core/nim_client.dart';
+import 'package:pscreen_control/features/send/data/tv_directory.dart';
 import 'package:pscreen_control/features/send/presentation/send_page.dart';
 import 'package:pscreen_control/features/settings/presentation/settings_page.dart';
 
@@ -10,6 +11,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppSettings.instance.ensureLoaded();
   await Injection.init();
+  await getIt<TvDirectory>().loadFromAssets();
   // NIM 初始化失败不阻断 UI：设置页可见并显示错误（Task 2）。
   bool loggedIn = false;
   try {
