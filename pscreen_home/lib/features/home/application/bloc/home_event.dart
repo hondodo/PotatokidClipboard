@@ -32,6 +32,13 @@ class ToggleEntity extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 选择房间标签（areaId 为 `''` 表示「全部」）。
+class AreaSelected extends HomeEvent {
+  const AreaSelected(this.areaId);
+
+  final String areaId;
+}
+
 /// 清除错误提示（页面展示 SnackBar 后调用）。
 class ClearHomeError extends HomeEvent {
   const ClearHomeError();

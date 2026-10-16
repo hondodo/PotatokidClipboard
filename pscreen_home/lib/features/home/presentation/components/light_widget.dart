@@ -9,11 +9,13 @@ class LightWidget extends StatelessWidget {
     required this.entity,
     required this.isToggling,
     required this.onToggle,
+    this.areaLabel,
   });
 
   final HaEntityStateModel entity;
   final bool isToggling;
   final VoidCallback onToggle;
+  final String? areaLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +23,7 @@ class LightWidget extends StatelessWidget {
       entity: entity,
       isToggling: isToggling,
       onToggle: onToggle,
+      areaLabel: areaLabel,
       icon: Icons.lightbulb_rounded,
       activeColor: Colors.amber,
     );

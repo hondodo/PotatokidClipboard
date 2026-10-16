@@ -8,6 +8,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 
@@ -15,9 +16,8 @@ import 'package:pscreen_home/features/home/presentation/components/light_widget.
 ///
 /// 布局规划（对应原构想注释）：
 /// - 第一行：常用设备横向列表（M3 实现，设置页勾选常用实体）
-/// - 第二行：地区（房间）标签切换（M2 实现，基于 area/device/entity 注册表）
-///
-/// M1 现状：AppBar 连接状态 + 全部 light/switch 快捷控件网格（点击开关闭环）。
+/// - 第二行：地区（房间）标签切换（✅ 已实现，基于 area/device/entity 注册表）
+///   下方网格按选中房间过滤，卡片标注实体所属房间。
 class HomeControllBoard extends StatelessWidget {
   const HomeControllBoard({super.key});
 
@@ -110,7 +110,7 @@ class _ConnectionStatus extends StatelessWidget {
   }
 }
 
-/// 主体：未连接时显示连接占位，连接后显示快捷控件网格。
+/// 主体：未连接时显示连接占位，连接后显示房间标签行 + 快捷控件网格。
 class _Body extends StatelessWidget {
   const _Body();
 
@@ -119,7 +119,58 @@ class _Body extends StatelessWidget {
     return BlocBuilder<ConnectionBloc, ConnectionState>(
       builder: (BuildContext context, ConnectionState conn) {
         if (!conn.isReady) return _ConnectionPlaceholder(state: conn);
-        return const _ControlGrid();
+        return const Column(
+          children: <Widget>[
+            _AreaBar(),
+            Expanded(child: _ControlGrid()),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 第二行：房间标签（原构想的「地区名称」行）。
+/// 仅展示含可控实体的房间，标签后缀为该房间的可控实体数量。
+class _AreaBar extends StatelessWidget {
+  const _AreaBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<HomeBloc, HomeState>(
+      builder: (BuildContext context, HomeState state) {
+        final List<HaArea> areas = state.availableAreas;
+        if (areas.isEmpty) return const SizedBox.shrink();
+        final String current = state.effectiveAreaId;
+        return SizedBox(
+          height: 52,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            itemCount: areas.length + 1,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: 8),
+            itemBuilder: (BuildContext context, int index) {
+              if (index == 0) {
+                return ChoiceChip(
+                  label: const Text('全部'),
+                  selected: current.isEmpty,
+                  onSelected: (_) => context
+                      .read<HomeBloc>()
+                      .add(const AreaSelected('')),
+                );
+              }
+              final HaArea area = areas[index - 1];
+              return ChoiceChip(
+                label: Text('${area.name} ${state.areaCount(area.areaId)}'),
+                selected: current == area.areaId,
+                onSelected: (_) => context
+                    .read<HomeBloc>()
+                    .add(AreaSelected(area.areaId)),
+              );
+            },
+          ),
+        );
       },
     );
   }
@@ -226,6 +277,7 @@ class _ControlGrid extends StatelessWidget {
           itemBuilder: (BuildContext context, int index) {
             final HaEntityStateModel entity = controls[index];
             final bool toggling = state.togglingIds.contains(entity.entityId);
+            final String areaLabel = state.areaLabelFor(entity.entityId);
             void onTap() => context
                 .read<HomeBloc>()
                 .add(ToggleEntity(entityId: entity.entityId));
@@ -234,12 +286,14 @@ class _ControlGrid extends StatelessWidget {
                 entity: entity,
                 isToggling: toggling,
                 onToggle: onTap,
+                areaLabel: areaLabel,
               );
             }
             return ButtonWidget(
               entity: entity,
               isToggling: toggling,
               onToggle: onTap,
+              areaLabel: areaLabel,
             );
           },
         );

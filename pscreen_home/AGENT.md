@@ -97,6 +97,7 @@ lib/
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
+│       │   ├── models/ha_registry_model.dart       # 注册表模型（房间/设备/实体归属）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
 └── shared/                            # 跨 feature 公共组件（暂空，按需创建）
@@ -146,7 +147,7 @@ lib/
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
 | `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `ConnectionInfoChanged` |
-| `HomeBloc` | 实体状态缓存 + 快捷控件操作 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `ClearHomeError` |
+| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `AreaSelected` / `ClearHomeError` |
 
 ---
 
@@ -299,9 +300,11 @@ void main() {
 
 - **M0 ✅** 连通性：`.env` + WS 认证 + `get_states` + 注册表 + `call_service` 验证。
 - **M1 ✅** 最小闭环：连接状态机 + 实体状态机 + 全部 light/switch 快捷控件网格（点击开关闭环）。
-- **M2** 设备树（原 `home_assistant_register.dart` 构想）：`config/area_registry/list` +
-  `config/device_registry/list` + `config/entity_registry/list` 组装
-  「区域 ▸ 设备 ▸ 实体」三级结构，支持地区/名称过滤。
+- **M2 🚧 房间分组（✅ 已实现）**：`config/{area,device,entity}_registry/list` 组装 `HaRegistry`
+  （归属规则：实体自身 area_id > 所属设备 area_id），页面第二行房间标签行筛选网格、
+  卡片标注「状态 · 房间」、仅展示含可控实体的房间（后缀为数量）、
+  注册表拉取失败自动降级为空（不影响主页）、所选房间失效自动回退「全部」。
+  剩余：区域 ▸ 设备 ▸ 实体 三级浏览页 + 名称过滤（原 `home_assistant_register.dart` 构想）。
 - **M3** 首页布局（原 `home_controll_board.dart` 构想）：第一行常用设备横向列表，
   第二行房间标签切换；`light_widget` / `button_widget` 按 domain 扩展 cover/climate/media_player 等。
 - **M4** 配置持久化：设置页勾选「常用实体」（shared_preferences），断网横幅、乐观更新确认超时回滚。

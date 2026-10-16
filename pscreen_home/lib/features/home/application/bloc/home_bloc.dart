@@ -9,6 +9,7 @@ import 'package:pscreen_home/core/utils/error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
@@ -22,6 +23,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<LoadHome>(_onLoadHome);
     on<EntityStateChanged>(_onEntityStateChanged);
     on<ToggleEntity>(_onToggleEntity);
+    on<AreaSelected>(_onAreaSelected);
     on<ClearHomeError>(_onClearHomeError);
     _subscription = _repository.watchStateChanges().listen(
           (entity) => add(EntityStateChanged(entity)),
@@ -39,12 +41,27 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   ) async {
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
-      final List<HaEntityStateModel> states = await _repository.fetchStates();
+      // 状态与注册表并行拉取；注册表失败由 Repository 降级为空，不阻断加载
+      final List<Object> results = await Future.wait(<Future<Object>>[
+        _repository.fetchStates(),
+        _repository.fetchRegistry(),
+      ]);
+      final List<HaEntityStateModel> states =
+          results[0] as List<HaEntityStateModel>;
+      final HaRegistry registry = results[1] as HaRegistry;
+      // 所选房间若已不存在（改归属 / 消失），回退「全部」
+      final String selectedArea = state.selectedAreaId.isNotEmpty &&
+              !registry.areas
+                  .any((HaArea a) => a.areaId == state.selectedAreaId)
+          ? ''
+          : state.selectedAreaId;
       emit(state.copyWith(
         isLoading: false,
         entities: <String, HaEntityStateModel>{
           for (final HaEntityStateModel s in states) s.entityId: s,
         },
+        registry: registry,
+        selectedAreaId: selectedArea,
       ));
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
@@ -117,6 +134,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       ));
       completeBlocEvent(event.completer, success: false);
     }
+  }
+
+  void _onAreaSelected(
+    AreaSelected event,
+    Emitter<HomeState> emit,
+  ) {
+    emit(state.copyWith(selectedAreaId: event.areaId));
   }
 
   void _onClearHomeError(

@@ -8,6 +8,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 内存版 HomeRepository：可控成功/失败，可注入实时状态事件
@@ -15,6 +16,7 @@ class _FakeHomeRepository implements HomeRepository {
   _FakeHomeRepository({required this.states});
 
   List<HaEntityStateModel> states;
+  HaRegistry registry = HaRegistry.empty;
   Object? fetchError;
   Object? toggleError;
   final List<(String, bool)> toggleCalls = <(String, bool)>[];
@@ -26,6 +28,9 @@ class _FakeHomeRepository implements HomeRepository {
     if (fetchError != null) throw fetchError!;
     return states;
   }
+
+  @override
+  Future<HaRegistry> fetchRegistry() async => registry;
 
   @override
   Stream<HaEntityStateModel> watchStateChanges() => _events.stream;
@@ -177,6 +182,81 @@ void main() {
       bloc.add(const ClearHomeError());
       await bloc.stream.firstWhere((HomeState s) => s.errorMessage == null);
       expect(bloc.state.errorMessage, isNull);
+    });
+  });
+
+  group('HomeBloc 房间分组', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('light.bedroom', 'on'),
+          _entity('light.living', 'off'),
+          _entity('switch.plug', 'off'),
+        ],
+      )
+        ..registry = HaRegistry(
+          areas: <HaArea>[
+            const HaArea(areaId: 'living', name: '客厅'),
+            const HaArea(areaId: 'bedroom', name: '卧室'),
+            const HaArea(areaId: 'kitchen', name: '厨房'),
+          ],
+          areaIdByEntity: <String, String>{
+            'light.bedroom': 'bedroom',
+            'light.living': 'living',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('availableAreas 仅含可控实体的房间，数量与归属标注正确', () {
+      expect(
+        bloc.state.availableAreas.map((HaArea a) => a.name).toList(),
+        <String>['客厅', '卧室'],
+        reason: '厨房无可控实体，不应出现',
+      );
+      expect(bloc.state.areaCount('living'), 1);
+      expect(bloc.state.areaLabelFor('light.living'), '客厅');
+      expect(bloc.state.areaLabelFor('switch.plug'), '未分配房间');
+    });
+
+    test('AreaSelected 按房间过滤网格，切回全部恢复', () async {
+      bloc.add(const AreaSelected('bedroom'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedAreaId == 'bedroom');
+      expect(
+        bloc.state.quickControls.map((e) => e.entityId).toList(),
+        <String>['light.bedroom'],
+      );
+
+      bloc.add(const AreaSelected(''));
+      await bloc.stream.firstWhere((HomeState s) => s.selectedAreaId.isEmpty);
+      expect(bloc.state.quickControls.length, 3);
+    });
+
+    test('所选房间不在可筛选集合时回退「全部」', () async {
+      bloc.add(const AreaSelected('kitchen'));
+      await bloc.stream.firstWhere(
+        (HomeState s) =>
+            s.selectedAreaId == 'kitchen' && s.effectiveAreaId.isEmpty,
+      );
+      expect(bloc.state.quickControls.length, 3);
+    });
+
+    test('重新加载后所选房间从注册表消失则自动清空', () async {
+      bloc.add(const AreaSelected('bedroom'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedAreaId == 'bedroom');
+
+      repo.registry = const HaRegistry(
+        areas: <HaArea>[HaArea(areaId: 'living', name: '客厅')],
+      );
+      expect(await _load(bloc), isTrue);
+      expect(bloc.state.selectedAreaId, '');
     });
   });
 }

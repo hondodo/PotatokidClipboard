@@ -12,6 +12,7 @@ class ButtonWidget extends StatelessWidget {
     required this.entity,
     required this.isToggling,
     required this.onToggle,
+    this.areaLabel,
     this.icon,
     this.activeColor,
   });
@@ -19,6 +20,9 @@ class ButtonWidget extends StatelessWidget {
   final HaEntityStateModel entity;
   final bool isToggling;
   final VoidCallback onToggle;
+
+  /// 所属房间展示名（未分配时由页面兜底为「未分配房间」）
+  final String? areaLabel;
 
   /// 自定义图标（子类如 LightWidget 覆盖）
   final IconData? icon;
@@ -94,11 +98,23 @@ class ButtonWidget extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      _statusText(theme),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: accent,
+                    Text.rich(
+                      TextSpan(
+                        style: theme.textTheme.bodySmall,
+                        children: <InlineSpan>[
+                          TextSpan(
+                            text: _statusText(),
+                            style: TextStyle(color: accent),
+                          ),
+                          TextSpan(
+                            text: ' · ${areaLabel ?? '未分配房间'}',
+                            style:
+                                TextStyle(color: theme.colorScheme.outline),
+                          ),
+                        ],
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -110,7 +126,7 @@ class ButtonWidget extends StatelessWidget {
     );
   }
 
-  String _statusText(ThemeData theme) {
+  String _statusText() {
     if (!entity.isAvailable) return '不可用';
     return entity.isOn ? '已开启' : '已关闭';
   }
