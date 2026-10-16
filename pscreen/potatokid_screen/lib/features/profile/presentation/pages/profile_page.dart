@@ -24,6 +24,7 @@ import 'package:potatokid_screen/features/remote/application/bloc/remote_login_b
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:restart_app/restart_app.dart';
 
 /// 支持切换的语言列表（Locale 与翻译文件 key 一一对应）
@@ -949,9 +950,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
+  /// 已登录时输入框下方附二维码（手机扫码取账号）。
   Widget _buildRemoteEditRow() {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final TextTheme textTheme = Theme.of(context).textTheme;
+    final RemoteLoginState remoteState =
+        context.read<RemoteLoginBloc>().state;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -960,42 +964,58 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.primary, width: 2),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'settings_remote'.tr(),
-            style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+          Row(
+            children: <Widget>[
+              Text(
+                'settings_remote'.tr(),
+                style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: _remoteInputController,
+                  focusNode: _remoteInputFocusNode,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.none,
+                  autocorrect: false,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.primary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'remote_input_hint'.tr(),
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                  onSubmitted: (_) => _submitRemoteEdit(),
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                onPressed: _endRemoteEdit,
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.check, color: scheme.primary),
+                onPressed: _submitRemoteEdit,
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: TextField(
-              controller: _remoteInputController,
-              focusNode: _remoteInputFocusNode,
-              textInputAction: TextInputAction.done,
-              textCapitalization: TextCapitalization.none,
-              autocorrect: false,
-              style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: scheme.primary,
+          if (remoteState.status == RemoteLoginStatus.loggedIn &&
+              remoteState.account.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: QrImageView(
+                data: remoteState.account,
+                size: 120,
+                backgroundColor: Colors.white,
               ),
-              decoration: InputDecoration(
-                hintText: 'remote_input_hint'.tr(),
-                isDense: true,
-                border: InputBorder.none,
-              ),
-              onSubmitted: (_) => _submitRemoteEdit(),
             ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
-            onPressed: _endRemoteEdit,
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.check, color: scheme.primary),
-            onPressed: _submitRemoteEdit,
-          ),
         ],
       ),
     );
