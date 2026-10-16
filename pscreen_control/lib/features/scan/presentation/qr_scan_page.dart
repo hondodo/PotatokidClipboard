@@ -24,6 +24,7 @@ class _QrScanPageState extends State<QrScanPage> {
               : capture.barcodes.first.rawValue;
           if (value == null || value.isEmpty) return;
           _done = true;
+          if (!mounted) return;
           Navigator.of(context).pop(value);
         },
       ),

@@ -10,7 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pscreen_control/app/config/app_config.dart';
 import 'package:pscreen_control/app/storage/app_settings.dart';
 import 'package:pscreen_control/app/utils/app_log.dart';
-import 'package:pscreen_control/features/admin/application/chat_message_item.dart';
+import 'package:pscreen_control/core/chat_message_item.dart';
 
 /// NIM 客户端薄封装（模式同 TV 端 NimManager；init/login 调用序列照抄）。
 class NimClient {
@@ -147,9 +147,33 @@ class NimClient {
   Stream<NIMKickedOfflineDetail> get onKickedOffline =>
       NimCore.instance.loginService.onKickedOffline;
 
-  /// 会话服务（供 ConversationSource 使用）。
-  ConversationService get conversationService =>
-      NimCore.instance.conversationService;
+  /// 本地会话服务（供 ConversationSource 使用）。
+  ///
+  /// 选用 local 而非 cloud：来消息时自动更新的是本地会话列表；
+  /// cloud 会话依赖 `enableV2CloudConversation` 同步，可能不即时物化。
+  V2NIMLocalConversationService get localConversationService =>
+      NimCore.instance.localConversationService;
+
+  /// 将与 [peerAccount] 的 P2P 会话标为已读（fire-and-forget，失败仅记日志）。
+  Future<void> markConversationRead(String peerAccount) async {
+    try {
+      final NIMResult<String> cid = await NimCore
+          .instance.conversationIdUtil
+          .p2pConversationId(peerAccount);
+      if (!cid.isSuccess || cid.data == null) {
+        AppLog.e('[NimClient] markConversationRead p2pConversationId 失败: ${cid.code}');
+        return;
+      }
+      final NIMResult<int> r = await NimCore
+          .instance.localConversationService
+          .markConversationRead(cid.data!);
+      if (!r.isSuccess) {
+        AppLog.e('[NimClient] markConversationRead 失败: ${r.code}');
+      }
+    } catch (e) {
+      AppLog.e('[NimClient] markConversationRead 异常: $e');
+    }
+  }
 
   /// 某账号的消息流（简化：仅实时接收消息；历史消息拉取不在本期范围）。
   ///

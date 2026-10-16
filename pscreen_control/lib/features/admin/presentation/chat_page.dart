@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pscreen_control/app/di/injection.dart';
+import 'package:pscreen_control/core/chat_message_item.dart';
 import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/admin/application/chat_message_item.dart';
 import 'package:pscreen_control/features/send/presentation/widgets/command_panel.dart';
 
 /// 聊天页：消息流（NIM 实时） + 底部输入（文本/命令）。
@@ -17,6 +19,15 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _text = TextEditingController();
+  late final Stream<List<ChatMessageItem>> _messages;
+
+  @override
+  void initState() {
+    super.initState();
+    _messages = getIt<NimClient>().watchMessages(widget.account);
+    // 进入聊天页即标为已读（内部 fire-and-forget，失败仅记日志）。
+    unawaited(getIt<NimClient>().markConversationRead(widget.account));
+  }
 
   @override
   void dispose() {
@@ -42,7 +53,7 @@ class _ChatPageState extends State<ChatPage> {
         children: <Widget>[
           Expanded(
             child: StreamBuilder<List<ChatMessageItem>>(
-              stream: getIt<NimClient>().watchMessages(widget.account),
+              stream: _messages,
               builder: (BuildContext context, AsyncSnapshot snapshot) {
                 final List<ChatMessageItem> items =
                     snapshot.data as List<ChatMessageItem>? ??
