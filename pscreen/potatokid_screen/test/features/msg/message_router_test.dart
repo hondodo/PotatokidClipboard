@@ -86,6 +86,24 @@ void main() {
     expect(overlay.visible, isFalse);
   });
 
+  test('channel 越界 index → 不崩溃且序号不变', () {
+    router.handleIncoming('{"t":"cmd","name":"channel","args":{"index":99}}');
+    expect(live.index, 0);
+    expect(overlay.visible, isFalse);
+  });
+
+  test('channel 负数 index → 不崩溃且序号不变', () {
+    router.handleIncoming('{"t":"cmd","name":"channel","args":{"index":-1}}');
+    expect(live.index, 0);
+    expect(overlay.visible, isFalse);
+  });
+
+  test('channel 无 args → 忽略', () {
+    router.handleIncoming('{"t":"cmd","name":"channel"}');
+    expect(live.index, 0);
+    expect(overlay.visible, isFalse);
+  });
+
   test('未知命令名 → 忽略不弹浮层', () {
     router.handleIncoming('{"t":"cmd","name":"fly"}');
     expect(overlay.visible, isFalse);
