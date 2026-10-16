@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_control/app/config/app_config.dart';
@@ -37,9 +39,22 @@ class _FamilySendPage extends StatefulWidget {
 class _FamilySendPageState extends State<_FamilySendPage> {
   final TextEditingController _text = TextEditingController();
   final TextEditingController _manual = TextEditingController();
+  StreamSubscription<dynamic>? _kickSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _kickSub = getIt<NimClient>().onKickedOffline.listen((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('连接断开，正在重连…')),
+      );
+    });
+  }
 
   @override
   void dispose() {
+    _kickSub?.cancel();
     _text.dispose();
     _manual.dispose();
     super.dispose();
@@ -193,6 +208,7 @@ class _BroadcastTabState extends State<_BroadcastTab>
     with AutomaticKeepAliveClientMixin {
   final TextEditingController _text = TextEditingController();
   final TextEditingController _manual = TextEditingController();
+  StreamSubscription<dynamic>? _kickSub;
 
   @override
   bool get wantKeepAlive => true;
@@ -201,10 +217,17 @@ class _BroadcastTabState extends State<_BroadcastTab>
   void initState() {
     super.initState();
     getIt<TvDirectory>().loadFromAssets();
+    _kickSub = getIt<NimClient>().onKickedOffline.listen((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('连接断开，正在重连…')),
+      );
+    });
   }
 
   @override
   void dispose() {
+    _kickSub?.cancel();
     _text.dispose();
     _manual.dispose();
     super.dispose();

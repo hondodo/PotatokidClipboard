@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_control/app/storage/app_settings.dart';
 import 'package:pscreen_control/core/nim_client.dart';
 import 'package:pscreen_control/features/protocol/envelope_builder.dart';
 
@@ -7,7 +8,8 @@ part 'send_state.dart';
 
 /// 发送端 Cubit：管理目标勾选 + 发送（文本/命令）。
 class SendCubit extends Cubit<SendState> {
-  SendCubit({required this.nim}) : super(const SendState());
+  SendCubit({required this.nim})
+      : super(SendState(targets: AppSettings.instance.selectedTvAccounts));
 
   final NimClient nim;
 
@@ -60,6 +62,13 @@ class SendCubit extends Cubit<SendState> {
       final bool ok = await nim.sendText(toAccount: target, text: body);
       results[target] = ok;
       emit(state.copyWith(sendResults: Map<String, bool>.from(results)));
+    }
+    try {
+      await AppSettings.instance.setSelectedTvAccounts(
+        List<String>.from(state.targets),
+      );
+    } catch (_) {
+      // 持久化失败不影响发送流程。
     }
     emit(state.copyWith(isSending: false));
   }
