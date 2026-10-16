@@ -19,17 +19,19 @@ class AppSettings {
     _loaded = true;
   }
 
-  String get nimAccount => _prefs.getString(_kAccount) ?? '';
+  String get nimAccount => _loaded ? (_prefs.getString(_kAccount) ?? '') : '';
   Future<void> setNimAccount(String value) =>
       _prefs.setString(_kAccount, value);
 
-  String get nimToken => _prefs.getString(_kToken) ?? '12345678';
+  String get nimToken =>
+      _loaded ? (_prefs.getString(_kToken) ?? '12345678') : '12345678';
   Future<void> setNimToken(String value) =>
       _prefs.setString(_kToken, value);
 
   /// 管理员最近勾选的目标账号列表。
-  List<String> get selectedTvAccounts =>
-      _prefs.getStringList(_kSelectedTvs) ?? const <String>[];
+  List<String> get selectedTvAccounts => _loaded
+      ? (_prefs.getStringList(_kSelectedTvs) ?? const <String>[])
+      : const <String>[];
   Future<void> setSelectedTvAccounts(List<String> value) =>
       _prefs.setStringList(_kSelectedTvs, value);
 }
