@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 
 /// 主页面：中控台。
@@ -281,7 +286,11 @@ class _ConnectionPlaceholder extends StatelessWidget {
   }
 }
 
-/// 快捷控件网格：全部 light/switch 实体，灯在前、开关在后。
+/// 快捷控件网格：按设备分组，同设备多实体合并为一张卡。
+///
+/// - 单实体设备：保持原卡片样式，点击即开关（灯在前、开关在后）；
+/// - 多实体设备：[DeviceWidget] 合并卡，外层展示设备名 + 聚合状态 +
+///   电源键（切主实体），点击卡片其余区域进入设备详情页逐实体控制。
 class _ControlGrid extends StatelessWidget {
   const _ControlGrid();
 
@@ -302,8 +311,8 @@ class _ControlGrid extends StatelessWidget {
           );
         }
 
-        final List<HaEntityStateModel> controls = state.quickControls;
-        if (controls.isEmpty) {
+        final List<HaDeviceGroup> groups = state.deviceGroups;
+        if (groups.isEmpty) {
           return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -325,27 +334,45 @@ class _ControlGrid extends StatelessWidget {
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
-          itemCount: controls.length,
+          itemCount: groups.length,
           itemBuilder: (BuildContext context, int index) {
-            final HaEntityStateModel entity = controls[index];
-            final bool toggling = state.togglingIds.contains(entity.entityId);
-            final String areaLabel = state.areaLabelFor(entity.entityId);
-            void onTap() => context
-                .read<HomeBloc>()
-                .add(ToggleEntity(entityId: entity.entityId));
-            if (entity.domain == 'light') {
-              return LightWidget(
+            final HaDeviceGroup group = groups[index];
+            final String areaLabel =
+                state.areaLabelFor(group.primary.entityId);
+
+            // 单实体设备：原样式，点击即开关
+            if (!group.isMerged) {
+              final HaEntityStateModel entity = group.primary;
+              final bool toggling =
+                  state.togglingIds.contains(entity.entityId);
+              void onTap() => context
+                  .read<HomeBloc>()
+                  .add(ToggleEntity(entityId: entity.entityId));
+              if (entity.domain == 'light') {
+                return LightWidget(
+                  entity: entity,
+                  isToggling: toggling,
+                  onToggle: onTap,
+                  areaLabel: areaLabel,
+                );
+              }
+              return ButtonWidget(
                 entity: entity,
                 isToggling: toggling,
                 onToggle: onTap,
                 areaLabel: areaLabel,
               );
             }
-            return ButtonWidget(
-              entity: entity,
-              isToggling: toggling,
-              onToggle: onTap,
+
+            // 多实体设备：合并卡，电源键切主实体，点卡片进详情页
+            return DeviceWidget(
+              group: group,
+              isToggling: group.isTogglingIn(state.togglingIds),
               areaLabel: areaLabel,
+              onTogglePrimary: () => context.read<HomeBloc>().add(
+                  ToggleEntity(entityId: group.primary.entityId)),
+              onOpenDetail: () => Injection.get<AppRouter>()
+                  .push(RouteNames.deviceDetailPath(group.deviceId!)),
             );
           },
         );

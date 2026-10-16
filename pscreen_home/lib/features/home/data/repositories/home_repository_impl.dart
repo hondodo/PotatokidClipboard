@@ -37,11 +37,13 @@ class HomeRepositoryImpl implements HomeRepository {
           await _client.request('config/entity_registry/list');
       final Map<String, HaDevice> devices =
           _parseDevices(devicesMsg['result']);
+      final (Map<String, String>, Map<String, String>) links =
+          _parseEntityLinks(entriesMsg['result'], devices);
       return HaRegistry(
         areas: _parseAreas(areasMsg['result']),
         devices: devices,
-        areaIdByEntity:
-            _parseEntityAreaIds(entriesMsg['result'], devices),
+        areaIdByEntity: links.$1,
+        deviceIdByEntity: links.$2,
       );
     } catch (e) {
       _log.warn('注册表拉取失败，房间分组降级为空：$e');
@@ -94,7 +96,11 @@ class HomeRepositoryImpl implements HomeRepository {
     return devices;
   }
 
-  Map<String, String> _parseEntityAreaIds(
+  /// 解析实体注册表：返回 (实体→房间, 实体→设备) 两个映射。
+  ///
+  /// 房间归属规则：实体自身 area_id 优先，缺失时回退到所属设备的 area_id；
+  /// 设备归属直接取实体注册表的 device_id（合并同设备实体的关键数据）。
+  (Map<String, String>, Map<String, String>) _parseEntityLinks(
     Object? result,
     Map<String, HaDevice> devices,
   ) {
@@ -102,23 +108,27 @@ class HomeRepositoryImpl implements HomeRepository {
       throw const HaDataException('entity_registry 结构异常');
     }
     final Map<String, String> areaByEntity = <String, String>{};
+    final Map<String, String> deviceByEntity = <String, String>{};
     for (final dynamic raw in result) {
       if (raw is! Map) continue;
       final dynamic entityId = raw['entity_id'];
       if (entityId is! String || entityId.isEmpty) continue;
+      final dynamic rawDeviceId = raw['device_id'];
+      final String? deviceId =
+          rawDeviceId is String && rawDeviceId.isNotEmpty ? rawDeviceId : null;
+      if (deviceId != null) deviceByEntity[entityId] = deviceId;
       final dynamic ownArea = raw['area_id'];
       String? areaId;
       if (ownArea is String && ownArea.isNotEmpty) {
         areaId = ownArea;
-      } else {
-        final dynamic deviceId = raw['device_id'];
-        if (deviceId is String) areaId = devices[deviceId]?.areaId;
+      } else if (deviceId != null) {
+        areaId = devices[deviceId]?.areaId;
       }
       if (areaId != null && areaId.isNotEmpty) {
         areaByEntity[entityId] = areaId;
       }
     }
-    return areaByEntity;
+    return (areaByEntity, deviceByEntity);
   }
 
   @override

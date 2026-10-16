@@ -4,4 +4,11 @@ class RouteNames {
 
   // 主页面
   static const String home = '/';
+
+  // 设备详情页（home 的子路由，:deviceId 为设备注册表 id）
+  static const String deviceDetail = 'device';
+  static const String deviceDetailRelative = 'device/:deviceId';
+
+  /// 设备详情页完整路径
+  static String deviceDetailPath(String deviceId) => '/device/$deviceId';
 }

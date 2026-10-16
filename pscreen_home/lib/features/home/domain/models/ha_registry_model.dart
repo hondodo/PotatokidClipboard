@@ -45,17 +45,19 @@ class HaDevice {
   final String? areaId;
 }
 
-/// 注册表快照：房间列表 + 设备表 + 实体 → 房间 映射。
+/// 注册表快照：房间列表 + 设备表 + 实体 → 房间/设备 映射。
 ///
 /// 数据来源为 HA 的三个注册表接口
 /// （config/area_registry/list、config/device_registry/list、
 /// config/entity_registry/list），由 data 层组装；
-/// 归属规则：实体自身 area_id > 所属设备的 area_id。
+/// 房间归属规则：实体自身 area_id > 所属设备的 area_id；
+/// 设备归属直接取实体注册表的 device_id。
 class HaRegistry {
   const HaRegistry({
     this.areas = const <HaArea>[],
     this.devices = const <String, HaDevice>{},
     this.areaIdByEntity = const <String, String>{},
+    this.deviceIdByEntity = const <String, String>{},
   });
 
   /// 空注册表（注册表拉取失败时降级使用，主页功能不受影响）
@@ -70,8 +72,14 @@ class HaRegistry {
   /// 实体 id → 所属房间 id（仅收录已分配房间的实体）
   final Map<String, String> areaIdByEntity;
 
+  /// 实体 id → 所属设备 id（仅收录有设备归属的实体）
+  final Map<String, String> deviceIdByEntity;
+
   /// 实体所属房间 id（未分配返回 null）
   String? areaIdOf(String entityId) => areaIdByEntity[entityId];
+
+  /// 实体所属设备 id（未分配返回 null）
+  String? deviceIdOf(String entityId) => deviceIdByEntity[entityId];
 
   /// 实体所属房间名（未分配返回 null）
   String? areaNameOf(String entityId) {

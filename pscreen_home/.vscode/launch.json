@@ -4,23 +4,45 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
         {
-            "name": "pscreen_home",
+            "name": "potatokid_screen SM G970U (Debug)",
             "request": "launch",
-            "type": "dart"
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "R58M349S90M",
         },
         {
-            "name": "pscreen_home (profile mode)",
+            "name": "potatokid_screen MiTV AZFU0 (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.56:5555",
+        },
+        {
+            "name": "potatokid_screen M2102J2SC (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "e724dd69",
+        },
+        {
+            "name": "potatokid_screen 腾讯极光 Q601F (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.0.9:5555",
+        },
+        {
+            "name": "potatokid_screen (profile mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "profile"
         },
         {
-            "name": "pscreen_home (release mode)",
+            "name": "potatokid_screen (release mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"
-        }
+        },
     ]
 }

@@ -354,20 +354,28 @@ class HaWsClient {
   }
 
   void _resolveRequest(Map<String, dynamic> msg) {
-    final int? id = msg['id'] as int?;
+    final int? id = _asInt(msg['id']);
     if (id == null) return;
     final Completer<Map<String, dynamic>>? completer = _pending.remove(id);
     if (completer == null || completer.isCompleted) return;
     if (msg['success'] == true) {
       completer.complete(msg);
     } else {
-      final Map<String, dynamic>? error =
-          msg['error'] as Map<String, dynamic>?;
+      final Object? rawError = msg['error'];
+      final Map<Object?, Object?> error =
+          rawError is Map ? rawError : const <Object?, Object?>{};
       completer.completeError(HaRequestException(
-        error?['code'] as int?,
-        error?['message'] as String?,
+        _asInt(error['code']),
+        error['message']?.toString(),
       ));
     }
+  }
+
+  /// 宽松转 int：HA 的 id/code 多为 int，但个别消息会给字符串，解析失败返回 null。
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 
   void _handleEvent(Map<String, dynamic> msg) {

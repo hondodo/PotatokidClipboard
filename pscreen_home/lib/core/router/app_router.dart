@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
+import 'package:pscreen_home/features/home/presentation/pages/device_detail_page.dart';
 import 'package:pscreen_home/features/home/presentation/pages/home_controll_board.dart';
 
 /// 路由核心：封装 GoRouter。
@@ -49,6 +50,15 @@ class AppRouter {
         path: RouteNames.home,
         name: RouteNames.home,
         builder: (context, state) => const HomeControllBoard(),
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.deviceDetailRelative,
+            name: RouteNames.deviceDetail,
+            builder: (context, state) => DeviceDetailPage(
+              deviceId: state.pathParameters['deviceId'] ?? '',
+            ),
+          ),
+        ],
       ),
     ];
   }

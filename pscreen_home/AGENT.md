@@ -92,12 +92,15 @@ lib/
 │   │   └── data/repositories/         # ConnectionRepositoryImpl
 │   └── home/                          # 主页（中控台）
 │       ├── presentation/
-│       │   ├── pages/home_controll_board.dart
-│       │   └── components/            # light_widget / button_widget
+│       │   ├── pages/
+│       │   │   ├── home_controll_board.dart    # 主页（家庭 ▸ 房间筛选 + 设备网格）
+│       │   │   └── device_detail_page.dart     # 设备详情页（逐实体控制）
+│       │   └── components/            # light_widget / button_widget / device_widget
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
 │       │   ├── models/ha_registry_model.dart       # 注册表模型（家庭/房间/设备/实体归属）
+│       │   ├── models/ha_device_group.dart         # 设备分组模型（同设备实体合并成卡）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
 └── shared/                            # 跨 feature 公共组件（暂空，按需创建）
@@ -109,8 +112,9 @@ lib/
 
 - 所有路径集中在 `RouteNames`，业务代码禁止硬编码路径。
 - `AppRouter.initialize()` 异步初始化，**必须在 `runApp` 前 await**；未初始化访问 `router` 抛 `StateError`。
-- 当前仅 `home = '/'`（HomeControllBoard）；新增页面时在 `RouteNames` 加常量 →
-  `AppRouter._buildRoutes()` 注册 `GoRoute` → 页面入 `presentation/pages/`。
+- 当前路由：`home = '/'`（HomeControllBoard）、`home` 子路由 `device/:deviceId`
+  （DeviceDetailPage，完整路径经 `RouteNames.deviceDetailPath(id)` 拼接）。
+  新增页面时在 `RouteNames` 加常量 → `AppRouter._buildRoutes()` 注册 `GoRoute` → 页面入 `presentation/pages/`。
 - 多 Tab 外壳需要时再引入 `StatefulShellRoute.indexedStack`（参考 potatokid_screen 第 3.4 节）。
 
 ---
@@ -300,7 +304,7 @@ void main() {
 
 - **M0 ✅** 连通性：`.env` + WS 认证 + `get_states` + 注册表 + `call_service` 验证。
 - **M1 ✅** 最小闭环：连接状态机 + 实体状态机 + 全部 light/switch 快捷控件网格（点击开关闭环）。
-- **M2 🚧 家庭 ▸ 房间 两级分组（✅ 已实现）**：
+- **M2 ✅ 家庭 ▸ 房间 两级分组 + 设备合并成卡**：
   - **家庭层级**：HA 无独立家庭表（floor / label 注册表均为空），按约定
     **区域名 = `家庭名 房间名`** 解析（`HaArea.homeName / roomName`，首个空格切分，
     **家庭名不能含空格**）；顶部家庭标签行 + 房间标签行受其筛选。
@@ -309,6 +313,14 @@ void main() {
     （选中家庭时用短房间名，否则用完整区域名）。
   - 容错：注册表拉取失败降级为空、所选家庭/房间失效自动回退「全部」、
     仅展示含可控实体的家庭与房间（后缀为数量）。
+  - **设备合并**（Mi Home 风格）：同 `device_id` 的可控实体合并为一张卡
+    （`HaDeviceGroup.group`，234 个可控实体 → 24 张卡）；
+    **外层卡片** = 设备名 + 聚合状态（`已开启 2/9 · 房间`）+ 电源快捷键
+    （只切**主实体**）；**点卡片进详情页** `/device/:deviceId` 逐实体控制。
+    - 主实体权重：真灯(0) > switch(1) > 指示灯/夜灯/氛围灯类 light(2)，
+      同权重按显示名排序（主实体永远排组内首位）。
+    - 房间/家庭角标按**设备卡数**计（同设备多实体只计一次），与网格所见一致。
+    - 无设备归属（注册表降级）自成一卡且点击即开关，功能不受影响。
   剩余：区域 ▸ 设备 ▸ 实体 三级浏览页 + 名称过滤（原 `home_assistant_register.dart` 构想）。
 - **M3** 首页布局（原 `home_controll_board.dart` 构想）：第一行常用设备横向列表，
   第二行房间标签切换；`light_widget` / `button_widget` 按 domain 扩展 cover/climate/media_player 等。

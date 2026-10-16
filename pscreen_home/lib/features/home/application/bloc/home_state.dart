@@ -1,4 +1,5 @@
 import 'package:pscreen_home/core/network/net_exceptions.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 
@@ -99,16 +100,8 @@ class HomeState {
     return '';
   }
 
-  /// 某房间内可控实体数量（房间标签上的角标）。
-  int areaCount(String areaId) {
-    int count = 0;
-    for (final HaEntityStateModel entity in entities.values) {
-      if (entity.isSwitchable && registry.areaIdOf(entity.entityId) == areaId) {
-        count++;
-      }
-    }
-    return count;
-  }
+  /// 某房间内的设备卡数量（房间标签上的角标，与网格卡片数一致）。
+  int areaCount(String areaId) => _areaDeviceCounts[areaId] ?? 0;
 
   /// 某家庭内可控实体数量（家庭标签上的角标）。
   int homeCount(String homeName) {
@@ -117,6 +110,27 @@ class HomeState {
       if (area.homeName == homeName) count += areaCount(area.areaId);
     }
     return count;
+  }
+
+  /// 房间 id → 该房间的设备卡数量。
+  ///
+  /// 同设备多实体只计一次，归属房间取该组内首个已分配房间的实体
+  /// （正常情况下同设备实体房间一致）。
+  Map<String, int> get _areaDeviceCounts {
+    final Map<String, String> areaByGroupKey = <String, String>{};
+    for (final HaEntityStateModel e in entities.values) {
+      if (!e.isSwitchable) continue;
+      final String? areaId = registry.areaIdOf(e.entityId);
+      if (areaId == null) continue;
+      final String groupKey =
+          registry.deviceIdOf(e.entityId) ?? 'entity:${e.entityId}';
+      areaByGroupKey.putIfAbsent(groupKey, () => areaId);
+    }
+    final Map<String, int> counts = <String, int>{};
+    for (final String areaId in areaByGroupKey.values) {
+      counts[areaId] = (counts[areaId] ?? 0) + 1;
+    }
+    return counts;
   }
 
   /// 实体的房间展示名：选中家庭时用短房间名，否则用完整区域名；
@@ -135,6 +149,42 @@ class HomeState {
   /// 快捷控件列表：按家庭 + 房间两级筛选，light 在前、switch 在后，
   /// 按显示名排序。
   List<HaEntityStateModel> get quickControls {
+    final List<HaEntityStateModel> list =
+        _filteredSwitchable.values.toList(growable: false);
+    list.sort((HaEntityStateModel a, HaEntityStateModel b) {
+      final int byDomain = a.domain.compareTo(b.domain);
+      if (byDomain != 0) return byDomain;
+      return a.displayName.compareTo(b.displayName);
+    });
+    return list;
+  }
+
+  /// 设备分组列表：同一物理设备的可控实体合并为一张卡片，
+  /// 供网格展示（家庭 ▸ 房间筛选与 [quickControls] 一致）。
+  List<HaDeviceGroup> get deviceGroups => HaDeviceGroup.group(
+        entities: _filteredSwitchable,
+        deviceIdOf: registry.deviceIdOf,
+        deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
+      );
+
+  /// 指定设备的分组（详情页用，不受家庭/房间筛选影响）；不存在返回 null。
+  HaDeviceGroup? deviceGroupOf(String deviceId) {
+    final Map<String, HaEntityStateModel> all = <String, HaEntityStateModel>{
+      for (final HaEntityStateModel e in entities.values)
+        if (e.isSwitchable) e.entityId: e,
+    };
+    for (final HaDeviceGroup group in HaDeviceGroup.group(
+      entities: all,
+      deviceIdOf: registry.deviceIdOf,
+      deviceNameOf: (String id) => registry.devices[id]?.name,
+    )) {
+      if (group.deviceId == deviceId) return group;
+    }
+    return null;
+  }
+
+  /// 按家庭 + 房间两级筛选后的可控实体表（key 为 entity_id）。
+  Map<String, HaEntityStateModel> get _filteredSwitchable {
     final String home = effectiveHomeName;
     final String areaId = effectiveAreaId;
     final Set<String> allowedAreaIds = <String>{};
@@ -145,18 +195,13 @@ class HomeState {
         if (area.homeName == home) allowedAreaIds.add(area.areaId);
       }
     }
-    final List<HaEntityStateModel> list = entities.values
-        .where((HaEntityStateModel e) =>
-            e.isSwitchable &&
+    return <String, HaEntityStateModel>{
+      for (final HaEntityStateModel e in entities.values)
+        if (e.isSwitchable &&
             (allowedAreaIds.isEmpty ||
-                allowedAreaIds.contains(registry.areaIdOf(e.entityId))))
-        .toList(growable: false);
-    list.sort((HaEntityStateModel a, HaEntityStateModel b) {
-      final int byDomain = a.domain.compareTo(b.domain);
-      if (byDomain != 0) return byDomain;
-      return a.displayName.compareTo(b.displayName);
-    });
-    return list;
+            allowedAreaIds.contains(registry.areaIdOf(e.entityId))))
+          e.entityId: e,
+    };
   }
 
   HomeState copyWith({

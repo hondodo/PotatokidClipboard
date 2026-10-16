@@ -7,6 +7,7 @@ import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
@@ -364,6 +365,106 @@ void main() {
       expect(await _load(bloc), isTrue);
       expect(bloc.state.selectedHomeName, '');
       expect(bloc.state.selectedAreaId, '');
+    });
+  });
+
+  group('HomeBloc 设备分组', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('light.fan_light', 'on'),
+          _entity('switch.fan_delay', 'off'),
+          _entity('light.plant_indicator', 'on'),
+          _entity('switch.plant_power', 'off'),
+          _entity('switch.lonely', 'off'),
+        ],
+      )
+        ..registry = const HaRegistry(
+          areas: <HaArea>[
+            HaArea(areaId: 'balcony', name: '金科1204 阳台'),
+            HaArea(areaId: 'bedroom', name: '金科1204 卧室'),
+          ],
+          devices: <String, HaDevice>{
+            'dev_fan': HaDevice(id: 'dev_fan', name: '风扇灯'),
+            'dev_plant': HaDevice(id: 'dev_plant', name: '阳台植物灯'),
+          },
+          deviceIdByEntity: <String, String>{
+            'light.fan_light': 'dev_fan',
+            'switch.fan_delay': 'dev_fan',
+            'light.plant_indicator': 'dev_plant',
+            'switch.plant_power': 'dev_plant',
+          },
+          areaIdByEntity: <String, String>{
+            'light.fan_light': 'balcony',
+            'switch.fan_delay': 'balcony',
+            'light.plant_indicator': 'bedroom',
+            'switch.plant_power': 'bedroom',
+            'switch.lonely': 'bedroom',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('同设备实体合并为一张卡，标题用设备名', () {
+      final List<HaDeviceGroup> groups = bloc.state.deviceGroups;
+      expect(groups.length, 3, reason: '5 个可控实体 → 3 张设备卡');
+
+      final HaDeviceGroup fan =
+          groups.singleWhere((HaDeviceGroup g) => g.deviceId == 'dev_fan');
+      expect(fan.title, '风扇灯');
+      expect(fan.isMerged, isTrue);
+      expect(fan.primary.entityId, 'light.fan_light',
+          reason: '真灯应被选为主实体');
+      expect(fan.onCount, 1);
+      expect(fan.statusLabel, '已开启 1/2');
+    });
+
+    test('卡片角标按设备卡计数，同设备多实体只算一次', () {
+      expect(bloc.state.areaCount('balcony'), 1, reason: '风扇灯 2 实体合并为 1 卡');
+      expect(bloc.state.areaCount('bedroom'), 2, reason: '植物灯 + 孤独开关 = 2 卡');
+      expect(bloc.state.homeCount('金科1204'), 3);
+      expect(bloc.state.quickControls.length, 5, reason: '实体级列表不受合并影响');
+    });
+
+    test('deviceGroupOf 按设备查分组，不受家庭/房间筛选影响', () async {
+      bloc.add(const AreaSelected('balcony'));
+      await bloc.stream
+          .firstWhere((HomeState s) => s.selectedAreaId == 'balcony');
+      expect(bloc.state.deviceGroups.length, 1, reason: '筛选只留阳台卡');
+
+      final HaDeviceGroup? plant = bloc.state.deviceGroupOf('dev_plant');
+      expect(plant, isNotNull, reason: '详情页入口不依赖当前筛选');
+      expect(plant!.title, '阳台植物灯');
+      expect(
+        plant.entities.map((HaEntityStateModel e) => e.entityId).toList(),
+        <String>['light.plant_indicator', 'switch.plant_power'],
+      );
+      expect(bloc.state.deviceGroupOf('dev_unknown'), isNull);
+    });
+
+    test('注册表降级（无设备映射）时退化为一实体一卡', () async {
+      repo.registry = const HaRegistry(
+        areas: <HaArea>[HaArea(areaId: 'bedroom', name: '金科1204 卧室')],
+        areaIdByEntity: <String, String>{
+          'light.fan_light': 'bedroom',
+          'switch.fan_delay': 'bedroom',
+          'light.plant_indicator': 'bedroom',
+          'switch.plant_power': 'bedroom',
+          'switch.lonely': 'bedroom',
+        },
+      );
+      expect(await _load(bloc), isTrue);
+      expect(bloc.state.deviceGroups.length, 5, reason: '无映射时逐实体成卡');
+      expect(
+        bloc.state.deviceGroups.every((HaDeviceGroup g) => g.deviceId == null),
+        isTrue,
+      );
+      expect(bloc.state.areaCount('bedroom'), 5);
     });
   });
 }
