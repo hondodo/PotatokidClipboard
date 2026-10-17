@@ -9,6 +9,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "96.0.0"
+  alog_macos:
+    dependency: transitive
+    description:
+      name: alog_macos
+      sha256: "4709e9e7540f887102e7614f1c4ba6ac4e38d4ed1b8db5c47a2fb1ed5cc2989e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.12"
+  alog_windows:
+    dependency: transitive
+    description:
+      name: alog_windows
+      sha256: bc0e6fecd1b666b6d84075d611a62f5c968ddc38fded4bdd1684db6368c16264
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.12"
   analyzer:
     dependency: transitive
     description:
@@ -121,6 +137,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  charcode:
+    dependency: transitive
+    description:
+      name: charcode
+      sha256: fb0f1107cac15a5ea6ef0a6ef71a807b9e4267c713bb93e00e92d737cc8dbd8a
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.4.0"
   checked_yaml:
     dependency: transitive
     description:
@@ -209,6 +233,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  csslib:
+    dependency: transitive
+    description:
+      name: csslib
+      sha256: "09bad715f418841f976c77db72d5398dc1253c21fb9c0c7f0b0b985860b2d58e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.2"
   cupertino_icons:
     dependency: "direct main"
     description:
@@ -413,6 +445,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.2"
+  hawk_meta:
+    dependency: transitive
+    description:
+      name: hawk_meta
+      sha256: "19d85db943e9559694b07e017964b5ca7f2b8cb4545bcc5a3c07b986e796ab4e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.1"
   hooks:
     dependency: transitive
     description:
@@ -421,6 +461,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  html:
+    dependency: transitive
+    description:
+      name: html
+      sha256: "43b67b8f43321ab066817dfac5619596c98bb1b61624e77203bb4351785f9699"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.15.7"
   http:
     dependency: transitive
     description:
@@ -661,6 +709,46 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
+  nim_core_v2:
+    dependency: "direct main"
+    description:
+      name: nim_core_v2
+      sha256: "8c5b014b41b7c3141702844843c698e548d6a9de724c8423e58aa2237dfb6de3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.9.91"
+  nim_core_v2_macos:
+    dependency: transitive
+    description:
+      name: nim_core_v2_macos
+      sha256: e9a638c551f41d5d4f8f9426ee69b929a4e18deec6823f007e3a51fa7ac12f32
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.9.91"
+  nim_core_v2_platform_interface:
+    dependency: transitive
+    description:
+      name: nim_core_v2_platform_interface
+      sha256: bc530a3c3e5b8d0c956a7be4c1d8c66aaac4e43db78b39269b91d63fbaf3fbf0
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.9.91"
+  nim_core_v2_web:
+    dependency: transitive
+    description:
+      name: nim_core_v2_web
+      sha256: "4bc33121cb9d96b8029298429f7bb53c2675d621d8413fdb004015ce36d518d7"
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.9.91"
+  nim_core_v2_windows:
+    dependency: transitive
+    description:
+      name: nim_core_v2_windows
+      sha256: eaf809b40578db8522c67ac041955230f610db0028dc94908f38f305d1c1110b
+      url: "https://pub.dev"
+    source: hosted
+    version: "10.9.91"
   nm:
     dependency: transitive
     description:
@@ -1018,6 +1106,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  universal_html:
+    dependency: transitive
+    description:
+      name: universal_html
+      sha256: c0bcae5c733c60f26c7dfc88b10b0fd27cbcc45cb7492311cdaa6067e21c9cd4
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.3.0"
   universal_io:
     dependency: transitive
     description:
@@ -1146,6 +1242,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
+  yunxin_alog:
+    dependency: transitive
+    description:
+      name: yunxin_alog
+      sha256: "98b07beb1f4c147136788d0c5799c362fef64ca5e4bec1264d70325b4afa50b9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.11"
 sdks:
   dart: ">=3.13.0 <4.0.0"
   flutter: ">=3.47.0"
