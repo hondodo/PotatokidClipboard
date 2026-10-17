@@ -210,12 +210,13 @@ class DeviceDetailPage extends StatelessWidget {
                                   value: value,
                                 )),
                     onKeepWarmTemperatureChanged:
-                        kettle.keepWarmTempEntityId == null
+                        kettle.effectiveKeepWarmTempEntityId == null
                             ? null
                             : (double value) => context
                                 .read<HomeBloc>()
                                 .add(SetNumberEntityValue(
-                                  entityId: kettle.keepWarmTempEntityId!,
+                                  entityId:
+                                      kettle.effectiveKeepWarmTempEntityId!,
                                   value: value,
                                 )),
                     onToggleKeepWarm: kettle.keepWarmEntityId == null

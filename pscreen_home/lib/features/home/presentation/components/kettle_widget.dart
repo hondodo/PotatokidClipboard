@@ -136,7 +136,7 @@ class KettleWidget extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    '目标 ${_format(summary.targetTemperature)}°C',
+                    '目标 ${_format(summary.effectiveTargetTemperature)}°C',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),

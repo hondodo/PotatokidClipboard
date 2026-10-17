@@ -20,6 +20,7 @@ class KettleSummary {
     required this.rapidCoolingOn,
     required this.childLocked,
     this.modeId,
+    this.boilingPoint = 100,
     this.pureWaterKeepWarmTemperature = 66,
     this.tapWaterKeepWarmTemperature = 51,
     this.fault,
@@ -29,6 +30,8 @@ class KettleSummary {
     this.keepWarmTempEntityId,
     this.dechlorinationEntityId,
     this.rapidCoolingEntityId,
+    this.pureWaterTempEntityId,
+    this.tapWaterTempEntityId,
     this.startEntityId,
     this.stopEntityId,
     this.lockMode,
@@ -62,6 +65,8 @@ class KettleSummary {
         _find(entities, _idHas('_keep_warm_temperature_p_2_14'));
     final HaEntityStateModel? modeId =
         _find(entities, _idHas('_mode_id_p_2_17'));
+    final HaEntityStateModel? boilingPoint =
+        _find(entities, _idHas('_boiling_point_p_2_9'));
     final HaEntityStateModel? keepWarm =
         _find(entities, _idHas('_auto_keep_warm_p_2_7'));
     final HaEntityStateModel? dechlorination =
@@ -88,6 +93,7 @@ class KettleSummary {
       tapWaterKeepWarmTemperature:
           double.tryParse(tapWaterTemp?.state ?? '') ?? 51,
       modeId: modeId?.state ?? 'M0',
+      boilingPoint: double.tryParse(boilingPoint?.state ?? '') ?? 100,
       keepWarmOn: keepWarm?.isOn ?? false,
       dechlorinationOn: dechlorination?.isOn ?? false,
       rapidCoolingOn: rapidCooling?.isOn ?? false,
@@ -98,6 +104,8 @@ class KettleSummary {
       keepWarmTempEntityId: keepWarmTemp?.entityId,
       dechlorinationEntityId: dechlorination?.entityId,
       rapidCoolingEntityId: rapidCooling?.entityId,
+      pureWaterTempEntityId: pureWaterTemp?.entityId,
+      tapWaterTempEntityId: tapWaterTemp?.entityId,
       startEntityId:
           _find(entities, _idHas('_start_cook_a_2_1'))?.entityId,
       stopEntityId:
@@ -130,6 +138,9 @@ class KettleSummary {
   /// 模式 id（text.*_mode_id，当前设备为 M0）
   final String? modeId;
 
+  /// 沸点（自来水 / 凉白开的加热目标，通常 100℃）
+  final double boilingPoint;
+
   /// 纯净水 / 自来水保温温度（开始加热动作的附加参数）
   final double pureWaterKeepWarmTemperature;
   final double tapWaterKeepWarmTemperature;
@@ -140,6 +151,8 @@ class KettleSummary {
   final String? keepWarmTempEntityId;
   final String? dechlorinationEntityId;
   final String? rapidCoolingEntityId;
+  final String? pureWaterTempEntityId;
+  final String? tapWaterTempEntityId;
   final String? startEntityId;
   final String? stopEntityId;
 
@@ -153,6 +166,39 @@ class KettleSummary {
       status.contains('风冷') ||
       status.contains('降温') ||
       status.contains('保温');
+
+  bool get isTapWater => mode == '自来水';
+  bool get isPureWater => mode == '纯净水';
+  bool get isBoiledWater => mode == '凉白开';
+
+  /// 当前模式实际要加热到的温度：
+  /// 纯净水用纯净水保温温度（66℃）；自来水和凉白开加热到沸点（100℃）。
+  double get effectiveTargetTemperature =>
+      isPureWater ? pureWaterKeepWarmTemperature : boilingPoint;
+
+  /// 当前模式实际使用的保温温度：
+  /// 纯净水 66℃、自来水 51℃、凉白开不保温。
+  double get effectiveKeepWarmTemperature =>
+      isPureWater ? pureWaterKeepWarmTemperature : tapWaterKeepWarmTemperature;
+
+  /// 除氯只在自来水 / 凉白开模式显示
+  bool get showDechlorination => !isPureWater;
+
+  /// 保温开关只在纯净水模式显示
+  bool get showKeepWarmSwitch => isPureWater;
+
+  /// 保温温度只在自来水 / 纯净水模式显示
+  bool get showKeepWarmTemperature => !isBoiledWater;
+
+  /// 纯净水模式没有单独的「设定温度」滑条，直接用保温温度控制
+  bool get showTargetSlider => false;
+
+  /// 当前模式对应的保温温度实体：
+  /// 纯净水 `p_2_13`、自来水 `p_2_14`，凉白开没有。
+  String? get effectiveKeepWarmTempEntityId =>
+      isPureWater
+          ? pureWaterTempEntityId
+          : (isTapWater ? tapWaterTempEntityId : null);
 
   bool get hasFault {
     final String? value = fault;
@@ -169,9 +215,9 @@ class KettleSummary {
   /// [模式id, 设定温度, 保温, 保温温度, 除氯, 风冷, 纯净水保温温度, 自来水保温温度]
   String get startMessage => '[${<String>[
         modeId ?? 'M0',
-        targetTemperature.round().toString(),
-        keepWarmOn.toString(),
-        keepWarmTemperature.round().toString(),
+        effectiveTargetTemperature.round().toString(),
+        (isBoiledWater ? false : keepWarmOn).toString(),
+        effectiveKeepWarmTemperature.round().toString(),
         dechlorinationOn.toString(),
         rapidCoolingOn.toString(),
         pureWaterKeepWarmTemperature.round().toString(),

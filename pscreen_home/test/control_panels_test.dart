@@ -475,8 +475,8 @@ void main() {
     )));
 
     expect(find.text('自来水'), findsOneWidget);
-    expect(find.text('设定温度'), findsOneWidget);
-    expect(find.text('保温'), findsOneWidget);
+    expect(find.text('加热温度'), findsOneWidget);
+    expect(find.text('保温温度'), findsOneWidget);
     expect(find.text('除氯'), findsOneWidget);
     expect(find.text('风冷'), findsOneWidget);
     expect(tester.takeException(), isNull);

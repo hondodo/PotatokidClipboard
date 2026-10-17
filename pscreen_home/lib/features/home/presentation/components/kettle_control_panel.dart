@@ -167,36 +167,19 @@ class KettleControlPanel extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 18),
-            _LabeledSlider(
-              label: '设定温度',
-              value: '${_format(summary.targetTemperature)}°C',
-              slider: GradientSlider(
-                value: summary.targetTemperature,
-                min: summary.minTargetTemperature,
-                max: summary.maxTargetTemperature,
-                colors: const <Color>[
-                  Color(0xFF42A5F5),
-                  Color(0xFF4DD0C4),
-                ],
-                onChangeEnd: (double value) =>
-                    onTargetTemperatureChanged?.call(value),
-              ),
-              min: '${_format(summary.minTargetTemperature)}°C',
-              max: '${_format(summary.maxTargetTemperature)}°C',
-            ),
-            const SizedBox(height: 14),
-            _SwitchRow(
-              icon: Icons.thermostat_rounded,
-              label: '保温',
-              value: summary.keepWarmOn,
-              onChanged: onToggleKeepWarm,
-            ),
-            if (summary.keepWarmOn)
+            if (!summary.isPureWater)
+              _InfoRow(
+                label: '加热温度',
+                value:
+                    '${_format(summary.effectiveTargetTemperature)}°C',
+              )
+            else
               _LabeledSlider(
                 label: '保温温度',
-                value: '${_format(summary.keepWarmTemperature)}°C',
+                value:
+                    '${_format(summary.effectiveKeepWarmTemperature)}°C',
                 slider: GradientSlider(
-                  value: summary.keepWarmTemperature,
+                  value: summary.effectiveKeepWarmTemperature,
                   min: summary.minKeepWarmTemperature,
                   max: summary.maxKeepWarmTemperature,
                   colors: const <Color>[
@@ -209,12 +192,39 @@ class KettleControlPanel extends StatelessWidget {
                 min: '${_format(summary.minKeepWarmTemperature)}°C',
                 max: '${_format(summary.maxKeepWarmTemperature)}°C',
               ),
-            _SwitchRow(
-              icon: Icons.bubble_chart_rounded,
-              label: '除氯',
-              value: summary.dechlorinationOn,
-              onChanged: onToggleDechlorination,
-            ),
+            if (summary.showKeepWarmSwitch)
+              _SwitchRow(
+                icon: Icons.thermostat_rounded,
+                label: '保温',
+                value: summary.keepWarmOn,
+                onChanged: onToggleKeepWarm,
+              ),
+            if (summary.showKeepWarmTemperature && !summary.isPureWater)
+              _LabeledSlider(
+                label: '保温温度',
+                value:
+                    '${_format(summary.effectiveKeepWarmTemperature)}°C',
+                slider: GradientSlider(
+                  value: summary.effectiveKeepWarmTemperature,
+                  min: summary.minKeepWarmTemperature,
+                  max: summary.maxKeepWarmTemperature,
+                  colors: const <Color>[
+                    Color(0xFFFFB74D),
+                    Color(0xFFFF8A65),
+                  ],
+                  onChangeEnd: (double value) =>
+                      onKeepWarmTemperatureChanged?.call(value),
+                ),
+                min: '${_format(summary.minKeepWarmTemperature)}°C',
+                max: '${_format(summary.maxKeepWarmTemperature)}°C',
+              ),
+            if (summary.showDechlorination)
+              _SwitchRow(
+                icon: Icons.bubble_chart_rounded,
+                label: '除氯',
+                value: summary.dechlorinationOn,
+                onChanged: onToggleDechlorination,
+              ),
             _SwitchRow(
               icon: Icons.air_rounded,
               label: '风冷',
@@ -252,6 +262,33 @@ class KettleControlPanel extends StatelessWidget {
   static String _format(double value) => value == value.roundToDouble()
       ? value.toStringAsFixed(0)
       : value.toStringAsFixed(1);
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: <Widget>[
+          Text(label, style: theme.textTheme.titleSmall),
+          const Spacer(),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LabeledSlider extends StatelessWidget {

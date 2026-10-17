@@ -17,14 +17,17 @@ HaEntityStateModel _e(
       },
     );
 
-List<HaEntityStateModel> _entities({String status = '待机中'}) =>
+List<HaEntityStateModel> _entities({
+  String status = '待机中',
+  String mode = '自来水',
+}) =>
     <HaEntityStateModel>[
       _e('sensor.k_status_p_2_1', status, name: '热水瓶 工作状态'),
       _e('sensor.k_temperature_p_2_6', '51', name: '热水瓶 温度'),
       _e('sensor.k_fault_p_2_4', '无故障', name: '热水瓶 故障'),
       _e(
         'select.k_mode_p_2_3',
-        '自来水',
+        mode,
         name: '热水瓶 模式',
         attributes: <String, dynamic>{
           'options': <String>['自来水', '纯净水', '凉白开'],
@@ -32,6 +35,10 @@ List<HaEntityStateModel> _entities({String status = '待机中'}) =>
       ),
       _e('number.k_target_temperature_p_2_5', '100', name: '热水瓶 设定温度'),
       _e('number.k_keep_warm_temperature_p_2_8', '55', name: '热水瓶 保温温度'),
+      _e('number.k_keep_warm_temperature_p_2_13', '66',
+          name: '热水瓶 纯净水保温温度'),
+      _e('number.k_keep_warm_temperature_p_2_14', '51',
+          name: '热水瓶 自来水保温温度'),
       _e('switch.k_auto_keep_warm_p_2_7', 'on', name: '热水瓶 保温'),
       _e('switch.k_dechlorination_p_2_10', 'off', name: '热水瓶 除氯'),
       _e('switch.k_rapid_cooling_p_2_12', 'off', name: '热水瓶 风冷'),
@@ -80,7 +87,11 @@ void main() {
       expect(summary.startEntityId, 'notify.k_start_cook_a_2_1');
       expect(summary.stopEntityId, 'button.k_cancel_cooking_a_2_2');
       expect(summary.startMessage,
-          '[M0, 100, true, 55, false, false, 66, 51]');
+          '[M0, 100, true, 51, false, false, 66, 51]');
+      expect(summary.effectiveTargetTemperature, 100);
+      expect(summary.effectiveKeepWarmTemperature, 51);
+      expect(summary.showDechlorination, isTrue);
+      expect(summary.showKeepWarmSwitch, isFalse);
       expect(summary.isActive, isFalse);
       expect(summary.hasFault, isFalse);
     });
@@ -103,6 +114,33 @@ void main() {
       )!;
       // 后一个故障实体不会被选中，仍为无故障
       expect(faulty.hasFault, isFalse);
+    });
+
+    test('纯净水模式：目标温度取纯净水保温温度 66℃', () {
+      final KettleSummary summary = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities(mode: '纯净水'),
+      )!;
+      expect(summary.isPureWater, isTrue);
+      expect(summary.effectiveTargetTemperature, 66);
+      expect(summary.effectiveKeepWarmTemperature, 66);
+      expect(summary.showDechlorination, isFalse);
+      expect(summary.showKeepWarmSwitch, isTrue);
+      expect(summary.startMessage,
+          '[M0, 66, true, 66, false, false, 66, 51]');
+    });
+
+    test('凉白开模式：不显示保温和保温温度', () {
+      final KettleSummary summary = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities(mode: '凉白开'),
+      )!;
+      expect(summary.isBoiledWater, isTrue);
+      expect(summary.showDechlorination, isTrue);
+      expect(summary.showKeepWarmSwitch, isFalse);
+      expect(summary.showKeepWarmTemperature, isFalse);
     });
 
     test('缺少模式实体时不会误判成热水瓶', () {
