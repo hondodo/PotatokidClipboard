@@ -1,2 +1,7 @@
 .dart_tool
 build/
+# Kotlin / Gradle 构建缓存
+.kotlin/
+
+# Windows 文件权限诊断的备份 / 回滚产物
+acl-recovery/
