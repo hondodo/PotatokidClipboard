@@ -99,12 +99,15 @@ lib/
 │       │   ├── pages/
 │       │   │   ├── home_controll_board.dart    # 主页（家庭 ▸ 房间筛选 + 设备网格）
 │       │   │   └── device_detail_page.dart     # 设备详情页（逐实体控制）
-│       │   └── components/            # light_widget / button_widget / device_widget
+│       │   └── components/            # light/climate_widget、device_widget、*_control_panel
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
 │       │   ├── models/ha_registry_model.dart       # 注册表模型（家庭/房间/设备/实体归属）
 │       │   ├── models/ha_device_group.dart         # 设备分组模型（同设备实体合并成卡）
+│       │   ├── models/home_climate_summary.dart    # 家庭温湿度概览（来自 climate 传感器）
+│       │   ├── models/washer_summary.dart          # 洗衣机摘要（switch/select/sensor/button 组合）
+│       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
 │   └── settings/                       # 设置（HA 连接配置）
@@ -158,7 +161,7 @@ lib/
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
 | `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `Reconnect`（配置变更：先断开再连） / `ConnectionInfoChanged` |
-| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
+| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `SetLightBrightness` / `SetLightColorTemperature` / `SetLightEffect` / `SetClimateTemperature` / `SetClimateHvacMode` / `SetClimateFanMode` / `SetClimateSwingMode` / `PressEntityButton` / `SelectEntityOption` / `SetWaterHeaterTemperature` / `SetWaterHeaterOperationMode` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
 
 ---
 
@@ -341,5 +344,20 @@ void main() {
   剩余：区域 ▸ 设备 ▸ 实体 三级浏览页 + 名称过滤（原 `home_assistant_register.dart` 构想）。
 - **M3** 首页布局（原 `home_controll_board.dart` 构想）：第一行常用设备横向列表，
   第二行房间标签切换；`light_widget` / `button_widget` 按 domain 扩展 cover/climate/media_player 等。
+  - **✅ 灯 / 空调卡片与详情面板**：首页灯卡带亮度滑条（多实体设备卡同样支持），
+    空调卡带目标温度加减与电源键；详情页灯面板支持亮度 / 色温 / 灯光效果，
+    空调面板支持圆形温度盘、模式、风速、摆风。参数全部来自实体属性
+    （`brightness` / `color_temp_kelvin` / `effect_list` / `hvac_modes` /
+    `fan_modes` / `swing_modes`），不支持的项目自动隐藏。
+  - **✅ 家庭温湿度概览**：首页顶部按家庭展示温度 / 湿度（未选家庭显示全部，
+    选中后只显示该家庭 + 「全部」返回）。HA 无「全屋温湿度」聚合实体，
+    数据取家庭内 climate 的 `current_temperature` / `current_humidity`，
+    优先选同时具备温湿度的设备；缺失项不渲染。
+  - **✅ 洗衣机卡片**：按设备聚合 12kg / 10kg 洗衣机实体（状态、模式、
+    剩余时间、累计水电、启动/暂停/停止），主开关强制取
+    `switch.*_on`（名称最后一段「开关」兜底），避免选中「提示音 / 静音」。
+  - **✅ 热水器卡片**：`water_heater` 主实体（目标温度 35-65℃、洗浴模式）
+    + 工作状态 / 进水温度 / 水流量 / 预热 / 定时预热；首页卡支持目标温度
+    加减，详情面板支持温度滑条、模式选择与预热开关。
 - **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
 - **M5** 部署：屏幕常亮（wakelock）、开机自启、kiosk 模式（按目标设备选型）。

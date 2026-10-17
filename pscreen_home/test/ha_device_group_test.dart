@@ -80,6 +80,61 @@ void main() {
       expect(plugDevice.primary.entityId, 'switch.shared_power');
     });
 
+    test('主实体选取：优先真正电源开关，而不是提示音 / 静音', () {
+      final HaDeviceGroup washer = _group(<String, HaEntityStateModel>{
+        for (final HaEntityStateModel e in <HaEntityStateModel>[
+          _entity(
+            'switch.shared_alarm_p_4_1',
+            'on',
+            name: '米家洗衣机 洗烘12kg  提示音 提示音',
+          ),
+          _entity(
+            'switch.shared_on_p_2_1',
+            'off',
+            name: '米家洗衣机 洗烘12kg  洗衣机 开关',
+          ),
+          _entity(
+            'switch.shared_sleep_p_2_23',
+            'off',
+            name: '米家洗衣机 洗烘12kg  洗衣机 睡眠模式',
+          ),
+          _entity(
+            'switch.shared_one_click_p_2_33',
+            'off',
+            name: '米家洗衣机 洗烘12kg  洗衣机 一键智能洗功能',
+          ),
+        ])
+          e.entityId: e,
+      }).first;
+
+      expect(washer.primary.entityId, 'switch.shared_on_p_2_1');
+      expect(washer.primary.displayName, contains('开关'));
+      expect(
+        washer.entities.first.entityId,
+        'switch.shared_on_p_2_1',
+        reason: '主电源必须排在组内首位',
+      );
+    });
+
+    test('高水位开关不会被误判成主电源', () {
+      final HaDeviceGroup washer = _group(<String, HaEntityStateModel>{
+        for (final HaEntityStateModel e in <HaEntityStateModel>[
+          _entity(
+            'switch.shared_high_water_p_2_19',
+            'off',
+            name: '米家洗衣机 洗烘12kg  洗衣机 高水位开关',
+          ),
+          _entity(
+            'switch.shared_on_p_2_1',
+            'off',
+            name: '米家洗衣机 洗烘12kg  洗衣机 开关',
+          ),
+        ])
+          e.entityId: e,
+      }).first;
+      expect(washer.primary.entityId, 'switch.shared_on_p_2_1');
+    });
+
     test('聚合状态：已关闭 / 已开启 x/y', () {
       final Map<String, HaEntityStateModel> entities = <String, HaEntityStateModel>{
         for (final HaEntityStateModel e in <HaEntityStateModel>[

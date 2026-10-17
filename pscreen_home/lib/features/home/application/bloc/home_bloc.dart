@@ -25,6 +25,17 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<ToggleEntity>(_onToggleEntity);
     on<HomeSelected>(_onHomeSelected);
     on<AreaSelected>(_onAreaSelected);
+    on<SetLightBrightness>(_onSetLightBrightness);
+    on<SetLightColorTemperature>(_onSetLightColorTemperature);
+    on<SetLightEffect>(_onSetLightEffect);
+    on<SetClimateTemperature>(_onSetClimateTemperature);
+    on<SetClimateHvacMode>(_onSetClimateHvacMode);
+    on<SetClimateFanMode>(_onSetClimateFanMode);
+    on<SetClimateSwingMode>(_onSetClimateSwingMode);
+    on<PressEntityButton>(_onPressEntityButton);
+    on<SelectEntityOption>(_onSelectEntityOption);
+    on<SetWaterHeaterTemperature>(_onSetWaterHeaterTemperature);
+    on<SetWaterHeaterOperationMode>(_onSetWaterHeaterOperationMode);
     on<ClearHomeError>(_onClearHomeError);
     _subscription = _repository.watchStateChanges().listen(
           (entity) => add(EntityStateChanged(entity)),
@@ -108,11 +119,35 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
 
     final bool turnOn = !current.isOn;
-    // 乐观更新：先翻转本地状态，指令成功后由 state_changed 事件校准
+    // 乐观更新：先翻转本地状态，指令成功后由 state_changed 事件校准。
+    // climate 的 state 是运行模式，不能写 'on'，按支持列表取一个默认模式。
+    final String optimisticState;
+    if (current.isClimate || current.isWaterHeater) {
+      if (!turnOn) {
+        optimisticState = 'off';
+      } else {
+        final List<String> modes = current.isWaterHeater
+            ? current.operationModes
+                .where((String m) => m != 'off')
+                .toList()
+            : current.hvacModes
+                .where((String m) => m != 'off')
+                .toList();
+        if (current.isWaterHeater && modes.contains('自定义')) {
+          optimisticState = '自定义';
+        } else {
+          optimisticState = modes.contains('auto')
+              ? 'auto'
+              : (modes.isNotEmpty ? modes.first : 'cool');
+        }
+      }
+    } else {
+      optimisticState = turnOn ? 'on' : 'off';
+    }
     emit(state.copyWith(
       entities: <String, HaEntityStateModel>{
         ...state.entities,
-        event.entityId: current.copyWith(state: turnOn ? 'on' : 'off'),
+        event.entityId: current.copyWith(state: optimisticState),
       },
       togglingIds: <String>{...state.togglingIds, event.entityId},
       clearError: true,
@@ -167,6 +202,332 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     Emitter<HomeState> emit,
   ) {
     emit(state.copyWith(clearError: true));
+  }
+
+  // ------------------------------------------------------------ 参数控制
+
+  Future<void> _onSetLightBrightness(
+    SetLightBrightness event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null || !current.isLight || !current.supportsBrightness) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final int percent = event.percent.clamp(1, 100).toInt();
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current
+          .mergeAttributes(<String, dynamic>{
+            'brightness': (percent * 255 / 100).round(),
+          })
+          .copyWith(state: 'on'),
+      action: () => _repository.setLightBrightness(
+        entityId: current.entityId,
+        percent: percent,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetLightColorTemperature(
+    SetLightColorTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isLight ||
+        !current.supportsColorTemperature) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final int kelvin = event.kelvin
+        .clamp(current.minColorTempKelvin!, current.maxColorTempKelvin!)
+        .toInt();
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current
+          .mergeAttributes(<String, dynamic>{
+            'color_temp_kelvin': kelvin,
+          })
+          .copyWith(state: 'on'),
+      action: () => _repository.setLightColorTemperature(
+        entityId: current.entityId,
+        kelvin: kelvin,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetLightEffect(
+    SetLightEffect event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isLight ||
+        !current.effectList.contains(event.effect)) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current
+          .mergeAttributes(<String, dynamic>{
+            'effect': event.effect,
+          })
+          .copyWith(state: 'on'),
+      action: () => _repository.setLightEffect(
+        entityId: current.entityId,
+        effect: event.effect,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetClimateTemperature(
+    SetClimateTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null || !current.isClimate) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final double step = current.targetTempStep;
+    final double clamped = event.temperature
+        .clamp(current.minTargetTemperature, current.maxTargetTemperature)
+        .toDouble();
+    final double temperature = (clamped / step).round() * step;
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'temperature': temperature,
+      }),
+      action: () => _repository.setClimateTemperature(
+        entityId: current.entityId,
+        temperature: temperature,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetClimateHvacMode(
+    SetClimateHvacMode event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isClimate ||
+        (event.mode != 'off' && !current.hvacModes.contains(event.mode))) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.copyWith(state: event.mode),
+      action: () => _repository.setClimateHvacMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetClimateFanMode(
+    SetClimateFanMode event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isClimate ||
+        !current.fanModes.contains(event.mode)) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'fan_mode': event.mode,
+      }),
+      action: () => _repository.setClimateFanMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetClimateSwingMode(
+    SetClimateSwingMode event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isClimate ||
+        !current.swingModes.contains(event.mode)) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'swing_mode': event.mode,
+      }),
+      action: () => _repository.setClimateSwingMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onPressEntityButton(
+    PressEntityButton event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        current.domain != 'button' ||
+        current.state == 'unavailable') {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    try {
+      await _repository.pressButton(entityId: current.entityId);
+      completeBlocEvent(event.completer, success: true);
+    } catch (e, s) {
+      Injection.get<LogService>().error(
+        '按钮操作失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
+      emit(state.copyWith(
+        errorMessage: mapErrorToMessage(e),
+        errorType: e.toNetErrorType(),
+      ));
+      completeBlocEvent(event.completer, success: false);
+    }
+  }
+
+  Future<void> _onSelectEntityOption(
+    SelectEntityOption event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        current.domain != 'select' ||
+        !current.isAvailable ||
+        !current.options.contains(event.option)) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.copyWith(state: event.option),
+      action: () => _repository.selectOption(
+        entityId: current.entityId,
+        option: event.option,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetWaterHeaterTemperature(
+    SetWaterHeaterTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null || !current.isWaterHeater) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final double step = current.targetTempStep;
+    final double clamped = event.temperature
+        .clamp(current.minTargetTemperature, current.maxTargetTemperature)
+        .toDouble();
+    final double temperature = (clamped / step).round() * step;
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'temperature': temperature,
+      }),
+      action: () => _repository.setWaterHeaterTemperature(
+        entityId: current.entityId,
+        temperature: temperature,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetWaterHeaterOperationMode(
+    SetWaterHeaterOperationMode event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isWaterHeater ||
+        (event.mode != 'off' &&
+            !current.operationModes.contains(event.mode))) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.copyWith(state: event.mode),
+      action: () => _repository.setWaterHeaterOperationMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  /// 乐观更新单个实体属性，失败时回滚并写入错误。
+  Future<void> _applyEntityPatch({
+    required Emitter<HomeState> emit,
+    required HaEntityStateModel current,
+    required HaEntityStateModel patched,
+    required Future<void> Function() action,
+    Completer<bool>? completer,
+  }) async {
+    emit(state.copyWith(
+      entities: <String, HaEntityStateModel>{
+        ...state.entities,
+        current.entityId: patched,
+      },
+      clearError: true,
+    ));
+    try {
+      await action();
+      completeBlocEvent(completer, success: true);
+    } catch (e, s) {
+      Injection.get<LogService>().error(
+        '设备参数控制失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
+      emit(state.copyWith(
+        entities: <String, HaEntityStateModel>{
+          ...state.entities,
+          current.entityId: current,
+        },
+        errorMessage: mapErrorToMessage(e),
+        errorType: e.toNetErrorType(),
+      ));
+      completeBlocEvent(completer, success: false);
+    }
   }
 
   @override

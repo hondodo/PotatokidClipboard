@@ -13,9 +13,73 @@ abstract class HomeRepository {
   /// 实时实体状态变更流（state_changed 事件的 new_state）
   Stream<HaEntityStateModel> watchStateChanges();
 
-  /// 控制实体开关（light/switch 等域的 turn_on / turn_off）
+  /// 控制实体开关（light/switch 域的 turn_on / turn_off；
+  /// climate 域同样走 turn_on / turn_off，保留空调上次模式）
   Future<void> setEntityPower({
     required String entityId,
     required bool turnOn,
+  });
+
+  /// 设置灯光亮度（percent：0-100，实现侧换算为 HA 的 0-255）
+  Future<void> setLightBrightness({
+    required String entityId,
+    required int percent,
+  });
+
+  /// 设置灯光色温（开尔文）
+  Future<void> setLightColorTemperature({
+    required String entityId,
+    required int kelvin,
+  });
+
+  /// 选择灯光效果 / 情景模式（来自 effect_list）
+  Future<void> setLightEffect({
+    required String entityId,
+    required String effect,
+  });
+
+  /// 设置空调目标温度
+  Future<void> setClimateTemperature({
+    required String entityId,
+    required double temperature,
+  });
+
+  /// 设置空调运行模式（cool / heat / dry / fan_only / auto / off）
+  Future<void> setClimateHvacMode({
+    required String entityId,
+    required String mode,
+  });
+
+  /// 设置空调风速档位
+  Future<void> setClimateFanMode({
+    required String entityId,
+    required String mode,
+  });
+
+  /// 设置空调摆风模式
+  Future<void> setClimateSwingMode({
+    required String entityId,
+    required String mode,
+  });
+
+  /// 按下 button 实体（洗衣机启动 / 暂停 / 停止等）
+  Future<void> pressButton({required String entityId});
+
+  /// 选择 select 实体的选项（洗衣机模式、水温、转速等）
+  Future<void> selectOption({
+    required String entityId,
+    required String option,
+  });
+
+  /// 设置热水器目标温度
+  Future<void> setWaterHeaterTemperature({
+    required String entityId,
+    required double temperature,
+  });
+
+  /// 切换热水器洗浴模式（自定义 / AI控温 / 婴童洗 …）
+  Future<void> setWaterHeaterOperationMode({
+    required String entityId,
+    required String mode,
   });
 }

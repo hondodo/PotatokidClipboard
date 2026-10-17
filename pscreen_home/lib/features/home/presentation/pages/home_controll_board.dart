@@ -13,9 +13,16 @@ import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
+import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
 
 /// 主页面：中控台。
 ///
@@ -135,7 +142,7 @@ class _Body extends StatelessWidget {
         if (!conn.isReady) return _ConnectionPlaceholder(state: conn);
         return const Column(
           children: <Widget>[
-            _HomeBar(),
+            _HomeOverviewBar(),
             _AreaBar(),
             Expanded(child: _ControlGrid()),
           ],
@@ -145,48 +152,226 @@ class _Body extends StatelessWidget {
   }
 }
 
-/// 第一行：家庭标签（区域名前缀解析出的家庭分组，如「金科1204」）。
-/// 仅当存在两个及以上家庭时展示。
-class _HomeBar extends StatelessWidget {
-  const _HomeBar();
+/// 家庭概览条：家庭名 + 温度 / 湿度。
+///
+/// - 未选家庭：横向列出全部家庭，每张卡显示该家庭的温湿度；
+/// - 已选家庭：只显示所选家庭的摘要，并提供「全部」返回。
+///
+/// 温湿度来自家庭内 climate 实体的 current_temperature / current_humidity，
+/// 缺失的项直接不渲染（不显示占位符）。
+class _HomeOverviewBar extends StatelessWidget {
+  const _HomeOverviewBar();
+
+  static const Color _accent = Color(0xFF5FD3C4);
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
-        final List<String> homes = state.availableHomes;
-        if (homes.length <= 1) return const SizedBox.shrink();
-        final String current = state.effectiveHomeName;
+        final List<HomeClimateSummary> summaries =
+            state.homeClimateSummaries;
+        if (summaries.isEmpty) return const SizedBox.shrink();
+
+        final String selected = state.effectiveHomeName;
+        if (selected.isNotEmpty) {
+          final HomeClimateSummary summary = summaries.firstWhere(
+            (HomeClimateSummary item) => item.homeName == selected,
+            orElse: () => summaries.first,
+          );
+          return SizedBox(
+            height: 84,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: _SelectedHomeSummary(
+                summary: summary,
+                onShowAll: () => context
+                    .read<HomeBloc>()
+                    .add(const HomeSelected('')),
+              ),
+            ),
+          );
+        }
+
         return SizedBox(
-          height: 52,
+          height: 84,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            itemCount: homes.length + 1,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            itemCount: summaries.length,
             separatorBuilder: (BuildContext context, int index) =>
                 const SizedBox(width: 8),
             itemBuilder: (BuildContext context, int index) {
-              if (index == 0) {
-                return ChoiceChip(
-                  label: const Text('全部'),
-                  selected: current.isEmpty,
-                  onSelected: (_) => context
-                      .read<HomeBloc>()
-                      .add(const HomeSelected('')),
-                );
-              }
-              final String home = homes[index - 1];
-              return ChoiceChip(
-                label: Text('${state.homeLabel(home)} ${state.homeCount(home)}'),
-                selected: current == home,
-                onSelected: (_) => context
+              final HomeClimateSummary summary = summaries[index];
+              return _HomeSummaryCard(
+                summary: summary,
+                onTap: () => context
                     .read<HomeBloc>()
-                    .add(HomeSelected(home)),
+                    .add(HomeSelected(summary.homeName)),
               );
             },
           ),
         );
       },
+    );
+  }
+}
+
+/// 未选家庭时的家庭温湿度卡（点击选中该家庭）。
+class _HomeSummaryCard extends StatelessWidget {
+  const _HomeSummaryCard({required this.summary, required this.onTap});
+
+  final HomeClimateSummary summary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return SizedBox(
+      width: 190,
+      height: 68,
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.home_rounded,
+                      size: 15,
+                      color: theme.colorScheme.outline,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        summary.homeName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (summary.hasData) ...<Widget>[
+                  const SizedBox(height: 4),
+                  _ClimateValues(summary: summary),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 已选家庭的摘要（更宽，右侧「全部」返回）。
+class _SelectedHomeSummary extends StatelessWidget {
+  const _SelectedHomeSummary({
+    required this.summary,
+    required this.onShowAll,
+  });
+
+  final HomeClimateSummary summary;
+  final VoidCallback onShowAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(
+            Icons.home_rounded,
+            size: 20,
+            color: _HomeOverviewBar._accent,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  summary.homeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (summary.hasData) ...<Widget>[
+                  const SizedBox(height: 2),
+                  _ClimateValues(summary: summary),
+                ],
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onShowAll,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: const Text('全部'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 温度 / 湿度数值行（任一项缺失就不渲染该项，来源设备通过长按提示）。
+class _ClimateValues extends StatelessWidget {
+  const _ClimateValues({required this.summary});
+
+  final HomeClimateSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Widget values = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: <Widget>[
+        if (summary.temperature != null)
+          Text(
+            '${formatTemperature(summary.temperature)}°C',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: _HomeOverviewBar._accent,
+            ),
+          ),
+        if (summary.temperature != null && summary.humidity != null)
+          const SizedBox(width: 8),
+        if (summary.humidity != null)
+          Text(
+            '${summary.humidity}%',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+    final String? source = summary.sourceName;
+    if (source == null) return values;
+    return Tooltip(
+      message: '数据来源：$source',
+      child: values,
     );
   }
 }
@@ -334,11 +519,14 @@ class _ControlGrid extends StatelessWidget {
           );
         }
 
+        final Map<String, WasherSummary> washers = state.washerSummaries;
+        final Map<String, WaterHeaterSummary> waterHeaters =
+            state.waterHeaterSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
             maxCrossAxisExtent: 240,
-            mainAxisExtent: 96,
+            mainAxisExtent: 112,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
           ),
@@ -347,6 +535,83 @@ class _ControlGrid extends StatelessWidget {
             final HaDeviceGroup group = groups[index];
             final String areaLabel =
                 state.areaLabelFor(group.primary.entityId);
+
+            // 热水器：状态 / 当前水温 + 目标温度加减
+            final WaterHeaterSummary? waterHeater =
+                group.deviceId == null ? null : waterHeaters[group.deviceId];
+            if (waterHeater != null) {
+              final String entityId = waterHeater.entity.entityId;
+              final double step = waterHeater.targetStep;
+              void adjust(int direction) {
+                final double base = waterHeater.targetTemperature ??
+                    waterHeater.minTemperature;
+                context.read<HomeBloc>().add(SetWaterHeaterTemperature(
+                      entityId: entityId,
+                      temperature: base + direction * step,
+                    ));
+              }
+
+              return WaterHeaterWidget(
+                entity: waterHeater.entity,
+                statusLabel: waterHeater.statusLabel,
+                isToggling: state.togglingIds.contains(entityId),
+                onToggle: () => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: entityId)),
+                onIncrease: () => adjust(1),
+                onDecrease: () => adjust(-1),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 洗衣机：状态 / 剩余时间 / 累计统计 + 真正的电源开关
+            final WasherSummary? washer =
+                group.deviceId == null ? null : washers[group.deviceId];
+            if (washer != null) {
+              final String powerId =
+                  washer.powerEntityId ?? group.primary.entityId;
+              return WasherWidget(
+                summary: washer,
+                isToggling: state.togglingIds.contains(powerId),
+                onToggle: () => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: powerId)),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 含空调的设备：直接用温度卡（可进详情控制其余实体）
+            final HaEntityStateModel? climate = group.climate;
+            if (climate != null) {
+              final bool toggling =
+                  state.togglingIds.contains(climate.entityId);
+              final double step = climate.targetTempStep;
+              void adjust(int direction) {
+                final double base =
+                    climate.targetTemperature ?? climate.minTargetTemperature;
+                context.read<HomeBloc>().add(SetClimateTemperature(
+                      entityId: climate.entityId,
+                      temperature: base + direction * step,
+                    ));
+              }
+
+              return ClimateWidget(
+                entity: climate,
+                isToggling: toggling,
+                areaLabel: state.areaLabelFor(climate.entityId),
+                onToggle: () => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: climate.entityId)),
+                onIncrease: () => adjust(1),
+                onDecrease: () => adjust(-1),
+                onOpenDetail: group.deviceId == null
+                    ? null
+                    : () => Injection.get<AppRouter>()
+                        .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
 
             // 单实体设备：原样式，点击即开关
             if (!group.isMerged) {
@@ -362,6 +627,12 @@ class _ControlGrid extends StatelessWidget {
                   isToggling: toggling,
                   onToggle: onTap,
                   areaLabel: areaLabel,
+                  onBrightnessChanged: (int percent) => context
+                      .read<HomeBloc>()
+                      .add(SetLightBrightness(
+                        entityId: entity.entityId,
+                        percent: percent,
+                      )),
                 );
               }
               return ButtonWidget(
@@ -372,7 +643,7 @@ class _ControlGrid extends StatelessWidget {
               );
             }
 
-            // 多实体设备：合并卡，电源键切主实体，点卡片进详情页
+            // 多实体设备：电源键切主实体，点卡片进详情页
             return DeviceWidget(
               group: group,
               isToggling: group.isTogglingIn(state.togglingIds),
@@ -381,6 +652,15 @@ class _ControlGrid extends StatelessWidget {
                   ToggleEntity(entityId: group.primary.entityId)),
               onOpenDetail: () => Injection.get<AppRouter>()
                   .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              onBrightnessChanged:
+                  group.primary.isLight && group.primary.supportsBrightness
+                      ? (int percent) => context.read<HomeBloc>().add(
+                            SetLightBrightness(
+                              entityId: group.primary.entityId,
+                              percent: percent,
+                            ),
+                          )
+                      : null,
             );
           },
         );

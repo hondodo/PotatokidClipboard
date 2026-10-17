@@ -53,6 +53,86 @@ void main() {
       );
       expect(entity.displayName, 'bedroom_light');
     });
+
+    test('灯光参数：亮度百分比 / 色温范围 / 效果列表', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{
+          'brightness': 204,
+          'color_temp_kelvin': 3500,
+          'min_color_temp_kelvin': 2700,
+          'max_color_temp_kelvin': 5700,
+          'supported_color_modes': <String>['color_temp'],
+          'effect_list': <String>['明亮模式', '电视模式'],
+          'effect': '电视模式',
+        },
+      );
+      expect(entity.isLight, isTrue);
+      expect(entity.supportsBrightness, isTrue);
+      expect(entity.brightnessPercent, 80);
+      expect(entity.supportsColorTemperature, isTrue);
+      expect(entity.colorTempKelvin, 3500);
+      expect(entity.supportsEffect, isTrue);
+      expect(entity.effect, '电视模式');
+    });
+
+    test('纯开关灯不显示调光 / 色温能力', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{
+          'supported_color_modes': <String>['onoff'],
+        },
+      );
+      expect(entity.supportsBrightness, isFalse);
+      expect(entity.supportsColorTemperature, isFalse);
+      expect(entity.supportsEffect, isFalse);
+    });
+
+    test('空调参数：温度 / 湿度 / 模式 / 风速 / 摆风', () {
+      final HaEntityStateModel entity = buildEntity(
+        entityId: 'climate.bedroom',
+        state: 'cool',
+        attributes: const <String, dynamic>{
+          'temperature': 26.5,
+          'min_temp': 16,
+          'max_temp': 31,
+          'target_temp_step': 0.5,
+          'current_temperature': 35.0,
+          'current_humidity': 55,
+          'hvac_modes': <String>['cool', 'heat', 'off'],
+          'fan_modes': <String>['自动', '三档'],
+          'fan_mode': '三档',
+          'swing_modes': <String>['off', 'vertical'],
+          'swing_mode': 'off',
+        },
+      );
+      expect(entity.isClimate, isTrue);
+      expect(entity.isSwitchable, isTrue);
+      expect(entity.isOn, isTrue, reason: 'cool 属于开启');
+      expect(entity.targetTemperature, 26.5);
+      expect(entity.currentTemperature, 35.0);
+      expect(entity.currentHumidity, 55);
+      expect(entity.targetTempStep, 0.5);
+      expect(entity.hvacMode, 'cool');
+      expect(entity.fanModes, <String>['自动', '三档']);
+      expect(entity.fanMode, '三档');
+      expect(entity.swingModes, <String>['off', 'vertical']);
+      expect(entity.swingMode, 'off');
+
+      expect(entity.copyWith(state: 'off').isOn, isFalse);
+    });
+
+    test('mergeAttributes 只覆盖给定键', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{
+          'friendly_name': '卧室大灯',
+          'brightness': 204,
+        },
+      );
+      final HaEntityStateModel merged =
+          entity.mergeAttributes(<String, dynamic>{'brightness': 128});
+      expect(merged.brightnessValue, 128);
+      expect(merged.displayName, '卧室大灯');
+      expect(entity.brightnessValue, 204, reason: '原对象保持不可变');
+    });
   });
 
   group('HaArea 家庭/房间拆分', () {

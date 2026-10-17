@@ -9,8 +9,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 /// - [title]：设备名（注册表 name_by_user > name，缺失回退主实体显示名）；
 /// - [entities]：该设备全部可控实体（已按优先级排序，主实体在首位）；
 /// - [primary]：主实体，外层卡片的快捷开关只操作它
-///   （取第一个非「指示灯/夜灯/氛围灯」的 light，否则第一个 switch，
-///   否则第一个可控实体）；
+///   （真灯 > 空调 / 热水器 > 主电源开关 > 其他 switch > 指示灯类 light）；
 /// - 聚合状态：[onCount] / [allOff] / [statusLabel]，供外层卡片展示
 ///   「已开启 2/9」这类必要详情。
 ///
@@ -80,6 +79,22 @@ class HaDeviceGroup {
   /// 主实体：外层卡片快捷开关的操作目标
   HaEntityStateModel get primary => entities.first;
 
+  /// 组内空调实体（首页用它渲染温度卡片），没有则为 null
+  HaEntityStateModel? get climate {
+    for (final HaEntityStateModel entity in entities) {
+      if (entity.isClimate) return entity;
+    }
+    return null;
+  }
+
+  /// 组内热水器实体，没有则为 null
+  HaEntityStateModel? get waterHeater {
+    for (final HaEntityStateModel entity in entities) {
+      if (entity.isWaterHeater) return entity;
+    }
+    return null;
+  }
+
   /// 是否为多实体设备（单实体卡片可保留轻量样式）
   bool get isMerged => entities.length > 1;
 
@@ -103,11 +118,12 @@ class HaDeviceGroup {
   bool isTogglingIn(Set<String> togglingIds) =>
       entities.any((HaEntityStateModel e) => togglingIds.contains(e.entityId));
 
-  /// 组内排序 + 主实体选取：真灯(0) > switch(1) > 指示灯类 light(2)。
+  /// 组内排序 + 主实体选取：真灯(0) > 空调(1) > 主电源开关(2) >
+  /// 其他 switch(3) > 指示灯类 light(4)。
   ///
-  /// 排除「指示灯/夜灯/氛围灯」命名的 light——它们只是设备状态灯，
-  /// 不该被当作快捷开关的目标（如阳台植物灯的 light.indicator_light：
-  /// 主控应是电源 switch，而不是常亮的指示灯）。
+  /// 不能只按 switch 名称排序：米家设备的实体名形如
+  /// 「米家洗衣机 洗烘12kg  提示音 提示音」「… 洗衣机 开关」，
+  /// 「提」排在「洗」前会把提示音/静音误选成主开关。
   static List<HaEntityStateModel> _sorted(List<HaEntityStateModel> list) {
     list.sort((HaEntityStateModel a, HaEntityStateModel b) {
       final int byWeight = _primaryWeight(a).compareTo(_primaryWeight(b));
@@ -121,7 +137,27 @@ class HaDeviceGroup {
     final bool indicatorLike = name.contains('指示灯') ||
         name.contains('夜灯') ||
         name.contains('氛围灯');
-    if (e.domain == 'light') return indicatorLike ? 2 : 0;
-    return 1;
+    if (e.domain == 'light') return indicatorLike ? 4 : 0;
+    if (e.domain == 'climate' || e.domain == 'water_heater') return 1;
+    if (e.domain == 'switch') return _isMainPowerSwitch(e) ? 2 : 3;
+    return 3;
+  }
+
+  /// 是否为设备的真正电源开关（而非提示音、睡眠模式等设置开关）。
+  ///
+  /// 小米设备的电源实体通常是 `switch.*_on_p_2_1`；名称兜底只认
+  /// 最后一段恰好为「开关 / 电源 / 总开关 / 主开关」，避免把
+  /// 「高水位开关」「物理控制锁」误判成主电源。
+  static bool _isMainPowerSwitch(HaEntityStateModel e) {
+    if (e.domain != 'switch') return false;
+    final String id = e.entityId.toLowerCase();
+    if (RegExp(r'_(on|power)(_p_\d+)?$').hasMatch(id)) return true;
+    final List<String> tokens = e.displayName
+        .split(RegExp(r'\s+'))
+        .where((String token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.isEmpty) return false;
+    return const <String>{'开关', '电源', '总开关', '主开关'}
+        .contains(tokens.last);
   }
 }

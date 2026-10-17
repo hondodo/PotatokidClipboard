@@ -154,4 +154,144 @@ class HomeRepositoryImpl implements HomeRepository {
       entityId: entityId,
     );
   }
+
+  @override
+  Future<void> setLightBrightness({
+    required String entityId,
+    required int percent,
+  }) {
+    final int brightness = (percent.clamp(1, 100) * 255 / 100).round();
+    return _client.callService(
+      domain: 'light',
+      service: 'turn_on',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'brightness': brightness},
+    );
+  }
+
+  @override
+  Future<void> setLightColorTemperature({
+    required String entityId,
+    required int kelvin,
+  }) {
+    return _client.callService(
+      domain: 'light',
+      service: 'turn_on',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'color_temp_kelvin': kelvin},
+    );
+  }
+
+  @override
+  Future<void> setLightEffect({
+    required String entityId,
+    required String effect,
+  }) {
+    return _client.callService(
+      domain: 'light',
+      service: 'turn_on',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'effect': effect},
+    );
+  }
+
+  @override
+  Future<void> setClimateTemperature({
+    required String entityId,
+    required double temperature,
+  }) {
+    return _client.callService(
+      domain: 'climate',
+      service: 'set_temperature',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'temperature': temperature},
+    );
+  }
+
+  @override
+  Future<void> setClimateHvacMode({
+    required String entityId,
+    required String mode,
+  }) {
+    return _client.callService(
+      domain: 'climate',
+      service: 'set_hvac_mode',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'hvac_mode': mode},
+    );
+  }
+
+  @override
+  Future<void> setClimateFanMode({
+    required String entityId,
+    required String mode,
+  }) {
+    return _client.callService(
+      domain: 'climate',
+      service: 'set_fan_mode',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'fan_mode': mode},
+    );
+  }
+
+  @override
+  Future<void> setClimateSwingMode({
+    required String entityId,
+    required String mode,
+  }) {
+    return _client.callService(
+      domain: 'climate',
+      service: 'set_swing_mode',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'swing_mode': mode},
+    );
+  }
+
+  @override
+  Future<void> pressButton({required String entityId}) {
+    return _client.callService(
+      domain: 'button',
+      service: 'press',
+      entityId: entityId,
+    );
+  }
+
+  @override
+  Future<void> selectOption({
+    required String entityId,
+    required String option,
+  }) {
+    return _client.callService(
+      domain: 'select',
+      service: 'select_option',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'option': option},
+    );
+  }
+
+  @override
+  Future<void> setWaterHeaterTemperature({
+    required String entityId,
+    required double temperature,
+  }) {
+    return _client.callService(
+      domain: 'water_heater',
+      service: 'set_temperature',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'temperature': temperature},
+    );
+  }
+
+  @override
+  Future<void> setWaterHeaterOperationMode({
+    required String entityId,
+    required String mode,
+  }) {
+    return _client.callService(
+      domain: 'water_heater',
+      service: 'set_operation_mode',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'operation_mode': mode},
+    );
+  }
 }

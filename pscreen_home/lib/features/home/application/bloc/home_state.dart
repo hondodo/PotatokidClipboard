@@ -2,6 +2,9 @@ import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 
 /// 主页状态（不可变，通过 copyWith 更新）。
 ///
@@ -63,9 +66,46 @@ class HomeState {
         .toList(growable: false);
   }
 
+  /// 家庭温湿度概览（按家庭标签顺序）。
+  ///
+  /// 数据来自该家庭内 climate 实体的 `current_temperature` /
+  /// `current_humidity`：优先取同时具备温湿度的设备，其次温度、湿度。
+  /// 缺少数据的家庭仍返回条目，但对应字段为 null（界面不显示）。
+  List<HomeClimateSummary> get homeClimateSummaries {
+    final Map<String, String> homeByArea = <String, String>{
+      for (final HaArea area in registry.areas) area.areaId: area.homeName,
+    };
+    final Map<String, HaEntityStateModel> sourceByHome =
+        <String, HaEntityStateModel>{};
+    final Map<String, int> scoreByHome = <String, int>{};
+
+    for (final HaEntityStateModel entity in entities.values) {
+      if (!entity.isClimate || !entity.isAvailable) continue;
+      final String? areaId = registry.areaIdOf(entity.entityId);
+      final String? home = areaId == null ? null : homeByArea[areaId];
+      if (home == null || home.isEmpty) continue;
+      final int score = (entity.currentTemperature != null ? 2 : 0) +
+          (entity.currentHumidity != null ? 1 : 0);
+      if (score == 0) continue;
+      if (score > (scoreByHome[home] ?? 0)) {
+        scoreByHome[home] = score;
+        sourceByHome[home] = entity;
+      }
+    }
+
+    return <HomeClimateSummary>[
+      for (final String home in availableHomes)
+        HomeClimateSummary(
+          homeName: home,
+          temperature: sourceByHome[home]?.currentTemperature,
+          humidity: sourceByHome[home]?.currentHumidity,
+          sourceName: sourceByHome[home]?.displayName,
+        ),
+    ];
+  }
+
   /// 当前应展示的房间列表（受家庭筛选）。
-  List<HaArea> get visibleAreas {
-    final String home = effectiveHomeName;
+  List<HaArea> get visibleAreas {    final String home = effectiveHomeName;
     if (home.isEmpty) return availableAreas;
     return availableAreas
         .where((HaArea area) => area.homeName == home)
@@ -152,12 +192,22 @@ class HomeState {
     final List<HaEntityStateModel> list =
         _filteredSwitchable.values.toList(growable: false);
     list.sort((HaEntityStateModel a, HaEntityStateModel b) {
-      final int byDomain = a.domain.compareTo(b.domain);
+      final int byDomain =
+          _domainWeight(a.domain).compareTo(_domainWeight(b.domain));
       if (byDomain != 0) return byDomain;
       return a.displayName.compareTo(b.displayName);
     });
     return list;
   }
+
+  /// 快捷列表域顺序：灯 → 空调 → 热水器 → 开关
+  static int _domainWeight(String domain) => switch (domain) {
+        'light' => 0,
+        'climate' => 1,
+        'water_heater' => 2,
+        'switch' => 3,
+        _ => 4,
+      };
 
   /// 设备分组列表：同一物理设备的可控实体合并为一张卡片，
   /// 供网格展示（家庭 ▸ 房间筛选与 [quickControls] 一致）。
@@ -167,9 +217,60 @@ class HomeState {
         deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
       );
 
+  /// 洗衣机设备摘要：device_id → 摘要（非洗衣机设备不出现）。
+  ///
+  /// 需要该设备的全部实体（switch/select/sensor/button），不能只用
+  /// 可控实体，否则拿不到状态、模式和启动按钮。
+  Map<String, WasherSummary> get washerSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, WasherSummary> result = <String, WasherSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final WasherSummary? summary = WasherSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 热水器设备摘要：device_id → 摘要（非热水器设备不出现）。
+  Map<String, WaterHeaterSummary> get waterHeaterSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, WaterHeaterSummary> result =
+        <String, WaterHeaterSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final WaterHeaterSummary? summary = WaterHeaterSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
   /// 指定设备的分组（详情页用，不受家庭/房间筛选影响）；不存在返回 null。
-  HaDeviceGroup? deviceGroupOf(String deviceId) {
-    final Map<String, HaEntityStateModel> all = <String, HaEntityStateModel>{
+  HaDeviceGroup? deviceGroupOf(String deviceId) {    final Map<String, HaEntityStateModel> all = <String, HaEntityStateModel>{
       for (final HaEntityStateModel e in entities.values)
         if (e.isSwitchable) e.entityId: e,
     };

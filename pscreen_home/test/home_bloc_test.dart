@@ -10,6 +10,9 @@ import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 内存版 HomeRepository：可控成功/失败，可注入实时状态事件
@@ -20,7 +23,19 @@ class _FakeHomeRepository implements HomeRepository {
   HaRegistry registry = HaRegistry.empty;
   Object? fetchError;
   Object? toggleError;
+  Object? controlError;
   final List<(String, bool)> toggleCalls = <(String, bool)>[];
+  final List<(String, int)> brightnessCalls = <(String, int)>[];
+  final List<(String, int)> colorTempCalls = <(String, int)>[];
+  final List<(String, String)> effectCalls = <(String, String)>[];
+  final List<(String, double)> climateTempCalls = <(String, double)>[];
+  final List<(String, String)> hvacModeCalls = <(String, String)>[];
+  final List<(String, String)> fanModeCalls = <(String, String)>[];
+  final List<(String, String)> swingModeCalls = <(String, String)>[];
+  final List<String> buttonCalls = <String>[];
+  final List<(String, String)> selectCalls = <(String, String)>[];
+  final List<(String, double)> waterHeaterTempCalls = <(String, double)>[];
+  final List<(String, String)> waterHeaterModeCalls = <(String, String)>[];
   final StreamController<HaEntityStateModel> _events =
       StreamController<HaEntityStateModel>.broadcast();
 
@@ -45,13 +60,121 @@ class _FakeHomeRepository implements HomeRepository {
     if (toggleError != null) throw toggleError!;
   }
 
+  @override
+  Future<void> setLightBrightness({
+    required String entityId,
+    required int percent,
+  }) async {
+    brightnessCalls.add((entityId, percent));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setLightColorTemperature({
+    required String entityId,
+    required int kelvin,
+  }) async {
+    colorTempCalls.add((entityId, kelvin));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setLightEffect({
+    required String entityId,
+    required String effect,
+  }) async {
+    effectCalls.add((entityId, effect));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setClimateTemperature({
+    required String entityId,
+    required double temperature,
+  }) async {
+    climateTempCalls.add((entityId, temperature));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setClimateHvacMode({
+    required String entityId,
+    required String mode,
+  }) async {
+    hvacModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setClimateFanMode({
+    required String entityId,
+    required String mode,
+  }) async {
+    fanModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setClimateSwingMode({
+    required String entityId,
+    required String mode,
+  }) async {
+    swingModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> pressButton({required String entityId}) async {
+    buttonCalls.add(entityId);
+    _throwControlError();
+  }
+
+  @override
+  Future<void> selectOption({
+    required String entityId,
+    required String option,
+  }) async {
+    selectCalls.add((entityId, option));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setWaterHeaterTemperature({
+    required String entityId,
+    required double temperature,
+  }) async {
+    waterHeaterTempCalls.add((entityId, temperature));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setWaterHeaterOperationMode({
+    required String entityId,
+    required String mode,
+  }) async {
+    waterHeaterModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  void _throwControlError() {
+    if (controlError != null) throw controlError!;
+  }
+
   void emitChange(HaEntityStateModel entity) => _events.add(entity);
 }
 
-HaEntityStateModel _entity(String entityId, String state) => HaEntityStateModel(
+HaEntityStateModel _entity(
+  String entityId,
+  String state, {
+  Map<String, dynamic> attributes = const <String, dynamic>{},
+}) =>
+    HaEntityStateModel(
       entityId: entityId,
       state: state,
-      attributes: <String, dynamic>{'friendly_name': entityId},
+      attributes: <String, dynamic>{
+        'friendly_name': entityId,
+        ...attributes,
+      },
     );
 
 Future<bool> _load(HomeBloc bloc) {
@@ -65,6 +188,42 @@ Future<bool> _toggle(HomeBloc bloc, String entityId) {
   bloc.add(ToggleEntity(entityId: entityId, completer: completer));
   return completer.future.timeout(const Duration(seconds: 5));
 }
+
+/// 派发带 completer 的事件并等待完成。
+Future<bool> _run(
+  HomeBloc bloc,
+  void Function(Completer<bool> completer) dispatch,
+) {
+  final Completer<bool> completer = Completer<bool>();
+  dispatch(completer);
+  return completer.future.timeout(const Duration(seconds: 5));
+}
+
+const Map<String, dynamic> _lightAttributes = <String, dynamic>{
+  'friendly_name': '卧室大灯',
+  'brightness': 204,
+  'color_temp_kelvin': 3500,
+  'min_color_temp_kelvin': 2700,
+  'max_color_temp_kelvin': 5700,
+  'supported_color_modes': <String>['color_temp'],
+  'effect_list': <String>['明亮模式', '电视模式'],
+  'effect': '电视模式',
+};
+
+const Map<String, dynamic> _climateAttributes = <String, dynamic>{
+  'friendly_name': '卧室空调',
+  'temperature': 26.5,
+  'min_temp': 16,
+  'max_temp': 31,
+  'target_temp_step': 0.5,
+  'current_temperature': 35.0,
+  'current_humidity': 55,
+  'hvac_modes': <String>['cool', 'heat', 'off'],
+  'fan_modes': <String>['自动', '三档'],
+  'fan_mode': '三档',
+  'swing_modes': <String>['off', 'vertical'],
+  'swing_mode': 'off',
+};
 
 void main() {
   setUp(() {
@@ -465,6 +624,491 @@ void main() {
         isTrue,
       );
       expect(bloc.state.areaCount('bedroom'), 5);
+    });
+  });
+
+  group('HomeBloc 参数控制', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('light.bedroom', 'on', attributes: _lightAttributes),
+          _entity('climate.bedroom', 'cool', attributes: _climateAttributes),
+        ],
+      );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('亮度：乐观写入 0-255 属性，下发百分比', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetLightBrightness(
+            entityId: 'light.bedroom',
+            percent: 50,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.brightnessCalls, <(String, int)>[('light.bedroom', 50)]);
+      expect(bloc.state.entities['light.bedroom']!.brightnessValue, 128);
+      expect(bloc.state.errorMessage, isNull);
+    });
+
+    test('色温：超出范围时夹到 min/max', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetLightColorTemperature(
+            entityId: 'light.bedroom',
+            kelvin: 1000,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.colorTempCalls, <(String, int)>[('light.bedroom', 2700)]);
+      expect(bloc.state.entities['light.bedroom']!.colorTempKelvin, 2700);
+    });
+
+    test('灯光效果：仅接受 effect_list 中的值', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetLightEffect(
+            entityId: 'light.bedroom',
+            effect: '电视模式',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.effectCalls, <(String, String)>[('light.bedroom', '电视模式')]);
+
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetLightEffect(
+            entityId: 'light.bedroom',
+            effect: '不存在',
+            completer: c,
+          )),
+        ),
+        isFalse,
+      );
+      expect(repo.effectCalls.length, 1, reason: '非法效果不应下发');
+    });
+
+    test('空调温度：按 0.5 步进并夹在 16-31', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetClimateTemperature(
+            entityId: 'climate.bedroom',
+            temperature: 40,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.climateTempCalls,
+          <(String, double)>[('climate.bedroom', 31.0)]);
+      expect(bloc.state.entities['climate.bedroom']!.targetTemperature, 31.0);
+
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetClimateTemperature(
+            entityId: 'climate.bedroom',
+            temperature: 26.7,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(bloc.state.entities['climate.bedroom']!.targetTemperature, 26.5,
+          reason: '0.5 步进应把 26.7 归到 26.5');
+    });
+
+    test('空调模式 / 风速 / 摆风', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetClimateHvacMode(
+            entityId: 'climate.bedroom',
+            mode: 'heat',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(bloc.state.entities['climate.bedroom']!.state, 'heat');
+
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetClimateFanMode(
+            entityId: 'climate.bedroom',
+            mode: '自动',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(bloc.state.entities['climate.bedroom']!.fanMode, '自动');
+
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetClimateSwingMode(
+            entityId: 'climate.bedroom',
+            mode: 'vertical',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(bloc.state.entities['climate.bedroom']!.swingMode, 'vertical');
+
+      expect(repo.hvacModeCalls,
+          <(String, String)>[('climate.bedroom', 'heat')]);
+      expect(repo.fanModeCalls, <(String, String)>[('climate.bedroom', '自动')]);
+      expect(repo.swingModeCalls,
+          <(String, String)>[('climate.bedroom', 'vertical')]);
+    });
+
+    test('空调开关：cool 状态切换为 turn_off，isOn 随模式变化', () async {
+      expect(await _toggle(bloc, 'climate.bedroom'), isTrue);
+      expect(repo.toggleCalls,
+          <(String, bool)>[('climate.bedroom', false)]);
+      expect(bloc.state.entities['climate.bedroom']!.isOn, isFalse);
+    });
+
+    test('参数控制失败：回滚原属性并写入错误', () async {
+      repo.controlError = const HaRequestException(1, '设备离线');
+
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetLightBrightness(
+            entityId: 'light.bedroom',
+            percent: 30,
+            completer: c,
+          )),
+        ),
+        isFalse,
+      );
+      expect(bloc.state.entities['light.bedroom']!.brightnessValue, 204,
+          reason: '失败必须回滚亮度');
+      expect(bloc.state.errorMessage, '设备离线');
+    });
+  });
+
+  group('HomeBloc 洗衣机控制', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('switch.wm_on', 'off', attributes: const <String, dynamic>{
+            'friendly_name': '米家洗衣机 洗衣机 开关',
+          }),
+          _entity('switch.wm_alarm', 'on', attributes: const <String, dynamic>{
+            'friendly_name': '米家洗衣机 提示音 提示音',
+          }),
+          _entity('select.wm_mode', '智能洗',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家洗衣机 洗衣机 模式',
+                'options': <String>['智能洗', '快速洗', '单烘干'],
+              }),
+          _entity('button.wm_start', 'unknown',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家洗衣机 洗衣机 开始洗涤',
+              }),
+          _entity('sensor.wm_status', '已关机',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家洗衣机 洗衣机 工作状态',
+              }),
+          _entity('sensor.wm_run_status', '未运行',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家洗衣机 洗衣机 运行状态',
+              }),
+        ],
+      )
+        ..registry = const HaRegistry(
+          devices: <String, HaDevice>{
+            'dev_wm': HaDevice(id: 'dev_wm', name: '米家洗衣机 洗烘12kg'),
+          },
+          deviceIdByEntity: <String, String>{
+            'switch.wm_on': 'dev_wm',
+            'switch.wm_alarm': 'dev_wm',
+            'select.wm_mode': 'dev_wm',
+            'button.wm_start': 'dev_wm',
+            'sensor.wm_status': 'dev_wm',
+            'sensor.wm_run_status': 'dev_wm',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('washerSummaries 选出真正的电源开关', () {
+      final WasherSummary? summary = bloc.state.washerSummaries['dev_wm'];
+      expect(summary, isNotNull);
+      expect(summary!.powerEntityId, 'switch.wm_on',
+          reason: '不能选到提示音 / 静音');
+      expect(summary.isOn, isFalse);
+      expect(summary.modes, <String>['智能洗', '快速洗', '单烘干']);
+    });
+
+    test('选择模式：乐观更新并下发 select_option', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SelectEntityOption(
+            entityId: 'select.wm_mode',
+            option: '快速洗',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.selectCalls,
+          <(String, String)>[('select.wm_mode', '快速洗')]);
+      expect(bloc.state.entities['select.wm_mode']!.state, '快速洗');
+    });
+
+    test('按钮：unknown 状态也可以按下', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(PressEntityButton(
+            entityId: 'button.wm_start',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.buttonCalls, <String>['button.wm_start']);
+    });
+
+    test('按钮失败：写入错误提示', () async {
+      repo.controlError = const HaRequestException(1, '设备离线');
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(PressEntityButton(
+            entityId: 'button.wm_start',
+            completer: c,
+          )),
+        ),
+        isFalse,
+      );
+      expect(bloc.state.errorMessage, '设备离线');
+    });
+  });
+
+  group('HomeBloc 热水器控制', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('water_heater.wh', '自定义',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器',
+                'min_temp': 35,
+                'max_temp': 65,
+                'target_temp_step': 1,
+                'temperature': 40,
+                'current_temperature': 33,
+                'operation_list': <String>[
+                  '自定义',
+                  'AI控温',
+                  '婴童洗',
+                  '舒适洗',
+                  '宠物洗',
+                  '厨房用',
+                  'off',
+                ],
+              }),
+          _entity('switch.wh_preheat', 'off',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器 预热',
+              }),
+          _entity('sensor.wh_status', '待机中',
+              attributes: const <String, dynamic>{
+                'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器 工作状态',
+              }),
+        ],
+      )
+        ..registry = const HaRegistry(
+          devices: <String, HaDevice>{
+            'dev_wh': HaDevice(
+              id: 'dev_wh',
+              name: '米家智能零冷水燃气热水器16L N1',
+            ),
+          },
+          deviceIdByEntity: <String, String>{
+            'water_heater.wh': 'dev_wh',
+            'switch.wh_preheat': 'dev_wh',
+            'sensor.wh_status': 'dev_wh',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('waterHeaterSummaries 解析目标温度与模式', () {
+      final WaterHeaterSummary? summary =
+          bloc.state.waterHeaterSummaries['dev_wh'];
+      expect(summary, isNotNull);
+      expect(summary!.isOn, isTrue);
+      expect(summary.targetTemperature, 40);
+      expect(summary.modes.length, 6);
+      expect(summary.preheatEntityId, 'switch.wh_preheat');
+    });
+
+    test('设置目标温度：夹在 35-65', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetWaterHeaterTemperature(
+            entityId: 'water_heater.wh',
+            temperature: 70,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.waterHeaterTempCalls,
+          <(String, double)>[('water_heater.wh', 65.0)]);
+      expect(bloc.state.entities['water_heater.wh']!.targetTemperature, 65);
+    });
+
+    test('切换洗浴模式', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetWaterHeaterOperationMode(
+            entityId: 'water_heater.wh',
+            mode: 'AI控温',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.waterHeaterModeCalls,
+          <(String, String)>[('water_heater.wh', 'AI控温')]);
+      expect(bloc.state.entities['water_heater.wh']!.state, 'AI控温');
+    });
+
+    test('热水器开关：自定义状态切换为 turn_off', () async {
+      expect(await _toggle(bloc, 'water_heater.wh'), isTrue);
+      expect(repo.toggleCalls,
+          <(String, bool)>[('water_heater.wh', false)]);
+      expect(bloc.state.entities['water_heater.wh']!.isOn, isFalse);
+    });
+  });
+
+  group('HomeState 家庭温湿度概览', () {    late HomeBloc bloc;
+
+    setUp(() async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity(
+            'climate.jk_ac',
+            'cool',
+            attributes: const <String, dynamic>{
+              'friendly_name': '金科空调',
+              'current_temperature': 34.9,
+              'current_humidity': 56,
+            },
+          ),
+          // 同家庭里先出现一台只有温度的设备：应被「温+湿」的更完整来源取代
+          _entity(
+            'climate.td_plug',
+            'off',
+            attributes: const <String, dynamic>{
+              'friendly_name': '空调插座',
+              'current_temperature': 30.0,
+            },
+          ),
+          _entity(
+            'climate.td_ac',
+            'off',
+            attributes: const <String, dynamic>{
+              'friendly_name': '棠德空调',
+              'current_temperature': 29.4,
+              'current_humidity': 71,
+            },
+          ),
+          // 离线设备即使带旧值也不参与
+          _entity(
+            'climate.td_offline',
+            'unavailable',
+            attributes: const <String, dynamic>{
+              'friendly_name': '离线空调',
+              'current_temperature': 20.0,
+              'current_humidity': 40,
+            },
+          ),
+          // 该家庭没有空调，只有开关 → 概览条目存在但温湿度为空
+          _entity('switch.sz_plug', 'off'),
+        ],
+      )
+        ..registry = const HaRegistry(
+          areas: <HaArea>[
+            HaArea(areaId: 'jk_ws', name: '金科1204 卧室'),
+            HaArea(areaId: 'td_ws', name: '棠德304 卧室'),
+            HaArea(areaId: 'sz_3f', name: '薯仔4号的家 3楼房间'),
+          ],
+          areaIdByEntity: <String, String>{
+            'climate.jk_ac': 'jk_ws',
+            'climate.td_plug': 'td_ws',
+            'climate.td_ac': 'td_ws',
+            'climate.td_offline': 'td_ws',
+            'switch.sz_plug': 'sz_3f',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('按家庭聚合：优先温+湿来源，缺失项为 null', () {
+      final List<HomeClimateSummary> summaries =
+          bloc.state.homeClimateSummaries;
+      expect(
+        summaries.map((HomeClimateSummary s) => s.homeName).toList(),
+        <String>['金科1204', '棠德304', '薯仔4号的家'],
+      );
+
+      final HomeClimateSummary jk = summaries[0];
+      expect(jk.temperature, 34.9);
+      expect(jk.humidity, 56);
+      expect(jk.sourceName, '金科空调');
+      expect(jk.hasData, isTrue);
+
+      final HomeClimateSummary td = summaries[1];
+      expect(td.temperature, 29.4,
+          reason: '应选同时有温度和湿度的空调');
+      expect(td.humidity, 71);
+      expect(td.sourceName, '棠德空调');
+
+      final HomeClimateSummary sz = summaries[2];
+      expect(sz.hasData, isFalse);
+      expect(sz.temperature, isNull);
+      expect(sz.humidity, isNull);
     });
   });
 }
