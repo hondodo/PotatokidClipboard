@@ -89,8 +89,7 @@ class KettleControlPanel extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton.filledTonal(
-                  tooltip: active ? '停止加热' : '开始加热',
+                FilledButton.icon(
                   onPressed: isBusy
                       ? null
                       : (active ? onStop : onStart),
@@ -98,7 +97,9 @@ class KettleControlPanel extends StatelessWidget {
                     active
                         ? Icons.stop_rounded
                         : Icons.play_arrow_rounded,
+                    size: 18,
                   ),
+                  label: Text(active ? '停止' : '开始加热'),
                 ),
               ],
             ),

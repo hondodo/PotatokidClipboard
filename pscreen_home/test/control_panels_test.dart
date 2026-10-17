@@ -438,9 +438,6 @@ void main() {
             height: 112,
             child: KettleWidget(
               summary: _kettle(),
-              isBusy: false,
-              onStart: () {},
-              onStop: () {},
               onOpenDetail: () {},
             ),
           ),
@@ -450,7 +447,6 @@ void main() {
 
     expect(find.textContaining('51', findRichText: true), findsOneWidget);
     expect(find.text('目标 100°C'), findsOneWidget);
-    expect(find.byTooltip('开始加热'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -479,6 +475,7 @@ void main() {
     expect(find.text('保温温度'), findsOneWidget);
     expect(find.text('除氯'), findsOneWidget);
     expect(find.text('风冷'), findsOneWidget);
+    expect(find.text('开始加热'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -3,21 +3,15 @@ import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 
 /// 电热水瓶快捷卡片：当前水温 + 状态 + 模式 + 目标温度。
 ///
-/// 右上角是开始/停止动作；点卡片其余区域进入详情。
+/// 卡片不提供开始/停止动作，避免误触；点卡片进入详情操作。
 class KettleWidget extends StatelessWidget {
   const KettleWidget({
     super.key,
     required this.summary,
-    required this.isBusy,
-    this.onStart,
-    this.onStop,
     this.onOpenDetail,
   });
 
   final KettleSummary summary;
-  final bool isBusy;
-  final VoidCallback? onStart;
-  final VoidCallback? onStop;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF4DD0C4);
@@ -26,8 +20,6 @@ class KettleWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool active = summary.isActive;
-    final String actionTooltip = active ? '停止加热' : '开始加热';
-    final VoidCallback? action = active ? onStop : onStart;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -83,32 +75,6 @@ class KettleWidget extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                  IconButton(
-                    tooltip: actionTooltip,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    onPressed: isBusy ? null : action,
-                    icon: isBusy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _accent,
-                            ),
-                          )
-                        : Icon(
-                            active
-                                ? Icons.stop_circle_outlined
-                                : Icons.play_circle_outline_rounded,
-                            size: 22,
-                            color: _accent,
-                          ),
                   ),
                 ],
               ),
