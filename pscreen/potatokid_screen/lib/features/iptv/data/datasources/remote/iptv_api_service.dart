@@ -11,8 +11,8 @@ import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
 /// 地址是**两跳**的：先请求 [AppConstants.iptvM3uUrl]，拿到的是一个指向真正
 /// 播放列表的第三方链接（纯文本，可能带空行/注释）；再请求该链接才是 m3u 内容。
 /// 复用 [DioManager]（连通性检查 + 重试），原始文本交由 [IptvM3uParser] 解析。
-/// 两跳的地址都会先经 [RawContentUrlResolver.toFetchable]：还原成原始文件地址
-/// （GitHub `blob` 文件页是 HTML，必须换成 raw 直链）后再对 GitHub 地址套加速前缀。
+/// 两跳的地址都会先经 [RawContentUrlResolver.resolve]：把 GitHub 文件页地址
+/// 还原成 raw 直链（本身就是 raw 时原样返回），随后直接访问，不走任何代理。
 class IptvApiService {
   /// 拉取并解析远程频道列表。
   Future<List<IptvChannel>> fetchChannels() async {
@@ -35,9 +35,9 @@ class IptvApiService {
 
   Future<String> _getPlain(String url) async {
     final dynamic data = await DioManager().send(
-      // 配置里的地址 → 真正请求的地址：先还原原始文件地址（GitHub `blob`
-      // 文件页返回的是 HTML，拿不到正文），再套加速前缀。
-      url: RawContentUrlResolver.toFetchable(url),
+      // 直接访问：只在地址是 GitHub `blob` 文件页（HTML）时还原成 raw 直链，
+      // 已是 raw 直链或其他域名则原样请求。
+      url: RawContentUrlResolver.resolve(url),
       responseType: ResponseType.plain,
       notTipNetError: true,
     );

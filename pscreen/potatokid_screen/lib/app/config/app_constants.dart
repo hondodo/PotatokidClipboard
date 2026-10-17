@@ -8,27 +8,21 @@ class AppConstants {
 
   static const int defaultMaxRetry = 2;
 
-  /// 数据文件在本仓库 GitHub 上的「查看地址」前缀（`blob` 页面）。
+  /// 数据文件在 GitHub 上的「原始文件（raw）直链」前缀。
   ///
-  /// 该地址直接请求只会返回 HTML 页面，拿不到正文；请求前由
-  /// `RawContentUrlResolver` 统一还原成 raw 直链。
+  /// 直接请求 `raw.githubusercontent.com` 取正文，**不经任何代理/中转**。
+  /// 万一以后配置里写成了 `blob` 文件页，也会由
+  /// `RawContentUrlResolver` 在请求前还原成同样的 raw 直链。
   /// 用法：`'${AppConstants.githubDataBaseUrl}source.txt'`。
   static const String githubDataBaseUrl =
-      'https://github.com/hondodo/PotatokidClipboard/blob/main/pscreen/potatokid_screen/assets/datas/';
+      'https://raw.githubusercontent.com/hondodo/PotatokidClipboard/main/pscreen/potatokid_screen/assets/datas/';
 
   /// IPTV 直播播放列表（m3u），首页进入时自动加载并播放。
   ///
-  /// 第一跳是 `source.txt`（GitHub 文件页），正文里是一个 GitHub release 下载地址；
-  /// 两跳都由 `IptvApiService` 做 raw 还原 + 加速前缀。
+  /// 第一跳是 `source.txt`（raw 直链），正文里是一个 GitHub release 下载地址；
+  /// 两跳都直接访问 GitHub，不做任何代理改写。
   static const String iptvM3uUrl =
       // 旧的本地自建跳转（已弃用）：
       // 'http://ptool.w1.luyouxia.net/guovinapiurl.txt';
-      // 'https://gh-proxy.com/raw.githubusercontent.com/vbskycn/iptv/refs/heads/master/tv/iptv4.m3u';
       '${AppConstants.githubDataBaseUrl}source.txt';
-
-  /// GitHub 直链加速前缀，用法为 `{prefix}{原始 GitHub URL}`。
-  ///
-  /// `source.txt` 正文与正文里指向的 release 地址都在 GitHub，国内网络直连
-  /// 会在连接阶段即超时；请求前套一层镜像前缀中转。留空则不做改写。
-  static const String githubProxyPrefix = 'https://gh-proxy.com/';
 }
