@@ -61,6 +61,7 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
+  nim_core_v2: ^10.9.91
 
 dev_dependencies:
   flutter_test:

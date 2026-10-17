@@ -6,6 +6,7 @@ void main() {
     final ChannelNameMatcher m = ChannelNameMatcher(<String>[
       'CCTV-5',
       '滁州市广播电视台 新闻综合',
+      'iNewTV',
     ]);
 
     test('完全相同的名字命中', () {
@@ -14,9 +15,13 @@ void main() {
     });
 
     test('精确行大小写敏感、空格要原样', () {
-      expect(m.matches('cctv-5'), isFalse);
+      // CCTV 白名单前缀按设计大小写折叠（normalizeChannelName）。
+      expect(m.matches('cctv-5'), isTrue);
       expect(m.matches('CCTV-5+'), isFalse);
       expect(m.matches('滁州市广播电视台  新闻综合'), isFalse);
+      // 非白名单前缀部分保持大小写敏感。
+      expect(m.matches('iNewTV'), isTrue);
+      expect(m.matches('inewtv'), isFalse);
     });
   });
 

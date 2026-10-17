@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:potatokid_screen/app/config/app_constants.dart';
-import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/network/dio_helper.dart';
 import 'package:potatokid_screen/core/network/dio_pretty_logger.dart';
@@ -37,7 +36,6 @@ class DioManager {
 
   Future<void> _init() async {
     _dio.options
-      ..baseUrl = AppHosts.baseHost
       ..connectTimeout = AppConstants.connectTimeout
       ..receiveTimeout = AppConstants.receiveTimeout
       ..sendTimeout = AppConstants.sendTimeout;
@@ -53,15 +51,10 @@ class DioManager {
     await DioHelper.addCharlesAdapter(_dio);
   }
 
-  Future<List<Cookie>> getCookies() async {
+  Future<List<Cookie>> getCookies({required String url}) async {
     final jar = _cookieJar;
     if (jar == null) return const <Cookie>[];
-    return jar.loadForRequest(Uri.parse(AppHosts.baseHost));
-  }
-
-  /// 切换域名：登录后切 apiHost，未登录切 baseHost
-  static Future<void> changeHost({bool? isLogin}) async {
-    _instance._dio.options.baseUrl = (isLogin ?? false) ? AppHosts.apiHost : AppHosts.baseHost;
+    return jar.loadForRequest(Uri.parse(url));
   }
 
   /// 登出时取消会话内所有进行中的请求

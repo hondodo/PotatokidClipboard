@@ -7,14 +7,18 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:potatokid_screen/app/app.dart';
+import 'package:potatokid_screen/app/app_log.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
+import 'package:potatokid_screen/app/config/app_constants.dart';
 import 'package:potatokid_screen/app/config/data_files.dart';
-import 'package:potatokid_screen/app/hosts/app_hosts.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
+import 'package:potatokid_screen/core/utils/nim_manager.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
 
@@ -50,7 +54,6 @@ void main() {
 
       // 2. 加载 .env 与环境配置
       await AppConfig.initialize();
-      AppHosts.init();
 
       // 2.1 数据文件（tv_name_order / tv_name_hide / weather_cities）：
       //     先用本地值（持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值；
@@ -67,7 +70,25 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
-      // 4.1 同步数据文件最新版（GitHub，三个文件并发拉取）。本地值已在 2.1
+      // 4.1 初始化网易云信 NIM（DI 单例；不阻塞启动，失败仅记录日志）。
+      //     初始化收尾后（无论成败）派发自动登录：初始化失败时 login 会抛异常，
+      //     由 RemoteLoginBloc 捕获转「登录异常」态。
+      unawaited(
+        Injection.get<NimManager>()
+            .init(appKey: AppConstants.nimAppKey)
+            .then((_) {
+              Injection.get<NimManager>().startListen();
+            })
+            .whenComplete(() {
+              Injection.get<RemoteLoginBloc>()
+                  .add(const RemoteLoginAutoLogin());
+            })
+            .catchError((Object e, StackTrace s) {
+              Log.error('NIM initialize failed: $e');
+            }),
+      );
+
+      // 4.2 同步数据文件最新版（GitHub，三个文件并发拉取）。本地值已在 2.1
       //     就绪，这里最坏等 DataFiles 内部超时（约 10s）后沿用本地值，
       //     不会抛出、不阻断启动。
       await DataFiles.instance.ensureSynced();
@@ -91,15 +112,14 @@ void main() {
               BlocProvider<AppBloc>(create: (_) => Injection.get<AppBloc>()),
               // 直播频道状态机：全局共享（首页、我的页都用），
               // 启动即用缓存优先加载，避免空屏等待。
-              BlocProvider<IptvBloc>(
-                create: (_) =>
-                    Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true)),
-              ),
+              BlocProvider<IptvBloc>(create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true))),
               // 天气状态机：全局共享，启动即加载（定位 + 拉取），
               // 时间/屏保/主页直接消费，避免各页重复请求。
-              BlocProvider<WeatherBloc>(
-                create: (_) =>
-                    Injection.get<WeatherBloc>()..add(const LoadWeather()),
+              BlocProvider<WeatherBloc>(create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather())),
+              // 远程云信登录状态机：全局共享（设置页「远程」行消费），
+              // 自动登录已在 4.1 派发，这里只负责 provide。
+              BlocProvider<RemoteLoginBloc>(
+                create: (_) => Injection.get<RemoteLoginBloc>(),
               ),
             ],
             child: const App(),
@@ -108,9 +128,7 @@ void main() {
       );
     },
     (error, stack) {
-      FlutterError.presentError(
-        FlutterErrorDetails(exception: error, stack: stack),
-      );
+      FlutterError.presentError(FlutterErrorDetails(exception: error, stack: stack));
     },
   );
 }
