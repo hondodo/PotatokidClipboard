@@ -200,6 +200,30 @@ class SetTextEntityValue extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 设置 number 实体数值（热水瓶温度）。
+class SetNumberEntityValue extends HomeEvent {
+  const SetNumberEntityValue({
+    required this.entityId,
+    required this.value,
+    this.completer,
+  });
+
+  final String entityId;
+  final double value;
+  final Completer<bool>? completer;
+}
+
+/// 触发 notify 动作实体（热水瓶开始加热）。
+class PressNotifyAction extends HomeEvent {
+  const PressNotifyAction({
+    required this.entityId,
+    this.completer,
+  });
+
+  final String entityId;
+  final Completer<bool>? completer;
+}
+
 /// 清除错误提示（页面展示 SnackBar 后调用）。
 class ClearHomeError extends HomeEvent {
   const ClearHomeError();

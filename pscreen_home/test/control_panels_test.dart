@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
@@ -101,6 +104,31 @@ WaterHeaterSummary _waterHeater() => WaterHeaterSummary(
       preheatOn: false,
       timerPreheatEntityId: 'switch.wh_timer',
       timerPreheatOn: true,
+    );
+
+KettleSummary _kettle() => const KettleSummary(
+      deviceId: 'dev_k',
+      name: '米家智能电热水瓶 5L',
+      status: '待机中',
+      temperature: 51,
+      fault: '无故障',
+      modes: <String>['自来水', '纯净水', '凉白开'],
+      mode: '自来水',
+      targetTemperature: 100,
+      keepWarmTemperature: 55,
+      keepWarmOn: true,
+      dechlorinationOn: false,
+      rapidCoolingOn: false,
+      childLocked: true,
+      modeEntityId: 'select.k_mode',
+      targetEntityId: 'number.k_target',
+      keepWarmEntityId: 'switch.k_keep',
+      keepWarmTempEntityId: 'number.k_keep',
+      dechlorinationEntityId: 'switch.k_dechlor',
+      rapidCoolingEntityId: 'switch.k_cool',
+      startEntityId: 'notify.k_start',
+      stopEntityId: 'button.k_stop',
+      lockMode: '50℃及以上热水需要解锁',
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -392,6 +420,65 @@ void main() {
     expect(find.text('预热'), findsOneWidget);
     expect(find.text('定时预热'), findsOneWidget);
     expect(find.textContaining('33', findRichText: true), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('热水瓶卡片：温度 / 状态 / 开始动作在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: KettleWidget(
+              summary: _kettle(),
+              isBusy: false,
+              onStart: () {},
+              onStop: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.textContaining('51', findRichText: true), findsOneWidget);
+    expect(find.text('目标 100°C'), findsOneWidget);
+    expect(find.byTooltip('开始加热'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('热水瓶面板：模式 / 温度 / 开关无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(KettleControlPanel(
+      summary: _kettle(),
+      isBusy: false,
+      onStart: () {},
+      onStop: () {},
+      onModeSelected: (_) {},
+      onTargetTemperatureChanged: (_) {},
+      onKeepWarmTemperatureChanged: (_) {},
+      onToggleKeepWarm: () {},
+      onToggleDechlorination: () {},
+      onToggleRapidCooling: () {},
+    )));
+
+    expect(find.text('自来水'), findsOneWidget);
+    expect(find.text('设定温度'), findsOneWidget);
+    expect(find.text('保温'), findsOneWidget);
+    expect(find.text('除氯'), findsOneWidget);
+    expect(find.text('风冷'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

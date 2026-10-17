@@ -107,6 +107,7 @@ lib/
 │       │   ├── models/ha_device_group.dart         # 设备分组模型（同设备实体合并成卡）
 │       │   ├── models/home_climate_summary.dart    # 家庭温湿度概览（来自 climate 传感器）
 │       │   ├── models/washer_summary.dart          # 洗衣机摘要（switch/select/sensor/button 组合）
+│       │   ├── models/kettle_summary.dart          # 电热水瓶摘要（select/number/switch/notify 组合）
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -163,7 +164,7 @@ lib/
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
 | `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `Reconnect`（配置变更：先断开再连） / `ConnectionInfoChanged` |
-| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `SetLightBrightness` / `SetLightColorTemperature` / `SetLightEffect` / `SetClimateTemperature` / `SetClimateHvacMode` / `SetClimateFanMode` / `SetClimateSwingMode` / `PressEntityButton` / `SelectEntityOption` / `SetWaterHeaterTemperature` / `SetWaterHeaterOperationMode` / `SetTextEntityValue` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
+| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `SetLightBrightness` / `SetLightColorTemperature` / `SetLightEffect` / `SetClimateTemperature` / `SetClimateHvacMode` / `SetClimateFanMode` / `SetClimateSwingMode` / `PressEntityButton` / `SelectEntityOption` / `SetWaterHeaterTemperature` / `SetWaterHeaterOperationMode` / `SetTextEntityValue` / `SetNumberEntityValue` / `PressNotifyAction` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
 
 ---
 
@@ -371,5 +372,9 @@ void main() {
     非可控实体用 `ValueWidget` 静态展示值或「暂不支持操作」，按
     `HaDomainIcons` 取图标；纯数据设备 `HaDeviceGroup.primary` 为 null，
     不显示电源键；组内全部不可用时整卡置灰。
+  - **✅ 电热水瓶卡片**：当前水温 / 状态 / 内置模式（自来水、纯净水、凉白开）
+    / 设定温度 / 保温温度 / 除氯 / 风冷 / 童锁状态；开始加热走
+    `notify.send_message`，停止走 `button.press`。米家的扩展模式定义在
+    云端，HA 只有 `text.*_mode_id`，不做自定义模式管理。
 - **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
 - **M5** 部署：屏幕常亮（wakelock）、开机自启、kiosk 模式（按目标设备选型）。

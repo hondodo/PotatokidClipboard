@@ -96,4 +96,13 @@ abstract class HomeRepository {
     required String entityId,
     required String value,
   });
+
+  /// 设置 number 实体的数值（热水瓶目标温度 / 保温温度）
+  Future<void> setNumberValue({
+    required String entityId,
+    required double value,
+  });
+
+  /// 触发 notify 动作实体（电热水瓶「开始加热」）
+  Future<void> pressNotifyAction({required String entityId});
 }

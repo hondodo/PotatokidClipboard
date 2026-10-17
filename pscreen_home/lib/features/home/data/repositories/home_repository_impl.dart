@@ -337,4 +337,27 @@ class HomeRepositoryImpl implements HomeRepository {
       serviceData: <String, dynamic>{'value': value},
     );
   }
+
+  @override
+  Future<void> setNumberValue({
+    required String entityId,
+    required double value,
+  }) {
+    return _client.callService(
+      domain: 'number',
+      service: 'set_value',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'value': value},
+    );
+  }
+
+  @override
+  Future<void> pressNotifyAction({required String entityId}) {
+    return _client.callService(
+      domain: 'notify',
+      service: 'send_message',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'message': '开始加热'},
+    );
+  }
 }

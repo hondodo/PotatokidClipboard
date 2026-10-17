@@ -37,6 +37,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<SetWaterHeaterTemperature>(_onSetWaterHeaterTemperature);
     on<SetWaterHeaterOperationMode>(_onSetWaterHeaterOperationMode);
     on<SetTextEntityValue>(_onSetTextEntityValue);
+    on<SetNumberEntityValue>(_onSetNumberEntityValue);
+    on<PressNotifyAction>(_onPressNotifyAction);
     on<ClearHomeError>(_onClearHomeError);
     _subscription = _repository.watchStateChanges().listen(
           (entity) => add(EntityStateChanged(entity)),
@@ -516,6 +518,60 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       ),
       completer: event.completer,
     );
+  }
+
+  Future<void> _onSetNumberEntityValue(
+    SetNumberEntityValue event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        current.domain != 'number' ||
+        !current.isAvailable) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final String text = event.value == event.value.roundToDouble()
+        ? event.value.toStringAsFixed(0)
+        : event.value.toString();
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.copyWith(state: text),
+      action: () => _repository.setNumberValue(
+        entityId: current.entityId,
+        value: event.value,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onPressNotifyAction(
+    PressNotifyAction event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        current.domain != 'notify' ||
+        current.state == 'unavailable') {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    try {
+      await _repository.pressNotifyAction(entityId: current.entityId);
+      completeBlocEvent(event.completer, success: true);
+    } catch (e, s) {
+      Injection.get<LogService>().error(
+        'notify 动作执行失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
+      emit(state.copyWith(
+        errorMessage: mapErrorToMessage(e),
+        errorType: e.toNetErrorType(),
+      ));
+      completeBlocEvent(event.completer, success: false);
+    }
   }
 
   /// 乐观更新单个实体属性，失败时回滚并写入错误。

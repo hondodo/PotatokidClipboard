@@ -11,6 +11,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
@@ -38,6 +39,8 @@ class _FakeHomeRepository implements HomeRepository {
   final List<(String, double)> waterHeaterTempCalls = <(String, double)>[];
   final List<(String, String)> waterHeaterModeCalls = <(String, String)>[];
   final List<(String, String)> textCalls = <(String, String)>[];
+  final List<(String, double)> numberCalls = <(String, double)>[];
+  final List<String> notifyCalls = <String>[];
   List<WaterUsageRecord> usageRecords = <WaterUsageRecord>[];
   final StreamController<HaEntityStateModel> _events =
       StreamController<HaEntityStateModel>.broadcast();
@@ -172,6 +175,21 @@ class _FakeHomeRepository implements HomeRepository {
     required String value,
   }) async {
     textCalls.add((entityId, value));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setNumberValue({
+    required String entityId,
+    required double value,
+  }) async {
+    numberCalls.add((entityId, value));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> pressNotifyAction({required String entityId}) async {
+    notifyCalls.add(entityId);
     _throwControlError();
   }
 
@@ -1072,6 +1090,104 @@ void main() {
       );
       expect(repo.textCalls, <(String, String)>[('text.wh_timer', value)]);
       expect(bloc.state.entities['text.wh_timer']!.state, value);
+    });
+  });
+
+  group('HomeBloc 热水瓶控制', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('sensor.k_status_p_2_1', '待机中',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 工作状态',
+              }),
+          _entity('sensor.k_temperature_p_2_6', '51',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 温度',
+              }),
+          _entity('select.k_mode_p_2_3', '自来水',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 模式',
+                'options': <String>['自来水', '纯净水', '凉白开'],
+              }),
+          _entity('number.k_target_temperature_p_2_5', '100',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 设定温度',
+              }),
+          _entity('switch.k_auto_keep_warm_p_2_7', 'on',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 保温',
+              }),
+          _entity('notify.k_start_cook_a_2_1', 'unknown',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 开始加热',
+              }),
+          _entity('button.k_cancel_cooking_a_2_2', 'unknown',
+              attributes: const <String, dynamic>{
+                'friendly_name': '热水瓶 停止',
+              }),
+        ],
+      )
+        ..registry = const HaRegistry(
+          devices: <String, HaDevice>{
+            'dev_k': HaDevice(id: 'dev_k', name: '米家智能电热水瓶 5L'),
+          },
+          deviceIdByEntity: <String, String>{
+            'sensor.k_status_p_2_1': 'dev_k',
+            'sensor.k_temperature_p_2_6': 'dev_k',
+            'select.k_mode_p_2_3': 'dev_k',
+            'number.k_target_temperature_p_2_5': 'dev_k',
+            'switch.k_auto_keep_warm_p_2_7': 'dev_k',
+            'notify.k_start_cook_a_2_1': 'dev_k',
+            'button.k_cancel_cooking_a_2_2': 'dev_k',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('kettleSummaries 解析内置模式与参数', () {
+      final KettleSummary? summary = bloc.state.kettleSummaries['dev_k'];
+      expect(summary, isNotNull);
+      expect(summary!.mode, '自来水');
+      expect(summary.targetTemperature, 100);
+      expect(summary.keepWarmOn, isTrue);
+      expect(summary.startEntityId, 'notify.k_start_cook_a_2_1');
+    });
+
+    test('设置 number 目标温度', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetNumberEntityValue(
+            entityId: 'number.k_target_temperature_p_2_5',
+            value: 95,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.numberCalls,
+          <(String, double)>[('number.k_target_temperature_p_2_5', 95)]);
+      expect(bloc.state.entities['number.k_target_temperature_p_2_5']!.state, '95');
+    });
+
+    test('notify 开始加热', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(PressNotifyAction(
+            entityId: 'notify.k_start_cook_a_2_1',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.notifyCalls, <String>['notify.k_start_cook_a_2_1']);
     });
   });
 

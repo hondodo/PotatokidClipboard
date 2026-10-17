@@ -5,10 +5,12 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
@@ -55,6 +57,7 @@ class DeviceDetailPage extends StatelessWidget {
           final WasherSummary? washer = state.washerSummaries[deviceId];
           final WaterHeaterSummary? waterHeater =
               state.waterHeaterSummaries[deviceId];
+          final KettleSummary? kettle = state.kettleSummaries[deviceId];
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
               group.entities.first.entityId;
@@ -73,12 +76,23 @@ class DeviceDetailPage extends StatelessWidget {
               waterHeater!.scheduleEntityId!,
             if (waterHeater?.usageEntityId != null)
               waterHeater!.usageEntityId!,
+            if (kettle?.modeEntityId != null) kettle!.modeEntityId!,
+            if (kettle?.targetEntityId != null) kettle!.targetEntityId!,
+            if (kettle?.keepWarmEntityId != null) kettle!.keepWarmEntityId!,
+            if (kettle?.keepWarmTempEntityId != null)
+              kettle!.keepWarmTempEntityId!,
+            if (kettle?.dechlorinationEntityId != null)
+              kettle!.dechlorinationEntityId!,
+            if (kettle?.rapidCoolingEntityId != null)
+              kettle!.rapidCoolingEntityId!,
+            if (kettle?.startEntityId != null) kettle!.startEntityId!,
+            if (kettle?.stopEntityId != null) kettle!.stopEntityId!,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
               .toList(growable: false);
           final int panelCount =
-              washer == null && waterHeater == null ? 0 : 1;
+              washer == null && waterHeater == null && kettle == null ? 0 : 1;
           final String headerStatus;
           if (washer != null) {
             headerStatus =
@@ -86,6 +100,8 @@ class DeviceDetailPage extends StatelessWidget {
           } else if (waterHeater != null) {
             headerStatus =
                 waterHeater.hasFault ? '故障' : waterHeater.statusLabel;
+          } else if (kettle != null) {
+            headerStatus = kettle.hasFault ? '故障' : kettle.status;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -154,6 +170,70 @@ class DeviceDetailPage extends StatelessWidget {
                                 entityId: washer.stopEntityId!,
                               ),
                             ),
+                  );
+                }
+
+                if (kettle != null && index == 0) {
+                  return KettleControlPanel(
+                    summary: kettle,
+                    isBusy: false,
+                    onStart: kettle.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressNotifyAction(
+                                entityId: kettle.startEntityId!,
+                              ),
+                            ),
+                    onStop: kettle.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: kettle.stopEntityId!,
+                              ),
+                            ),
+                    onModeSelected: kettle.modeEntityId == null
+                        ? null
+                        : (String mode) => context.read<HomeBloc>().add(
+                              SelectEntityOption(
+                                entityId: kettle.modeEntityId!,
+                                option: mode,
+                              ),
+                            ),
+                    onTargetTemperatureChanged:
+                        kettle.targetEntityId == null
+                            ? null
+                            : (double value) => context
+                                .read<HomeBloc>()
+                                .add(SetNumberEntityValue(
+                                  entityId: kettle.targetEntityId!,
+                                  value: value,
+                                )),
+                    onKeepWarmTemperatureChanged:
+                        kettle.keepWarmTempEntityId == null
+                            ? null
+                            : (double value) => context
+                                .read<HomeBloc>()
+                                .add(SetNumberEntityValue(
+                                  entityId: kettle.keepWarmTempEntityId!,
+                                  value: value,
+                                )),
+                    onToggleKeepWarm: kettle.keepWarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(ToggleEntity(
+                              entityId: kettle.keepWarmEntityId!,
+                            )),
+                    onToggleDechlorination:
+                        kettle.dechlorinationEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(ToggleEntity(
+                                  entityId: kettle.dechlorinationEntityId!,
+                                )),
+                    onToggleRapidCooling:
+                        kettle.rapidCoolingEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(ToggleEntity(
+                                  entityId: kettle.rapidCoolingEntityId!,
+                                )),
                   );
                 }
 
