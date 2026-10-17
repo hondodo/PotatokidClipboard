@@ -553,6 +553,7 @@ class _ControlGrid extends StatelessWidget {
                     : () => context.read<HomeBloc>().add(
                           PressNotifyAction(
                             entityId: kettle.startEntityId!,
+                            message: kettle.startMessage,
                           ),
                         ),
                 onStop: kettle.stopEntityId == null

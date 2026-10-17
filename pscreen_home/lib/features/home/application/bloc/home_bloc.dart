@@ -558,7 +558,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       return;
     }
     try {
-      await _repository.pressNotifyAction(entityId: current.entityId);
+      await _repository.pressNotifyAction(
+        entityId: current.entityId,
+        message: event.message,
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error(

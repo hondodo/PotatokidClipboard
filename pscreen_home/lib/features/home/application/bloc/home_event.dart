@@ -217,10 +217,14 @@ class SetNumberEntityValue extends HomeEvent {
 class PressNotifyAction extends HomeEvent {
   const PressNotifyAction({
     required this.entityId,
+    required this.message,
     this.completer,
   });
 
   final String entityId;
+
+  /// 动作参数（集成按 YAML 解析的列表）
+  final String message;
   final Completer<bool>? completer;
 }
 

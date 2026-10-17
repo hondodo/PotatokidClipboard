@@ -79,6 +79,8 @@ void main() {
       expect(summary.rapidCoolingEntityId, 'switch.k_rapid_cooling_p_2_12');
       expect(summary.startEntityId, 'notify.k_start_cook_a_2_1');
       expect(summary.stopEntityId, 'button.k_cancel_cooking_a_2_2');
+      expect(summary.startMessage,
+          '[M0, 100, true, 55, false, false, 66, 51]');
       expect(summary.isActive, isFalse);
       expect(summary.hasFault, isFalse);
     });

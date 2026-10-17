@@ -103,6 +103,9 @@ abstract class HomeRepository {
     required double value,
   });
 
-  /// 触发 notify 动作实体（电热水瓶「开始加热」）
-  Future<void> pressNotifyAction({required String entityId});
+  /// 触发 notify 动作实体（电热水瓶「开始加热」，message 为动作参数列表）
+  Future<void> pressNotifyAction({
+    required String entityId,
+    required String message,
+  });
 }

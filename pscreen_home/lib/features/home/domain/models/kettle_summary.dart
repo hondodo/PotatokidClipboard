@@ -19,6 +19,9 @@ class KettleSummary {
     required this.dechlorinationOn,
     required this.rapidCoolingOn,
     required this.childLocked,
+    this.modeId,
+    this.pureWaterKeepWarmTemperature = 66,
+    this.tapWaterKeepWarmTemperature = 51,
     this.fault,
     this.modeEntityId,
     this.targetEntityId,
@@ -53,6 +56,12 @@ class KettleSummary {
         _find(entities, _idHas('_target_temperature_p_2_5'));
     final HaEntityStateModel? keepWarmTemp =
         _find(entities, _idHas('_keep_warm_temperature_p_2_8'));
+    final HaEntityStateModel? pureWaterTemp =
+        _find(entities, _idHas('_keep_warm_temperature_p_2_13'));
+    final HaEntityStateModel? tapWaterTemp =
+        _find(entities, _idHas('_keep_warm_temperature_p_2_14'));
+    final HaEntityStateModel? modeId =
+        _find(entities, _idHas('_mode_id_p_2_17'));
     final HaEntityStateModel? keepWarm =
         _find(entities, _idHas('_auto_keep_warm_p_2_7'));
     final HaEntityStateModel? dechlorination =
@@ -74,6 +83,11 @@ class KettleSummary {
       mode: modeEntity.state,
       targetTemperature: double.tryParse(target?.state ?? '') ?? 100,
       keepWarmTemperature: double.tryParse(keepWarmTemp?.state ?? '') ?? 55,
+      pureWaterKeepWarmTemperature:
+          double.tryParse(pureWaterTemp?.state ?? '') ?? 66,
+      tapWaterKeepWarmTemperature:
+          double.tryParse(tapWaterTemp?.state ?? '') ?? 51,
+      modeId: modeId?.state ?? 'M0',
       keepWarmOn: keepWarm?.isOn ?? false,
       dechlorinationOn: dechlorination?.isOn ?? false,
       rapidCoolingOn: rapidCooling?.isOn ?? false,
@@ -113,6 +127,13 @@ class KettleSummary {
   final bool rapidCoolingOn;
   final bool childLocked;
 
+  /// 模式 id（text.*_mode_id，当前设备为 M0）
+  final String? modeId;
+
+  /// 纯净水 / 自来水保温温度（开始加热动作的附加参数）
+  final double pureWaterKeepWarmTemperature;
+  final double tapWaterKeepWarmTemperature;
+
   final String? modeEntityId;
   final String? targetEntityId;
   final String? keepWarmEntityId;
@@ -143,6 +164,19 @@ class KettleSummary {
 
   double get minKeepWarmTemperature => 40;
   double get maxKeepWarmTemperature => 95;
+
+  /// 开始加热的 notify 参数（集成用 YAML 解析，必须是 8 项列表）：
+  /// [模式id, 设定温度, 保温, 保温温度, 除氯, 风冷, 纯净水保温温度, 自来水保温温度]
+  String get startMessage => '[${<String>[
+        modeId ?? 'M0',
+        targetTemperature.round().toString(),
+        keepWarmOn.toString(),
+        keepWarmTemperature.round().toString(),
+        dechlorinationOn.toString(),
+        rapidCoolingOn.toString(),
+        pureWaterKeepWarmTemperature.round().toString(),
+        tapWaterKeepWarmTemperature.round().toString(),
+      ].join(', ')}]';
 
   static bool Function(HaEntityStateModel) _idHas(String part) =>
       (HaEntityStateModel e) => e.entityId.contains(part);

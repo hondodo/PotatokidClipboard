@@ -352,12 +352,15 @@ class HomeRepositoryImpl implements HomeRepository {
   }
 
   @override
-  Future<void> pressNotifyAction({required String entityId}) {
+  Future<void> pressNotifyAction({
+    required String entityId,
+    required String message,
+  }) {
     return _client.callService(
       domain: 'notify',
       service: 'send_message',
       entityId: entityId,
-      serviceData: <String, dynamic>{'message': '开始加热'},
+      serviceData: <String, dynamic>{'message': message},
     );
   }
 }

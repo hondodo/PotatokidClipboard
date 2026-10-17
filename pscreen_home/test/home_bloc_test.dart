@@ -40,7 +40,7 @@ class _FakeHomeRepository implements HomeRepository {
   final List<(String, String)> waterHeaterModeCalls = <(String, String)>[];
   final List<(String, String)> textCalls = <(String, String)>[];
   final List<(String, double)> numberCalls = <(String, double)>[];
-  final List<String> notifyCalls = <String>[];
+  final List<(String, String)> notifyCalls = <(String, String)>[];
   List<WaterUsageRecord> usageRecords = <WaterUsageRecord>[];
   final StreamController<HaEntityStateModel> _events =
       StreamController<HaEntityStateModel>.broadcast();
@@ -188,8 +188,11 @@ class _FakeHomeRepository implements HomeRepository {
   }
 
   @override
-  Future<void> pressNotifyAction({required String entityId}) async {
-    notifyCalls.add(entityId);
+  Future<void> pressNotifyAction({
+    required String entityId,
+    required String message,
+  }) async {
+    notifyCalls.add((entityId, message));
     _throwControlError();
   }
 
@@ -1177,17 +1180,21 @@ void main() {
     });
 
     test('notify 开始加热', () async {
+      final String message =
+          bloc.state.kettleSummaries['dev_k']!.startMessage;
       expect(
         await _run(
           bloc,
           (Completer<bool> c) => bloc.add(PressNotifyAction(
             entityId: 'notify.k_start_cook_a_2_1',
+            message: message,
             completer: c,
           )),
         ),
         isTrue,
       );
-      expect(repo.notifyCalls, <String>['notify.k_start_cook_a_2_1']);
+      expect(repo.notifyCalls,
+          <(String, String)>[('notify.k_start_cook_a_2_1', message)]);
     });
   });
 
