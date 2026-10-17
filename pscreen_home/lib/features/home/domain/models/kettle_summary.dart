@@ -167,6 +167,18 @@ class KettleSummary {
       status.contains('降温') ||
       status.contains('保温');
 
+  /// 是否处于保温 / 降温阶段（此时停止按钮显示「停止保温」）
+  bool get isKeepingWarm =>
+      status.contains('保温') ||
+      status.contains('降温') ||
+      status.contains('风冷');
+
+  /// 停止按钮文案：保温 / 降温 → 停止保温，其余 → 停止加热
+  String get stopLabel => isKeepingWarm ? '停止保温' : '停止加热';
+
+  /// 首页卡按钮文案：未运行「加热」，运行中按阶段显示停止文案
+  String get cardActionLabel => isActive ? stopLabel : '加热';
+
   bool get isTapWater => mode == '自来水';
   bool get isPureWater => mode == '纯净水';
   bool get isBoiledWater => mode == '凉白开';

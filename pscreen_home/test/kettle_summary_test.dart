@@ -94,6 +94,8 @@ void main() {
       expect(summary.showKeepWarmSwitch, isFalse);
       expect(summary.isActive, isFalse);
       expect(summary.hasFault, isFalse);
+      expect(summary.cardActionLabel, '加热');
+      expect(summary.stopLabel, '停止加热');
     });
 
     test('烧水中处于活动状态，故障可识别', () {
@@ -103,6 +105,23 @@ void main() {
         entities: _entities(status: '烧水中…'),
       )!;
       expect(summary.isActive, isTrue);
+      expect(summary.stopLabel, '停止加热');
+      expect(summary.cardActionLabel, '停止加热');
+
+      final KettleSummary warming = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities(status: '保温中…'),
+      )!;
+      expect(warming.stopLabel, '停止保温');
+      expect(warming.cardActionLabel, '停止保温');
+
+      final KettleSummary cooling = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities(status: '降温中…'),
+      )!;
+      expect(cooling.stopLabel, '停止保温');
 
       final KettleSummary faulty = KettleSummary.tryBuild(
         deviceId: 'dev_k',

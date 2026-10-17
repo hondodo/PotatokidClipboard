@@ -438,6 +438,8 @@ void main() {
             height: 112,
             child: KettleWidget(
               summary: _kettle(),
+              onStart: () {},
+              onStop: () {},
               onOpenDetail: () {},
             ),
           ),
@@ -447,6 +449,7 @@ void main() {
 
     expect(find.textContaining('51', findRichText: true), findsOneWidget);
     expect(find.text('目标 100°C'), findsOneWidget);
+    expect(find.text('加热'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -547,6 +547,21 @@ class _ControlGrid extends StatelessWidget {
             if (kettle != null) {
               return KettleWidget(
                 summary: kettle,
+                onStart: kettle.startEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressNotifyAction(
+                            entityId: kettle.startEntityId!,
+                            message: kettle.startMessage,
+                          ),
+                        ),
+                onStop: kettle.stopEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressEntityButton(
+                            entityId: kettle.stopEntityId!,
+                          ),
+                        ),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );

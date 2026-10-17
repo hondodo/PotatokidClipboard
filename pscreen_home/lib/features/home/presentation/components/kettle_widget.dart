@@ -3,15 +3,20 @@ import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 
 /// 电热水瓶快捷卡片：当前水温 + 状态 + 模式 + 目标温度。
 ///
-/// 卡片不提供开始/停止动作，避免误触；点卡片进入详情操作。
+/// 右上角文字按钮：未运行时「加热」，运行中按阶段显示「停止加热 / 停止保温」；
+/// 点卡片其余区域进入详情。
 class KettleWidget extends StatelessWidget {
   const KettleWidget({
     super.key,
     required this.summary,
+    this.onStart,
+    this.onStop,
     this.onOpenDetail,
   });
 
   final KettleSummary summary;
+  final VoidCallback? onStart;
+  final VoidCallback? onStop;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF4DD0C4);
@@ -80,7 +85,7 @@ class KettleWidget extends StatelessWidget {
               ),
               const Spacer(),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
                   Text.rich(
                     TextSpan(
@@ -105,6 +110,23 @@ class KettleWidget extends StatelessWidget {
                     '目标 ${_format(summary.effectiveTargetTemperature)}°C',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: _accent,
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: active ? onStop : onStart,
+                    child: Text(
+                      summary.cardActionLabel,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],

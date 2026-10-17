@@ -99,7 +99,7 @@ class KettleControlPanel extends StatelessWidget {
                         : Icons.play_arrow_rounded,
                     size: 18,
                   ),
-                  label: Text(active ? '停止' : '开始加热'),
+                  label: Text(active ? summary.stopLabel : '开始加热'),
                 ),
               ],
             ),
