@@ -21,6 +21,7 @@ import 'package:pscreen_home/features/home/presentation/components/climate_displ
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
 
@@ -513,7 +514,7 @@ class _ControlGrid extends StatelessWidget {
                 Icon(Icons.lightbulb_outline_rounded,
                     size: 48, color: Colors.grey),
                 SizedBox(height: 16),
-                Text('没有找到可控制的灯或开关'),
+                Text('没有找到实体'),
               ],
             ),
           );
@@ -533,8 +534,9 @@ class _ControlGrid extends StatelessWidget {
           itemCount: groups.length,
           itemBuilder: (BuildContext context, int index) {
             final HaDeviceGroup group = groups[index];
-            final String areaLabel =
-                state.areaLabelFor(group.primary.entityId);
+            final String areaLabel = state.areaLabelFor(
+              group.primary?.entityId ?? group.entities.first.entityId,
+            );
 
             // 热水器：状态 / 当前水温 + 目标温度加减
             final WaterHeaterSummary? waterHeater =
@@ -569,8 +571,9 @@ class _ControlGrid extends StatelessWidget {
             final WasherSummary? washer =
                 group.deviceId == null ? null : washers[group.deviceId];
             if (washer != null) {
-              final String powerId =
-                  washer.powerEntityId ?? group.primary.entityId;
+              final String powerId = washer.powerEntityId ??
+                  group.primary?.entityId ??
+                  group.entities.first.entityId;
               return WasherWidget(
                 summary: washer,
                 isToggling: state.togglingIds.contains(powerId),
@@ -613,9 +616,13 @@ class _ControlGrid extends StatelessWidget {
               );
             }
 
-            // 单实体设备：原样式，点击即开关
+            // 单实体设备：可开关 → 点击即开关；数据 / 动作 / 不可用 → 静态展示
             if (!group.isMerged) {
-              final HaEntityStateModel entity = group.primary;
+              final HaEntityStateModel entity =
+                  group.primary ?? group.entities.first;
+              if (!entity.isSwitchable) {
+                return ValueWidget(entity: entity, areaLabel: areaLabel);
+              }
               final bool toggling =
                   state.togglingIds.contains(entity.entityId);
               void onTap() => context
@@ -643,20 +650,27 @@ class _ControlGrid extends StatelessWidget {
               );
             }
 
-            // 多实体设备：电源键切主实体，点卡片进详情页
+            // 多实体设备：电源键切主实体（若有），点卡片进详情页
+            final HaEntityStateModel? primary = group.primary;
             return DeviceWidget(
               group: group,
-              isToggling: group.isTogglingIn(state.togglingIds),
+              isToggling: primary != null &&
+                  group.isTogglingIn(state.togglingIds),
               areaLabel: areaLabel,
-              onTogglePrimary: () => context.read<HomeBloc>().add(
-                  ToggleEntity(entityId: group.primary.entityId)),
+              onTogglePrimary: () {
+                if (primary != null) {
+                  context
+                      .read<HomeBloc>()
+                      .add(ToggleEntity(entityId: primary.entityId));
+                }
+              },
               onOpenDetail: () => Injection.get<AppRouter>()
                   .push(RouteNames.deviceDetailPath(group.deviceId!)),
               onBrightnessChanged:
-                  group.primary.isLight && group.primary.supportsBrightness
+                  primary != null && primary.isLight && primary.supportsBrightness
                       ? (int percent) => context.read<HomeBloc>().add(
                             SetLightBrightness(
-                              entityId: group.primary.entityId,
+                              entityId: primary.entityId,
                               percent: percent,
                             ),
                           )

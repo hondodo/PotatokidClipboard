@@ -38,6 +38,21 @@ class HaEntityStateModel {
     'water_heater',
   };
 
+  /// 动作类实体域：执行一次性动作（按一下），无开关态，暂不支持交互
+  static const Set<String> actionDomains = <String>{
+    'button',
+    'event',
+    'notify',
+    'script',
+    'tts',
+    'conversation',
+    'todo',
+    'update',
+    'automation',
+    'scene',
+    'remote',
+  };
+
   /// 实体 id，如 light.bedroom_light
   final String entityId;
 
@@ -71,6 +86,25 @@ class HaEntityStateModel {
 
   /// 是否为快捷控件可控实体
   bool get isSwitchable => isAvailable && switchableDomains.contains(domain);
+
+  /// 是否不可用（unavailable / unknown）
+  bool get isUnavailable => !isAvailable;
+
+  /// 是否为动作类实体（无开关态，仅展示不交互）
+  bool get isAction => actionDomains.contains(domain);
+
+  /// 数据值 label：数据类实体的展示文案（如 `24.5 °C`、`开`、`55%`）。
+  ///
+  /// 拼接 state 与单位属性；on/off 中文化（binary_sensor 等）。
+  String get valueLabel {
+    final String unit = attributes['unit_of_measurement']?.toString() ?? '';
+    final String text = switch (state) {
+      'on' => '开',
+      'off' => '关',
+      _ => state,
+    };
+    return unit.isEmpty ? text : '$text $unit';
+  }
 
   /// 是否为灯光实体
   bool get isLight => domain == 'light';

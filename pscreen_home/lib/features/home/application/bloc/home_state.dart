@@ -53,11 +53,10 @@ class HomeState {
   final String? errorMessage;
   final NetErrorType? errorType;
 
-  /// 可筛选的房间：仅含有可控实体的房间，保持注册表顺序。
+  /// 可筛选的房间：含有任意实体的房间，保持注册表顺序。
   List<HaArea> get availableAreas {
     final Set<String> areaIds = <String>{};
     for (final HaEntityStateModel entity in entities.values) {
-      if (!entity.isSwitchable) continue;
       final String? areaId = registry.areaIdOf(entity.entityId);
       if (areaId != null) areaIds.add(areaId);
     }
@@ -112,7 +111,7 @@ class HomeState {
         .toList(growable: false);
   }
 
-  /// 可筛选家庭：仅含有可控实体的家庭，按注册表首次出现顺序；
+  /// 可筛选家庭：含有任意实体的家庭，按注册表首次出现顺序；
   /// 未分配家庭的房间不参与家庭标签（仅在「全部」下可见）。
   List<String> get availableHomes {
     final List<String> homes = <String>[];
@@ -143,7 +142,7 @@ class HomeState {
   /// 某房间内的设备卡数量（房间标签上的角标，与网格卡片数一致）。
   int areaCount(String areaId) => _areaDeviceCounts[areaId] ?? 0;
 
-  /// 某家庭内可控实体数量（家庭标签上的角标）。
+  /// 某家庭内设备卡数量（家庭标签上的角标）。
   int homeCount(String homeName) {
     int count = 0;
     for (final HaArea area in availableAreas) {
@@ -159,7 +158,6 @@ class HomeState {
   Map<String, int> get _areaDeviceCounts {
     final Map<String, String> areaByGroupKey = <String, String>{};
     for (final HaEntityStateModel e in entities.values) {
-      if (!e.isSwitchable) continue;
       final String? areaId = registry.areaIdOf(e.entityId);
       if (areaId == null) continue;
       final String groupKey =
@@ -209,10 +207,10 @@ class HomeState {
         _ => 4,
       };
 
-  /// 设备分组列表：同一物理设备的可控实体合并为一张卡片，
-  /// 供网格展示（家庭 ▸ 房间筛选与 [quickControls] 一致）。
+  /// 设备分组列表：同一物理设备的全部实体合并为一张卡片，供网格展示
+  /// （家庭 ▸ 房间筛选；不过滤 domain，数据/动作类也显示）。
   List<HaDeviceGroup> get deviceGroups => HaDeviceGroup.group(
-        entities: _filteredSwitchable,
+        entities: _filteredEntities,
         deviceIdOf: registry.deviceIdOf,
         deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
       );
@@ -269,13 +267,11 @@ class HomeState {
     return result;
   }
 
-  /// 指定设备的分组（详情页用，不受家庭/房间筛选影响）；不存在返回 null。
-  HaDeviceGroup? deviceGroupOf(String deviceId) {    final Map<String, HaEntityStateModel> all = <String, HaEntityStateModel>{
-      for (final HaEntityStateModel e in entities.values)
-        if (e.isSwitchable) e.entityId: e,
-    };
+  /// 指定设备的分组（详情页用，不受家庭/房间筛选影响，含全部实体）；
+  /// 不存在返回 null。
+  HaDeviceGroup? deviceGroupOf(String deviceId) {
     for (final HaDeviceGroup group in HaDeviceGroup.group(
-      entities: all,
+      entities: entities,
       deviceIdOf: registry.deviceIdOf,
       deviceNameOf: (String id) => registry.devices[id]?.name,
     )) {
@@ -301,6 +297,26 @@ class HomeState {
         if (e.isSwitchable &&
             (allowedAreaIds.isEmpty ||
             allowedAreaIds.contains(registry.areaIdOf(e.entityId))))
+          e.entityId: e,
+    };
+  }
+
+  /// 按家庭 + 房间两级筛选后的全部实体表（不过滤 domain / 可用性）。
+  Map<String, HaEntityStateModel> get _filteredEntities {
+    final String home = effectiveHomeName;
+    final String areaId = effectiveAreaId;
+    final Set<String> allowedAreaIds = <String>{};
+    if (areaId.isNotEmpty) {
+      allowedAreaIds.add(areaId);
+    } else if (home.isNotEmpty) {
+      for (final HaArea area in availableAreas) {
+        if (area.homeName == home) allowedAreaIds.add(area.areaId);
+      }
+    }
+    return <String, HaEntityStateModel>{
+      for (final HaEntityStateModel e in entities.values)
+        if (allowedAreaIds.isEmpty ||
+            allowedAreaIds.contains(registry.areaIdOf(e.entityId)))
           e.entityId: e,
     };
   }

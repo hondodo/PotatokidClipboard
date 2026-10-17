@@ -62,7 +62,7 @@ void main() {
         ])
           e.entityId: e,
       }).first;
-      expect(lightDevice.primary.entityId, 'light.shared_main');
+      expect(lightDevice.primary!.entityId, 'light.shared_main');
       expect(
         lightDevice.entities.first.entityId,
         'light.shared_main',
@@ -77,7 +77,7 @@ void main() {
         ])
           e.entityId: e,
       }).first;
-      expect(plugDevice.primary.entityId, 'switch.shared_power');
+      expect(plugDevice.primary!.entityId, 'switch.shared_power');
     });
 
     test('主实体选取：优先真正电源开关，而不是提示音 / 静音', () {
@@ -107,8 +107,8 @@ void main() {
           e.entityId: e,
       }).first;
 
-      expect(washer.primary.entityId, 'switch.shared_on_p_2_1');
-      expect(washer.primary.displayName, contains('开关'));
+      expect(washer.primary!.entityId, 'switch.shared_on_p_2_1');
+      expect(washer.primary!.displayName, contains('开关'));
       expect(
         washer.entities.first.entityId,
         'switch.shared_on_p_2_1',
@@ -132,7 +132,41 @@ void main() {
         ])
           e.entityId: e,
       }).first;
-      expect(washer.primary.entityId, 'switch.shared_on_p_2_1');
+      expect(washer.primary!.entityId, 'switch.shared_on_p_2_1');
+    });
+
+    test('全实体分组：纯数据/动作设备 primary 为空，状态显示可用数', () {
+      final HaDeviceGroup group = _group(<String, HaEntityStateModel>{
+        for (final HaEntityStateModel e in <HaEntityStateModel>[
+          _entity('sensor.shared_temp', '24.5', name: '阳台温度'),
+          _entity('binary_sensor.shared_motion', 'off', name: '阳台人体'),
+          _entity('button.shared_action', 'unknown', name: '阳台按钮'),
+        ])
+          e.entityId: e,
+      }).first;
+
+      expect(group.isMerged, isTrue);
+      expect(group.primary, isNull, reason: '没有可开关实体');
+      expect(group.isUnavailable, isFalse);
+      expect(group.availableCount, 2);
+      expect(group.statusLabel, '可用 2/3',
+          reason: 'unknown 的 button 不可用，但仍占一个实体');
+      expect(group.isTogglingIn(<String>{}), isFalse);
+    });
+
+    test('开关 + 传感器：主实体仍是开关，传感器排在组内后面', () {
+      final HaDeviceGroup group = _group(<String, HaEntityStateModel>{
+        for (final HaEntityStateModel e in <HaEntityStateModel>[
+          _entity('sensor.shared_temp', '24.5', name: '阳台温度'),
+          _entity('switch.shared_power', 'on', name: '阳台植物灯 开关'),
+        ])
+          e.entityId: e,
+      }).first;
+
+      expect(group.primary!.entityId, 'switch.shared_power');
+      expect(group.statusLabel, '已开启 1/1');
+      expect(group.entities.last.entityId, 'sensor.shared_temp',
+          reason: '数据类实体排在开关之后');
     });
 
     test('聚合状态：已关闭 / 已开启 x/y', () {
@@ -173,7 +207,7 @@ void main() {
           e.entityId: e,
       });
 
-      expect(groups.first.primary.domain, 'light', reason: '灯类设备排最前');
+      expect(groups.first.primary!.domain, 'light', reason: '灯类设备排最前');
       expect(
         groups.skip(1).map((HaDeviceGroup g) => g.title).toList(),
         <String>['solo_a', 'solo_b'],

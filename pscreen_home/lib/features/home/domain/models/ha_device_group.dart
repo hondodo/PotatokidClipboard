@@ -1,20 +1,23 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 
-/// 设备分组：同一物理设备下的全部可控实体，合并为网格上的一张卡片。
+/// 设备分组：同一物理设备下的**全部实体**，合并为网格上的一张卡片。
 ///
-/// 一个 HA 设备（device_registry 条目）常暴露多个可控实体
-/// （如米家风扇灯 = 灯 + 凌动开关 + 延时 + 夜灯 + 墙壁开关…共 9 个），
-/// 逐实体铺卡会把同一物理设备拆成十几张。分组后：
+/// 一个 HA 设备（device_registry 条目）常暴露多个实体
+/// （如米家风扇灯 = 灯 + 凌动开关 + 延时 + 夜灯 + 传感器…），逐实体铺卡
+/// 会把同一物理设备拆成十几张。分组后：
 ///
-/// - [title]：设备名（注册表 name_by_user > name，缺失回退主实体显示名）；
-/// - [entities]：该设备全部可控实体（已按优先级排序，主实体在首位）；
-/// - [primary]：主实体，外层卡片的快捷开关只操作它
-///   （真灯 > 空调 / 热水器 > 主电源开关 > 其他 switch > 指示灯类 light）；
-/// - 聚合状态：[onCount] / [allOff] / [statusLabel]，供外层卡片展示
-///   「已开启 2/9」这类必要详情。
+/// - [title]：设备名（注册表 name_by_user > name，缺失回退首个实体显示名）；
+/// - [entities]：该设备全部实体（可用在前，不可用在后；可用部分按
+///   真灯 > 空调/热水器 > 主电源开关 > 其他 switch > 指示灯 > 数据/动作排序，
+///   主实体永远排首位）；
+/// - [primary]：主实体（可开关域内选取），外层卡片快捷开关只操作它；
+///   组内无可开关实体时为 null，卡片不显示电源键；
+/// - 聚合状态：[statusLabel]，开关类显示「已开启 x/y」，纯数据显示
+///   「可用 x/y」，全部离线显示「不可用」。
 ///
-/// 无设备归属的实体自成一组（deviceId 为 null，title 用主实体显示名），
-/// 保证注册表降级为空时网格退化为「一实体一卡」，功能不受影响。
+/// **不按 domain 过滤**：数据类（sensor 等）以值 label 展示、
+/// 动作类（button 等）展示但不交互、unavailable 置灰排组内末尾——
+/// 全部实体可见，避免「HA 里有、面板上找不到」的困惑。
 class HaDeviceGroup {
   HaDeviceGroup({
     required this.deviceId,
@@ -27,18 +30,11 @@ class HaDeviceGroup {
   }
 
   /// 按设备归属分组。
-  ///
-  /// [entities]：全部可控实体（switchable）；
-  /// [deviceIdOf]：实体 id → 设备 id（HaRegistry.deviceIdOf）；
-  /// [deviceNameOf]：设备 id → 设备名（HaRegistry.devices 查名）。
-  ///
-  /// 返回的分组按主实体域排序（灯在前），每组内部主实体在首位。
   static List<HaDeviceGroup> group({
     required Map<String, HaEntityStateModel> entities,
     required String? Function(String entityId) deviceIdOf,
     required String? Function(String deviceId) deviceNameOf,
   }) {
-    // 按设备 id 聚合；无归属实体各自成组（key 用实体 id 保证唯一）
     final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel e in entities.values) {
@@ -58,26 +54,31 @@ class HaDeviceGroup {
       ));
     });
 
-    groups.sort((HaDeviceGroup a, HaDeviceGroup b) {
-      // 灯类设备在前（与实体级排序「灯在前开关在后」保持一致）
-      final int byDomain =
-          _primaryWeight(a.primary).compareTo(_primaryWeight(b.primary));
-      return byDomain != 0 ? byDomain : a.title.compareTo(b.title);
-    });
+    groups.sort(_compareGroups);
     return groups;
   }
 
   /// 所属设备 id（null = 无设备归属，仅一个实体）
   final String? deviceId;
 
-  /// 设备名（无设备归属时为主实体显示名）
+  /// 设备名（无设备归属时为实体显示名）
   final String title;
 
-  /// 该设备的可控实体（已排序，主实体在首位）
+  /// 该设备的全部实体（已排序，主实体在首位）
   final List<HaEntityStateModel> entities;
 
-  /// 主实体：外层卡片快捷开关的操作目标
-  HaEntityStateModel get primary => entities.first;
+  /// 组内可开关实体
+  Iterable<HaEntityStateModel> get switchableEntities =>
+      entities.where((HaEntityStateModel e) => e.isSwitchable);
+
+  /// 主实体：外层卡片快捷开关的操作目标。
+  /// 组内无可开关实体时为 null（纯数据 / 动作 / 全离线设备）。
+  HaEntityStateModel? get primary {
+    for (final HaEntityStateModel e in entities) {
+      if (e.isSwitchable) return e;
+    }
+    return null;
+  }
 
   /// 组内空调实体（首页用它渲染温度卡片），没有则为 null
   HaEntityStateModel? get climate {
@@ -98,46 +99,71 @@ class HaDeviceGroup {
   /// 是否为多实体设备（单实体卡片可保留轻量样式）
   bool get isMerged => entities.length > 1;
 
-  /// 已开启数量
-  int get onCount => entities.where((HaEntityStateModel e) => e.isOn).length;
+  /// 组内是否全部不可用（卡片置灰、不可点击）
+  bool get isUnavailable =>
+      entities.every((HaEntityStateModel e) => e.isUnavailable);
 
-  /// 是否有实体处于开启
-  bool get anyOn => entities.any((HaEntityStateModel e) => e.isOn);
+  /// 组内可用实体数
+  int get availableCount =>
+      entities.where((HaEntityStateModel e) => e.isAvailable).length;
 
-  /// 是否全部关闭
+  /// 可开关实体中已开启数量
+  int get onCount =>
+      switchableEntities.where((HaEntityStateModel e) => e.isOn).length;
+
+  /// 可开关实体总数
+  int get switchableCount => switchableEntities.length;
+
+  /// 是否有可开关实体处于开启
+  bool get anyOn => onCount > 0;
+
+  /// 是否全部关闭（无开启的可开关实体）
   bool get allOff => onCount == 0;
 
-  /// 聚合状态文案：全部关闭 → 「已关闭」；有开启 → 「已开启 x/y」
-  String get statusLabel => allOff
-      ? '已关闭'
-      : anyOn
-          ? '已开启 $onCount/${entities.length}'
-          : '不可用';
+  /// 聚合状态文案：
+  /// - 全部离线 → 「不可用」；
+  /// - 有可开关实体 → 全关「已关闭」/ 开「已开启 x/y」；
+  /// - 无开关类（纯数据/动作）→ 「可用 x/y」。
+  String get statusLabel {
+    if (isUnavailable) return '不可用';
+    if (switchableCount == 0) return '可用 $availableCount/${entities.length}';
+    return onCount == 0 ? '已关闭' : '已开启 $onCount/$switchableCount';
+  }
 
   /// 任一实体指令执行中（外层卡片显示 loading）
   bool isTogglingIn(Set<String> togglingIds) =>
       entities.any((HaEntityStateModel e) => togglingIds.contains(e.entityId));
 
-  /// 组内排序 + 主实体选取：真灯(0) > 空调(1) > 主电源开关(2) >
-  /// 其他 switch(3) > 指示灯类 light(4)。
-  ///
-  /// 不能只按 switch 名称排序：米家设备的实体名形如
-  /// 「米家洗衣机 洗烘12kg  提示音 提示音」「… 洗衣机 开关」，
-  /// 「提」排在「洗」前会把提示音/静音误选成主开关。
+  /// 组间排序：全不可用组排最后，其余按主实体权重，再按设备名。
+  static int _compareGroups(HaDeviceGroup a, HaDeviceGroup b) {
+    if (a.isUnavailable != b.isUnavailable) return a.isUnavailable ? 1 : -1;
+    final int byWeight = _sortWeight(a.primary ?? a.entities.first)
+        .compareTo(_sortWeight(b.primary ?? b.entities.first));
+    return byWeight != 0 ? byWeight : a.title.compareTo(b.title);
+  }
+
+  /// 组内排序：可用在前、不可用在后；可用部分按主实体权重。
   static List<HaEntityStateModel> _sorted(List<HaEntityStateModel> list) {
     list.sort((HaEntityStateModel a, HaEntityStateModel b) {
-      final int byWeight = _primaryWeight(a).compareTo(_primaryWeight(b));
+      if (a.isUnavailable != b.isUnavailable) return a.isUnavailable ? 1 : -1;
+      final int byWeight = _sortWeight(a).compareTo(_sortWeight(b));
       return byWeight != 0 ? byWeight : a.displayName.compareTo(b.displayName);
     });
     return list;
   }
 
-  static int _primaryWeight(HaEntityStateModel e) {
-    final String name = e.displayName;
-    final bool indicatorLike = name.contains('指示灯') ||
-        name.contains('夜灯') ||
-        name.contains('氛围灯');
-    if (e.domain == 'light') return indicatorLike ? 4 : 0;
+  /// 实体排序权重：
+  /// 真灯(0) > 空调/热水器(1) > 主电源开关(2) > 其他 switch(3) >
+  /// 指示灯类 light(4) > 数据/动作类(5)。
+  static int _sortWeight(HaEntityStateModel e) {
+    if (!e.isSwitchable) return 5;
+    if (e.domain == 'light') {
+      final String name = e.displayName;
+      final bool indicatorLike = name.contains('指示灯') ||
+          name.contains('夜灯') ||
+          name.contains('氛围灯');
+      return indicatorLike ? 4 : 0;
+    }
     if (e.domain == 'climate' || e.domain == 'water_heater') return 1;
     if (e.domain == 'switch') return _isMainPowerSwitch(e) ? 2 : 3;
     return 3;
@@ -146,8 +172,7 @@ class HaDeviceGroup {
   /// 是否为设备的真正电源开关（而非提示音、睡眠模式等设置开关）。
   ///
   /// 小米设备的电源实体通常是 `switch.*_on_p_2_1`；名称兜底只认
-  /// 最后一段恰好为「开关 / 电源 / 总开关 / 主开关」，避免把
-  /// 「高水位开关」「物理控制锁」误判成主电源。
+  /// 最后一段恰好为「开关 / 电源 / 总开关 / 主开关」。
   static bool _isMainPowerSwitch(HaEntityStateModel e) {
     if (e.domain != 'switch') return false;
     final String id = e.entityId.toLowerCase();

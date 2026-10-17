@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
+import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
 
-/// 设备合并卡片：同一物理设备的多个可控实体聚合为一张卡。
+/// 设备合并卡片：同一物理设备的全部实体聚合为一张卡。
 ///
-/// 外层展示设备名 + 聚合状态 + 房间；主实体是支持调光的灯时，底部附带
-/// 亮度滑条与百分比（与单灯卡片一致）。右侧电源键只切主实体，点击卡片
-/// 其余区域进入设备详情页逐实体控制。
+/// 形态随分组内容变化：
+/// - 有可开关主实体：右侧电源键切主实体；主实体是灯时附带亮度滑条；
+/// - 纯数据 / 动作设备：不显示电源键，仅展示聚合状态；
+/// - 组内全部不可用：整体置灰、不可点击。
 ///
-/// 仅用于多实体设备（[HaDeviceGroup.isMerged]）；
-/// 单实体设备继续用 [LightWidget] / [ButtonWidget] / [ClimateWidget]。
+/// 点击卡片其余区域进入设备详情页逐实体查看 / 控制。
 class DeviceWidget extends StatelessWidget {
   const DeviceWidget({
     super.key,
@@ -27,7 +28,7 @@ class DeviceWidget extends StatelessWidget {
   /// 主实体指令执行中
   final bool isToggling;
 
-  /// 快捷电源键：切换主实体开关
+  /// 快捷电源键：切换主实体（无主实体时不显示电源键）
   final VoidCallback onTogglePrimary;
 
   /// 点击卡片：进入设备详情页
@@ -44,13 +45,15 @@ class DeviceWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final HaEntityStateModel primary = group.primary;
-    final bool on = primary.isOn;
-    final bool available = primary.isAvailable;
-    final bool isLight = primary.isLight;
-    final bool canDim = isLight &&
+    final HaEntityStateModel? primary = group.primary;
+    final bool available = !group.isUnavailable;
+    final bool on = primary?.isOn ?? false;
+    final String domain = primary?.domain ?? group.entities.first.domain;
+    final bool isLight = domain == 'light';
+    final bool canDim = primary != null &&
+        primary.isLight &&
         primary.supportsBrightness &&
-        available &&
+        primary.isAvailable &&
         onBrightnessChanged != null;
     final Color accent = on
         ? (isLight ? _lightAccent : theme.colorScheme.primary)
@@ -64,7 +67,7 @@ class DeviceWidget extends StatelessWidget {
           ? theme.colorScheme.surfaceContainerHighest
           : theme.colorScheme.surfaceContainerLowest,
       child: InkWell(
-        onTap: onOpenDetail,
+        onTap: available ? onOpenDetail : null,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
           child: Column(
@@ -90,9 +93,7 @@ class DeviceWidget extends StatelessWidget {
                             ),
                           )
                         : Icon(
-                            isLight
-                                ? Icons.lightbulb_rounded
-                                : Icons.devices_rounded,
+                            HaDomainIcons.of(domain),
                             color: accent,
                             size: 21,
                           ),
@@ -145,27 +146,28 @@ class DeviceWidget extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  // 快捷电源键：只切主实体；卡片其余区域进详情页
-                  IconButton(
-                    tooltip: '开关主控',
-                    visualDensity: VisualDensity.compact,
-                    onPressed:
-                        available && !isToggling ? onTogglePrimary : null,
-                    icon: isToggling
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                  // 快捷电源键：仅当存在可开关主实体时显示
+                  if (primary != null)
+                    IconButton(
+                      tooltip: '开关主控',
+                      visualDensity: VisualDensity.compact,
+                      onPressed:
+                          available && !isToggling ? onTogglePrimary : null,
+                      icon: isToggling
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: accent,
+                              ),
+                            )
+                          : Icon(
+                              Icons.power_settings_new_rounded,
                               color: accent,
+                              size: 22,
                             ),
-                          )
-                        : Icon(
-                            Icons.power_settings_new_rounded,
-                            color: accent,
-                            size: 22,
-                          ),
-                  ),
+                    ),
                 ],
               ),
               if (canDim) ...<Widget>[

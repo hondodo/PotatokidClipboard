@@ -273,6 +273,13 @@ void main() {
       );
       expect(bloc.state.isLoading, isFalse);
       expect(bloc.state.errorMessage, isNull);
+
+      // 全实体分组：sensor 也会成组，但没有可开关主实体
+      expect(bloc.state.deviceGroups.length, 3);
+      final HaDeviceGroup sensorGroup = bloc.state.deviceGroups
+          .firstWhere((HaDeviceGroup g) => g.title == 'sensor.temp');
+      expect(sensorGroup.primary, isNull);
+      expect(sensorGroup.statusLabel, contains('可用'));
     });
 
     test('LoadHome 失败：写入 errorMessage 与 errorType', () async {
@@ -596,7 +603,7 @@ void main() {
           groups.singleWhere((HaDeviceGroup g) => g.deviceId == 'dev_fan');
       expect(fan.title, '风扇灯');
       expect(fan.isMerged, isTrue);
-      expect(fan.primary.entityId, 'light.fan_light',
+      expect(fan.primary!.entityId, 'light.fan_light',
           reason: '真灯应被选为主实体');
       expect(fan.onCount, 1);
       expect(fan.statusLabel, '已开启 1/2');

@@ -10,6 +10,7 @@ import 'package:pscreen_home/features/home/domain/models/water_heater_summary.da
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_schedule_sheet.dart';
@@ -54,15 +55,24 @@ class DeviceDetailPage extends StatelessWidget {
           final WasherSummary? washer = state.washerSummaries[deviceId];
           final WaterHeaterSummary? waterHeater =
               state.waterHeaterSummaries[deviceId];
-          final String washerPowerId =
-              washer?.powerEntityId ?? group.primary.entityId;
+          final String washerPowerId = washer?.powerEntityId ??
+              group.primary?.entityId ??
+              group.entities.first.entityId;
           final Set<String> hiddenIds = <String>{
             if (washer?.powerEntityId != null) washer!.powerEntityId!,
+            if (washer?.modeEntityId != null) washer!.modeEntityId!,
+            if (washer?.startEntityId != null) washer!.startEntityId!,
+            if (washer?.pauseEntityId != null) washer!.pauseEntityId!,
+            if (washer?.stopEntityId != null) washer!.stopEntityId!,
             if (waterHeater != null) waterHeater.entity.entityId,
             if (waterHeater?.preheatEntityId != null)
               waterHeater!.preheatEntityId!,
             if (waterHeater?.timerPreheatEntityId != null)
               waterHeater!.timerPreheatEntityId!,
+            if (waterHeater?.scheduleEntityId != null)
+              waterHeater!.scheduleEntityId!,
+            if (waterHeater?.usageEntityId != null)
+              waterHeater!.usageEntityId!,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -77,8 +87,7 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus =
                 waterHeater.hasFault ? '故障' : waterHeater.statusLabel;
           } else {
-            headerStatus =
-                '${group.onCount}/${group.entities.length} 已开启';
+            headerStatus = group.statusLabel;
           }
 
           return Scaffold(
@@ -292,6 +301,10 @@ class DeviceDetailPage extends StatelessWidget {
                           effect: effect,
                         )),
                   );
+                }
+
+                if (!entity.isSwitchable) {
+                  return ValueWidget(entity: entity, areaLabel: areaLabel);
                 }
 
                 return ButtonWidget(

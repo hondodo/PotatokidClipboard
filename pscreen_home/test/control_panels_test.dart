@@ -7,6 +7,7 @@ import 'package:pscreen_home/features/home/presentation/components/climate_contr
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
@@ -304,6 +305,34 @@ void main() {
           .onPressed,
       isNotNull,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ValueWidget：传感器显示值与单位', (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: ValueWidget(
+              entity: const HaEntityStateModel(
+                entityId: 'sensor.temperature',
+                state: '24.5',
+                attributes: <String, dynamic>{
+                  'friendly_name': '阳台温度',
+                  'unit_of_measurement': '°C',
+                },
+              ),
+              areaLabel: '阳台',
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('阳台温度'), findsOneWidget);
+    expect(find.textContaining('24.5 °C', findRichText: true), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

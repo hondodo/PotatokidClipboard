@@ -99,7 +99,7 @@ lib/
 │       │   ├── pages/
 │       │   │   ├── home_controll_board.dart    # 主页（家庭 ▸ 房间筛选 + 设备网格）
 │       │   │   └── device_detail_page.dart     # 设备详情页（逐实体控制）
-│       │   └── components/            # light/climate_widget、device_widget、*_control_panel
+│       │   └── components/            # light/climate_widget、device_widget、value_widget、*_control_panel
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
@@ -366,5 +366,10 @@ void main() {
     聚合用水、用气与次数并画柱状图；定时设置解析并写回
     `text.*_preheat_timer` 的 `类型&开始&结束&开关&id` 五槽位编码串。
     重复类型暂支持仅一次 / 每天。
+  - **✅ 全实体展示**：首页网格与详情页不再只显示可控实体；同一设备下的
+    sensor / binary_sensor / button / event / 不可用实体也参与分组。
+    非可控实体用 `ValueWidget` 静态展示值或「暂不支持操作」，按
+    `HaDomainIcons` 取图标；纯数据设备 `HaDeviceGroup.primary` 为 null，
+    不显示电源键；组内全部不可用时整卡置灰。
 - **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
 - **M5** 部署：屏幕常亮（wakelock）、开机自启、kiosk 模式（按目标设备选型）。

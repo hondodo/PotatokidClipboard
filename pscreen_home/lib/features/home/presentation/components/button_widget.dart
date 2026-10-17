@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
 
 /// 按钮类开关控件卡片（switch 等可开关域）。
 ///
@@ -29,12 +30,6 @@ class ButtonWidget extends StatelessWidget {
 
   /// 开启时的主题色（子类如 LightWidget 覆盖）
   final Color? activeColor;
-
-  static const Map<String, IconData> _domainIcons = <String, IconData>{
-    'switch': Icons.toggle_on_rounded,
-    'fan': Icons.air_rounded,
-    'light': Icons.lightbulb_rounded,
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +70,7 @@ class ButtonWidget extends StatelessWidget {
                         ),
                       )
                     : Icon(
-                        icon ?? _domainIcons[entity.domain] ?? Icons.devices_rounded,
+                        icon ?? HaDomainIcons.of(entity.domain),
                         color: accent,
                         size: 24,
                       ),
