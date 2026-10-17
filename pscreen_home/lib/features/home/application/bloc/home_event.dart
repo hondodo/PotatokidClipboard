@@ -187,6 +187,19 @@ class SetWaterHeaterOperationMode extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 写入 text 实体（热水器定时预热编码串）。
+class SetTextEntityValue extends HomeEvent {
+  const SetTextEntityValue({
+    required this.entityId,
+    required this.value,
+    this.completer,
+  });
+
+  final String entityId;
+  final String value;
+  final Completer<bool>? completer;
+}
+
 /// 清除错误提示（页面展示 SnackBar 后调用）。
 class ClearHomeError extends HomeEvent {
   const ClearHomeError();

@@ -1,5 +1,6 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 
 /// 主页数据仓库（抽象接口，只定义方法签名）
 abstract class HomeRepository {
@@ -81,5 +82,18 @@ abstract class HomeRepository {
   Future<void> setWaterHeaterOperationMode({
     required String entityId,
     required String mode,
+  });
+
+  /// 读取热水器使用记录（按时间范围拉 event 历史）
+  Future<List<WaterUsageRecord>> fetchWaterUsageRecords({
+    required String entityId,
+    required DateTime start,
+    required DateTime end,
+  });
+
+  /// 写入 text 实体（热水器定时预热编码串）
+  Future<void> setTextValue({
+    required String entityId,
+    required String value,
   });
 }

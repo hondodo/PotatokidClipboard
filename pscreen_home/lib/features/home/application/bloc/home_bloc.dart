@@ -36,6 +36,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<SelectEntityOption>(_onSelectEntityOption);
     on<SetWaterHeaterTemperature>(_onSetWaterHeaterTemperature);
     on<SetWaterHeaterOperationMode>(_onSetWaterHeaterOperationMode);
+    on<SetTextEntityValue>(_onSetTextEntityValue);
     on<ClearHomeError>(_onClearHomeError);
     _subscription = _repository.watchStateChanges().listen(
           (entity) => add(EntityStateChanged(entity)),
@@ -489,6 +490,29 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       action: () => _repository.setWaterHeaterOperationMode(
         entityId: current.entityId,
         mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetTextEntityValue(
+    SetTextEntityValue event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        current.domain != 'text' ||
+        !current.isAvailable) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.copyWith(state: event.value),
+      action: () => _repository.setTextValue(
+        entityId: current.entityId,
+        value: event.value,
       ),
       completer: event.completer,
     );

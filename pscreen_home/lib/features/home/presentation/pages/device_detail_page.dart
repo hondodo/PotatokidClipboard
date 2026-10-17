@@ -12,6 +12,8 @@ import 'package:pscreen_home/features/home/presentation/components/climate_contr
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_heater_schedule_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_usage_sheet.dart';
 
 /// 设备详情页：一个物理设备的全部可控实体。
 ///
@@ -178,6 +180,48 @@ class DeviceDetailPage extends StatelessWidget {
                         : () => context
                             .read<HomeBloc>()
                             .add(ToggleEntity(entityId: timerId)),
+                    onShowUsage: waterHeater.usageEntityId == null
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              useSafeArea: true,
+                              builder: (BuildContext sheetContext) =>
+                                  FractionallySizedBox(
+                                heightFactor: 0.92,
+                                child: WaterUsageSheet(
+                                  entityId: waterHeater.usageEntityId!,
+                                  title: waterHeater.name,
+                                ),
+                              ),
+                            ),
+                    onEditSchedule: waterHeater.scheduleEntityId == null
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              useSafeArea: true,
+                              builder: (BuildContext sheetContext) =>
+                                  FractionallySizedBox(
+                                heightFactor: 0.9,
+                                child: WaterHeaterScheduleSheet(
+                                  scheduleText: waterHeater.scheduleText,
+                                  masterOn: waterHeater.timerPreheatOn,
+                                  onWrite: (String value) => context
+                                      .read<HomeBloc>()
+                                      .add(SetTextEntityValue(
+                                        entityId:
+                                            waterHeater.scheduleEntityId!,
+                                        value: value,
+                                      )),
+                                  onMasterToggle: timerId == null
+                                      ? null
+                                      : () => context
+                                          .read<HomeBloc>()
+                                          .add(ToggleEntity(entityId: timerId)),
+                                ),
+                              ),
+                            ),
                   );
                 }
 

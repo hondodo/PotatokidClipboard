@@ -13,6 +13,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart'
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 内存版 HomeRepository：可控成功/失败，可注入实时状态事件
@@ -36,6 +37,8 @@ class _FakeHomeRepository implements HomeRepository {
   final List<(String, String)> selectCalls = <(String, String)>[];
   final List<(String, double)> waterHeaterTempCalls = <(String, double)>[];
   final List<(String, String)> waterHeaterModeCalls = <(String, String)>[];
+  final List<(String, String)> textCalls = <(String, String)>[];
+  List<WaterUsageRecord> usageRecords = <WaterUsageRecord>[];
   final StreamController<HaEntityStateModel> _events =
       StreamController<HaEntityStateModel>.broadcast();
 
@@ -153,6 +156,22 @@ class _FakeHomeRepository implements HomeRepository {
     required String mode,
   }) async {
     waterHeaterModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<List<WaterUsageRecord>> fetchWaterUsageRecords({
+    required String entityId,
+    required DateTime start,
+    required DateTime end,
+  }) async => usageRecords;
+
+  @override
+  Future<void> setTextValue({
+    required String entityId,
+    required String value,
+  }) async {
+    textCalls.add((entityId, value));
     _throwControlError();
   }
 
@@ -948,6 +967,15 @@ void main() {
               attributes: const <String, dynamic>{
                 'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器 工作状态',
               }),
+          _entity(
+            'text.wh_timer',
+            '0&2315&2316&0&0-0&0000&0000&0&9-0&0000&0000&0&9'
+            '-0&0000&0000&0&9-0&0000&0000&0&9',
+            attributes: const <String, dynamic>{
+              'friendly_name':
+                  '米家智能零冷水燃气热水器16L N1  热水器 预热定时（格式规范）',
+            },
+          ),
         ],
       )
         ..registry = const HaRegistry(
@@ -961,6 +989,7 @@ void main() {
             'water_heater.wh': 'dev_wh',
             'switch.wh_preheat': 'dev_wh',
             'sensor.wh_status': 'dev_wh',
+            'text.wh_timer': 'dev_wh',
           },
         );
       bloc = HomeBloc(repository: repo);
@@ -1017,6 +1046,25 @@ void main() {
       expect(repo.toggleCalls,
           <(String, bool)>[('water_heater.wh', false)]);
       expect(bloc.state.entities['water_heater.wh']!.isOn, isFalse);
+    });
+
+    test('写入定时预热编码串', () async {
+      const String value =
+          '0&2315&2316&1&0-0&0000&0000&0&9-0&0000&0000&0&9'
+          '-0&0000&0000&0&9-0&0000&0000&0&9';
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetTextEntityValue(
+            entityId: 'text.wh_timer',
+            value: value,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(repo.textCalls, <(String, String)>[('text.wh_timer', value)]);
+      expect(bloc.state.entities['text.wh_timer']!.state, value);
     });
   });
 

@@ -3,6 +3,7 @@ import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 主页数据仓库实现：通过 WebSocket 客户端访问 Home Assistant。
@@ -292,6 +293,48 @@ class HomeRepositoryImpl implements HomeRepository {
       service: 'set_operation_mode',
       entityId: entityId,
       serviceData: <String, dynamic>{'operation_mode': mode},
+    );
+  }
+
+  @override
+  Future<List<WaterUsageRecord>> fetchWaterUsageRecords({
+    required String entityId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final Map<String, dynamic> msg = await _client.request(
+      'history/history_during_period',
+      <String, dynamic>{
+        'start_time': start.toUtc().toIso8601String(),
+        'end_time': end.toUtc().toIso8601String(),
+        'entity_ids': <String>[entityId],
+        'minimal_response': false,
+        'no_attributes': false,
+        'significant_changes_only': false,
+      },
+    );
+    final Object? result = msg['result'];
+    if (result is! Map) return const <WaterUsageRecord>[];
+    final Object? rawList = result[entityId];
+    if (rawList is! List) return const <WaterUsageRecord>[];
+    return rawList
+        .whereType<Map>()
+        .map((Map<dynamic, dynamic> item) =>
+            WaterUsageRecord.fromHistoryItem(Map<String, dynamic>.from(item)))
+        .whereType<WaterUsageRecord>()
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> setTextValue({
+    required String entityId,
+    required String value,
+  }) {
+    return _client.callService(
+      domain: 'text',
+      service: 'set_value',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'value': value},
     );
   }
 }

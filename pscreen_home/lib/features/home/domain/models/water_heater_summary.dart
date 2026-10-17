@@ -18,6 +18,9 @@ class WaterHeaterSummary {
     this.preheatOn = false,
     this.timerPreheatEntityId,
     this.timerPreheatOn = false,
+    this.usageEntityId,
+    this.scheduleEntityId,
+    this.scheduleText,
   });
 
   /// 从设备全部实体中解析；没有 water_heater 主实体时返回 null。
@@ -62,6 +65,17 @@ class WaterHeaterSummary {
       preheatOn: preheat?.isOn ?? false,
       timerPreheatEntityId: timerPreheat?.entityId,
       timerPreheatOn: timerPreheat?.isOn ?? false,
+      usageEntityId: _bySuffix(entities, '使用记录', domain: 'event')?.entityId,
+      scheduleEntityId: _findByContains(
+        entities,
+        '预热定时',
+        domain: 'text',
+      )?.entityId,
+      scheduleText: _findByContains(
+        entities,
+        '预热定时',
+        domain: 'text',
+      )?.state,
     );
   }
 
@@ -87,6 +101,15 @@ class WaterHeaterSummary {
   final bool preheatOn;
   final String? timerPreheatEntityId;
   final bool timerPreheatOn;
+
+  /// 使用记录事件实体（event.*_usage_record）
+  final String? usageEntityId;
+
+  /// 预热定时编码串的 text 实体
+  final String? scheduleEntityId;
+
+  /// 预热定时编码串当前值
+  final String? scheduleText;
 
   bool get isOn => entity.isOn;
 
@@ -153,6 +176,18 @@ class WaterHeaterSummary {
   ) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != 'sensor') continue;
+      if (entity.displayName.contains(keyword)) return entity;
+    }
+    return null;
+  }
+
+  static HaEntityStateModel? _findByContains(
+    Iterable<HaEntityStateModel> entities,
+    String keyword, {
+    required String domain,
+  }) {
+    for (final HaEntityStateModel entity in entities) {
+      if (entity.domain != domain) continue;
       if (entity.displayName.contains(keyword)) return entity;
     }
     return null;

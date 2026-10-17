@@ -17,6 +17,8 @@ class WaterHeaterControlPanel extends StatelessWidget {
     required this.onModeSelected,
     this.onPreheatToggle,
     this.onTimerPreheatToggle,
+    this.onShowUsage,
+    this.onEditSchedule,
   });
 
   final WaterHeaterSummary summary;
@@ -26,6 +28,8 @@ class WaterHeaterControlPanel extends StatelessWidget {
   final ValueChanged<String> onModeSelected;
   final VoidCallback? onPreheatToggle;
   final VoidCallback? onTimerPreheatToggle;
+  final VoidCallback? onShowUsage;
+  final VoidCallback? onEditSchedule;
 
   static const Color _accent = Color(0xFFFF8A65);
 
@@ -250,6 +254,19 @@ class WaterHeaterControlPanel extends StatelessWidget {
                 value: summary.timerPreheatOn,
                 onChanged: onTimerPreheatToggle,
               ),
+            const SizedBox(height: 8),
+            if (summary.usageEntityId != null)
+              _LinkRow(
+                icon: Icons.bar_chart_rounded,
+                label: '使用记录',
+                onTap: onShowUsage,
+              ),
+            if (summary.scheduleEntityId != null)
+              _LinkRow(
+                icon: Icons.calendar_month_rounded,
+                label: '定时设置',
+                onTap: onEditSchedule,
+              ),
           ],
         ),
       ),
@@ -308,6 +325,40 @@ class _InfoItem extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LinkRow extends StatelessWidget {
+  const _LinkRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 20, color: theme.colorScheme.outline),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(label, style: theme.textTheme.bodyMedium),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
+        ),
       ),
     );
   }
