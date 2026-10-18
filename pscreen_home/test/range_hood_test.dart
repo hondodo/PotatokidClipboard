@@ -58,5 +58,28 @@ void main() {
       expect(summary.burnerStatusLabel, '左灶开启');
       expect(summary.statusLabel, '已关闭');
     });
+
+    test('灶具 Low / Big 枚举视为开启', () {
+      RangeHoodSummary build(String left, String right) =>
+          RangeHoodSummary.tryBuild(
+            deviceId: 'd',
+            name: 'hood',
+            entities: <HaEntityStateModel>[
+              _e('switch.viomi_on_p_2_1', 'off', name: '电源'),
+              _e('select.viomi_fan_level_p_10_2', '低风',
+                  name: '风量',
+                  attributes: const <String, dynamic>{
+                    'options': <String>['低风', '高风', '爆炒'],
+                  }),
+              _e('sensor.viomi_left_status_p_6_5', left, name: '左灶'),
+              _e('sensor.viomi_right_status_p_6_6', right, name: '右灶'),
+            ],
+          )!;
+
+      expect(build('Off', 'Low').rightBurnerOn, isTrue);
+      expect(build('Low', 'Big').leftBurnerOn, isTrue);
+      expect(build('Low', 'Big').anyBurnerOn, isTrue);
+      expect(build('Off', 'Off').anyBurnerOn, isFalse);
+    });
   });
 }

@@ -150,8 +150,8 @@ class RangeHoodSummary {
       holidayCycle: holidayCycle?.state ?? '',
       holidayDurationMinutes: _int(holidayDuration?.state) ?? 3,
       holidayStartMinutes: _int(holidayStart?.state) ?? 0,
-      leftBurnerOn: leftBurner?.state == 'On',
-      rightBurnerOn: rightBurner?.state == 'On',
+      leftBurnerOn: _burnerOn(leftBurner?.state),
+      rightBurnerOn: _burnerOn(rightBurner?.state),
     );
   }
 
@@ -248,4 +248,8 @@ class RangeHoodSummary {
   }
 
   static int? _int(String? raw) => raw == null ? null : int.tryParse(raw);
+
+  /// 灶具状态枚举是 Off / Low / Big；Low / Big 都代表正在燃烧。
+  static bool _burnerOn(String? state) =>
+      state == 'Low' || state == 'Big' || state == 'On';
 }
