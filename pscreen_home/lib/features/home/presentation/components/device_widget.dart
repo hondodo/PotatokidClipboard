@@ -182,9 +182,11 @@ class DeviceWidget extends StatelessWidget {
                       Color(0xFFFF9E4A),
                       Color(0xFFFFC46B),
                     ],
-                    height: 10,
-                    thumbWidth: 4,
-                    thumbHeight: 18,
+                    // 触屏无 hover，底轨需常显且对比明显；加粗到触屏友好尺寸。
+                    trackColor: theme.colorScheme.outlineVariant,
+                    height: 16,
+                    thumbWidth: 6,
+                    thumbHeight: 28,
                     onChangeEnd: (double value) =>
                         onBrightnessChanged?.call(value.round()),
                   ),

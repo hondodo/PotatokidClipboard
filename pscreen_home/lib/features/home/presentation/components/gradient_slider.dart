@@ -18,6 +18,7 @@ class GradientSlider extends StatefulWidget {
     this.thumbWidth = 6,
     this.thumbHeight = 22,
     this.enabled = true,
+    this.trackColor,
   }) : assert(colors.length >= 2, '渐变至少需要两种颜色');
 
   final double value;
@@ -30,6 +31,12 @@ class GradientSlider extends StatefulWidget {
   final double thumbWidth;
   final double thumbHeight;
   final bool enabled;
+
+  /// 未填充部分的底轨颜色；null 时退回 surfaceContainerHighest。
+  ///
+  /// 触屏没有 hover，若底轨与卡片背景同色会导致滑条「看不见」。
+  /// 常显场景（如首页灯卡）应传与背景对比明显的颜色（如 outlineVariant）。
+  final Color? trackColor;
 
   @override
   State<GradientSlider> createState() => _GradientSliderState();
@@ -109,7 +116,8 @@ class _GradientSliderState extends State<GradientSlider> {
                     child: Container(
                       height: widget.height,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
+                        color: widget.trackColor ??
+                            theme.colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(radius),
                       ),
                     ),

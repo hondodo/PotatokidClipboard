@@ -125,9 +125,12 @@ class LightWidget extends StatelessWidget {
                   Color(0xFFFF9E4A),
                   Color(0xFFFFC46B),
                 ],
-                height: 10,
-                thumbWidth: 4,
-                thumbHeight: 18,
+                // 触屏无 hover，底轨必须常显且与卡片背景对比明显；
+                // 同时加粗到触屏友好的尺寸（原 10 / 4×18 太细小）。
+                trackColor: theme.colorScheme.outlineVariant,
+                height: 16,
+                thumbWidth: 6,
+                thumbHeight: 28,
                 enabled: canDim,
                 onChangeEnd: (double value) =>
                     onBrightnessChanged?.call(value.round()),

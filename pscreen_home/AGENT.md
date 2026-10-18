@@ -364,6 +364,9 @@ void main() {
     空调面板支持圆形温度盘、模式、风速、摆风。参数全部来自实体属性
     （`brightness` / `color_temp_kelvin` / `effect_list` / `hvac_modes` /
     `fan_modes` / `swing_modes`），不支持的项目自动隐藏。
+    灯卡滑条为触屏设计（无 hover）：`GradientSlider` 新增 `trackColor`，
+    首页灯卡底轨用 `outlineVariant` 常显且对比明显，并加粗到
+    `height 16 / thumb 6×28`（原 `10 / 4×18` 太细小）。
     另有米家空调快捷开关行（喜好 / 节能 / 睡眠 / 辅热 / 不直吹 / 提示音 /
     熄屏，`climate_quick_switch.dart` 按 MIoT 属性后缀匹配 switch 子实体，
     收进面板并从下方原始行隐藏）；快捷开关后还有指示灯区（light 域
