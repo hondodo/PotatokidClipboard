@@ -9,6 +9,8 @@ import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
@@ -20,6 +22,8 @@ import 'package:pscreen_home/features/home/presentation/components/kettle_contro
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/socket_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
@@ -72,6 +76,9 @@ class DeviceDetailPage extends StatelessWidget {
           final bool showProjectorPanel = projector != null;
           final FridgeSummary? fridge = state.fridgeSummaries[deviceId];
           final bool showFridgePanel = fridge != null;
+          final SocketSummary? socket = state.socketSummaries[deviceId];
+          final bool showSocketPanel = socket != null;
+          final PowerStats? devicePower = state.powerStats[deviceId];
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -113,6 +120,17 @@ class DeviceDetailPage extends StatelessWidget {
             if (showFridgePanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
+            if (showSocketPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (devicePower?.currentEntityId != null)
+              devicePower!.currentEntityId!,
+            if (devicePower?.totalEntityId != null)
+              devicePower!.totalEntityId!,
+            if (devicePower?.temperatureEntityId != null)
+              devicePower!.temperatureEntityId!,
+            if (devicePower?.countEntityId != null)
+              devicePower!.countEntityId!,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -122,7 +140,8 @@ class DeviceDetailPage extends StatelessWidget {
                   kettle == null &&
                   !showFanPanel &&
                   !showProjectorPanel &&
-                  !showFridgePanel
+                  !showFridgePanel &&
+                  !showSocketPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -140,6 +159,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = projector.title;
           } else if (showFridgePanel) {
             headerStatus = fridge.statusLabel;
+          } else if (showSocketPanel) {
+            headerStatus = socket.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -170,6 +191,19 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showSocketPanel && index == 0) {
+                  return SocketControlPanel(
+                    summary: socket,
+                    isToggling: state.togglingIds
+                        .contains(socket.powerEntityId),
+                    onToggle: () => context.read<HomeBloc>().add(
+                          ToggleEntity(
+                            entityId: socket.powerEntityId,
+                          ),
+                        ),
+                  );
+                }
+
                 if (showFridgePanel && index == 0) {
                   final FridgeSummary current = fridge;
                   return FridgeControlPanel(
@@ -544,35 +578,43 @@ class DeviceDetailPage extends StatelessWidget {
                     .add(ToggleEntity(entityId: entity.entityId));
 
                 if (entity.isClimate) {
-                  return ClimateControlPanel(
-                    entity: entity,
-                    isToggling: toggling,
-                    areaLabel: areaLabel,
-                    onToggle: onToggle,
-                    onTemperatureChanged: (double value) => context
-                        .read<HomeBloc>()
-                        .add(SetClimateTemperature(
-                          entityId: entity.entityId,
-                          temperature: value,
-                        )),
-                    onHvacModeSelected: (String mode) => context
-                        .read<HomeBloc>()
-                        .add(SetClimateHvacMode(
-                          entityId: entity.entityId,
-                          mode: mode,
-                        )),
-                    onFanModeSelected: (String mode) => context
-                        .read<HomeBloc>()
-                        .add(SetClimateFanMode(
-                          entityId: entity.entityId,
-                          mode: mode,
-                        )),
-                    onSwingModeSelected: (String mode) => context
-                        .read<HomeBloc>()
-                        .add(SetClimateSwingMode(
-                          entityId: entity.entityId,
-                          mode: mode,
-                        )),
+                  return Column(
+                    children: <Widget>[
+                      ClimateControlPanel(
+                        entity: entity,
+                        isToggling: toggling,
+                        areaLabel: areaLabel,
+                        onToggle: onToggle,
+                        onTemperatureChanged: (double value) => context
+                            .read<HomeBloc>()
+                            .add(SetClimateTemperature(
+                              entityId: entity.entityId,
+                              temperature: value,
+                            )),
+                        onHvacModeSelected: (String mode) => context
+                            .read<HomeBloc>()
+                            .add(SetClimateHvacMode(
+                              entityId: entity.entityId,
+                              mode: mode,
+                            )),
+                        onFanModeSelected: (String mode) => context
+                            .read<HomeBloc>()
+                            .add(SetClimateFanMode(
+                              entityId: entity.entityId,
+                              mode: mode,
+                            )),
+                        onSwingModeSelected: (String mode) => context
+                            .read<HomeBloc>()
+                            .add(SetClimateSwingMode(
+                              entityId: entity.entityId,
+                              mode: mode,
+                            )),
+                      ),
+                      if (devicePower != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        PowerStatsCard(stats: devicePower),
+                      ],
+                    ],
                   );
                 }
 

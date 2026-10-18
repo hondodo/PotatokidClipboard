@@ -111,6 +111,8 @@ lib/
 │       │   ├── models/fan_summary.dart             # 风扇摘要（fan + 关机延时 number）
 │       │   ├── models/projector_summary.dart       # 投影仪摘要（button/number/select/notify）
 │       │   ├── models/fridge_summary.dart          # 冰箱摘要（三舱温度 + 模式）
+│       │   ├── models/power_stats.dart             # 插座用电信息（功率/累计/温度/次数）
+│       │   ├── models/socket_summary.dart          # 智能插座摘要
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -392,6 +394,10 @@ void main() {
     `[0/1/2/3/4/5/6/7/8/9/10/11/12/13]`；没有数字键，无法输入数字。
     遥控面板按宽度自适应：宽屏左右分栏（左侧方向盘，右侧电源/设置/对焦/音量），
     窄屏竖排。
+  - **✅ 智能插座 / 空调插座用电信息**：智能插座卡片显示当前功率与累计电量，
+    详情页显示功率、累计电量、设备温度、开关次数；空调插座详情在温控面板
+    后追加「当前功率」。今日 / 近一月用电是米家云端统计，HA 只暴露当前功率
+    与累计电量，未做估算。
   - **✅ 冰箱卡片 / 详情**：冷藏、冷冻、变温三舱当前温度 + 目标温度 + 模式
     （手动/智能/速冷/速冻）；详情页支持三舱目标温度加减、模式切换、
     环境温湿度 / 运行时长 / 开门次数。冰箱没有总电源，常驻运行。

@@ -18,6 +18,7 @@ import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
@@ -30,6 +31,7 @@ import 'package:pscreen_home/features/home/presentation/components/fridge_widget
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/socket_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
@@ -537,6 +539,7 @@ class _ControlGrid extends StatelessWidget {
         final Map<String, ProjectorSummary> projectors =
             state.projectorSummaries;
         final Map<String, FridgeSummary> fridges = state.fridgeSummaries;
+        final Map<String, SocketSummary> sockets = state.socketSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -551,6 +554,23 @@ class _ControlGrid extends StatelessWidget {
             final String areaLabel = state.areaLabelFor(
               group.primary?.entityId ?? group.entities.first.entityId,
             );
+
+            // 智能插座：开关 + 当前功率 + 累计电量
+            final SocketSummary? socket =
+                group.deviceId == null ? null : sockets[group.deviceId];
+            if (socket != null) {
+              return SocketWidget(
+                summary: socket,
+                areaLabel: areaLabel,
+                isToggling:
+                    state.togglingIds.contains(socket.powerEntityId),
+                onToggle: () => context.read<HomeBloc>().add(
+                      ToggleEntity(entityId: socket.powerEntityId),
+                    ),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
 
             // 冰箱：三舱温度 + 模式
             final FridgeSummary? fridge =

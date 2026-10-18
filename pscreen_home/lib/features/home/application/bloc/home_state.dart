@@ -4,9 +4,11 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 
@@ -318,9 +320,52 @@ class HomeState {
     return result;
   }
 
-  /// 冰箱摘要：device_id → 摘要（非冰箱设备不出现）。
-  Map<String, FridgeSummary> get fridgeSummaries {
+  /// 设备用电信息：device_id → PowerStats（没有功耗实体的设备不出现）。
+  Map<String, PowerStats> get powerStats {
     final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, PowerStats> result = <String, PowerStats>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final PowerStats? stats = PowerStats.tryBuild(list);
+      if (stats != null) result[deviceId] = stats;
+    });
+    return result;
+  }
+
+  /// 智能插座摘要：device_id → 摘要（非智能插座不出现）。
+  Map<String, SocketSummary> get socketSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, SocketSummary> result = <String, SocketSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final SocketSummary? summary = SocketSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 冰箱摘要：device_id → 摘要（非冰箱设备不出现）。
+  Map<String, FridgeSummary> get fridgeSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);

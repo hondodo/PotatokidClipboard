@@ -5,6 +5,8 @@ import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
@@ -19,6 +21,8 @@ import 'package:pscreen_home/features/home/presentation/components/light_widget.
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/socket_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/socket_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -264,6 +268,19 @@ FridgeSummary _fridge() => const FridgeSummary(
       refrigeratorOpenTimes: 75,
       freezerOpenTimes: 3,
       totalRuntimeMinutes: 1105,
+    );
+
+SocketSummary _socket() => const SocketSummary(
+      deviceId: 'dev_socket',
+      name: '阳台植物灯',
+      isOn: true,
+      powerEntityId: 'switch.cuco_on_p_2_1',
+      stats: PowerStats(
+        currentWatts: 0,
+        totalKwh: 0.01,
+        deviceTemperature: 46,
+        switchCount: 3,
+      ),
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -919,6 +936,58 @@ void main() {
     await tester.tap(find.byTooltip('冷藏室温度 +'));
     expect(changedEntity, 'number.midjd_target_temperature_p_3_2');
     expect(changedValue, 6);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('智能插座卡片：功率 / 累计电量在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: SocketWidget(
+              summary: _socket(),
+              areaLabel: '阳台',
+              isToggling: false,
+              onToggle: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('阳台 · 已开启'), findsOneWidget);
+    expect(find.text('0 W'), findsOneWidget);
+    expect(find.text('累计 0.01 kWh'), findsOneWidget);
+    expect(find.byTooltip('关闭插座'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('智能插座面板：当前功率 / 累计电量 / 温度 / 次数',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(SocketControlPanel(
+      summary: _socket(),
+      isToggling: false,
+      onToggle: () {},
+    )));
+
+    expect(find.text('当前功率'), findsOneWidget);
+    expect(find.text('累计用电'), findsOneWidget);
+    expect(find.text('设备温度 46°C'), findsOneWidget);
+    expect(find.text('开关次数 3'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
