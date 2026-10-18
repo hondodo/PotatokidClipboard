@@ -104,7 +104,9 @@ class AirFryerControlPanel extends StatelessWidget {
                           label: Text(mode),
                           selected: summary.mode == mode,
                           showCheckmark: false,
-                          onSelected: (bool _) => onModeSelected(mode),
+                          onSelected: active
+                              ? null
+                              : (bool _) => onModeSelected(mode),
                         ))
                     .toList(growable: false),
               ),
@@ -116,6 +118,7 @@ class AirFryerControlPanel extends StatelessWidget {
               min: summary.minTemperature,
               max: summary.maxTemperature,
               step: summary.temperatureStep,
+              enabled: !active,
               onChanged: onTemperatureChanged,
               current: summary.temperature,
             ),
@@ -126,6 +129,7 @@ class AirFryerControlPanel extends StatelessWidget {
               min: summary.minMinutes,
               max: summary.maxMinutes,
               step: 1,
+              enabled: !active,
               onChanged: onTimeChanged,
               current: summary.minutes,
             ),
@@ -201,6 +205,7 @@ class _ValueRow extends StatelessWidget {
     required this.max,
     required this.step,
     required this.current,
+    required this.enabled,
     required this.onChanged,
   });
 
@@ -210,6 +215,7 @@ class _ValueRow extends StatelessWidget {
   final int max;
   final int step;
   final int current;
+  final bool enabled;
   final ValueChanged<int> onChanged;
 
   @override
@@ -223,7 +229,9 @@ class _ValueRow extends StatelessWidget {
         ),
         IconButton(
           tooltip: '$label -',
-          onPressed: current > min ? () => onChanged(current - step) : null,
+          onPressed: enabled && current > min
+              ? () => onChanged(current - step)
+              : null,
           icon: const Icon(Icons.remove_rounded),
         ),
         Expanded(
@@ -232,13 +240,17 @@ class _ValueRow extends StatelessWidget {
             textAlign: TextAlign.center,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
-              color: AirFryerControlPanel._accent,
+              color: enabled
+                  ? AirFryerControlPanel._accent
+                  : theme.colorScheme.outline,
             ),
           ),
         ),
         IconButton(
           tooltip: '$label +',
-          onPressed: current < max ? () => onChanged(current + step) : null,
+          onPressed: enabled && current < max
+              ? () => onChanged(current + step)
+              : null,
           icon: const Icon(Icons.add_rounded),
         ),
       ],

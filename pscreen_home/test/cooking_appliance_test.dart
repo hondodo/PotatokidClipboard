@@ -101,5 +101,27 @@ void main() {
       expect(summary.startEntityId, 'button.maf_start_cook_a_2_1');
       expect(summary.stopEntityId, 'button.maf_cancel_cooking_a_2_6');
     });
+
+    test('速烤中 / 烤制中识别为运行状态', () {
+      AirFryerSummary build(String status) => AirFryerSummary.tryBuild(
+            deviceId: 'd',
+            name: 'f',
+            entities: <HaEntityStateModel>[
+              _e('sensor.maf_status_p_2_2', status, name: '状态'),
+              _e('select.maf_mode_p_2_25', '手动模式',
+                  name: '模式',
+                  attributes: const <String, dynamic>{
+                    'options': <String>['手动模式', '薯条'],
+                  }),
+              _e('number.maf_target_temperature_p_2_7', '80',
+                  name: '温度'),
+              _e('number.maf_target_time_p_2_5', '8', name: '时间'),
+            ],
+          )!;
+      expect(build('速烤中').isActive, isTrue);
+      expect(build('关机中').isActive, isFalse);
+      expect(build('待机中').isActive, isFalse);
+      expect(build('烹饪完成').isActive, isFalse);
+    });
   });
 }

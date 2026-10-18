@@ -117,11 +117,17 @@ class AirFryerSummary {
         value.isNotEmpty;
   }
 
-  bool get isActive =>
-      status.contains('烹饪') ||
-      status.contains('工作') ||
-      status.contains('保温') ||
-      status.contains('预热');
+  bool get isActive {
+    final String value = status;
+    if (value.isEmpty ||
+        value.contains('关机') ||
+        value.contains('待机') ||
+        value.contains('完成') ||
+        value == '空闲') {
+      return false;
+    }
+    return true;
+  }
 
   String get statusLabel {
     if (hasFault) return '故障';
