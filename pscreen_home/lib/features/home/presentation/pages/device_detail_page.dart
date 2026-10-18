@@ -5,6 +5,8 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
@@ -104,6 +106,20 @@ class DeviceDetailPage extends StatelessWidget {
           final RangeHoodSummary? hood = state.rangeHoodSummaries[deviceId];
           final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
+          // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
+          final List<ClimateQuickSwitch> climateQuickSwitches =
+              group.entities.any((HaEntityStateModel e) => e.isClimate)
+                  ? ClimateQuickSwitch.buildList(group.entities)
+                  : const <ClimateQuickSwitch>[];
+          // 插座快捷开关：童锁 / 定时 + 指示灯（light 域）。
+          final List<SocketQuickSwitch> socketQuickSwitches = showSocketPanel
+              ? SocketQuickSwitch.buildList(group.entities)
+              : const <SocketQuickSwitch>[];
+          final String? socketIndicatorLightId = showSocketPanel
+              ? SocketQuickSwitch.indicatorLightEntityId(group.entities)
+              : null;
+          final bool socketIndicatorLightOn = showSocketPanel &&
+              SocketQuickSwitch.indicatorLightOn(group.entities);
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
               group.entities.first.entityId;
@@ -138,6 +154,8 @@ class DeviceDetailPage extends StatelessWidget {
               fan.delayEntityId!,
             if (showFanPanel && fan.masterSwitchEntityId != null)
               fan.masterSwitchEntityId!,
+            for (final ClimateQuickSwitch s in climateQuickSwitches)
+              s.entityId,
             if (showProjectorPanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
@@ -513,6 +531,19 @@ class DeviceDetailPage extends StatelessWidget {
                             entityId: socket.powerEntityId,
                           ),
                         ),
+                    quickSwitches: socketQuickSwitches,
+                    onQuickSwitchToggled: (String entityId) => context
+                        .read<HomeBloc>()
+                        .add(ToggleEntity(entityId: entityId)),
+                    indicatorLightEntityId: socketIndicatorLightId,
+                    indicatorLightOn: socketIndicatorLightOn,
+                    onIndicatorLightToggled: socketIndicatorLightId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: socketIndicatorLightId,
+                              ),
+                            ),
                   );
                 }
 
@@ -897,6 +928,10 @@ class DeviceDetailPage extends StatelessWidget {
                         isToggling: toggling,
                         areaLabel: areaLabel,
                         onToggle: onToggle,
+                        quickSwitches: climateQuickSwitches,
+                        onQuickSwitchToggled: (String entityId) => context
+                            .read<HomeBloc>()
+                            .add(ToggleEntity(entityId: entityId)),
                         onTemperatureChanged: (double value) => context
                             .read<HomeBloc>()
                             .add(SetClimateTemperature(

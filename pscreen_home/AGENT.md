@@ -113,6 +113,8 @@ lib/
 │       │   ├── models/fridge_summary.dart          # 冰箱摘要（三舱温度 + 模式）
 │       │   ├── models/power_stats.dart             # 插座用电信息（功率/累计/温度/次数）
 │       │   ├── models/socket_summary.dart          # 智能插座摘要
+│       │   ├── models/socket_quick_switch.dart     # 插座快捷开关（童锁/定时/指示灯）
+│       │   ├── models/climate_quick_switch.dart    # 空调快捷开关（喜好/节能/辅热等）
 │       │   ├── models/multi_switch_summary.dart    # 双开开关摘要（两路按键）
 │       │   ├── models/rice_cooker_summary.dart     # 电饭煲摘要
 │       │   ├── models/air_fryer_summary.dart       # 空气炸锅摘要
@@ -362,6 +364,8 @@ void main() {
     空调面板支持圆形温度盘、模式、风速、摆风。参数全部来自实体属性
     （`brightness` / `color_temp_kelvin` / `effect_list` / `hvac_modes` /
     `fan_modes` / `swing_modes`），不支持的项目自动隐藏。
+    另有米家空调快捷开关行（喜好 / 节能 / 睡眠 / 辅热 / 不直吹 / 提示音 /
+    熄屏，`climate_quick_switch.dart` 按 MIoT 属性后缀匹配 switch 子实体，
   - **✅ 家庭温湿度概览**：首页顶部按家庭展示温度 / 湿度（未选家庭显示全部，
     选中后只显示该家庭 + 「全部」返回）。HA 无「全屋温湿度」聚合实体，
     数据取家庭内 climate 的 `current_temperature` / `current_humidity`，
@@ -416,8 +420,9 @@ void main() {
     继续以列表展示。
   - **✅ 智能插座 / 空调插座用电信息**：智能插座卡片显示当前功率与累计电量，
     详情页显示功率、累计电量、设备温度、开关次数；空调插座详情在温控面板
-    后追加「当前功率」。今日 / 近一月用电是米家云端统计，HA 只暴露当前功率
-    与累计电量，未做估算。
+    后追加「当前功率」。插座详情另有快捷开关行（童锁 / 定时 + 指示灯，
+    `socket_quick_switch.dart`，指示灯是 light 域单独处理）。今日 / 近一月
+    用电是米家云端统计，HA 只暴露当前功率与累计电量，未做估算。
   - **✅ 冰箱卡片 / 详情**：冷藏、冷冻、变温三舱当前温度 + 目标温度 + 模式
     （手动/智能/速冷/速冻）；详情页支持三舱目标温度加减、模式切换、
     环境温湿度 / 运行时长 / 开门次数。冰箱没有总电源，常驻运行。

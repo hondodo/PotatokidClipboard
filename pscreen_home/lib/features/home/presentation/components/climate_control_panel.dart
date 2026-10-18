@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 
@@ -18,6 +19,8 @@ class ClimateControlPanel extends StatelessWidget {
     required this.onHvacModeSelected,
     required this.onFanModeSelected,
     required this.onSwingModeSelected,
+    this.quickSwitches = const <ClimateQuickSwitch>[],
+    this.onQuickSwitchToggled,
     this.areaLabel,
   });
 
@@ -28,6 +31,12 @@ class ClimateControlPanel extends StatelessWidget {
   final ValueChanged<String> onHvacModeSelected;
   final ValueChanged<String> onFanModeSelected;
   final ValueChanged<String> onSwingModeSelected;
+
+  /// 米家空调次级开关（喜好/节能/辅热等），空列表则不渲染该区。
+  final List<ClimateQuickSwitch> quickSwitches;
+
+  /// 快捷开关点击：参数为实体 id；null 时不可点。
+  final ValueChanged<String>? onQuickSwitchToggled;
   final String? areaLabel;
 
   static const Color _accent = Color(0xFF5FD3C4);
@@ -277,6 +286,36 @@ class ClimateControlPanel extends StatelessWidget {
                           showCheckmark: false,
                           onSelected: available
                               ? (bool _) => onSwingModeSelected(mode)
+                              : null,
+                        ))
+                    .toList(growable: false),
+              ),
+            ],
+            if (quickSwitches.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 18),
+              _SectionTitle(label: '快捷开关'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: quickSwitches
+                    .map((ClimateQuickSwitch s) => FilterChip(
+                          label: Text(s.label),
+                          selected: s.isOn,
+                          showCheckmark: false,
+                          avatar: Icon(
+                            s.isOn
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            size: 18,
+                            color: s.isOn
+                                ? _accent
+                                : theme.colorScheme.outline,
+                          ),
+                          onSelected: available &&
+                                  onQuickSwitchToggled != null
+                              ? (bool _) =>
+                                  onQuickSwitchToggled!(s.entityId)
                               : null,
                         ))
                     .toList(growable: false),
