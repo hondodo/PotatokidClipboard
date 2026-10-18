@@ -22,30 +22,18 @@ class App extends StatelessWidget {
 
   ThemeData _buildTheme(Brightness brightness) {
     final bool dark = brightness == Brightness.dark;
-    final ColorScheme scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF4F8CFF),
-      brightness: brightness,
-    );
+    final ColorScheme scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F8CFF), brightness: brightness);
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor:
-          dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor: dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA),
       appBarTheme: AppBarTheme(
         backgroundColor: dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA),
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: scheme.onSurface,
-        ),
+        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
       ),
-      cardTheme: CardThemeData(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-      ),
+      cardTheme: CardThemeData(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
     );
   }
 }
