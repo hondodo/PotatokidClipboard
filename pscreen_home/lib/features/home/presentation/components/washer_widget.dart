@@ -112,28 +112,33 @@ class WasherWidget extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              Row(
-                children: <Widget>[
-                  if (summary.energyKwh != null)
-                    _MiniStat(
-                      icon: Icons.bolt_rounded,
-                      text: '${_format(summary.energyKwh)} kWh',
-                    ),
-                  if (summary.waterConsumption != null) ...<Widget>[
-                    const SizedBox(width: 12),
-                    _MiniStat(
-                      icon: Icons.water_drop_outlined,
-                      text: _format(summary.waterConsumption),
-                    ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (summary.energyKwh != null)
+                      _MiniStat(
+                        icon: Icons.bolt_rounded,
+                        text: '${_format(summary.energyKwh)} kWh',
+                      ),
+                    if (summary.waterConsumption != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      _MiniStat(
+                        icon: Icons.water_drop_outlined,
+                        text: _format(summary.waterConsumption),
+                      ),
+                    ],
+                    if (summary.washedTimes != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      _MiniStat(
+                        icon: Icons.check_circle_outline_rounded,
+                        text: '${summary.washedTimes} 次',
+                      ),
+                    ],
                   ],
-                  if (summary.washedTimes != null) ...<Widget>[
-                    const SizedBox(width: 12),
-                    _MiniStat(
-                      icon: Icons.check_circle_outline_rounded,
-                      text: '${summary.washedTimes} 次',
-                    ),
-                  ],
-                ],
+                ),
               ),
             ],
           ),
@@ -163,11 +168,12 @@ class _MiniStat extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(icon, size: 13, color: theme.colorScheme.outline),
-        const SizedBox(width: 3),
+        Icon(icon, size: 11, color: theme.colorScheme.outline),
+        const SizedBox(width: 2),
         Text(
           text,
           style: theme.textTheme.labelSmall?.copyWith(
+            fontSize: 9,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),

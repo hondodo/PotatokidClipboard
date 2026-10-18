@@ -442,7 +442,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('洗衣机卡片：状态 / 统计 / 电源键在 240x112 内无溢出',
+  testWidgets('洗衣机卡片：状态 / 统计 / 电源键在 168x112 内无溢出',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 300);
     tester.view.devicePixelRatio = 1;
@@ -453,7 +453,7 @@ void main() {
       home: Scaffold(
         body: Center(
           child: SizedBox(
-            width: 240,
+            width: 168,
             height: 112,
             child: WasherWidget(
               summary: _washer(),
@@ -596,7 +596,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('热水瓶卡片：温度 / 状态 / 开始动作在 240x112 内无溢出',
+  testWidgets('热水瓶卡片：温度 / 状态 / 开始动作在 168x112 内无溢出',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 300);
     tester.view.devicePixelRatio = 1;
@@ -607,7 +607,7 @@ void main() {
       home: Scaffold(
         body: Center(
           child: SizedBox(
-            width: 240,
+            width: 168,
             height: 112,
             child: KettleWidget(
               summary: _kettle(),

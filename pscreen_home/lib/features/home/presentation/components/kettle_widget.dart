@@ -107,14 +107,19 @@ class KettleWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    '目标 ${_format(summary.effectiveTargetTemperature)}°C',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '目标 ${_format(summary.effectiveTargetTemperature)}°C',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 2),
                   TextButton(
                     style: TextButton.styleFrom(
                       foregroundColor: _accent,
