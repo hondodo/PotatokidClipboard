@@ -1,12 +1,10 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 
-/// 洗衣机设备摘要：从同一 device 下的全部实体中，按名称后缀找出
-/// 状态、模式、按钮、统计等关键实体。
+/// 洗衣机设备摘要：从同一 device 下的全部实体中，按**实体 id 的 MIoT 属性
+/// 后缀**（如 `_status_p_2_2`、`_mode_p_2_3`）找出关键实体。
 ///
-/// HA 没有 `washer` 域，米家洗衣机在 HA 里被拆成
-/// `switch.*_on_p_2_1`、`select.*_mode_p_2_3`、`sensor.*_status_p_2_2`、
-/// `button.*_start_wash_a_2_2` 等一批实体；本模型负责把它们组装成
-/// 一套可渲染的摘要。找不到「工作状态 + 运行状态 + 模式」时返回 null，
+/// 不依赖 friendly_name：HA 里设备/实体改名后，显示名会变，但实体 id 里的
+/// MIoT 属性后缀是集成生成的稳定标识。找不到「工作状态 + 模式」时返回 null，
 /// 避免把普通设备误判成洗衣机。
 class WasherSummary {
   const WasherSummary({
@@ -37,42 +35,50 @@ class WasherSummary {
     required Iterable<HaEntityStateModel> entities,
   }) {
     final HaEntityStateModel? status =
-        _bySuffix(entities, '工作状态', domain: 'sensor');
-    final HaEntityStateModel? runStatus =
-        _bySuffix(entities, '运行状态', domain: 'sensor');
+        _byId(entities, '_status_p_2_2', domain: 'sensor');
     final HaEntityStateModel? modeEntity =
-        _bySuffix(entities, '模式', domain: 'select');
-    if (status == null || runStatus == null || modeEntity == null) return null;
+        _byId(entities, '_mode_p_2_3', domain: 'select');
+    if (status == null || modeEntity == null) return null;
+
+    // 12kg 有「运行状态」，10kg 只有「行程 stroke」，两者都归一到运行态。
+    final HaEntityStateModel? runEntity =
+        _byId(entities, '_run_status_p_2_11', domain: 'sensor') ??
+            _byId(entities, '_stroke_p_3_6', domain: 'sensor');
+    final String runStatus = _runLabel(runEntity?.state);
 
     final HaEntityStateModel? power = _findPowerSwitch(entities);
     final HaEntityStateModel? leftTime =
-        _bySuffix(entities, '剩余时间', domain: 'sensor');
-    final int? remaining = leftTime == null ? null : int.tryParse(leftTime.state);
+        _byId(entities, '_left_time_p_2_10', domain: 'sensor');
+    final int? remaining =
+        leftTime == null ? null : int.tryParse(leftTime.state);
     final HaEntityStateModel? energy =
-        _bySuffix(entities, '耗电量', domain: 'sensor');
+        _byId(entities, '_power_consumption_p_2_39', domain: 'sensor');
     final HaEntityStateModel? water =
-        _bySuffix(entities, '耗水量', domain: 'sensor');
+        _byId(entities, '_water_consumption_p_2_40', domain: 'sensor');
     final HaEntityStateModel? washed =
-        _bySuffix(entities, '已洗涤次数', domain: 'sensor');
+        _byId(entities, '_has_washed_times_p_2_13', domain: 'sensor');
 
     return WasherSummary(
       deviceId: deviceId,
       name: name,
       status: status.state,
-      runStatus: runStatus.state,
-      isOn: power?.isOn ?? status.state != '已关机',
+      runStatus: runStatus,
+      isOn: power?.isOn ??
+          (status.state != '已关机' && status.state != '关机中'),
       modes: modeEntity.options,
-      remainingMinutes: remaining != null && remaining > 0 ? remaining : null,
-      doorState: _bySuffix(entities, '门状态', domain: 'sensor')?.state,
-      fault: _bySuffix(entities, '故障', domain: 'sensor')?.state,
+      remainingMinutes:
+          remaining != null && remaining > 0 ? remaining : null,
+      doorState: _byId(entities, '_door_state_p_2_9', domain: 'sensor')?.state,
+      fault: _byId(entities, '_fault_p_2_4', domain: 'sensor')?.state,
       mode: modeEntity.state,
       powerEntityId: power?.entityId,
       modeEntityId: modeEntity.entityId,
       startEntityId:
-          _bySuffix(entities, '开始洗涤', domain: 'button')?.entityId,
-      pauseEntityId: _bySuffix(entities, '暂停', domain: 'button')?.entityId,
+          _byId(entities, '_start_wash_', domain: 'button')?.entityId,
+      pauseEntityId:
+          _byId(entities, '_pause_a_2_', domain: 'button')?.entityId,
       stopEntityId:
-          _bySuffix(entities, '停止洗涤', domain: 'button')?.entityId,
+          _byId(entities, '_stop_washing_', domain: 'button')?.entityId,
       energyKwh: energy == null ? null : double.tryParse(energy.state),
       waterConsumption: water == null ? null : double.tryParse(water.state),
       washedTimes: washed == null ? null : int.tryParse(washed.state),
@@ -122,18 +128,23 @@ class WasherSummary {
   final int? washedTimes;
 
   /// 是否正在运行
-  bool get isRunning =>
-      runStatus != '未运行' &&
-      runStatus != 'unknown' &&
-      runStatus != 'unavailable' &&
-      runStatus.isNotEmpty;
+  bool get isRunning {
+    if (status.contains('工作') ||
+        status.contains('洗') ||
+        status.contains('烘') ||
+        status.contains('漂') ||
+        status.contains('脱')) {
+      return true;
+    }
+    return runStatus.isNotEmpty && runStatus != '未运行';
+  }
 
   /// 是否有故障
   bool get hasFault {
     final String? value = fault;
     if (value == null) return false;
-    return value != 'No Faults' &&
-        value != '无故障' &&
+    return !value.startsWith('无故障') &&
+        value != 'No Faults' &&
         value != 'unknown' &&
         value.isNotEmpty;
   }
@@ -143,37 +154,48 @@ class WasherSummary {
     if (!isOn && !isRunning) return '已关机';
     if (isRunning) {
       final int? left = remainingMinutes;
-      return left == null ? runStatus : '$runStatus · 剩余 $left 分钟';
+      final String state = runStatus.isEmpty ? status : runStatus;
+      return left == null ? state : '$state · 剩余 $left 分钟';
     }
     return status;
   }
 
-  /// 找到真正的电源开关：`switch.*_on_p_2_1` 或名称最后一段为「开关」。
+  /// 找到真正的电源开关：只认实体 id 的 `_on_p_2_1` / `_power` 后缀，
+  /// 避免显示名改名后误选提示音之类。
   static HaEntityStateModel? _findPowerSwitch(
     Iterable<HaEntityStateModel> entities,
   ) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != 'switch') continue;
       final String id = entity.entityId.toLowerCase();
-      if (RegExp(r'_(on|power)(_p_\d+)?$').hasMatch(id)) return entity;
-      final List<String> tokens = entity.displayName
-          .split(RegExp(r'\s+'))
-          .where((String token) => token.isNotEmpty)
-          .toList(growable: false);
-      if (tokens.isNotEmpty && tokens.last == '开关') return entity;
+      if (id.endsWith('_on_p_2_1') || id.endsWith('_power')) return entity;
     }
     return null;
   }
 
-  static HaEntityStateModel? _bySuffix(
+  static HaEntityStateModel? _byId(
     Iterable<HaEntityStateModel> entities,
-    String suffix, {
+    String part, {
     required String domain,
   }) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != domain) continue;
-      if (entity.displayName.trim().endsWith(suffix)) return entity;
+      if (entity.entityId.contains(part)) return entity;
     }
     return null;
+  }
+
+  /// 行程 / 运行状态归一化；未知英文值原样返回。
+  static String _runLabel(String? raw) {
+    final String value = (raw ?? '').trim();
+    if (value.isEmpty || value == 'None' || value == '未运行') return '';
+    return switch (value) {
+      'Weighing' => '称重中',
+      'Washing' => '洗涤中',
+      'Rinsing' => '漂洗中',
+      'Spin' => '脱水中',
+      'Drying' => '烘干中',
+      _ => value,
+    };
   }
 }

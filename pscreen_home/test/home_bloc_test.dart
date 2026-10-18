@@ -863,26 +863,26 @@ void main() {
     setUp(() async {
       repo = _FakeHomeRepository(
         states: <HaEntityStateModel>[
-          _entity('switch.wm_on', 'off', attributes: const <String, dynamic>{
+          _entity('switch.wm_on_p_2_1', 'off', attributes: const <String, dynamic>{
             'friendly_name': '米家洗衣机 洗衣机 开关',
           }),
           _entity('switch.wm_alarm', 'on', attributes: const <String, dynamic>{
             'friendly_name': '米家洗衣机 提示音 提示音',
           }),
-          _entity('select.wm_mode', '智能洗',
+          _entity('select.wm_mode_p_2_3', '智能洗',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家洗衣机 洗衣机 模式',
                 'options': <String>['智能洗', '快速洗', '单烘干'],
               }),
-          _entity('button.wm_start', 'unknown',
+          _entity('button.wm_start_wash_a_2_2', 'unknown',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家洗衣机 洗衣机 开始洗涤',
               }),
-          _entity('sensor.wm_status', '已关机',
+          _entity('sensor.wm_status_p_2_2', '已关机',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家洗衣机 洗衣机 工作状态',
               }),
-          _entity('sensor.wm_run_status', '未运行',
+          _entity('sensor.wm_run_status_p_2_11', '未运行',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家洗衣机 洗衣机 运行状态',
               }),
@@ -893,12 +893,12 @@ void main() {
             'dev_wm': HaDevice(id: 'dev_wm', name: '米家洗衣机 洗烘12kg'),
           },
           deviceIdByEntity: <String, String>{
-            'switch.wm_on': 'dev_wm',
+            'switch.wm_on_p_2_1': 'dev_wm',
             'switch.wm_alarm': 'dev_wm',
-            'select.wm_mode': 'dev_wm',
-            'button.wm_start': 'dev_wm',
-            'sensor.wm_status': 'dev_wm',
-            'sensor.wm_run_status': 'dev_wm',
+            'select.wm_mode_p_2_3': 'dev_wm',
+            'button.wm_start_wash_a_2_2': 'dev_wm',
+            'sensor.wm_status_p_2_2': 'dev_wm',
+            'sensor.wm_run_status_p_2_11': 'dev_wm',
           },
         );
       bloc = HomeBloc(repository: repo);
@@ -909,7 +909,7 @@ void main() {
     test('washerSummaries 选出真正的电源开关', () {
       final WasherSummary? summary = bloc.state.washerSummaries['dev_wm'];
       expect(summary, isNotNull);
-      expect(summary!.powerEntityId, 'switch.wm_on',
+      expect(summary!.powerEntityId, 'switch.wm_on_p_2_1',
           reason: '不能选到提示音 / 静音');
       expect(summary.isOn, isFalse);
       expect(summary.modes, <String>['智能洗', '快速洗', '单烘干']);
@@ -920,7 +920,7 @@ void main() {
         await _run(
           bloc,
           (Completer<bool> c) => bloc.add(SelectEntityOption(
-            entityId: 'select.wm_mode',
+            entityId: 'select.wm_mode_p_2_3',
             option: '快速洗',
             completer: c,
           )),
@@ -928,8 +928,8 @@ void main() {
         isTrue,
       );
       expect(repo.selectCalls,
-          <(String, String)>[('select.wm_mode', '快速洗')]);
-      expect(bloc.state.entities['select.wm_mode']!.state, '快速洗');
+          <(String, String)>[('select.wm_mode_p_2_3', '快速洗')]);
+      expect(bloc.state.entities['select.wm_mode_p_2_3']!.state, '快速洗');
     });
 
     test('按钮：unknown 状态也可以按下', () async {
@@ -937,13 +937,13 @@ void main() {
         await _run(
           bloc,
           (Completer<bool> c) => bloc.add(PressEntityButton(
-            entityId: 'button.wm_start',
+            entityId: 'button.wm_start_wash_a_2_2',
             completer: c,
           )),
         ),
         isTrue,
       );
-      expect(repo.buttonCalls, <String>['button.wm_start']);
+      expect(repo.buttonCalls, <String>['button.wm_start_wash_a_2_2']);
     });
 
     test('按钮失败：写入错误提示', () async {
@@ -952,7 +952,7 @@ void main() {
         await _run(
           bloc,
           (Completer<bool> c) => bloc.add(PressEntityButton(
-            entityId: 'button.wm_start',
+            entityId: 'button.wm_start_wash_a_2_2',
             completer: c,
           )),
         ),

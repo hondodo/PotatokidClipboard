@@ -157,33 +157,37 @@ class WasherControlPanel extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 14),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _StatBox(
-                    label: '累计用电',
-                    value: _format(summary.energyKwh),
-                    unit: 'kWh',
+            if (summary.energyKwh != null ||
+                summary.waterConsumption != null ||
+                summary.washedTimes != null) ...<Widget>[
+              const SizedBox(height: 14),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _StatBox(
+                      label: '累计用电',
+                      value: _format(summary.energyKwh),
+                      unit: 'kWh',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _StatBox(
-                    label: '累计用水',
-                    value: _format(summary.waterConsumption),
-                    unit: '',
-                    tooltip: 'HA 的耗水量传感器未提供单位',
+                  Expanded(
+                    child: _StatBox(
+                      label: '累计用水',
+                      value: _format(summary.waterConsumption),
+                      unit: '',
+                      tooltip: 'HA 的耗水量传感器未提供单位',
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _StatBox(
-                    label: '累计洗涤',
-                    value: summary.washedTimes?.toString() ?? '—',
-                    unit: '次',
+                  Expanded(
+                    child: _StatBox(
+                      label: '累计洗涤',
+                      value: summary.washedTimes?.toString() ?? '—',
+                      unit: '次',
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
             if (summary.modes.isNotEmpty) ...<Widget>[
               const SizedBox(height: 18),
               Text(
