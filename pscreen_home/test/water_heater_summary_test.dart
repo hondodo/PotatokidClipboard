@@ -40,17 +40,17 @@ List<HaEntityStateModel> _entities({String fault = '0'}) =>
           ],
         },
       ),
-      _e('sensor.wh_status', '待机中', name: '热水器 工作状态'),
-      _e('sensor.wh_fault', fault, name: '热水器 故障'),
-      _e('sensor.wh_inlet', '31', name: '热水器 进水温度'),
-      _e('sensor.wh_flow', '0.0', name: '热水器 水流量（L/MIN)'),
+      _e('sensor.wh_status_p_2_5', '待机中', name: '热水器 工作状态'),
+      _e('sensor.wh_fault_p_2_1', fault, name: '热水器 故障'),
+      _e('sensor.wh_input_water_temperature_p_2_8', '31', name: '热水器 进水温度'),
+      _e('sensor.wh_water_flow_p_2_9', '0.0', name: '热水器 水流量（L/MIN)'),
       _e(
-        'switch.wh_preheat',
+        'switch.wh_hot_water_recirculation_p_2_10',
         'off',
         name: '热水器 热水器 预热',
       ),
       _e(
-        'switch.wh_timer',
+        'switch.wh_intelligent_preheat_p_2_17',
         'on',
         name: '热水器 热水器 智能定时预热',
       ),
@@ -77,9 +77,9 @@ void main() {
       expect(summary.status, '待机中');
       expect(summary.inletTemperature, 31);
       expect(summary.flowRate, 0);
-      expect(summary.preheatEntityId, 'switch.wh_preheat');
+      expect(summary.preheatEntityId, 'switch.wh_hot_water_recirculation_p_2_10');
       expect(summary.preheatOn, isFalse);
-      expect(summary.timerPreheatEntityId, 'switch.wh_timer');
+      expect(summary.timerPreheatEntityId, 'switch.wh_intelligent_preheat_p_2_17');
       expect(summary.timerPreheatOn, isTrue);
       expect(summary.hasFault, isFalse);
     });

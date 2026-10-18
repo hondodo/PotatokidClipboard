@@ -158,10 +158,10 @@ class HaDeviceGroup {
   static int _sortWeight(HaEntityStateModel e) {
     if (!e.isSwitchable) return 5;
     if (e.domain == 'light') {
-      final String name = e.displayName;
-      final bool indicatorLike = name.contains('指示灯') ||
-          name.contains('夜灯') ||
-          name.contains('氛围灯');
+      final String id = e.entityId.toLowerCase();
+      final bool indicatorLike = id.contains('indicator') ||
+          id.contains('night_light') ||
+          id.contains('ambient_light');
       return indicatorLike ? 4 : 0;
     }
     if (e.domain == 'climate' || e.domain == 'water_heater') return 1;
@@ -171,18 +171,13 @@ class HaDeviceGroup {
 
   /// 是否为设备的真正电源开关（而非提示音、睡眠模式等设置开关）。
   ///
-  /// 小米设备的电源实体通常是 `switch.*_on_p_2_1`；名称兜底只认
-  /// 最后一段恰好为「开关 / 电源 / 总开关 / 主开关」。
+  /// 只认实体 id 的 `_on_p_x_x` / `_power` 后缀；不再用显示名兜底，
+  /// 避免改名后把「提示音 / 静音」误选成主开关。
   static bool _isMainPowerSwitch(HaEntityStateModel e) {
     if (e.domain != 'switch') return false;
     final String id = e.entityId.toLowerCase();
-    if (RegExp(r'_(on|power)(_p_\d+)?$').hasMatch(id)) return true;
-    final List<String> tokens = e.displayName
-        .split(RegExp(r'\s+'))
-        .where((String token) => token.isNotEmpty)
-        .toList(growable: false);
-    if (tokens.isEmpty) return false;
-    return const <String>{'开关', '电源', '总开关', '主开关'}
-        .contains(tokens.last);
+    return id.endsWith('_power') ||
+        id.endsWith('_on') ||
+        id.contains('_on_p_');
   }
 }

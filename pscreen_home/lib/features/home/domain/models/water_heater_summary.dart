@@ -41,41 +41,36 @@ class WaterHeaterSummary {
     final HaEntityStateModel? preheat = _findSwitch(
       entities,
       idSuffix: '_hot_water_recirculation',
-      nameSuffix: ' 预热',
     );
     final HaEntityStateModel? timerPreheat = _findSwitch(
       entities,
       idSuffix: '_intelligent_preheat',
-      nameSuffix: '智能定时预热',
     );
+    final HaEntityStateModel? schedule =
+        _byId(entities, '_preheat_timer_p_2_13', domain: 'text');
 
     return WaterHeaterSummary(
       deviceId: deviceId,
       name: name,
       entity: main,
-      status: _bySuffix(entities, '工作状态', domain: 'sensor')?.state,
-      fault: _bySuffix(entities, '故障', domain: 'sensor')?.state,
+      status: _byId(entities, '_status_p_2_5', domain: 'sensor')?.state,
+      fault: _byId(entities, '_fault_p_2_1', domain: 'sensor')?.state,
       inletTemperature: _number(
-        _bySuffix(entities, '进水温度', domain: 'sensor')?.state,
+        _byId(entities, '_input_water_temperature_p_2_8',
+                domain: 'sensor')
+            ?.state,
       ),
       flowRate: _number(
-        _findSensor(entities, '水流量')?.state,
+        _byId(entities, '_water_flow_p_2_9', domain: 'sensor')?.state,
       ),
       preheatEntityId: preheat?.entityId,
       preheatOn: preheat?.isOn ?? false,
       timerPreheatEntityId: timerPreheat?.entityId,
       timerPreheatOn: timerPreheat?.isOn ?? false,
-      usageEntityId: _bySuffix(entities, '使用记录', domain: 'event')?.entityId,
-      scheduleEntityId: _findByContains(
-        entities,
-        '预热定时',
-        domain: 'text',
-      )?.entityId,
-      scheduleText: _findByContains(
-        entities,
-        '预热定时',
-        domain: 'text',
-      )?.state,
+      usageEntityId:
+          _byId(entities, '_usage_record_e_4_1', domain: 'event')?.entityId,
+      scheduleEntityId: schedule?.entityId,
+      scheduleText: schedule?.state,
     );
   }
 
@@ -148,47 +143,22 @@ class WaterHeaterSummary {
   static HaEntityStateModel? _findSwitch(
     Iterable<HaEntityStateModel> entities, {
     required String idSuffix,
-    required String nameSuffix,
   }) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != 'switch') continue;
       if (entity.entityId.contains(idSuffix)) return entity;
-      if (entity.displayName.trim().endsWith(nameSuffix)) return entity;
     }
     return null;
   }
 
-  static HaEntityStateModel? _bySuffix(
+  static HaEntityStateModel? _byId(
     Iterable<HaEntityStateModel> entities,
-    String suffix, {
+    String part, {
     required String domain,
   }) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != domain) continue;
-      if (entity.displayName.trim().endsWith(suffix)) return entity;
-    }
-    return null;
-  }
-
-  static HaEntityStateModel? _findSensor(
-    Iterable<HaEntityStateModel> entities,
-    String keyword,
-  ) {
-    for (final HaEntityStateModel entity in entities) {
-      if (entity.domain != 'sensor') continue;
-      if (entity.displayName.contains(keyword)) return entity;
-    }
-    return null;
-  }
-
-  static HaEntityStateModel? _findByContains(
-    Iterable<HaEntityStateModel> entities,
-    String keyword, {
-    required String domain,
-  }) {
-    for (final HaEntityStateModel entity in entities) {
-      if (entity.domain != domain) continue;
-      if (entity.displayName.contains(keyword)) return entity;
+      if (entity.entityId.contains(part)) return entity;
     }
     return null;
   }

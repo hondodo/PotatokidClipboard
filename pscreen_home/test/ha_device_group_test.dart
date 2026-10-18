@@ -58,7 +58,7 @@ void main() {
         for (final HaEntityStateModel e in <HaEntityStateModel>[
           _entity('switch.shared_a', 'on'),
           _entity('light.shared_main', 'off', name: '风扇灯 灯'),
-          _entity('light.shared_night', 'on', name: '风扇灯 夜灯'),
+          _entity('light.shared_night_light', 'on', name: '风扇灯 夜灯'),
         ])
           e.entityId: e,
       }).first;

@@ -583,7 +583,7 @@ void main() {
         states: <HaEntityStateModel>[
           _entity('light.fan_light', 'on'),
           _entity('switch.fan_delay', 'off'),
-          _entity('light.plant_indicator', 'on'),
+          _entity('light.plant_light', 'on'),
           _entity('switch.plant_power', 'off'),
           _entity('switch.lonely', 'off'),
         ],
@@ -600,13 +600,13 @@ void main() {
           deviceIdByEntity: <String, String>{
             'light.fan_light': 'dev_fan',
             'switch.fan_delay': 'dev_fan',
-            'light.plant_indicator': 'dev_plant',
+            'light.plant_light': 'dev_plant',
             'switch.plant_power': 'dev_plant',
           },
           areaIdByEntity: <String, String>{
             'light.fan_light': 'balcony',
             'switch.fan_delay': 'balcony',
-            'light.plant_indicator': 'bedroom',
+            'light.plant_light': 'bedroom',
             'switch.plant_power': 'bedroom',
             'switch.lonely': 'bedroom',
           },
@@ -648,7 +648,7 @@ void main() {
       expect(plant!.title, '阳台植物灯');
       expect(
         plant.entities.map((HaEntityStateModel e) => e.entityId).toList(),
-        <String>['light.plant_indicator', 'switch.plant_power'],
+        <String>['light.plant_light', 'switch.plant_power'],
       );
       expect(bloc.state.deviceGroupOf('dev_unknown'), isNull);
     });
@@ -659,7 +659,7 @@ void main() {
         areaIdByEntity: <String, String>{
           'light.fan_light': 'bedroom',
           'switch.fan_delay': 'bedroom',
-          'light.plant_indicator': 'bedroom',
+          'light.plant_light': 'bedroom',
           'switch.plant_power': 'bedroom',
           'switch.lonely': 'bedroom',
         },
@@ -987,16 +987,16 @@ void main() {
                   'off',
                 ],
               }),
-          _entity('switch.wh_preheat', 'off',
+          _entity('switch.wh_hot_water_recirculation_p_2_10', 'off',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器 预热',
               }),
-          _entity('sensor.wh_status', '待机中',
+          _entity('sensor.wh_status_p_2_5', '待机中',
               attributes: const <String, dynamic>{
                 'friendly_name': '米家智能零冷水燃气热水器16L N1  热水器 工作状态',
               }),
           _entity(
-            'text.wh_timer',
+            'text.wh_preheat_timer_p_2_13',
             '0&2315&2316&0&0-0&0000&0000&0&9-0&0000&0000&0&9'
             '-0&0000&0000&0&9-0&0000&0000&0&9',
             attributes: const <String, dynamic>{
@@ -1015,9 +1015,9 @@ void main() {
           },
           deviceIdByEntity: <String, String>{
             'water_heater.wh': 'dev_wh',
-            'switch.wh_preheat': 'dev_wh',
-            'sensor.wh_status': 'dev_wh',
-            'text.wh_timer': 'dev_wh',
+            'switch.wh_hot_water_recirculation_p_2_10': 'dev_wh',
+            'sensor.wh_status_p_2_5': 'dev_wh',
+            'text.wh_preheat_timer_p_2_13': 'dev_wh',
           },
         );
       bloc = HomeBloc(repository: repo);
@@ -1032,7 +1032,7 @@ void main() {
       expect(summary!.isOn, isTrue);
       expect(summary.targetTemperature, 40);
       expect(summary.modes.length, 6);
-      expect(summary.preheatEntityId, 'switch.wh_preheat');
+      expect(summary.preheatEntityId, 'switch.wh_hot_water_recirculation_p_2_10');
     });
 
     test('设置目标温度：夹在 35-65', () async {
@@ -1084,15 +1084,15 @@ void main() {
         await _run(
           bloc,
           (Completer<bool> c) => bloc.add(SetTextEntityValue(
-            entityId: 'text.wh_timer',
+            entityId: 'text.wh_preheat_timer_p_2_13',
             value: value,
             completer: c,
           )),
         ),
         isTrue,
       );
-      expect(repo.textCalls, <(String, String)>[('text.wh_timer', value)]);
-      expect(bloc.state.entities['text.wh_timer']!.state, value);
+      expect(repo.textCalls, <(String, String)>[('text.wh_preheat_timer_p_2_13', value)]);
+      expect(bloc.state.entities['text.wh_preheat_timer_p_2_13']!.state, value);
     });
   });
 
