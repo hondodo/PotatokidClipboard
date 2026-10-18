@@ -20,6 +20,7 @@ import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_purifier_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
@@ -37,6 +38,7 @@ import 'package:pscreen_home/features/home/presentation/components/kettle_widget
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/rice_cooker_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/range_hood_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/socket_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -556,6 +558,8 @@ class _ControlGrid extends StatelessWidget {
             state.airFryerSummaries;
         final Map<String, WaterPurifierSummary> purifiers =
             state.waterPurifierSummaries;
+        final Map<String, RangeHoodSummary> hoods =
+            state.rangeHoodSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -600,6 +604,26 @@ class _ControlGrid extends StatelessWidget {
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 油烟机：电源 / 风量 / 灯光 / 延时
+            final RangeHoodSummary? hood = group.deviceId == null
+                ? null
+                : hoods[group.deviceId];
+            if (hood != null) {
+              return RangeHoodWidget(
+                summary: hood,
+                areaLabel: areaLabel,
+                isToggling:
+                    state.togglingIds.contains(hood.powerEntityId),
+                onToggle: hood.powerEntityId == null
+                    ? () {}
+                    : () => context.read<HomeBloc>().add(
+                          ToggleEntity(entityId: hood.powerEntityId!),
+                        ),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );

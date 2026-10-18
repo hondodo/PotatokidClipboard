@@ -117,6 +117,7 @@ lib/
 │       │   ├── models/rice_cooker_summary.dart     # 电饭煲摘要
 │       │   ├── models/air_fryer_summary.dart       # 空气炸锅摘要
 │       │   ├── models/water_purifier_summary.dart  # 净水器摘要（TDS/滤芯）
+│       │   ├── models/range_hood_summary.dart      # 油烟机摘要（风量/延时/灯光）
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -398,6 +399,9 @@ void main() {
     `[0/1/2/3/4/5/6/7/8/9/10/11/12/13]`；没有数字键，无法输入数字。
     遥控面板按宽度自适应：宽屏左右分栏（左侧方向盘，右侧电源/设置/对焦/音量），
     窄屏竖排。
+  - **✅ 油烟机**：卡片显示电源 / 风量 / 灯光 / 延时；详情支持开关、低风/高风/
+    爆炒、延时关机时长、照明、自动巡航、假日模式、智能干洗启动/停止。
+    灶具联动、手势、清洁提醒等高级设置保留在 HA 实体中，暂未做专门 UI。
   - **✅ 净水器**：卡片显示 TDS / 水温 / PPC / RO 滤芯寿命；详情显示 TDS、
     进水温度、两枚滤芯寿命与剩余天数、假期模式 / 管线机 / 提示音。
     当周制水量是米家云端统计，HA 未暴露，暂不展示。

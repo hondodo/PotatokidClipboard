@@ -13,6 +13,7 @@ import 'package:pscreen_home/features/home/domain/models/projector_summary.dart'
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_purifier_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -27,6 +28,7 @@ import 'package:pscreen_home/features/home/presentation/components/kettle_contro
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/range_hood_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/rice_cooker_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
@@ -99,6 +101,8 @@ class DeviceDetailPage extends StatelessWidget {
           final WaterPurifierSummary? purifier =
               state.waterPurifierSummaries[deviceId];
           final bool showPurifierPanel = purifier != null;
+          final RangeHoodSummary? hood = state.rangeHoodSummaries[deviceId];
+          final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -163,6 +167,9 @@ class DeviceDetailPage extends StatelessWidget {
             if (showPurifierPanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
+            if (showHoodPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -177,7 +184,8 @@ class DeviceDetailPage extends StatelessWidget {
                   !showMultiSwitchPanel &&
                   !showRiceCookerPanel &&
                   !showAirFryerPanel &&
-                  !showPurifierPanel
+                  !showPurifierPanel &&
+                  !showHoodPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -205,6 +213,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = airFryer.status;
           } else if (showPurifierPanel) {
             headerStatus = purifier.statusLabel;
+          } else if (showHoodPanel) {
+            headerStatus = hood.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -235,6 +245,85 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showHoodPanel && index == 0) {
+                  final RangeHoodSummary current = hood;
+                  return RangeHoodControlPanel(
+                    summary: current,
+                    isToggling: current.powerEntityId != null &&
+                        state.togglingIds.contains(current.powerEntityId),
+                    onToggle: current.powerEntityId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.powerEntityId!,
+                              ),
+                            ),
+                    onFanLevelSelected: current.fanEntityId == null
+                        ? (_) {}
+                        : (String level) => context.read<HomeBloc>().add(
+                              SelectEntityOption(
+                                entityId: current.fanEntityId!,
+                                option: level,
+                              ),
+                            ),
+                    onDelayToggle: current.delayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.delayEntityId!,
+                              ),
+                            ),
+                    onDelayMinutesChanged:
+                        current.delayTimeEntityId == null
+                            ? (_) {}
+                            : (int value) => context.read<HomeBloc>().add(
+                                  SetNumberEntityValue(
+                                    entityId: current.delayTimeEntityId!,
+                                    value: value.toDouble(),
+                                  ),
+                                ),
+                    onLightToggle: current.lightEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.lightEntityId!,
+                              ),
+                            ),
+                    onCruiseToggle: current.cruiseEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.cruiseEntityId!,
+                              ),
+                            ),
+                    onHolidayToggle: current.holidayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.holidayEntityId!,
+                              ),
+                            ),
+                    onDryCleaningStart:
+                        current.dryCleaningStartEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                  PressEntityButton(
+                                    entityId: current
+                                        .dryCleaningStartEntityId!,
+                                  ),
+                                ),
+                    onDryCleaningStop:
+                        current.dryCleaningStopEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                  PressEntityButton(
+                                    entityId:
+                                        current.dryCleaningStopEntityId!,
+                                  ),
+                                ),
+                  );
+                }
+
                 if (showPurifierPanel && index == 0) {
                   final WaterPurifierSummary current = purifier;
                   return WaterPurifierControlPanel(
