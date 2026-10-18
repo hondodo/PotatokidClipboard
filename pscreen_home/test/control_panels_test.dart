@@ -343,6 +343,7 @@ void main() {
             height: 112,
             child: WasherWidget(
               summary: _washer(),
+              areaLabel: '阳台',
               isToggling: false,
               onToggle: () {},
               onOpenDetail: () {},
@@ -353,7 +354,7 @@ void main() {
     ));
 
     expect(find.text('米家洗衣机 洗烘12kg'), findsOneWidget);
-    expect(find.text('已关机'), findsOneWidget);
+    expect(find.text('阳台 · 已关机'), findsOneWidget);
     expect(find.byTooltip('开启洗衣机'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

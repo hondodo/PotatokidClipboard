@@ -10,12 +10,14 @@ class FanWidget extends StatelessWidget {
     required this.summary,
     required this.isToggling,
     required this.onToggle,
+    this.areaLabel,
     this.onOpenDetail,
   });
 
   final FanSummary summary;
   final bool isToggling;
   final VoidCallback onToggle;
+  final String? areaLabel;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF4DD0C4);
@@ -75,7 +77,7 @@ class FanWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          on ? summary.statusLabel : '点击开启',
+                          '${areaLabel ?? '未分配房间'} · ${on ? summary.statusLabel : '点击开启'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

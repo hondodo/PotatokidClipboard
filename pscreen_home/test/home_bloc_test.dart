@@ -560,7 +560,7 @@ void main() {
       );
     });
 
-    test('切换家庭清空房间选择；未选家庭时卡片用完整区域名', () async {
+    test('切换家庭清空房间选择；卡片始终用短房间名', () async {
       bloc.add(const HomeSelected('金科1204'));
       await bloc.stream
           .firstWhere((HomeState s) => s.selectedHomeName == '金科1204');
@@ -577,7 +577,7 @@ void main() {
       bloc.add(const HomeSelected(''));
       await bloc.stream
           .firstWhere((HomeState s) => s.selectedHomeName.isEmpty);
-      expect(bloc.state.areaLabelFor('light.jk_living'), '金科1204 客厅');
+      expect(bloc.state.areaLabelFor('light.jk_living'), '客厅');
       expect(bloc.state.quickControls.length, 4);
     });
 

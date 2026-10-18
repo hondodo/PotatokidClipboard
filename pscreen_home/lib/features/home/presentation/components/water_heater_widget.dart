@@ -14,6 +14,7 @@ class WaterHeaterWidget extends StatelessWidget {
     required this.onToggle,
     required this.onIncrease,
     required this.onDecrease,
+    this.areaLabel,
     this.onOpenDetail,
   });
 
@@ -23,6 +24,7 @@ class WaterHeaterWidget extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onIncrease;
   final VoidCallback onDecrease;
+  final String? areaLabel;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFFFF8A65);
@@ -34,6 +36,7 @@ class WaterHeaterWidget extends StatelessWidget {
     final String target = formatTemperature(entity.targetTemperature);
     final double? current = entity.currentTemperature;
     final String status = <String>[
+      areaLabel ?? '未分配房间',
       statusLabel,
       if (current != null) '${formatTemperature(current)}°C',
     ].join(' · ');

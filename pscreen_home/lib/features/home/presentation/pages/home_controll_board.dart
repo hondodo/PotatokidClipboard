@@ -551,6 +551,7 @@ class _ControlGrid extends StatelessWidget {
             if (fan != null && group.primary?.isFan == true) {
               return FanWidget(
                 summary: fan,
+                areaLabel: areaLabel,
                 isToggling:
                     state.togglingIds.contains(fan.entity.entityId),
                 onToggle: () => context
@@ -571,6 +572,7 @@ class _ControlGrid extends StatelessWidget {
               return FanLightWidget(
                 light: comboPrimary,
                 fan: fan,
+                areaLabel: areaLabel,
                 isToggling: state.togglingIds.contains(toggleId),
                 onToggleMaster: () => context
                     .read<HomeBloc>()
@@ -585,6 +587,7 @@ class _ControlGrid extends StatelessWidget {
                 group.deviceId == null ? null : kettles[group.deviceId];            if (kettle != null) {
               return KettleWidget(
                 summary: kettle,
+                areaLabel: areaLabel,
                 onStart: kettle.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
@@ -622,6 +625,7 @@ class _ControlGrid extends StatelessWidget {
               return WaterHeaterWidget(
                 entity: waterHeater.entity,
                 statusLabel: waterHeater.statusLabel,
+                areaLabel: areaLabel,
                 isToggling: state.togglingIds.contains(entityId),
                 onToggle: () => context
                     .read<HomeBloc>()
@@ -642,6 +646,7 @@ class _ControlGrid extends StatelessWidget {
                   group.entities.first.entityId;
               return WasherWidget(
                 summary: washer,
+                areaLabel: areaLabel,
                 isToggling: state.togglingIds.contains(powerId),
                 onToggle: () => context
                     .read<HomeBloc>()

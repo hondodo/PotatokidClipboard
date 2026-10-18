@@ -180,7 +180,7 @@ class HomeState {
     if (areaId == null) return '未分配房间';
     for (final HaArea area in registry.areas) {
       if (area.areaId == areaId) {
-        return effectiveHomeName.isEmpty ? area.name : area.roomName;
+        return area.roomName.isNotEmpty ? area.roomName : area.name;
       }
     }
     return '未分配房间';

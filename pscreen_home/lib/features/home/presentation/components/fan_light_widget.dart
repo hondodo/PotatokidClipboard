@@ -106,6 +106,7 @@ class FanLightWidget extends StatelessWidget {
     required this.fan,
     required this.isToggling,
     required this.onToggleMaster,
+    this.areaLabel,
     this.onOpenDetail,
   });
 
@@ -113,6 +114,7 @@ class FanLightWidget extends StatelessWidget {
   final FanSummary fan;
   final bool isToggling;
   final VoidCallback onToggleMaster;
+  final String? areaLabel;
   final VoidCallback? onOpenDetail;
 
   static const Color _lightAccent = Color(0xFFFFB74D);
@@ -161,13 +163,28 @@ class FanLightWidget extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      fan.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          fan.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          areaLabel ?? '未分配房间',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   IconButton(

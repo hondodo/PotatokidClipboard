@@ -9,12 +9,14 @@ class KettleWidget extends StatelessWidget {
   const KettleWidget({
     super.key,
     required this.summary,
+    this.areaLabel,
     this.onStart,
     this.onStop,
     this.onOpenDetail,
   });
 
   final KettleSummary summary;
+  final String? areaLabel;
   final VoidCallback? onStart;
   final VoidCallback? onStop;
   final VoidCallback? onOpenDetail;
@@ -69,7 +71,7 @@ class KettleWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${summary.status} · ${summary.mode}',
+                          '${areaLabel ?? '未分配房间'} · ${summary.status} · ${summary.mode}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

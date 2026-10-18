@@ -12,12 +12,14 @@ class WasherWidget extends StatelessWidget {
     required this.summary,
     required this.isToggling,
     required this.onToggle,
+    this.areaLabel,
     this.onOpenDetail,
   });
 
   final WasherSummary summary;
   final bool isToggling;
   final VoidCallback onToggle;
+  final String? areaLabel;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF64B5F6);
@@ -71,7 +73,7 @@ class WasherWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          summary.statusLabel,
+                          '${areaLabel ?? '未分配房间'} · ${summary.statusLabel}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
