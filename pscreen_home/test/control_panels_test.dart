@@ -798,4 +798,27 @@ void main() {
     expect(powered, isTrue);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('投影仪遥控横屏：左右分栏无溢出', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1000, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ProjectorRemoteSheet(
+          isOn: true,
+          onPower: () {},
+          onKey: (_) {},
+        ),
+      ),
+    ));
+
+    expect(find.byTooltip('OK键'), findsOneWidget);
+    expect(find.byTooltip('上键'), findsOneWidget);
+    expect(find.byTooltip('音量加键'), findsOneWidget);
+    expect(find.text('遥控器'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

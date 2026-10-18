@@ -227,6 +227,8 @@ class DeviceDetailPage extends StatelessWidget {
                               context: context,
                               isScrollControlled: true,
                               useSafeArea: true,
+                              constraints:
+                                  const BoxConstraints(maxWidth: 1100),
                               builder: (BuildContext sheetContext) =>
                                   FractionallySizedBox(
                                 heightFactor: 0.92,

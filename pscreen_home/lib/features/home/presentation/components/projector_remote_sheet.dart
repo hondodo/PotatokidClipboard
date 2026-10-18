@@ -35,7 +35,12 @@ class ProjectorRemoteSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return SafeArea(
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        if (constraints.maxWidth >= 760) {
+          return _buildLandscape(context);
+        }
+        return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
         child: Column(
@@ -184,6 +189,175 @@ class ProjectorRemoteSheet extends StatelessWidget {
           ],
         ),
       ),
+    );
+      },
+    );
+  }
+
+  Widget _buildLandscape(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+        child: Column(
+          children: <Widget>[
+            _header(context, theme),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  flex: 5,
+                  child: Column(
+                    children: <Widget>[
+                      _DirectionPad(enabled: isOn, onKey: onKey),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: <Widget>[
+                          _RemoteButton(
+                            icon: Icons.home_rounded,
+                            label: '主页',
+                            tooltip: '主页键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyHome),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.undo_rounded,
+                            label: '返回',
+                            tooltip: '返回键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyBack),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.list_rounded,
+                            label: '菜单',
+                            tooltip: '菜单键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyMenu),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  flex: 4,
+                  child: Column(
+                    children: <Widget>[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: <Widget>[
+                          _RemoteButton(
+                            icon: Icons.power_settings_new_rounded,
+                            label: isOn ? '关机' : '开机',
+                            tooltip: isOn ? '关机' : '开机',
+                            enabled: true,
+                            onTap: onPower,
+                            accent: const Color(0xFFFF8A65),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.settings_rounded,
+                            label: '设置',
+                            tooltip: '设置键',
+                            enabled: isOn,
+                            onTap: () => onKey(keySettings),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: <Widget>[
+                          _RemoteButton(
+                            icon: Icons.center_focus_weak_rounded,
+                            label: '对焦 -',
+                            tooltip: '对焦减',
+                            enabled: isOn,
+                            small: true,
+                            onTap: () => onKey(keyFocusDown),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.center_focus_strong_rounded,
+                            label: '对焦 +',
+                            tooltip: '对焦加',
+                            enabled: isOn,
+                            small: true,
+                            onTap: () => onKey(keyFocusUp),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: <Widget>[
+                          _RemoteButton(
+                            icon: Icons.volume_down_rounded,
+                            label: '音量 -',
+                            tooltip: '音量减键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyVolumeDown),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.volume_off_rounded,
+                            label: '静音',
+                            tooltip: '静音键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyMute),
+                          ),
+                          _RemoteButton(
+                            icon: Icons.volume_up_rounded,
+                            label: '音量 +',
+                            tooltip: '音量加键',
+                            enabled: isOn,
+                            onTap: () => onKey(keyVolumeUp),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        '方向键 / OK / 主页 / 返回 / 菜单 / 对焦 / 音量',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context, ThemeData theme) {
+    return Row(
+      children: <Widget>[
+        Text(
+          '遥控器',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          isOn ? '已开启' : '已关闭',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: isOn
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline,
+          ),
+        ),
+        IconButton(
+          tooltip: '关闭遥控器',
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close_rounded),
+        ),
+      ],
     );
   }
 }
