@@ -38,6 +38,11 @@ class RiceCookerSummary {
         _byId(entities, '_left_time_p_3_3', domain: 'sensor');
     final HaEntityStateModel? total =
         _byId(entities, '_cook_total_time_p_3_2', domain: 'sensor');
+    final int? remainingSeconds = _int(remaining?.state);
+    final int? totalMinutes = _int(total?.state);
+    final int? remainingMinutes = remainingSeconds == null
+        ? null
+        : (remainingSeconds / 60).ceil();
     final HaEntityStateModel? keepWarmTime =
         _byId(entities, '_keepwarm_time_p_3_4', domain: 'sensor');
     final HaEntityStateModel? autoKeepWarm = _byId(
@@ -52,8 +57,8 @@ class RiceCookerSummary {
       status: status.state,
       menuId: _int(menu?.state) ?? 0,
       fault: _byId(entities, '_fault_p_2_2', domain: 'sensor')?.state,
-      remainingMinutes: _int(remaining?.state),
-      totalMinutes: _int(total?.state),
+      remainingMinutes: remainingMinutes,
+      totalMinutes: totalMinutes,
       keepWarmMinutes: _int(keepWarmTime?.state),
       autoKeepWarm: autoKeepWarm?.state == 'on',
       startEntityId: start.entityId,

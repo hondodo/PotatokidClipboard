@@ -41,7 +41,7 @@ void main() {
       expect(summary, isNotNull);
       expect(summary!.status, '待机中');
       expect(summary.menuId, 1);
-      expect(summary.remainingMinutes, 3593);
+      expect(summary.remainingMinutes, 60);
       expect(summary.autoKeepWarm, isTrue);
       expect(summary.hasFault, isFalse);
       expect(summary.isActive, isFalse);
