@@ -108,6 +108,7 @@ lib/
 │       │   ├── models/home_climate_summary.dart    # 家庭温湿度概览（来自 climate 传感器）
 │       │   ├── models/washer_summary.dart          # 洗衣机摘要（switch/select/sensor/button 组合）
 │       │   ├── models/kettle_summary.dart          # 电热水瓶摘要（select/number/switch/notify 组合）
+│       │   ├── models/fan_summary.dart             # 风扇摘要（fan + 关机延时 number）
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -375,6 +376,10 @@ void main() {
     非可控实体用 `ValueWidget` 静态展示值或「暂不支持操作」，按
     `HaDomainIcons` 取图标；纯数据设备 `HaDeviceGroup.primary` 为 null，
     不显示电源键；组内全部不可用时整卡置灰。
+  - **✅ 风扇卡片**：模式（直吹风 / 睡眠风）、三档风速、左右摆风、延时关闭
+    （0-480 分钟）；首页卡显示模式 / 档位 / 摆风与电源，详情页用
+    `fan.set_preset_mode` / `fan.set_percentage` / `fan.oscillate`，
+    延时写 `number.*_off_delay_time_p_2_10`。
   - **✅ 电热水瓶卡片**：当前水温 / 状态 / 内置模式（自来水、纯净水、凉白开）
     / 设定温度 / 保温温度 / 除氯 / 风冷 / 童锁状态；首页卡和详情页均用文字
     按钮：未运行「加热」、加热中「停止加热」、保温/降温「停止保温」。

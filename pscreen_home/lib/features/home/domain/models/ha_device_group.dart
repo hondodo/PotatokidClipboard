@@ -165,6 +165,7 @@ class HaDeviceGroup {
       return indicatorLike ? 4 : 0;
     }
     if (e.domain == 'climate' || e.domain == 'water_heater') return 1;
+    if (e.domain == 'fan') return 1;
     if (e.domain == 'switch') return _isMainPowerSwitch(e) ? 2 : 3;
     return 3;
   }

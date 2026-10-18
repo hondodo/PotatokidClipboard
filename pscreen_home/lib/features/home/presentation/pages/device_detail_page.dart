@@ -5,11 +5,13 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -58,6 +60,9 @@ class DeviceDetailPage extends StatelessWidget {
           final WaterHeaterSummary? waterHeater =
               state.waterHeaterSummaries[deviceId];
           final KettleSummary? kettle = state.kettleSummaries[deviceId];
+          final FanSummary? fan = state.fanSummaries[deviceId];
+          final bool showFanPanel =
+              fan != null && group.primary?.isFan == true;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
               group.entities.first.entityId;
@@ -87,12 +92,19 @@ class DeviceDetailPage extends StatelessWidget {
               kettle!.rapidCoolingEntityId!,
             if (kettle?.startEntityId != null) kettle!.startEntityId!,
             if (kettle?.stopEntityId != null) kettle!.stopEntityId!,
+            if (showFanPanel) fan.entity.entityId,
+            if (showFanPanel && fan.delayEntityId != null)
+              fan.delayEntityId!,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
               .toList(growable: false);
-          final int panelCount =
-              washer == null && waterHeater == null && kettle == null ? 0 : 1;
+          final int panelCount = washer == null &&
+                  waterHeater == null &&
+                  kettle == null &&
+                  !showFanPanel
+              ? 0
+              : 1;
           final String headerStatus;
           if (washer != null) {
             headerStatus =
@@ -102,6 +114,8 @@ class DeviceDetailPage extends StatelessWidget {
                 waterHeater.hasFault ? '故障' : waterHeater.statusLabel;
           } else if (kettle != null) {
             headerStatus = kettle.hasFault ? '故障' : kettle.status;
+          } else if (showFanPanel) {
+            headerStatus = fan.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -132,6 +146,42 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showFanPanel && index == 0) {
+                  final FanSummary current = fan;
+                  return FanControlPanel(
+                    summary: current,
+                    isToggling: state.togglingIds
+                        .contains(current.entity.entityId),
+                    onToggle: () => context.read<HomeBloc>().add(
+                          ToggleEntity(entityId: current.entity.entityId),
+                        ),
+                    onModeSelected: (String mode) =>
+                        context.read<HomeBloc>().add(SetFanPresetMode(
+                              entityId: current.entity.entityId,
+                              mode: mode,
+                            )),
+                    onSpeedSelected: (int level) =>
+                        context.read<HomeBloc>().add(SetFanPercentage(
+                              entityId: current.entity.entityId,
+                              percentage:
+                                  FanSummary.percentageForLevel(level),
+                            )),
+                    onOscillatingChanged: (bool oscillating) =>
+                        context.read<HomeBloc>().add(SetFanOscillating(
+                              entityId: current.entity.entityId,
+                              oscillating: oscillating,
+                            )),
+                    onDelayChanged: current.delayEntityId == null
+                        ? (_) {}
+                        : (int minutes) => context
+                            .read<HomeBloc>()
+                            .add(SetNumberEntityValue(
+                              entityId: current.delayEntityId!,
+                              value: minutes.toDouble(),
+                            )),
+                  );
+                }
+
                 if (washer != null && index == 0) {
                   return WasherControlPanel(
                     summary: washer,

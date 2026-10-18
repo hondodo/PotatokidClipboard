@@ -137,6 +137,45 @@ class SetClimateSwingMode extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 切换风扇预设模式（直吹风 / 睡眠风）。
+class SetFanPresetMode extends HomeEvent {
+  const SetFanPresetMode({
+    required this.entityId,
+    required this.mode,
+    this.completer,
+  });
+
+  final String entityId;
+  final String mode;
+  final Completer<bool>? completer;
+}
+
+/// 设置风扇档位（1-3 档，内部换算为 33/66/100%）。
+class SetFanPercentage extends HomeEvent {
+  const SetFanPercentage({
+    required this.entityId,
+    required this.percentage,
+    this.completer,
+  });
+
+  final String entityId;
+  final int percentage;
+  final Completer<bool>? completer;
+}
+
+/// 开关风扇左右摆风。
+class SetFanOscillating extends HomeEvent {
+  const SetFanOscillating({
+    required this.entityId,
+    required this.oscillating,
+    this.completer,
+  });
+
+  final String entityId;
+  final bool oscillating;
+  final Completer<bool>? completer;
+}
+
 /// 按下 button 实体（洗衣机启动 / 暂停 / 停止等）。
 class PressEntityButton extends HomeEvent {
   const PressEntityButton({

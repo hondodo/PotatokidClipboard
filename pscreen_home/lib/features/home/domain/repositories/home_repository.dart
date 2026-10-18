@@ -63,6 +63,24 @@ abstract class HomeRepository {
     required String mode,
   });
 
+  /// 设置风扇预设模式（直吹风 / 睡眠风）
+  Future<void> setFanPresetMode({
+    required String entityId,
+    required String mode,
+  });
+
+  /// 设置风扇档位百分比（0-100）
+  Future<void> setFanPercentage({
+    required String entityId,
+    required int percentage,
+  });
+
+  /// 开关风扇左右摆风
+  Future<void> setFanOscillating({
+    required String entityId,
+    required bool oscillating,
+  });
+
   /// 按下 button 实体（洗衣机启动 / 暂停 / 停止等）
   Future<void> pressButton({required String entityId});
 

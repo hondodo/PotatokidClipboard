@@ -10,6 +10,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -34,6 +35,9 @@ class _FakeHomeRepository implements HomeRepository {
   final List<(String, String)> hvacModeCalls = <(String, String)>[];
   final List<(String, String)> fanModeCalls = <(String, String)>[];
   final List<(String, String)> swingModeCalls = <(String, String)>[];
+  final List<(String, String)> fanPresetCalls = <(String, String)>[];
+  final List<(String, int)> fanPercentageCalls = <(String, int)>[];
+  final List<(String, bool)> fanOscillatingCalls = <(String, bool)>[];
   final List<String> buttonCalls = <String>[];
   final List<(String, String)> selectCalls = <(String, String)>[];
   final List<(String, double)> waterHeaterTempCalls = <(String, double)>[];
@@ -126,6 +130,33 @@ class _FakeHomeRepository implements HomeRepository {
     required String mode,
   }) async {
     swingModeCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setFanPresetMode({
+    required String entityId,
+    required String mode,
+  }) async {
+    fanPresetCalls.add((entityId, mode));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setFanPercentage({
+    required String entityId,
+    required int percentage,
+  }) async {
+    fanPercentageCalls.add((entityId, percentage));
+    _throwControlError();
+  }
+
+  @override
+  Future<void> setFanOscillating({
+    required String entityId,
+    required bool oscillating,
+  }) async {
+    fanOscillatingCalls.add((entityId, oscillating));
     _throwControlError();
   }
 
@@ -853,6 +884,122 @@ void main() {
       expect(bloc.state.entities['light.bedroom']!.brightnessValue, 204,
           reason: '失败必须回滚亮度');
       expect(bloc.state.errorMessage, '设备离线');
+    });
+  });
+
+  group('HomeBloc 风扇控制', () {
+    late _FakeHomeRepository repo;
+    late HomeBloc bloc;
+
+    setUp(() async {
+      repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('fan.dmaker_cn_811545409_p8_s_2_fan', 'on',
+              attributes: const <String, dynamic>{
+                'friendly_name': '风扇  风扇',
+                'preset_modes': <String>['直吹风', '睡眠风'],
+                'preset_mode': '直吹风',
+                'percentage': 100,
+                'oscillating': false,
+              }),
+          _entity(
+            'number.dmaker_cn_811545409_p8_off_delay_time_p_2_10',
+            '259',
+            attributes: const <String, dynamic>{
+              'friendly_name': '风扇  风扇 关机延时时间',
+            },
+          ),
+        ],
+      )
+        ..registry = const HaRegistry(
+          devices: <String, HaDevice>{
+            'dev_fan': HaDevice(id: 'dev_fan', name: '风扇'),
+          },
+          deviceIdByEntity: <String, String>{
+            'fan.dmaker_cn_811545409_p8_s_2_fan': 'dev_fan',
+            'number.dmaker_cn_811545409_p8_off_delay_time_p_2_10':
+                'dev_fan',
+          },
+        );
+      bloc = HomeBloc(repository: repo);
+      addTearDown(bloc.close);
+      expect(await _load(bloc), isTrue);
+    });
+
+    test('fanSummaries 解析模式 / 档位 / 摆风 / 延时', () {
+      final FanSummary? summary = bloc.state.fanSummaries['dev_fan'];
+      expect(summary, isNotNull);
+      expect(summary!.mode, '直吹风');
+      expect(summary.speedLevel, 3);
+      expect(summary.oscillating, isFalse);
+      expect(summary.delayMinutes, 259);
+    });
+
+    test('切换模式：乐观更新并下发 set_preset_mode', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetFanPresetMode(
+            entityId: 'fan.dmaker_cn_811545409_p8_s_2_fan',
+            mode: '睡眠风',
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(
+        bloc.state.entities['fan.dmaker_cn_811545409_p8_s_2_fan']!
+            .presetMode,
+        '睡眠风',
+      );
+      expect(repo.fanPresetCalls, <(String, String)>[
+        ('fan.dmaker_cn_811545409_p8_s_2_fan', '睡眠风'),
+      ]);
+    });
+
+    test('设置档位：JSON percentage 下发', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetFanPercentage(
+            entityId: 'fan.dmaker_cn_811545409_p8_s_2_fan',
+            percentage: 66,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(
+        bloc.state.entities['fan.dmaker_cn_811545409_p8_s_2_fan']!
+            .fanPercentage,
+        66,
+      );
+      expect(repo.fanPercentageCalls, <(String, int)>[
+        ('fan.dmaker_cn_811545409_p8_s_2_fan', 66),
+      ]);
+    });
+
+    test('开关摆风', () async {
+      expect(
+        await _run(
+          bloc,
+          (Completer<bool> c) => bloc.add(SetFanOscillating(
+            entityId: 'fan.dmaker_cn_811545409_p8_s_2_fan',
+            oscillating: true,
+            completer: c,
+          )),
+        ),
+        isTrue,
+      );
+      expect(
+        bloc.state
+            .entities['fan.dmaker_cn_811545409_p8_s_2_fan']!
+            .isOscillating,
+        isTrue,
+      );
+      expect(repo.fanOscillatingCalls, <(String, bool)>[
+        ('fan.dmaker_cn_811545409_p8_s_2_fan', true),
+      ]);
     });
   });
 

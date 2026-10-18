@@ -36,6 +36,7 @@ class HaEntityStateModel {
     'switch',
     'climate',
     'water_heater',
+    'fan',
   };
 
   /// 动作类实体域：执行一次性动作（按一下），无开关态，暂不支持交互
@@ -114,6 +115,24 @@ class HaEntityStateModel {
 
   /// 是否为热水器实体
   bool get isWaterHeater => domain == 'water_heater';
+
+  /// 是否为风扇实体
+  bool get isFan => domain == 'fan';
+
+  /// 风扇预设模式（如 直吹风 / 睡眠风）
+  List<String> get presetModes => _asStrings(attributes['preset_modes']);
+
+  /// 当前预设模式
+  String? get presetMode {
+    final Object? value = attributes['preset_mode'];
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  /// 风扇档位百分比（0-100）
+  int? get fanPercentage => _asInt(attributes['percentage']);
+
+  /// 是否正在左右摆风
+  bool get isOscillating => attributes['oscillating'] == true;
 
   /// 热水器可选模式（operation_list）
   List<String> get operationModes => _asStrings(attributes['operation_list']);

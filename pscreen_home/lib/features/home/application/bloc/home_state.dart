@@ -2,6 +2,7 @@ import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -283,6 +284,30 @@ class HomeState {
     final Map<String, KettleSummary> result = <String, KettleSummary>{};
     byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
       final KettleSummary? summary = KettleSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 风扇摘要：device_id → 摘要（非风扇设备不出现）。
+  Map<String, FanSummary> get fanSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, FanSummary> result = <String, FanSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final FanSummary? summary = FanSummary.tryBuild(
         deviceId: deviceId,
         name: registry.devices[deviceId]?.name ?? list.first.displayName,
         entities: list,

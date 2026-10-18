@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
@@ -129,6 +132,28 @@ KettleSummary _kettle() => const KettleSummary(
       startEntityId: 'notify.k_start',
       stopEntityId: 'button.k_stop',
       lockMode: '50℃及以上热水需要解锁',
+    );
+
+FanSummary _fan() => const FanSummary(
+      deviceId: 'dev_fan',
+      name: '风扇',
+      entity: HaEntityStateModel(
+        entityId: 'fan.dmaker_cn_811545409_p8_s_2_fan',
+        state: 'on',
+        attributes: <String, dynamic>{
+          'friendly_name': '风扇  风扇',
+          'preset_modes': <String>['直吹风', '睡眠风'],
+          'preset_mode': '直吹风',
+          'percentage': 100,
+          'oscillating': false,
+        },
+      ),
+      modes: <String>['直吹风', '睡眠风'],
+      mode: '直吹风',
+      percentage: 100,
+      oscillating: false,
+      delayMinutes: 259,
+      delayEntityId: 'number.dmaker_cn_811545409_p8_off_delay_time_p_2_10',
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -479,6 +504,62 @@ void main() {
     expect(find.text('除氯'), findsOneWidget);
     expect(find.text('风冷'), findsOneWidget);
     expect(find.text('开始加热'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('风扇卡片：模式 / 档位 / 摆风在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: FanWidget(
+              summary: _fan(),
+              isToggling: false,
+              onToggle: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('直吹风'), findsOneWidget);
+    expect(find.text('三挡 · 摆风关'), findsOneWidget);
+    expect(find.byTooltip('关闭风扇'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('风扇面板：模式 / 三挡 / 摆风 / 延时无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(FanControlPanel(
+      summary: _fan(),
+      isToggling: false,
+      onToggle: () {},
+      onModeSelected: (_) {},
+      onSpeedSelected: (_) {},
+      onOscillatingChanged: (_) {},
+      onDelayChanged: (_) {},
+    )));
+
+    expect(find.text('模式'), findsOneWidget);
+    expect(find.text('睡眠风'), findsOneWidget);
+    expect(find.text('风机档位 | 三挡'), findsOneWidget);
+    expect(find.text('左右摆风'), findsOneWidget);
+    expect(find.text('延时关闭'), findsOneWidget);
+    expect(find.text('4小时19分钟'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

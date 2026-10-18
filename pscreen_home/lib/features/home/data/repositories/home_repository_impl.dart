@@ -249,6 +249,47 @@ class HomeRepositoryImpl implements HomeRepository {
   }
 
   @override
+  Future<void> setFanPresetMode({
+    required String entityId,
+    required String mode,
+  }) {
+    return _client.callService(
+      domain: 'fan',
+      service: 'set_preset_mode',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'preset_mode': mode},
+    );
+  }
+
+  @override
+  Future<void> setFanPercentage({
+    required String entityId,
+    required int percentage,
+  }) {
+    return _client.callService(
+      domain: 'fan',
+      service: 'set_percentage',
+      entityId: entityId,
+      serviceData: <String, dynamic>{
+        'percentage': percentage.clamp(0, 100),
+      },
+    );
+  }
+
+  @override
+  Future<void> setFanOscillating({
+    required String entityId,
+    required bool oscillating,
+  }) {
+    return _client.callService(
+      domain: 'fan',
+      service: 'oscillate',
+      entityId: entityId,
+      serviceData: <String, dynamic>{'oscillating': oscillating},
+    );
+  }
+
+  @override
   Future<void> pressButton({required String entityId}) {
     return _client.callService(
       domain: 'button',

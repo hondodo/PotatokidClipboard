@@ -14,6 +14,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
@@ -21,6 +22,7 @@ import 'package:pscreen_home/features/home/presentation/components/button_widget
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -526,6 +528,7 @@ class _ControlGrid extends StatelessWidget {
         final Map<String, WaterHeaterSummary> waterHeaters =
             state.waterHeaterSummaries;
         final Map<String, KettleSummary> kettles = state.kettleSummaries;
+        final Map<String, FanSummary> fans = state.fanSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -541,10 +544,25 @@ class _ControlGrid extends StatelessWidget {
               group.primary?.entityId ?? group.entities.first.entityId,
             );
 
+            // 风扇：模式 / 档位 / 摆风 + 电源
+            final FanSummary? fan =
+                group.deviceId == null ? null : fans[group.deviceId];
+            if (fan != null && group.primary?.isFan == true) {
+              return FanWidget(
+                summary: fan,
+                isToggling:
+                    state.togglingIds.contains(fan.entity.entityId),
+                onToggle: () => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: fan.entity.entityId)),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
             // 电热水瓶：当前水温 + 状态 + 模式 + 开始/停止
             final KettleSummary? kettle =
-                group.deviceId == null ? null : kettles[group.deviceId];
-            if (kettle != null) {
+                group.deviceId == null ? null : kettles[group.deviceId];            if (kettle != null) {
               return KettleWidget(
                 summary: kettle,
                 onStart: kettle.startEntityId == null

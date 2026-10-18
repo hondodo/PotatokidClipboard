@@ -32,6 +32,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<SetClimateHvacMode>(_onSetClimateHvacMode);
     on<SetClimateFanMode>(_onSetClimateFanMode);
     on<SetClimateSwingMode>(_onSetClimateSwingMode);
+    on<SetFanPresetMode>(_onSetFanPresetMode);
+    on<SetFanPercentage>(_onSetFanPercentage);
+    on<SetFanOscillating>(_onSetFanOscillating);
     on<PressEntityButton>(_onPressEntityButton);
     on<SelectEntityOption>(_onSelectEntityOption);
     on<SetWaterHeaterTemperature>(_onSetWaterHeaterTemperature);
@@ -393,11 +396,82 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
   }
 
-  Future<void> _onPressEntityButton(
-    PressEntityButton event,
+  Future<void> _onSetFanPresetMode(
+    SetFanPresetMode event,
     Emitter<HomeState> emit,
   ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null ||
+        !current.isFan ||
+        !current.presetModes.contains(event.mode)) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'preset_mode': event.mode,
+      }),
+      action: () => _repository.setFanPresetMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetFanPercentage(
+    SetFanPercentage event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null || !current.isFan) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    final int percentage = event.percentage.clamp(0, 100).toInt();
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'percentage': percentage,
+      }),
+      action: () => _repository.setFanPercentage(
+        entityId: current.entityId,
+        percentage: percentage,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onSetFanOscillating(
+    SetFanOscillating event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HaEntityStateModel? current = state.entities[event.entityId];
+    if (current == null || !current.isFan) {
+      completeBlocEvent(event.completer, success: false);
+      return;
+    }
+    await _applyEntityPatch(
+      emit: emit,
+      current: current,
+      patched: current.mergeAttributes(<String, dynamic>{
+        'oscillating': event.oscillating,
+      }),
+      action: () => _repository.setFanOscillating(
+        entityId: current.entityId,
+        oscillating: event.oscillating,
+      ),
+      completer: event.completer,
+    );
+  }
+
+  Future<void> _onPressEntityButton(
+    PressEntityButton event,
+    Emitter<HomeState> emit,
+  ) async {    final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         current.domain != 'button' ||
         current.state == 'unavailable') {
