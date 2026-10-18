@@ -109,6 +109,7 @@ lib/
 │       │   ├── models/washer_summary.dart          # 洗衣机摘要（switch/select/sensor/button 组合）
 │       │   ├── models/kettle_summary.dart          # 电热水瓶摘要（select/number/switch/notify 组合）
 │       │   ├── models/fan_summary.dart             # 风扇摘要（fan + 关机延时 number）
+│       │   ├── models/projector_summary.dart       # 投影仪摘要（button/number/select/notify）
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -381,6 +382,11 @@ void main() {
     走无级调速（1-100）。延时兼容 `_off_delay_time_p_2_10`（0-480 分钟）
     和 `_delay_time_p_6_2`（0-720 分钟）。首页卡显示模式 / 档位 / 摆风与电源，
     详情页用 `fan.set_preset_mode` / `fan.set_percentage` / `fan.oscillate`。
+  - **✅ 投影仪卡片**：坚果投影仪在 HA 里没有 media_player，拆成开机/关机
+    button、音量/亮度 number、输入源 select、应用列表 sensor、打开应用 notify；
+    卡片显示当前应用 / 输入源、音量和亮度，详情页提供应用快捷入口、输入源、
+    音量、亮度、静音、播放控制。开关机状态用 devicestartup / deviceshutdown
+    事件时间推断；开关机走 `button.press`，打开应用走 notify 的 YAML 包名列表。
   - **✅ 风扇灯组合**：同一设备同时有 `light.*` 和 `fan.*` 时用组合卡
     （灯亮度 + 风扇模式/档位），卡片快捷开关和详情页第一行都用
     `switch.*_all_on_p_10_1` 总开关；详情页同时渲染总开关、风扇面板和灯光面板。

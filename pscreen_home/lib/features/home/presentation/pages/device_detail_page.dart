@@ -7,6 +7,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
@@ -15,6 +16,7 @@ import 'package:pscreen_home/features/home/presentation/components/fan_control_p
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
@@ -62,6 +64,9 @@ class DeviceDetailPage extends StatelessWidget {
               state.waterHeaterSummaries[deviceId];
           final KettleSummary? kettle = state.kettleSummaries[deviceId];
           final FanSummary? fan = state.fanSummaries[deviceId];
+          final ProjectorSummary? projector =
+              state.projectorSummaries[deviceId];
+          final bool showProjectorPanel = projector != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -97,6 +102,9 @@ class DeviceDetailPage extends StatelessWidget {
               fan.delayEntityId!,
             if (showFanPanel && fan.masterSwitchEntityId != null)
               fan.masterSwitchEntityId!,
+            if (showProjectorPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -104,7 +112,8 @@ class DeviceDetailPage extends StatelessWidget {
           final int panelCount = washer == null &&
                   waterHeater == null &&
                   kettle == null &&
-                  !showFanPanel
+                  !showFanPanel &&
+                  !showProjectorPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -118,6 +127,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = kettle.hasFault ? '故障' : kettle.status;
           } else if (showFanPanel) {
             headerStatus = fan.statusLabel;
+          } else if (showProjectorPanel) {
+            headerStatus = projector.title;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -148,6 +159,70 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showProjectorPanel && index == 0) {
+                  final ProjectorSummary current = projector;
+                  final String? powerId = current.isOn
+                      ? current.powerOffEntityId
+                      : current.powerOnEntityId;
+                  return ProjectorControlPanel(
+                    summary: current,
+                    isBusy: powerId != null &&
+                        state.togglingIds.contains(powerId),
+                    onPower: powerId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(entityId: powerId),
+                            ),
+                    onVolumeChanged: current.volumeEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                              SetNumberEntityValue(
+                                entityId: current.volumeEntityId!,
+                                value: value.toDouble(),
+                              ),
+                            ),
+                    onBrightnessChanged:
+                        current.brightnessEntityId == null
+                            ? (_) {}
+                            : (int value) => context.read<HomeBloc>().add(
+                                  SetNumberEntityValue(
+                                    entityId:
+                                        current.brightnessEntityId!,
+                                    value: value.toDouble(),
+                                  ),
+                                ),
+                    onInputSelected: current.inputEntityId == null
+                        ? (_) {}
+                        : (String input) => context.read<HomeBloc>().add(
+                              SelectEntityOption(
+                                entityId: current.inputEntityId!,
+                                option: input,
+                              ),
+                            ),
+                    onMuteToggle: current.muteEntityId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.muteEntityId!,
+                              ),
+                            ),
+                    onOpenApp: current.openAppEntityId == null
+                        ? (_) {}
+                        : (String package) => context.read<HomeBloc>().add(
+                              PressNotifyAction(
+                                entityId: current.openAppEntityId!,
+                                message: ProjectorSummary.openAppMessage(
+                                  package,
+                                ),
+                              ),
+                            ),
+                    onButtonPressed: (String entityId) =>
+                        context.read<HomeBloc>().add(
+                              PressEntityButton(entityId: entityId),
+                            ),
+                  );
+                }
+
                 if (showFanPanel && index == 0) {
                   final FanSummary current = fan;
                   final HaEntityStateModel? master =

@@ -16,6 +16,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart'
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
@@ -26,6 +27,7 @@ import 'package:pscreen_home/features/home/presentation/components/fan_widget.da
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
@@ -530,6 +532,8 @@ class _ControlGrid extends StatelessWidget {
             state.waterHeaterSummaries;
         final Map<String, KettleSummary> kettles = state.kettleSummaries;
         final Map<String, FanSummary> fans = state.fanSummaries;
+        final Map<String, ProjectorSummary> projectors =
+            state.projectorSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -577,6 +581,32 @@ class _ControlGrid extends StatelessWidget {
                 onToggleMaster: () => context
                     .read<HomeBloc>()
                     .add(ToggleEntity(entityId: toggleId)),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 投影仪：开关机 / 当前应用 / 音量和亮度
+            final ProjectorSummary? projector = group.deviceId == null
+                ? null
+                : projectors[group.deviceId];
+            if (projector != null) {
+              final String? powerId = projector.isOn
+                  ? projector.powerOffEntityId
+                  : projector.powerOnEntityId;
+              final bool powerAvailable = projector.isOn
+                  ? projector.powerOffAvailable
+                  : projector.powerOnAvailable;
+              return ProjectorWidget(
+                summary: projector,
+                areaLabel: areaLabel,
+                isBusy: powerId != null &&
+                    state.togglingIds.contains(powerId),
+                onPower: powerId == null || !powerAvailable
+                    ? () {}
+                    : () => context
+                        .read<HomeBloc>()
+                        .add(PressEntityButton(entityId: powerId)),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
@@ -12,6 +13,8 @@ import 'package:pscreen_home/features/home/presentation/components/fan_light_wid
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -187,6 +190,37 @@ FanSummary _fanLight() => const FanSummary(
           'friendly_name': '风扇灯 * 补充 总开关 状态',
         },
       ),
+    );
+
+ProjectorSummary _projector() => const ProjectorSummary(
+      deviceId: 'dev_proj',
+      name: '坚果智能投影仪-N系列',
+      isOn: true,
+      volume: 31,
+      brightness: 10,
+      mute: false,
+      inputs: <String>['HDMI 1', '媒体中心'],
+      apps: <ProjectorApp>[
+        ProjectorApp(name: '薯仔看电视', package: 'screen.potatokid.tools'),
+        ProjectorApp(name: '云视听小电视', package: 'com.xiaodianshi.tv.yst'),
+      ],
+      input: '媒体中心',
+      currentAppPackage: 'screen.potatokid.tools',
+      currentAppName: '薯仔看电视',
+      volumeEntityId: 'number.jmgo_volume_p_4_1',
+      brightnessEntityId: 'number.jmgo_brightness_p_2_3',
+      inputEntityId: 'select.jmgo_input_control_p_2_2',
+      muteEntityId: 'switch.jmgo_mute_p_4_2',
+      openAppEntityId: 'notify.jmgo_openapp_a_8_1',
+      powerOnEntityId: 'button.jmgo_turn_on_a_7_1',
+      powerOffEntityId: 'button.jmgo_turn_off_a_2_1',
+      powerOnAvailable: true,
+      powerOffAvailable: true,
+      playEntityId: 'button.jmgo_play_a_3_3',
+      pauseEntityId: 'button.jmgo_pause_a_3_4',
+      nextEntityId: 'button.jmgo_next_a_3_5',
+      previousEntityId: 'button.jmgo_previous_a_3_6',
+      stopEntityId: 'button.jmgo_stop_a_3_7',
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -670,6 +704,65 @@ void main() {
     expect(find.text('总开关'), findsOneWidget);
     expect(find.text('风扇灯 · 已开启'), findsOneWidget);
     expect(find.byType(Switch), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('投影仪卡片：应用 / 音量 / 亮度在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: ProjectorWidget(
+              summary: _projector(),
+              areaLabel: '客厅',
+              isBusy: false,
+              onPower: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('薯仔看电视'), findsOneWidget);
+    expect(find.text('音量 31% · 亮度 10'), findsOneWidget);
+    expect(find.byTooltip('关机'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('投影仪面板：应用 / 输入源 / 音量 / 亮度 / 播放控制',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(ProjectorControlPanel(
+      summary: _projector(),
+      isBusy: false,
+      onPower: () {},
+      onVolumeChanged: (_) {},
+      onBrightnessChanged: (_) {},
+      onInputSelected: (_) {},
+      onMuteToggle: () {},
+      onOpenApp: (_) {},
+      onButtonPressed: (_) {},
+    )));
+
+    expect(find.text('应用'), findsOneWidget);
+    expect(find.text('输入源'), findsOneWidget);
+    expect(find.text('音量'), findsOneWidget);
+    expect(find.text('亮度'), findsOneWidget);
+    expect(find.text('静音'), findsOneWidget);
+    expect(find.text('媒体中心'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
