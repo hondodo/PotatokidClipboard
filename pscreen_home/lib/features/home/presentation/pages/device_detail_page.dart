@@ -5,16 +5,19 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/air_fryer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
@@ -23,6 +26,7 @@ import 'package:pscreen_home/features/home/presentation/components/kettle_contro
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/rice_cooker_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/socket_control_panel.dart';
@@ -84,6 +88,12 @@ class DeviceDetailPage extends StatelessWidget {
           final MultiSwitchSummary? multiSwitch =
               state.multiSwitchSummaries[deviceId];
           final bool showMultiSwitchPanel = multiSwitch != null;
+          final RiceCookerSummary? riceCooker =
+              state.riceCookerSummaries[deviceId];
+          final bool showRiceCookerPanel = riceCooker != null;
+          final AirFryerSummary? airFryer =
+              state.airFryerSummaries[deviceId];
+          final bool showAirFryerPanel = airFryer != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -139,6 +149,12 @@ class DeviceDetailPage extends StatelessWidget {
             if (showMultiSwitchPanel)
               for (final SwitchGang gang in multiSwitch.gangs)
                 gang.entityId,
+            if (showRiceCookerPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showAirFryerPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -150,7 +166,9 @@ class DeviceDetailPage extends StatelessWidget {
                   !showProjectorPanel &&
                   !showFridgePanel &&
                   !showSocketPanel &&
-                  !showMultiSwitchPanel
+                  !showMultiSwitchPanel &&
+                  !showRiceCookerPanel &&
+                  !showAirFryerPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -172,6 +190,10 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = socket.statusLabel;
           } else if (showMultiSwitchPanel) {
             headerStatus = multiSwitch.statusLabel;
+          } else if (showRiceCookerPanel) {
+            headerStatus = riceCooker.status;
+          } else if (showAirFryerPanel) {
+            headerStatus = airFryer.status;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -202,6 +224,107 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showRiceCookerPanel && index == 0) {
+                  final RiceCookerSummary current = riceCooker;
+                  return RiceCookerControlPanel(
+                    summary: current,
+                    onStart: current.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressNotifyAction(
+                                entityId: current.startEntityId!,
+                                message: current.startMessage,
+                              ),
+                            ),
+                    onStop: current.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: current.stopEntityId!,
+                              ),
+                            ),
+                  );
+                }
+
+                if (showAirFryerPanel && index == 0) {
+                  final AirFryerSummary current = airFryer;
+                  return AirFryerControlPanel(
+                    summary: current,
+                    onModeSelected: current.modeEntityId == null
+                        ? (_) {}
+                        : (String mode) => context.read<HomeBloc>().add(
+                              SelectEntityOption(
+                                entityId: current.modeEntityId!,
+                                option: mode,
+                              ),
+                            ),
+                    onTemperatureChanged:
+                        current.temperatureEntityId == null
+                            ? (_) {}
+                            : (int value) => context.read<HomeBloc>().add(
+                                  SetNumberEntityValue(
+                                    entityId:
+                                        current.temperatureEntityId!,
+                                    value: value.toDouble(),
+                                  ),
+                                ),
+                    onTimeChanged: current.timeEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                              SetNumberEntityValue(
+                                entityId: current.timeEntityId!,
+                                value: value.toDouble(),
+                              ),
+                            ),
+                    onStart: current.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: current.startEntityId!,
+                              ),
+                            ),
+                    onPause: current.pauseEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: current.pauseEntityId!,
+                              ),
+                            ),
+                    onResume: current.resumeEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: current.resumeEntityId!,
+                              ),
+                            ),
+                    onStop: current.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              PressEntityButton(
+                                entityId: current.stopEntityId!,
+                              ),
+                            ),
+                    onAutoKeepWarm:
+                        current.autoKeepWarmEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                  ToggleEntity(
+                                    entityId:
+                                        current.autoKeepWarmEntityId!,
+                                  ),
+                                ),
+                    onCurrentKeepWarm:
+                        current.currentKeepWarmEntityId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                  ToggleEntity(
+                                    entityId:
+                                        current.currentKeepWarmEntityId!,
+                                  ),
+                                ),
+                  );
+                }
+
                 if (showMultiSwitchPanel && index == 0) {
                   final MultiSwitchSummary current = multiSwitch;
                   return MultiSwitchControlPanel(

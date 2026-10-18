@@ -3,8 +3,10 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
@@ -341,10 +343,58 @@ class HomeState {
     return result;
   }
 
+  /// 电饭煲摘要：device_id → 摘要（非电饭煲不出现）。
+  Map<String, RiceCookerSummary> get riceCookerSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, RiceCookerSummary> result =
+        <String, RiceCookerSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final RiceCookerSummary? summary = RiceCookerSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 空气炸锅摘要：device_id → 摘要（非空气炸锅不出现）。
+  Map<String, AirFryerSummary> get airFryerSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, AirFryerSummary> result = <String, AirFryerSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final AirFryerSummary? summary = AirFryerSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
   /// 双开开关摘要：device_id → 摘要（没有两路 `_on_p_2_1` / `_on_p_3_1`
   /// 的设备不出现）。
-  Map<String, MultiSwitchSummary> get multiSwitchSummaries {
-    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, MultiSwitchSummary> get multiSwitchSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);

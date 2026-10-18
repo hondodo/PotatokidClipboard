@@ -114,6 +114,8 @@ lib/
 │       │   ├── models/power_stats.dart             # 插座用电信息（功率/累计/温度/次数）
 │       │   ├── models/socket_summary.dart          # 智能插座摘要
 │       │   ├── models/multi_switch_summary.dart    # 双开开关摘要（两路按键）
+│       │   ├── models/rice_cooker_summary.dart     # 电饭煲摘要
+│       │   ├── models/air_fryer_summary.dart       # 空气炸锅摘要
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -395,6 +397,10 @@ void main() {
     `[0/1/2/3/4/5/6/7/8/9/10/11/12/13]`；没有数字键，无法输入数字。
     遥控面板按宽度自适应：宽屏左右分栏（左侧方向盘，右侧电源/设置/对焦/音量），
     窄屏竖排。
+  - **✅ 电饭煲 / 空气炸锅**：电饭煲卡片显示状态 / 剩余时长，支持开始/停止；
+    详情显示食谱 id、总时长、保温。空气炸锅卡片显示模式 / 温度 / 时间，
+    详情支持模式切换、温度/时间加减、开始/暂停/继续/停止、自动/当前保温。
+    电饭煲菜谱定义在米家云端，HA 只暴露 menu_id，暂不支持切换具体菜谱。
   - **✅ 双开开关**：同一设备下的 `_on_p_2_1` / `_on_p_3_1` 识别为左/右两路，
     首页卡显示两路状态，详情页独立开关 + 全开/全关；指示灯、模式、按键事件
     继续以列表展示。

@@ -14,10 +14,12 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -28,10 +30,12 @@ import 'package:pscreen_home/features/home/presentation/components/climate_widge
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/air_fryer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fridge_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/rice_cooker_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/socket_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -544,6 +548,10 @@ class _ControlGrid extends StatelessWidget {
         final Map<String, SocketSummary> sockets = state.socketSummaries;
         final Map<String, MultiSwitchSummary> multiSwitches =
             state.multiSwitchSummaries;
+        final Map<String, RiceCookerSummary> riceCookers =
+            state.riceCookerSummaries;
+        final Map<String, AirFryerSummary> airFryers =
+            state.airFryerSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -588,6 +596,61 @@ class _ControlGrid extends StatelessWidget {
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 电饭煲：状态 / 剩余时长 + 开始/停止
+            final RiceCookerSummary? riceCooker = group.deviceId == null
+                ? null
+                : riceCookers[group.deviceId];
+            if (riceCooker != null) {
+              return RiceCookerWidget(
+                summary: riceCooker,
+                areaLabel: areaLabel,
+                onStart: riceCooker.startEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressNotifyAction(
+                            entityId: riceCooker.startEntityId!,
+                            message: riceCooker.startMessage,
+                          ),
+                        ),
+                onStop: riceCooker.stopEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressEntityButton(
+                            entityId: riceCooker.stopEntityId!,
+                          ),
+                        ),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 空气炸锅：模式 / 温度 / 时间 + 开始/停止
+            final AirFryerSummary? airFryer = group.deviceId == null
+                ? null
+                : airFryers[group.deviceId];
+            if (airFryer != null) {
+              return AirFryerWidget(
+                summary: airFryer,
+                areaLabel: areaLabel,
+                onStart: airFryer.startEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressEntityButton(
+                            entityId: airFryer.startEntityId!,
+                          ),
+                        ),
+                onStop: airFryer.stopEntityId == null
+                    ? null
+                    : () => context.read<HomeBloc>().add(
+                          PressEntityButton(
+                            entityId: airFryer.stopEntityId!,
+                          ),
+                        ),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
