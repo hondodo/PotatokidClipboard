@@ -110,6 +110,7 @@ lib/
 │       │   ├── models/kettle_summary.dart          # 电热水瓶摘要（select/number/switch/notify 组合）
 │       │   ├── models/fan_summary.dart             # 风扇摘要（fan + 关机延时 number）
 │       │   ├── models/projector_summary.dart       # 投影仪摘要（button/number/select/notify）
+│       │   ├── models/fridge_summary.dart          # 冰箱摘要（三舱温度 + 模式）
 │       │   ├── models/water_heater_summary.dart    # 热水器摘要（water_heater + 预热/状态实体）
 │       │   ├── models/water_heater_schedule.dart   # 定时预热 5 槽位编码/解析
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
@@ -391,6 +392,10 @@ void main() {
     `[0/1/2/3/4/5/6/7/8/9/10/11/12/13]`；没有数字键，无法输入数字。
     遥控面板按宽度自适应：宽屏左右分栏（左侧方向盘，右侧电源/设置/对焦/音量），
     窄屏竖排。
+  - **✅ 冰箱卡片 / 详情**：冷藏、冷冻、变温三舱当前温度 + 目标温度 + 模式
+    （手动/智能/速冷/速冻）；详情页支持三舱目标温度加减、模式切换、
+    环境温湿度 / 运行时长 / 开门次数。冰箱没有总电源，常驻运行；食材管理
+    是米家云端数据，HA 未暴露，详情页只做说明。
   - **✅ 风扇灯组合**：同一设备同时有 `light.*` 和 `fan.*` 时用组合卡
     （灯亮度 + 风扇模式/档位），卡片快捷开关和详情页第一行都用
     `switch.*_all_on_p_10_1` 总开关；详情页同时渲染总开关、风扇面板和灯光面板。

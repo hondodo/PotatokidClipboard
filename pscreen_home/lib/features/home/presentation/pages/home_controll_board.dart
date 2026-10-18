@@ -15,6 +15,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -25,6 +26,7 @@ import 'package:pscreen_home/features/home/presentation/components/climate_widge
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fridge_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
@@ -534,6 +536,7 @@ class _ControlGrid extends StatelessWidget {
         final Map<String, FanSummary> fans = state.fanSummaries;
         final Map<String, ProjectorSummary> projectors =
             state.projectorSummaries;
+        final Map<String, FridgeSummary> fridges = state.fridgeSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -548,6 +551,18 @@ class _ControlGrid extends StatelessWidget {
             final String areaLabel = state.areaLabelFor(
               group.primary?.entityId ?? group.entities.first.entityId,
             );
+
+            // 冰箱：三舱温度 + 模式
+            final FridgeSummary? fridge =
+                group.deviceId == null ? null : fridges[group.deviceId];
+            if (fridge != null) {
+              return FridgeWidget(
+                summary: fridge,
+                areaLabel: areaLabel,
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
 
             // 风扇：模式 / 档位 / 摆风 + 电源
             final FanSummary? fan =

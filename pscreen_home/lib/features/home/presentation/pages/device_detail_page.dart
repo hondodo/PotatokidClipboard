@@ -6,6 +6,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -14,6 +15,7 @@ import 'package:pscreen_home/features/home/presentation/components/button_widget
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fridge_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
@@ -68,6 +70,8 @@ class DeviceDetailPage extends StatelessWidget {
           final ProjectorSummary? projector =
               state.projectorSummaries[deviceId];
           final bool showProjectorPanel = projector != null;
+          final FridgeSummary? fridge = state.fridgeSummaries[deviceId];
+          final bool showFridgePanel = fridge != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -106,6 +110,9 @@ class DeviceDetailPage extends StatelessWidget {
             if (showProjectorPanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
+            if (showFridgePanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -114,7 +121,8 @@ class DeviceDetailPage extends StatelessWidget {
                   waterHeater == null &&
                   kettle == null &&
                   !showFanPanel &&
-                  !showProjectorPanel
+                  !showProjectorPanel &&
+                  !showFridgePanel
               ? 0
               : 1;
           final String headerStatus;
@@ -130,6 +138,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = fan.statusLabel;
           } else if (showProjectorPanel) {
             headerStatus = projector.title;
+          } else if (showFridgePanel) {
+            headerStatus = fridge.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -160,6 +170,29 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showFridgePanel && index == 0) {
+                  final FridgeSummary current = fridge;
+                  return FridgeControlPanel(
+                    summary: current,
+                    onModeSelected: current.modeEntityId == null
+                        ? (_) {}
+                        : (String mode) => context.read<HomeBloc>().add(
+                              SelectEntityOption(
+                                entityId: current.modeEntityId!,
+                                option: mode,
+                              ),
+                            ),
+                    onTargetChanged:
+                        (String entityId, int temperature) =>
+                            context.read<HomeBloc>().add(
+                                  SetNumberEntityValue(
+                                    entityId: entityId,
+                                    value: temperature.toDouble(),
+                                  ),
+                                ),
+                  );
+                }
+
                 if (showProjectorPanel && index == 0) {
                   final ProjectorSummary current = projector;
                   final String? powerId = current.isOn

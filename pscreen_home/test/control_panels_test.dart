@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
@@ -8,6 +9,8 @@ import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fridge_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fridge_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
@@ -222,6 +225,45 @@ ProjectorSummary _projector() => const ProjectorSummary(
       nextEntityId: 'button.jmgo_next_a_3_5',
       previousEntityId: 'button.jmgo_previous_a_3_6',
       stopEntityId: 'button.jmgo_stop_a_3_7',
+    );
+
+FridgeSummary _fridge() => const FridgeSummary(
+      deviceId: 'dev_fridge',
+      name: '米家冰箱 法式平嵌400L',
+      mode: '智能',
+      modes: <String>['手动', '智能', '速冷', '速冻'],
+      modeEntityId: 'select.midjd_mode_p_2_2',
+      zones: <FridgeZone>[
+        FridgeZone(
+          name: '冷藏室',
+          currentTemperature: 7,
+          targetTemperature: 5,
+          minTemperature: 2,
+          maxTemperature: 8,
+          targetEntityId: 'number.midjd_target_temperature_p_3_2',
+        ),
+        FridgeZone(
+          name: '冷冻室',
+          currentTemperature: -20,
+          targetTemperature: -18,
+          minTemperature: -24,
+          maxTemperature: -16,
+          targetEntityId: 'number.midjd_target_temperature_p_4_2',
+        ),
+        FridgeZone(
+          name: '变温舱',
+          currentTemperature: 2,
+          targetTemperature: 5,
+          minTemperature: -1,
+          maxTemperature: 5,
+          targetEntityId: 'number.midjd_target_temperature_p_6_2',
+        ),
+      ],
+      environmentTemperature: 29,
+      environmentHumidity: 70,
+      refrigeratorOpenTimes: 75,
+      freezerOpenTimes: 3,
+      totalRuntimeMinutes: 1105,
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -819,6 +861,66 @@ void main() {
     expect(find.byTooltip('上键'), findsOneWidget);
     expect(find.byTooltip('音量加键'), findsOneWidget);
     expect(find.text('遥控器'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('冰箱卡片：三舱温度在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: FridgeWidget(
+              summary: _fridge(),
+              areaLabel: '厨房',
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('冷藏室'), findsOneWidget);
+    expect(find.text('冷冻室'), findsOneWidget);
+    expect(find.text('变温舱'), findsOneWidget);
+    expect(find.text('厨房 · 智能模式'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('冰箱面板：三舱目标温度 / 模式 / 环境信息',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? changedEntity;
+    int? changedValue;
+    await tester.pumpWidget(_host(FridgeControlPanel(
+      summary: _fridge(),
+      onModeSelected: (_) {},
+      onTargetChanged: (String id, int value) {
+        changedEntity = id;
+        changedValue = value;
+      },
+    )));
+
+    expect(find.text('冰箱模式'), findsOneWidget);
+    expect(find.text('速冷'), findsOneWidget);
+    expect(find.text('冷藏室'), findsWidgets);
+    expect(find.text('食材管理是米家云端数据，HA 未暴露食材列表；这里只控制温度与模式。'),
+        findsOneWidget);
+
+    await tester.tap(find.byTooltip('冷藏室温度 +'));
+    expect(changedEntity, 'number.midjd_target_temperature_p_3_2');
+    expect(changedValue, 6);
     expect(tester.takeException(), isNull);
   });
 }

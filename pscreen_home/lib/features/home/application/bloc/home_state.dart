@@ -3,6 +3,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
@@ -317,9 +318,32 @@ class HomeState {
     return result;
   }
 
-  /// 投影仪摘要：device_id → 摘要（非投影仪设备不出现）。
-  Map<String, ProjectorSummary> get projectorSummaries {
+  /// 冰箱摘要：device_id → 摘要（非冰箱设备不出现）。
+  Map<String, FridgeSummary> get fridgeSummaries {
     final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, FridgeSummary> result = <String, FridgeSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final FridgeSummary? summary = FridgeSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 投影仪摘要：device_id → 摘要（非投影仪设备不出现）。
+  Map<String, ProjectorSummary> get projectorSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
