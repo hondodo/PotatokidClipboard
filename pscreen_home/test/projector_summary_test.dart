@@ -49,6 +49,7 @@ List<HaEntityStateModel> _entities({
       _e('text.jmgo_apppackagename_p_8_1',
           'screen.potatokid.tools', name: '应用包名'),
       _e('notify.jmgo_openapp_a_8_1', 'unknown', name: '打开应用'),
+      _e('notify.jmgo_press_button_a_6_1', 'unknown', name: '虚拟遥控'),
       _e('button.jmgo_turn_on_a_7_1', 'unknown', name: '开机'),
       _e('button.jmgo_turn_off_a_2_1', 'unknown', name: '关机'),
       _e('button.jmgo_play_a_3_3', 'unknown', name: '播放'),
@@ -82,6 +83,9 @@ void main() {
       expect(summary.statusLabel, '薯仔看电视');
       expect(summary.brightnessMax, 10);
       expect(summary.openAppEntityId, 'notify.jmgo_openapp_a_8_1');
+      expect(summary.pressButtonEntityId,
+          'notify.jmgo_press_button_a_6_1');
+      expect(summary.hasRemote, isTrue);
       expect(summary.powerOffEntityId, 'button.jmgo_turn_off_a_2_1');
       expect(summary.hasPlayback, isTrue);
     });

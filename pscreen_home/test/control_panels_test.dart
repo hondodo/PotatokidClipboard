@@ -14,6 +14,7 @@ import 'package:pscreen_home/features/home/presentation/components/fan_widget.da
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
@@ -763,6 +764,38 @@ void main() {
     expect(find.text('亮度'), findsOneWidget);
     expect(find.text('静音'), findsOneWidget);
     expect(find.text('媒体中心'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('投影仪虚拟遥控：方向键 / OK / 音量发送对应 code',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final List<int> keys = <int>[];
+    bool powered = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ProjectorRemoteSheet(
+          isOn: true,
+          onPower: () => powered = true,
+          onKey: keys.add,
+        ),
+      ),
+    ));
+
+    await tester.tap(find.byTooltip('OK键'));
+    await tester.tap(find.byTooltip('上键'));
+    await tester.tap(find.byTooltip('左键'));
+    await tester.tap(find.byTooltip('返回键'));
+    await tester.tap(find.byTooltip('对焦加'));
+    await tester.tap(find.byTooltip('音量减键'));
+    await tester.tap(find.byTooltip('关机'));
+
+    expect(keys, <int>[7, 5, 3, 2, 12, 8]);
+    expect(powered, isTrue);
     expect(tester.takeException(), isNull);
   });
 }

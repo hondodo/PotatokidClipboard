@@ -15,6 +15,7 @@ class ProjectorControlPanel extends StatelessWidget {
     required this.onMuteToggle,
     required this.onOpenApp,
     required this.onButtonPressed,
+    this.onOpenRemote,
   });
 
   final ProjectorSummary summary;
@@ -26,6 +27,7 @@ class ProjectorControlPanel extends StatelessWidget {
   final VoidCallback onMuteToggle;
   final ValueChanged<String> onOpenApp;
   final ValueChanged<String> onButtonPressed;
+  final VoidCallback? onOpenRemote;
 
   static const Color _accent = Color(0xFF8E9BFF);
   static const Color _lightAccent = Color(0xFFFFB74D);
@@ -87,6 +89,12 @@ class ProjectorControlPanel extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (onOpenRemote != null)
+                  IconButton(
+                    tooltip: '遥控器',
+                    onPressed: onOpenRemote,
+                    icon: const Icon(Icons.settings_remote_rounded),
+                  ),
                 FilledButton.icon(
                   onPressed: isBusy ? null : onPower,
                   icon: Icon(

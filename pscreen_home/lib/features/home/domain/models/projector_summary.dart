@@ -27,6 +27,7 @@ class ProjectorSummary {
     this.currentAppPackage,
     this.currentAppName,
     this.openAppEntityId,
+    this.pressButtonEntityId,
     this.appListEntityId,
     this.appPackageEntityId,
     this.powerOnEntityId,
@@ -69,6 +70,8 @@ class ProjectorSummary {
         _byId(entities, '_apppackagename_p_8_1', domain: 'text');
     final HaEntityStateModel? openApp =
         _byId(entities, '_openapp_a_8_1', domain: 'notify');
+    final HaEntityStateModel? pressButton =
+        _byId(entities, '_press_button_a_6_1', domain: 'notify');
 
     final List<ProjectorApp> apps = _parseApps(appList.state);
     final String? currentPackage = package?.state;
@@ -103,6 +106,7 @@ class ProjectorSummary {
       currentAppPackage: currentPackage,
       currentAppName: currentApp,
       openAppEntityId: openApp?.entityId,
+      pressButtonEntityId: pressButton?.entityId,
       appListEntityId: appList.entityId,
       appPackageEntityId: package?.entityId,
       powerOnEntityId: powerOn?.entityId,
@@ -138,6 +142,9 @@ class ProjectorSummary {
   final String? currentAppPackage;
   final String? currentAppName;
   final String? openAppEntityId;
+
+  /// 虚拟遥控 notify 动作（message 为 `[按键类型]`）
+  final String? pressButtonEntityId;
   final String? appListEntityId;
   final String? appPackageEntityId;
   final String? powerOnEntityId;
@@ -170,6 +177,8 @@ class ProjectorSummary {
       nextEntityId != null ||
       previousEntityId != null ||
       stopEntityId != null;
+
+  bool get hasRemote => pressButtonEntityId != null;
 
   /// 打开应用的 notify 参数（集成按 YAML 列表解析）
   static String openAppMessage(String package) => '[$package]';

@@ -17,6 +17,7 @@ import 'package:pscreen_home/features/home/presentation/components/fan_light_wid
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
@@ -219,6 +220,36 @@ class DeviceDetailPage extends StatelessWidget {
                     onButtonPressed: (String entityId) =>
                         context.read<HomeBloc>().add(
                               PressEntityButton(entityId: entityId),
+                            ),
+                    onOpenRemote: !current.hasRemote
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              useSafeArea: true,
+                              builder: (BuildContext sheetContext) =>
+                                  FractionallySizedBox(
+                                heightFactor: 0.92,
+                                child: ProjectorRemoteSheet(
+                                  isOn: current.isOn,
+                                  onPower: () {
+                                    if (powerId == null) return;
+                                    context.read<HomeBloc>().add(
+                                          PressEntityButton(
+                                            entityId: powerId,
+                                          ),
+                                        );
+                                  },
+                                  onKey: (int key) =>
+                                      context.read<HomeBloc>().add(
+                                            PressNotifyAction(
+                                              entityId: current
+                                                  .pressButtonEntityId!,
+                                              message: '[$key]',
+                                            ),
+                                          ),
+                                ),
+                              ),
                             ),
                   );
                 }
