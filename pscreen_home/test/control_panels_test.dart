@@ -1018,6 +1018,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    String? toggled;
+    bool opened = false;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: Center(
@@ -1027,7 +1029,8 @@ void main() {
             child: MultiSwitchWidget(
               summary: _multiSwitch(),
               areaLabel: '客厅',
-              onOpenDetail: () {},
+              onToggleGang: (String id) => toggled = id,
+              onOpenDetail: () => opened = true,
             ),
           ),
         ),
@@ -1036,6 +1039,9 @@ void main() {
 
     expect(find.text('客厅灯 关'), findsOneWidget);
     expect(find.text('右键 开'), findsOneWidget);
+    await tester.tap(find.text('客厅灯 关'));
+    expect(toggled, 'switch.zimi_on_p_2_1');
+    expect(opened, isFalse);
     expect(tester.takeException(), isNull);
   });
 

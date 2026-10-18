@@ -6,11 +6,15 @@ class MultiSwitchWidget extends StatelessWidget {
   const MultiSwitchWidget({
     super.key,
     required this.summary,
+    required this.onToggleGang,
+    this.togglingIds = const <String>{},
     this.areaLabel,
     this.onOpenDetail,
   });
 
   final MultiSwitchSummary summary;
+  final ValueChanged<String> onToggleGang;
+  final Set<String> togglingIds;
   final String? areaLabel;
   final VoidCallback? onOpenDetail;
 
@@ -76,29 +80,52 @@ class MultiSwitchWidget extends StatelessWidget {
               Row(
                 children: summary.gangs
                     .map((SwitchGang gang) => Expanded(
-                          child: Row(
-                            children: <Widget>[
-                              Icon(
-                                Icons.circle,
-                                size: 7,
-                                color: gang.isOn
-                                    ? _accent
-                                    : theme.colorScheme.outline,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  '${gang.label} ${gang.isOn ? '开' : '关'}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: gang.isOn
-                                        ? _accent
-                                        : theme.colorScheme.outline,
-                                  ),
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(9),
+                              onTap: togglingIds.contains(gang.entityId)
+                                  ? null
+                                  : () => onToggleGang(gang.entityId),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: gang.isOn
+                                      ? _accent.withValues(alpha: 0.14)
+                                      : theme
+                                          .colorScheme.surfaceContainerHigh,
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                                child: Row(
+                                  children: <Widget>[
+                                    Icon(
+                                      Icons.circle,
+                                      size: 7,
+                                      color: gang.isOn
+                                          ? _accent
+                                          : theme.colorScheme.outline,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        '${gang.label} ${gang.isOn ? '开' : '关'}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style:
+                                            theme.textTheme.labelMedium?.copyWith(
+                                          color: gang.isOn
+                                              ? _accent
+                                              : theme.colorScheme.outline,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
                         ))
                     .toList(growable: false),

@@ -567,6 +567,10 @@ class _ControlGrid extends StatelessWidget {
               return MultiSwitchWidget(
                 summary: multiSwitch,
                 areaLabel: areaLabel,
+                togglingIds: state.togglingIds,
+                onToggleGang: (String entityId) => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: entityId)),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
