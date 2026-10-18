@@ -90,6 +90,12 @@ class HomeControllBoard extends StatelessWidget {
           actions: <Widget>[
             const _ConnectionStatus(),
             IconButton(
+              tooltip: '刷新',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () =>
+                  context.read<HomeBloc>().add(const LoadHome()),
+            ),
+            IconButton(
               tooltip: '设置',
               icon: const Icon(Icons.settings_rounded),
               onPressed: () =>
