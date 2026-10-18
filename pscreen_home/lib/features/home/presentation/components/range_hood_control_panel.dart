@@ -55,6 +55,24 @@ class RangeHoodControlPanel extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
+                Expanded(
+                  child: _Burner(
+                    label: '左灶',
+                    on: summary.leftBurnerOn,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _Burner(
+                    label: '右灶',
+                    on: summary.rightBurnerOn,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: <Widget>[
                 Container(
                   width: 46,
                   height: 46,
@@ -197,6 +215,47 @@ class RangeHoodControlPanel extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Burner extends StatelessWidget {
+  const _Burner({required this.label, required this.on});
+
+  final String label;
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color color = on ? theme.colorScheme.error : theme.colorScheme.outline;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: on ? theme.colorScheme.error : theme.colorScheme.outlineVariant,
+          width: on ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        children: <Widget>[
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            on ? '开启' : '关闭',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

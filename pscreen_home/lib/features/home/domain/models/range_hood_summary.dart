@@ -47,6 +47,8 @@ class RangeHoodSummary {
     this.holidayCycle = '',
     this.holidayDurationMinutes = 3,
     this.holidayStartMinutes = 0,
+    this.leftBurnerOn = false,
+    this.rightBurnerOn = false,
   });
 
   static RangeHoodSummary? tryBuild({
@@ -92,6 +94,10 @@ class RangeHoodSummary {
         _byId(entities, '_holiday_duration_p_9_9', domain: 'number');
     final HaEntityStateModel? holidayStart =
         _byId(entities, '_holiday_start_time_p_9_8', domain: 'number');
+    final HaEntityStateModel? leftBurner =
+        _byId(entities, '_left_status_p_6_5', domain: 'sensor');
+    final HaEntityStateModel? rightBurner =
+        _byId(entities, '_right_status_p_6_6', domain: 'sensor');
 
     return RangeHoodSummary(
       deviceId: deviceId,
@@ -144,6 +150,8 @@ class RangeHoodSummary {
       holidayCycle: holidayCycle?.state ?? '',
       holidayDurationMinutes: _int(holidayDuration?.state) ?? 3,
       holidayStartMinutes: _int(holidayStart?.state) ?? 0,
+      leftBurnerOn: leftBurner?.state == 'On',
+      rightBurnerOn: rightBurner?.state == 'On',
     );
   }
 
@@ -193,6 +201,18 @@ class RangeHoodSummary {
   final String holidayCycle;
   final int holidayDurationMinutes;
   final int holidayStartMinutes;
+
+  /// 灶具左 / 右炉是否开启（来自灶具蓝牙状态）
+  final bool leftBurnerOn;
+  final bool rightBurnerOn;
+
+  bool get anyBurnerOn => leftBurnerOn || rightBurnerOn;
+
+  String get burnerStatusLabel {
+    if (!anyBurnerOn) return '灶具未开启';
+    if (leftBurnerOn && rightBurnerOn) return '灶具双灶开启';
+    return leftBurnerOn ? '左灶开启' : '右灶开启';
+  }
 
   String get holidayStartLabel {
     final int h = holidayStartMinutes ~/ 60;

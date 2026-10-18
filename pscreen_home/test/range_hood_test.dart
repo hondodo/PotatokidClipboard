@@ -37,6 +37,8 @@ void main() {
           _e('switch.viomi_holiday_on_p_9_6', 'off', name: '假日'),
           _e('sensor.viomi_fault_p_2_2', '0', name: '故障'),
           _e('sensor.viomi_dry_cleaning_status_p_11_2', '未启动', name: '干洗'),
+          _e('sensor.viomi_left_status_p_6_5', 'On', name: '左灶'),
+          _e('sensor.viomi_right_status_p_6_6', 'Off', name: '右灶'),
         ],
       );
 
@@ -50,6 +52,10 @@ void main() {
       expect(summary.cruiseOn, isFalse);
       expect(summary.holidayOn, isFalse);
       expect(summary.isDryCleaning, isFalse);
+      expect(summary.leftBurnerOn, isTrue);
+      expect(summary.rightBurnerOn, isFalse);
+      expect(summary.anyBurnerOn, isTrue);
+      expect(summary.burnerStatusLabel, '左灶开启');
       expect(summary.statusLabel, '已关闭');
     });
   });

@@ -96,6 +96,18 @@ class RangeHoodWidget extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 3),
+              Text(
+                summary.burnerStatusLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  color: summary.anyBurnerOn
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.outline,
+                ),
+              ),
               const Spacer(),
               Row(
                 children: <Widget>[
