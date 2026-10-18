@@ -13,6 +13,7 @@ import 'package:pscreen_home/features/home/domain/models/projector_summary.dart'
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_purifier_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
@@ -33,6 +34,7 @@ import 'package:pscreen_home/features/home/presentation/components/socket_contro
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_purifier_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_schedule_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_usage_sheet.dart';
 
@@ -94,6 +96,9 @@ class DeviceDetailPage extends StatelessWidget {
           final AirFryerSummary? airFryer =
               state.airFryerSummaries[deviceId];
           final bool showAirFryerPanel = airFryer != null;
+          final WaterPurifierSummary? purifier =
+              state.waterPurifierSummaries[deviceId];
+          final bool showPurifierPanel = purifier != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -155,6 +160,9 @@ class DeviceDetailPage extends StatelessWidget {
             if (showAirFryerPanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
+            if (showPurifierPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -168,7 +176,8 @@ class DeviceDetailPage extends StatelessWidget {
                   !showSocketPanel &&
                   !showMultiSwitchPanel &&
                   !showRiceCookerPanel &&
-                  !showAirFryerPanel
+                  !showAirFryerPanel &&
+                  !showPurifierPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -194,6 +203,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = riceCooker.status;
           } else if (showAirFryerPanel) {
             headerStatus = airFryer.status;
+          } else if (showPurifierPanel) {
+            headerStatus = purifier.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -224,6 +235,34 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showPurifierPanel && index == 0) {
+                  final WaterPurifierSummary current = purifier;
+                  return WaterPurifierControlPanel(
+                    summary: current,
+                    onHolidayToggle: current.holidayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.holidayEntityId!,
+                              ),
+                            ),
+                    onPipelineToggle: current.pipelineEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.pipelineEntityId!,
+                              ),
+                            ),
+                    onAlarmToggle: current.alarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.alarmEntityId!,
+                              ),
+                            ),
+                  );
+                }
+
                 if (showRiceCookerPanel && index == 0) {
                   final RiceCookerSummary current = riceCooker;
                   return RiceCookerControlPanel(

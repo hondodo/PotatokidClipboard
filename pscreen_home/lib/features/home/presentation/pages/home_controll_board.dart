@@ -20,6 +20,7 @@ import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_purifier_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -41,6 +42,7 @@ import 'package:pscreen_home/features/home/presentation/components/socket_widget
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_purifier_widget.dart';
 
 /// 主页面：中控台。
 ///
@@ -552,6 +554,8 @@ class _ControlGrid extends StatelessWidget {
             state.riceCookerSummaries;
         final Map<String, AirFryerSummary> airFryers =
             state.airFryerSummaries;
+        final Map<String, WaterPurifierSummary> purifiers =
+            state.waterPurifierSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -596,6 +600,19 @@ class _ControlGrid extends StatelessWidget {
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 净水器：TDS / 水温 / 滤芯
+            final WaterPurifierSummary? purifier = group.deviceId == null
+                ? null
+                : purifiers[group.deviceId];
+            if (purifier != null) {
+              return WaterPurifierWidget(
+                summary: purifier,
+                areaLabel: areaLabel,
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
