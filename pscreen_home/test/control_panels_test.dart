@@ -915,8 +915,6 @@ void main() {
     expect(find.text('冰箱模式'), findsOneWidget);
     expect(find.text('速冷'), findsOneWidget);
     expect(find.text('冷藏室'), findsWidgets);
-    expect(find.text('食材管理是米家云端数据，HA 未暴露食材列表；这里只控制温度与模式。'),
-        findsOneWidget);
 
     await tester.tap(find.byTooltip('冷藏室温度 +'));
     expect(changedEntity, 'number.midjd_target_temperature_p_3_2');

@@ -210,13 +210,6 @@ class FridgeControlPanel extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              '食材管理是米家云端数据，HA 未暴露食材列表；这里只控制温度与模式。',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
           ],
         ),
       ),
