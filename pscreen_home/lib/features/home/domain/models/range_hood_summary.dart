@@ -24,6 +24,29 @@ class RangeHoodSummary {
     this.dryCleaningStatus,
     this.dryCleaningStartEntityId,
     this.dryCleaningStopEntityId,
+    this.stoveLinkEntityId,
+    this.gesturesEntityId,
+    this.cleanReminderEntityId,
+    this.cleanReminderTimeEntityId,
+    this.dryCleaningTimingEntityId,
+    this.powerOnLightEntityId,
+    this.powerOffLightEntityId,
+    this.stoveWorkReminderEntityId,
+    this.holidayCycleEntityId,
+    this.holidayDurationEntityId,
+    this.holidayStartEntityId,
+    this.stoveLinked = false,
+    this.gesturesOn = false,
+    this.cleanReminderOn = false,
+    this.cleanReminderHours = 40,
+    this.dryCleaningTimingOn = false,
+    this.powerOnLight = false,
+    this.powerOffLight = false,
+    this.stoveWorkReminderMinutes = 60,
+    this.holidayCycles = const <String>[],
+    this.holidayCycle = '',
+    this.holidayDurationMinutes = 3,
+    this.holidayStartMinutes = 0,
   });
 
   static RangeHoodSummary? tryBuild({
@@ -47,6 +70,28 @@ class RangeHoodSummary {
         _byId(entities, '_cruise_on_p_9_5', domain: 'switch');
     final HaEntityStateModel? holiday =
         _byId(entities, '_holiday_on_p_9_6', domain: 'switch');
+    final HaEntityStateModel? stoveLink =
+        _byId(entities, '_stove_bind_p_6_7', domain: 'switch');
+    final HaEntityStateModel? gestures =
+        _byId(entities, '_gestures_p_9_11', domain: 'switch');
+    final HaEntityStateModel? cleanReminder =
+        _byId(entities, '_clean_remine_on_p_9_3', domain: 'switch');
+    final HaEntityStateModel? cleanReminderTime =
+        _byId(entities, '_clean_remine_time_p_9_4', domain: 'number');
+    final HaEntityStateModel? dryTiming =
+        _byId(entities, '_dry_cleaning_timing_on_p_11_1', domain: 'switch');
+    final HaEntityStateModel? powerOnLight =
+        _byId(entities, '_power_on_light_p_9_1', domain: 'switch');
+    final HaEntityStateModel? powerOffLight =
+        _byId(entities, '_power_off_light_p_9_2', domain: 'switch');
+    final HaEntityStateModel? stoveWork =
+        _byId(entities, '_work_remine_time_p_6_4', domain: 'number');
+    final HaEntityStateModel? holidayCycle =
+        _byId(entities, '_holiday_cycle_p_9_7', domain: 'select');
+    final HaEntityStateModel? holidayDuration =
+        _byId(entities, '_holiday_duration_p_9_9', domain: 'number');
+    final HaEntityStateModel? holidayStart =
+        _byId(entities, '_holiday_start_time_p_9_8', domain: 'number');
 
     return RangeHoodSummary(
       deviceId: deviceId,
@@ -76,6 +121,29 @@ class RangeHoodSummary {
       dryCleaningStopEntityId:
           _byId(entities, '_stop_dry_cleaning_a_11_1', domain: 'button')
               ?.entityId,
+      stoveLinkEntityId: stoveLink?.entityId,
+      gesturesEntityId: gestures?.entityId,
+      cleanReminderEntityId: cleanReminder?.entityId,
+      cleanReminderTimeEntityId: cleanReminderTime?.entityId,
+      dryCleaningTimingEntityId: dryTiming?.entityId,
+      powerOnLightEntityId: powerOnLight?.entityId,
+      powerOffLightEntityId: powerOffLight?.entityId,
+      stoveWorkReminderEntityId: stoveWork?.entityId,
+      holidayCycleEntityId: holidayCycle?.entityId,
+      holidayDurationEntityId: holidayDuration?.entityId,
+      holidayStartEntityId: holidayStart?.entityId,
+      stoveLinked: stoveLink?.isOn ?? false,
+      gesturesOn: gestures?.isOn ?? false,
+      cleanReminderOn: cleanReminder?.isOn ?? false,
+      cleanReminderHours: _int(cleanReminderTime?.state) ?? 40,
+      dryCleaningTimingOn: dryTiming?.isOn ?? false,
+      powerOnLight: powerOnLight?.isOn ?? false,
+      powerOffLight: powerOffLight?.isOn ?? false,
+      stoveWorkReminderMinutes: _int(stoveWork?.state) ?? 60,
+      holidayCycles: holidayCycle?.options ?? const <String>[],
+      holidayCycle: holidayCycle?.state ?? '',
+      holidayDurationMinutes: _int(holidayDuration?.state) ?? 3,
+      holidayStartMinutes: _int(holidayStart?.state) ?? 0,
     );
   }
 
@@ -100,6 +168,37 @@ class RangeHoodSummary {
   final String? dryCleaningStatus;
   final String? dryCleaningStartEntityId;
   final String? dryCleaningStopEntityId;
+
+  final String? stoveLinkEntityId;
+  final String? gesturesEntityId;
+  final String? cleanReminderEntityId;
+  final String? cleanReminderTimeEntityId;
+  final String? dryCleaningTimingEntityId;
+  final String? powerOnLightEntityId;
+  final String? powerOffLightEntityId;
+  final String? stoveWorkReminderEntityId;
+  final String? holidayCycleEntityId;
+  final String? holidayDurationEntityId;
+  final String? holidayStartEntityId;
+
+  final bool stoveLinked;
+  final bool gesturesOn;
+  final bool cleanReminderOn;
+  final int cleanReminderHours;
+  final bool dryCleaningTimingOn;
+  final bool powerOnLight;
+  final bool powerOffLight;
+  final int stoveWorkReminderMinutes;
+  final List<String> holidayCycles;
+  final String holidayCycle;
+  final int holidayDurationMinutes;
+  final int holidayStartMinutes;
+
+  String get holidayStartLabel {
+    final int h = holidayStartMinutes ~/ 60;
+    final int m = holidayStartMinutes % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
 
   bool get hasFault {
     final String? value = fault;

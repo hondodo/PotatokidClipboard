@@ -321,6 +321,26 @@ class DeviceDetailPage extends StatelessWidget {
                                         current.dryCleaningStopEntityId!,
                                   ),
                                 ),
+                    onSettingToggle: (String entityId) =>
+                        context.read<HomeBloc>().add(
+                              ToggleEntity(entityId: entityId),
+                            ),
+                    onSettingNumber:
+                        (String entityId, int value) =>
+                            context.read<HomeBloc>().add(
+                                  SetNumberEntityValue(
+                                    entityId: entityId,
+                                    value: value.toDouble(),
+                                  ),
+                                ),
+                    onSettingSelect:
+                        (String entityId, String option) =>
+                            context.read<HomeBloc>().add(
+                                  SelectEntityOption(
+                                    entityId: entityId,
+                                    option: option,
+                                  ),
+                                ),
                   );
                 }
 

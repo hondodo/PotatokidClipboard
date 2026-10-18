@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/range_hood_advanced_settings.dart';
 
 /// 油烟机详情：电源、风量、延时关机、灯光、巡航、假日、干洗。
 class RangeHoodControlPanel extends StatelessWidget {
@@ -16,6 +17,9 @@ class RangeHoodControlPanel extends StatelessWidget {
     required this.onHolidayToggle,
     required this.onDryCleaningStart,
     required this.onDryCleaningStop,
+    required this.onSettingToggle,
+    required this.onSettingNumber,
+    required this.onSettingSelect,
   });
 
   final RangeHoodSummary summary;
@@ -29,6 +33,9 @@ class RangeHoodControlPanel extends StatelessWidget {
   final VoidCallback? onHolidayToggle;
   final VoidCallback? onDryCleaningStart;
   final VoidCallback? onDryCleaningStop;
+  final ValueChanged<String> onSettingToggle;
+  final void Function(String entityId, int value) onSettingNumber;
+  final void Function(String entityId, String option) onSettingSelect;
 
   static const Color _accent = Color(0xFF64B5F6);
 
@@ -180,6 +187,13 @@ class RangeHoodControlPanel extends StatelessWidget {
                   child: Text(summary.isDryCleaning ? '停止' : '启动'),
                 ),
               ],
+            ),
+            const Divider(height: 20),
+            RangeHoodAdvancedSettings(
+              summary: summary,
+              onToggle: onSettingToggle,
+              onNumber: onSettingNumber,
+              onSelect: onSettingSelect,
             ),
           ],
         ),
