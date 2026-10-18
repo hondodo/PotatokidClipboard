@@ -12,6 +12,7 @@ import 'package:pscreen_home/features/home/domain/models/water_heater_summary.da
 import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -94,6 +95,8 @@ class DeviceDetailPage extends StatelessWidget {
             if (showFanPanel) fan.entity.entityId,
             if (showFanPanel && fan.delayEntityId != null)
               fan.delayEntityId!,
+            if (showFanPanel && fan.masterSwitchEntityId != null)
+              fan.masterSwitchEntityId!,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -147,42 +150,62 @@ class DeviceDetailPage extends StatelessWidget {
               itemBuilder: (BuildContext context, int index) {
                 if (showFanPanel && index == 0) {
                   final FanSummary current = fan;
-                  return FanControlPanel(
-                    summary: current,
-                    isToggling: state.togglingIds
-                        .contains(current.entity.entityId),
-                    onToggle: () => context.read<HomeBloc>().add(
-                          ToggleEntity(entityId: current.entity.entityId),
+                  final HaEntityStateModel? master =
+                      current.masterSwitch;
+                  return Column(
+                    children: <Widget>[
+                      if (master != null) ...<Widget>[
+                        FanLightMasterRow(
+                          name: current.name,
+                          master: master,
+                          isToggling: state.togglingIds
+                              .contains(master.entityId),
+                          onToggle: () => context.read<HomeBloc>().add(
+                                ToggleEntity(entityId: master.entityId),
+                              ),
                         ),
-                    onModeSelected: (String mode) =>
-                        context.read<HomeBloc>().add(SetFanPresetMode(
-                              entityId: current.entity.entityId,
-                              mode: mode,
-                            )),
-                    onSpeedSelected: (int level) =>
-                        context.read<HomeBloc>().add(SetFanPercentage(
-                              entityId: current.entity.entityId,
-                              percentage:
-                                  FanSummary.percentageForLevel(level),
-                            )),
-                    onPercentageChanged: (int percentage) =>
-                        context.read<HomeBloc>().add(SetFanPercentage(
-                              entityId: current.entity.entityId,
-                              percentage: percentage,
-                            )),
-                    onOscillatingChanged: (bool oscillating) =>
-                        context.read<HomeBloc>().add(SetFanOscillating(
-                              entityId: current.entity.entityId,
-                              oscillating: oscillating,
-                            )),
-                    onDelayChanged: current.delayEntityId == null
-                        ? (_) {}
-                        : (int minutes) => context
-                            .read<HomeBloc>()
-                            .add(SetNumberEntityValue(
-                              entityId: current.delayEntityId!,
-                              value: minutes.toDouble(),
-                            )),
+                        const SizedBox(height: 12),
+                      ],
+                      FanControlPanel(
+                        summary: current,
+                        isToggling: state.togglingIds
+                            .contains(current.entity.entityId),
+                        onToggle: () => context.read<HomeBloc>().add(
+                              ToggleEntity(
+                                entityId: current.entity.entityId,
+                              ),
+                            ),
+                        onModeSelected: (String mode) =>
+                            context.read<HomeBloc>().add(SetFanPresetMode(
+                                  entityId: current.entity.entityId,
+                                  mode: mode,
+                                )),
+                        onSpeedSelected: (int level) =>
+                            context.read<HomeBloc>().add(SetFanPercentage(
+                                  entityId: current.entity.entityId,
+                                  percentage:
+                                      FanSummary.percentageForLevel(level),
+                                )),
+                        onPercentageChanged: (int percentage) =>
+                            context.read<HomeBloc>().add(SetFanPercentage(
+                                  entityId: current.entity.entityId,
+                                  percentage: percentage,
+                                )),
+                        onOscillatingChanged: (bool oscillating) =>
+                            context.read<HomeBloc>().add(SetFanOscillating(
+                                  entityId: current.entity.entityId,
+                                  oscillating: oscillating,
+                                )),
+                        onDelayChanged: current.delayEntityId == null
+                            ? (_) {}
+                            : (int minutes) => context
+                                .read<HomeBloc>()
+                                .add(SetNumberEntityValue(
+                                  entityId: current.delayEntityId!,
+                                  value: minutes.toDouble(),
+                                )),
+                      ),
+                    ],
                   );
                 }
 

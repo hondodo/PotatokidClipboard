@@ -122,6 +122,11 @@ void main() {
             name: '延时',
             attributes: <String, dynamic>{'min': 0, 'max': 720},
           ),
+          _e(
+            'switch.xiaomi_cn_991270332_cfan01_all_on_p_10_1',
+            'on',
+            name: '总开关',
+          ),
         ],
       )!;
       expect(summary.isContinuous, isTrue);
@@ -134,6 +139,11 @@ void main() {
       );
       expect(summary.delayMaxMinutes, 720);
       expect(summary.delayLabel, '1小时');
+      expect(
+        summary.masterSwitchEntityId,
+        'switch.xiaomi_cn_991270332_cfan01_all_on_p_10_1',
+      );
+      expect(summary.masterOn, isTrue);
     });
 
     test('关闭状态与延时文案', () {

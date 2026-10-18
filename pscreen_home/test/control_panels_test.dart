@@ -180,6 +180,13 @@ FanSummary _fanLight() => const FanSummary(
       delayEntityId: 'number.xiaomi_cn_991270332_cfan01_delay_time_p_6_2',
       delayMaxMinutes: 720,
       supportsOscillation: false,
+      masterSwitch: HaEntityStateModel(
+        entityId: 'switch.xiaomi_cn_991270332_cfan01_all_on_p_10_1',
+        state: 'on',
+        attributes: <String, dynamic>{
+          'friendly_name': '风扇灯 * 补充 总开关 状态',
+        },
+      ),
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -632,7 +639,7 @@ void main() {
               light: _light(),
               fan: _fanLight(),
               isToggling: false,
-              onToggleLight: () {},
+              onToggleMaster: () {},
               onOpenDetail: () {},
             ),
           ),
@@ -642,6 +649,26 @@ void main() {
 
     expect(find.text('灯 80%'), findsOneWidget);
     expect(find.text('直吹风 100'), findsOneWidget);
+    expect(find.byTooltip('关闭总开关'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('风扇灯总开关行：双图标 + 总开关', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(FanLightMasterRow(
+      name: '风扇灯',
+      master: _fanLight().masterSwitch!,
+      isToggling: false,
+      onToggle: () {},
+    )));
+
+    expect(find.text('总开关'), findsOneWidget);
+    expect(find.text('风扇灯 · 已开启'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

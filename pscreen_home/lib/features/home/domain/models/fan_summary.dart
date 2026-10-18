@@ -20,6 +20,7 @@ class FanSummary {
     this.delayEntityId,
     this.delayMaxMinutes = 480,
     this.supportsOscillation = true,
+    this.masterSwitch,
   });
 
   static FanSummary? tryBuild({
@@ -38,6 +39,8 @@ class FanSummary {
     final HaEntityStateModel? delay =
         _byId(entities, '_off_delay_time_p_2_10', domain: 'number') ??
             _byId(entities, '_delay_time_p_6_2', domain: 'number');
+    final HaEntityStateModel? masterSwitch =
+        _byId(entities, '_all_on_p_10_1', domain: 'switch');
     final int? minutes = delay == null ? null : int.tryParse(delay.state);
     final int delayMax = _intAttr(delay?.attributes['max']) ?? 480;
     final List<String> modes = fan.presetModes;
@@ -56,6 +59,7 @@ class FanSummary {
       delayEntityId: delay?.entityId,
       delayMaxMinutes: delayMax,
       supportsOscillation: fan.attributes.containsKey('oscillating'),
+      masterSwitch: masterSwitch,
     );
   }
 
@@ -79,6 +83,15 @@ class FanSummary {
   final String? delayEntityId;
   final int delayMaxMinutes;
   final bool supportsOscillation;
+
+  /// 风扇灯的「总开关」（`switch.*_all_on_p_10_1`），普通风扇为 null
+  final HaEntityStateModel? masterSwitch;
+
+  bool get hasMasterSwitch => masterSwitch != null;
+
+  String? get masterSwitchEntityId => masterSwitch?.entityId;
+
+  bool get masterOn => masterSwitch?.isOn ?? isOn;
 
   bool get isOn => entity.isOn;
 

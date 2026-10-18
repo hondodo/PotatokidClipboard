@@ -566,14 +566,15 @@ class _ControlGrid extends StatelessWidget {
             if (fan != null &&
                 comboPrimary != null &&
                 comboPrimary.isLight) {
+              final String toggleId =
+                  fan.masterSwitchEntityId ?? comboPrimary.entityId;
               return FanLightWidget(
                 light: comboPrimary,
                 fan: fan,
-                isToggling: state.togglingIds
-                    .contains(comboPrimary.entityId),
-                onToggleLight: () => context
+                isToggling: state.togglingIds.contains(toggleId),
+                onToggleMaster: () => context
                     .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: comboPrimary.entityId)),
+                    .add(ToggleEntity(entityId: toggleId)),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
