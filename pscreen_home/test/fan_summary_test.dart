@@ -100,6 +100,42 @@ void main() {
       );
     });
 
+    test('风扇灯：无级调速、无摆风、延时走 p_6_2', () {
+      final FanSummary summary = FanSummary.tryBuild(
+        deviceId: 'dev_cfan',
+        name: '风扇灯',
+        entities: <HaEntityStateModel>[
+          _e(
+            'fan.xiaomi_cn_991270332_cfan01_s_4_fan',
+            'on',
+            name: '随便改的名字',
+            attributes: <String, dynamic>{
+              'preset_modes': <String>['直吹风', '自然风', '循环风', '睡眠'],
+              'preset_mode': '直吹风',
+              'percentage': 100,
+              'percentage_step': 1.0,
+            },
+          ),
+          _e(
+            'number.xiaomi_cn_991270332_cfan01_delay_time_p_6_2',
+            '60',
+            name: '延时',
+            attributes: <String, dynamic>{'min': 0, 'max': 720},
+          ),
+        ],
+      )!;
+      expect(summary.isContinuous, isTrue);
+      expect(summary.speedLabel, '100');
+      expect(summary.modes.length, 4);
+      expect(summary.supportsOscillation, isFalse);
+      expect(
+        summary.delayEntityId,
+        'number.xiaomi_cn_991270332_cfan01_delay_time_p_6_2',
+      );
+      expect(summary.delayMaxMinutes, 720);
+      expect(summary.delayLabel, '1小时');
+    });
+
     test('关闭状态与延时文案', () {
       final FanSummary summary = FanSummary.tryBuild(
         deviceId: 'd',

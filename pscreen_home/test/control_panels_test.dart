@@ -8,6 +8,7 @@ import 'package:pscreen_home/features/home/domain/models/water_heater_summary.da
 import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
@@ -154,6 +155,31 @@ FanSummary _fan() => const FanSummary(
       oscillating: false,
       delayMinutes: 259,
       delayEntityId: 'number.dmaker_cn_811545409_p8_off_delay_time_p_2_10',
+    );
+
+FanSummary _fanLight() => const FanSummary(
+      deviceId: 'dev_cfan',
+      name: '风扇灯',
+      entity: HaEntityStateModel(
+        entityId: 'fan.xiaomi_cn_991270332_cfan01_s_4_fan',
+        state: 'on',
+        attributes: <String, dynamic>{
+          'friendly_name': '风扇灯  风扇',
+          'preset_modes': <String>['直吹风', '自然风', '循环风', '睡眠'],
+          'preset_mode': '直吹风',
+          'percentage': 100,
+          'percentage_step': 1.0,
+        },
+      ),
+      modes: <String>['直吹风', '自然风', '循环风', '睡眠'],
+      mode: '直吹风',
+      percentage: 100,
+      oscillating: false,
+      percentageStep: 1,
+      delayMinutes: 60,
+      delayEntityId: 'number.xiaomi_cn_991270332_cfan01_delay_time_p_6_2',
+      delayMaxMinutes: 720,
+      supportsOscillation: false,
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -550,6 +576,7 @@ void main() {
       onToggle: () {},
       onModeSelected: (_) {},
       onSpeedSelected: (_) {},
+      onPercentageChanged: (_) {},
       onOscillatingChanged: (_) {},
       onDelayChanged: (_) {},
     )));
@@ -560,6 +587,61 @@ void main() {
     expect(find.text('左右摆风'), findsOneWidget);
     expect(find.text('延时关闭'), findsOneWidget);
     expect(find.text('4小时19分钟'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('风扇灯面板：无级调速 / 无摆风 / 12 小时延时',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(FanControlPanel(
+      summary: _fanLight(),
+      isToggling: false,
+      onToggle: () {},
+      onModeSelected: (_) {},
+      onSpeedSelected: (_) {},
+      onPercentageChanged: (_) {},
+      onOscillatingChanged: (_) {},
+      onDelayChanged: (_) {},
+    )));
+
+    expect(find.text('无级调速'), findsOneWidget);
+    expect(find.text('自然风'), findsOneWidget);
+    expect(find.text('左右摆风'), findsNothing);
+    expect(find.text('12小时'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('风扇灯组合卡：灯亮度 + 风扇状态在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: FanLightWidget(
+              light: _light(),
+              fan: _fanLight(),
+              isToggling: false,
+              onToggleLight: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('灯 80%'), findsOneWidget);
+    expect(find.text('直吹风 100'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 
-/// 风扇控制面板（设备详情页）：模式、三档风速、左右摆风、延时关闭。
+/// 风扇控制面板（设备详情页）：模式、风速、左右摆风、延时关闭。
 ///
-/// 数据全部来自 `fan.*` 主实体（preset_mode / percentage / oscillating）
-/// 与 `number.*_off_delay_time_p_2_10`；延时范围为 0-480 分钟。
+/// 普通风扇按 percentage_step 走三挡；风扇灯（step=1）走无级调速。
+/// 数据来自 `fan.*` 主实体与延时 number（`_off_delay_time_p_2_10` /
+/// `_delay_time_p_6_2`），延时上限取 number 的 max 属性。
 class FanControlPanel extends StatefulWidget {
   const FanControlPanel({
     super.key,
@@ -14,6 +15,7 @@ class FanControlPanel extends StatefulWidget {
     required this.onToggle,
     required this.onModeSelected,
     required this.onSpeedSelected,
+    required this.onPercentageChanged,
     required this.onOscillatingChanged,
     required this.onDelayChanged,
   });
@@ -23,6 +25,7 @@ class FanControlPanel extends StatefulWidget {
   final VoidCallback onToggle;
   final ValueChanged<String> onModeSelected;
   final ValueChanged<int> onSpeedSelected;
+  final ValueChanged<int> onPercentageChanged;
   final ValueChanged<bool> onOscillatingChanged;
   final ValueChanged<int> onDelayChanged;
 
@@ -133,37 +136,54 @@ class _FanControlPanelState extends State<FanControlPanel> {
             ],
             const SizedBox(height: 18),
             _SectionTitle(
-              title: '风机档位 | 三挡',
+              title: summary.isContinuous ? '无级调速' : '风机档位 | 三挡',
               trailing: on ? summary.speedLabel : null,
             ),
             const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
-                for (int level = 1; level <= 3; level++)
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: level == 3 ? 0 : 10,
-                      ),
-                      child: _SpeedButton(
-                        level: level,
-                        selected: summary.speedLevel == level,
-                        enabled: on,
-                        onTap: () => widget.onSpeedSelected(level),
+            if (summary.isContinuous)
+              GradientSlider(
+                value: summary.percentage.toDouble(),
+                min: 1,
+                max: 100,
+                colors: const <Color>[
+                  Color(0xFF42A5F5),
+                  _accent,
+                ],
+                enabled: on,
+                onChangeEnd: on
+                    ? (double value) =>
+                        widget.onPercentageChanged(value.round())
+                    : null,
+              )
+            else
+              Row(
+                children: <Widget>[
+                  for (int level = 1; level <= 3; level++)
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: level == 3 ? 0 : 10,
+                        ),
+                        child: _SpeedButton(
+                          level: level,
+                          selected: summary.speedLevel == level,
+                          enabled: on,
+                          onTap: () => widget.onSpeedSelected(level),
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
+                ],
+              ),
             const SizedBox(height: 8),
-            _SwitchRow(
-              icon: Icons.swap_horiz_rounded,
-              label: '左右摆风',
-              value: summary.oscillating,
-              onChanged: on && summary.supportsOscillation
-                  ? widget.onOscillatingChanged
-                  : null,
-            ),
+            if (summary.supportsOscillation)
+              _SwitchRow(
+                icon: Icons.swap_horiz_rounded,
+                label: '左右摆风',
+                value: summary.oscillating,
+                onChanged: on
+                    ? widget.onOscillatingChanged
+                    : null,
+              ),
             if (summary.hasDelay) ...<Widget>[
               const SizedBox(height: 10),
               _SectionTitle(
@@ -174,7 +194,7 @@ class _FanControlPanelState extends State<FanControlPanel> {
               GradientSlider(
                 value: _delay.toDouble(),
                 min: 0,
-                max: 480,
+                max: summary.delayMaxMinutes.toDouble(),
                 colors: const <Color>[
                   Color(0xFF42A5F5),
                   _accent,
@@ -198,7 +218,10 @@ class _FanControlPanelState extends State<FanControlPanel> {
                 children: <Widget>[
                   Text('0', style: theme.textTheme.labelSmall),
                   const Spacer(),
-                  Text('8小时', style: theme.textTheme.labelSmall),
+                  Text(
+                    _delayLabel(summary.delayMaxMinutes),
+                    style: theme.textTheme.labelSmall,
+                  ),
                 ],
               ),
             ],

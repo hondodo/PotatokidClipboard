@@ -24,6 +24,13 @@ class FanWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool on = summary.isOn;
+    final String detail = summary.isContinuous
+        ? (summary.supportsOscillation
+            ? '${summary.percentage} · 摆风${summary.oscillating ? '开' : '关'}'
+            : '${summary.percentage}')
+        : (summary.supportsOscillation
+            ? '${summary.speedLabel} · 摆风${summary.oscillating ? '开' : '关'}'
+            : summary.speedLabel);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -112,7 +119,7 @@ class FanWidget extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    '${summary.speedLabel} · 摆风${summary.oscillating ? '开' : '关'}',
+                    detail,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),

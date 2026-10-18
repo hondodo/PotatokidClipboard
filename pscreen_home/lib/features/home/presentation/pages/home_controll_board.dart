@@ -23,6 +23,7 @@ import 'package:pscreen_home/features/home/presentation/components/climate_displ
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
@@ -555,6 +556,24 @@ class _ControlGrid extends StatelessWidget {
                 onToggle: () => context
                     .read<HomeBloc>()
                     .add(ToggleEntity(entityId: fan.entity.entityId)),
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
+
+            // 风扇灯组合：同一设备同时有灯 + 风扇
+            final HaEntityStateModel? comboPrimary = group.primary;
+            if (fan != null &&
+                comboPrimary != null &&
+                comboPrimary.isLight) {
+              return FanLightWidget(
+                light: comboPrimary,
+                fan: fan,
+                isToggling: state.togglingIds
+                    .contains(comboPrimary.entityId),
+                onToggleLight: () => context
+                    .read<HomeBloc>()
+                    .add(ToggleEntity(entityId: comboPrimary.entityId)),
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );

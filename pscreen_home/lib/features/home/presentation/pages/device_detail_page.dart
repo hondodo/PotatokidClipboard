@@ -61,8 +61,7 @@ class DeviceDetailPage extends StatelessWidget {
               state.waterHeaterSummaries[deviceId];
           final KettleSummary? kettle = state.kettleSummaries[deviceId];
           final FanSummary? fan = state.fanSummaries[deviceId];
-          final bool showFanPanel =
-              fan != null && group.primary?.isFan == true;
+          final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
               group.entities.first.entityId;
@@ -165,6 +164,11 @@ class DeviceDetailPage extends StatelessWidget {
                               entityId: current.entity.entityId,
                               percentage:
                                   FanSummary.percentageForLevel(level),
+                            )),
+                    onPercentageChanged: (int percentage) =>
+                        context.read<HomeBloc>().add(SetFanPercentage(
+                              entityId: current.entity.entityId,
+                              percentage: percentage,
                             )),
                     onOscillatingChanged: (bool oscillating) =>
                         context.read<HomeBloc>().add(SetFanOscillating(
