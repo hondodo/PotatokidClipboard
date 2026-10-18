@@ -5,6 +5,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart'
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
@@ -340,9 +341,34 @@ class HomeState {
     return result;
   }
 
-  /// 智能插座摘要：device_id → 摘要（非智能插座不出现）。
-  Map<String, SocketSummary> get socketSummaries {
+  /// 双开开关摘要：device_id → 摘要（没有两路 `_on_p_2_1` / `_on_p_3_1`
+  /// 的设备不出现）。
+  Map<String, MultiSwitchSummary> get multiSwitchSummaries {
     final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, MultiSwitchSummary> result =
+        <String, MultiSwitchSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final MultiSwitchSummary? summary = MultiSwitchSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 智能插座摘要：device_id → 摘要（非智能插座不出现）。
+  Map<String, SocketSummary> get socketSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);

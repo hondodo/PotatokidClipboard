@@ -18,6 +18,7 @@ import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
@@ -31,6 +32,7 @@ import 'package:pscreen_home/features/home/presentation/components/fridge_widget
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/multi_switch_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/socket_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
@@ -540,6 +542,8 @@ class _ControlGrid extends StatelessWidget {
             state.projectorSummaries;
         final Map<String, FridgeSummary> fridges = state.fridgeSummaries;
         final Map<String, SocketSummary> sockets = state.socketSummaries;
+        final Map<String, MultiSwitchSummary> multiSwitches =
+            state.multiSwitchSummaries;
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -554,6 +558,19 @@ class _ControlGrid extends StatelessWidget {
             final String areaLabel = state.areaLabelFor(
               group.primary?.entityId ?? group.entities.first.entityId,
             );
+
+            // 双开开关：两路按键状态
+            final MultiSwitchSummary? multiSwitch = group.deviceId == null
+                ? null
+                : multiSwitches[group.deviceId];
+            if (multiSwitch != null) {
+              return MultiSwitchWidget(
+                summary: multiSwitch,
+                areaLabel: areaLabel,
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
 
             // 智能插座：开关 + 当前功率 + 累计电量
             final SocketSummary? socket =

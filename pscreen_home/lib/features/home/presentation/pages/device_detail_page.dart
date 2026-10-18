@@ -9,6 +9,7 @@ import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -23,6 +24,7 @@ import 'package:pscreen_home/features/home/presentation/components/light_control
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/socket_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
@@ -79,6 +81,9 @@ class DeviceDetailPage extends StatelessWidget {
           final SocketSummary? socket = state.socketSummaries[deviceId];
           final bool showSocketPanel = socket != null;
           final PowerStats? devicePower = state.powerStats[deviceId];
+          final MultiSwitchSummary? multiSwitch =
+              state.multiSwitchSummaries[deviceId];
+          final bool showMultiSwitchPanel = multiSwitch != null;
           final bool showFanPanel = fan != null;
           final String washerPowerId = washer?.powerEntityId ??
               group.primary?.entityId ??
@@ -131,6 +136,9 @@ class DeviceDetailPage extends StatelessWidget {
               devicePower!.temperatureEntityId!,
             if (devicePower?.countEntityId != null)
               devicePower!.countEntityId!,
+            if (showMultiSwitchPanel)
+              for (final SwitchGang gang in multiSwitch.gangs)
+                gang.entityId,
           };
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
@@ -141,7 +149,8 @@ class DeviceDetailPage extends StatelessWidget {
                   !showFanPanel &&
                   !showProjectorPanel &&
                   !showFridgePanel &&
-                  !showSocketPanel
+                  !showSocketPanel &&
+                  !showMultiSwitchPanel
               ? 0
               : 1;
           final String headerStatus;
@@ -161,6 +170,8 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus = fridge.statusLabel;
           } else if (showSocketPanel) {
             headerStatus = socket.statusLabel;
+          } else if (showMultiSwitchPanel) {
+            headerStatus = multiSwitch.statusLabel;
           } else {
             headerStatus = group.statusLabel;
           }
@@ -191,6 +202,36 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showMultiSwitchPanel && index == 0) {
+                  final MultiSwitchSummary current = multiSwitch;
+                  return MultiSwitchControlPanel(
+                    summary: current,
+                    togglingIds: state.togglingIds,
+                    onToggleGang: (String entityId) =>
+                        context.read<HomeBloc>().add(
+                              ToggleEntity(entityId: entityId),
+                            ),
+                    onAllOn: () {
+                      for (final SwitchGang gang in current.gangs) {
+                        if (!gang.isOn) {
+                          context
+                              .read<HomeBloc>()
+                              .add(ToggleEntity(entityId: gang.entityId));
+                        }
+                      }
+                    },
+                    onAllOff: () {
+                      for (final SwitchGang gang in current.gangs) {
+                        if (gang.isOn) {
+                          context
+                              .read<HomeBloc>()
+                              .add(ToggleEntity(entityId: gang.entityId));
+                        }
+                      }
+                    },
+                  );
+                }
+
                 if (showSocketPanel && index == 0) {
                   return SocketControlPanel(
                     summary: socket,

@@ -4,6 +4,7 @@ import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
@@ -18,6 +19,8 @@ import 'package:pscreen_home/features/home/presentation/components/fan_light_wid
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/multi_switch_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
@@ -281,6 +284,23 @@ SocketSummary _socket() => const SocketSummary(
         deviceTemperature: 46,
         switchCount: 3,
       ),
+    );
+
+MultiSwitchSummary _multiSwitch() => const MultiSwitchSummary(
+      deviceId: 'dev_switch',
+      name: '小米米家智能开关（双开单控）',
+      gangs: <SwitchGang>[
+        SwitchGang(
+          label: '客厅灯',
+          entityId: 'switch.zimi_on_p_2_1',
+          isOn: false,
+        ),
+        SwitchGang(
+          label: '右键',
+          entityId: 'switch.zimi_on_p_3_1',
+          isOn: true,
+        ),
+      ],
     );
 
 Widget _host(Widget child) => MaterialApp(
@@ -988,6 +1008,63 @@ void main() {
     expect(find.text('累计用电'), findsOneWidget);
     expect(find.text('设备温度 46°C'), findsOneWidget);
     expect(find.text('开关次数 3'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('双开开关卡片：两路状态在 240x112 内无溢出',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 240,
+            height: 112,
+            child: MultiSwitchWidget(
+              summary: _multiSwitch(),
+              areaLabel: '客厅',
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('客厅灯 关'), findsOneWidget);
+    expect(find.text('右键 开'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('双开开关面板：两路开关 + 全开 / 全关',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 500);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? toggled;
+    bool allOn = false;
+    bool allOff = false;
+    await tester.pumpWidget(_host(MultiSwitchControlPanel(
+      summary: _multiSwitch(),
+      togglingIds: const <String>{},
+      onToggleGang: (String id) => toggled = id,
+      onAllOn: () => allOn = true,
+      onAllOff: () => allOff = true,
+    )));
+
+    expect(find.text('全开'), findsOneWidget);
+    expect(find.text('全关'), findsOneWidget);
+    await tester.tap(find.text('全关'));
+    expect(allOff, isTrue);
+    await tester.tap(find.text('全开'));
+    expect(allOn, isTrue);
+    await tester.tap(find.byType(Switch).first);
+    expect(toggled, 'switch.zimi_on_p_2_1');
     expect(tester.takeException(), isNull);
   });
 }
