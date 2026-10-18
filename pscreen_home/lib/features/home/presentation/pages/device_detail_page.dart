@@ -107,10 +107,22 @@ class DeviceDetailPage extends StatelessWidget {
           final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
           // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
-          final List<ClimateQuickSwitch> climateQuickSwitches =
-              group.entities.any((HaEntityStateModel e) => e.isClimate)
-                  ? ClimateQuickSwitch.buildList(group.entities)
-                  : const <ClimateQuickSwitch>[];
+          final bool hasClimatePanel =
+              group.entities.any((HaEntityStateModel e) => e.isClimate);
+          final List<ClimateQuickSwitch> climateQuickSwitches = hasClimatePanel
+              ? ClimateQuickSwitch.buildList(group.entities)
+              : const <ClimateQuickSwitch>[];
+          // 空调指示灯（light 域，带灯光效果），收进气候面板快捷开关区之后。
+          final List<HaEntityStateModel> climateIndicatorLights =
+              group.entities
+                  .where((HaEntityStateModel e) =>
+                      e.domain == 'light' &&
+                      e.entityId.contains('_indicator_light'))
+                  .toList(growable: false);
+          final HaEntityStateModel? climateIndicatorLight = hasClimatePanel &&
+                  climateIndicatorLights.isNotEmpty
+              ? climateIndicatorLights.first
+              : null;
           // 插座快捷开关：童锁 / 定时 + 指示灯（light 域）。
           final List<SocketQuickSwitch> socketQuickSwitches = showSocketPanel
               ? SocketQuickSwitch.buildList(group.entities)
@@ -156,6 +168,8 @@ class DeviceDetailPage extends StatelessWidget {
               fan.masterSwitchEntityId!,
             for (final ClimateQuickSwitch s in climateQuickSwitches)
               s.entityId,
+            if (climateIndicatorLight != null)
+              climateIndicatorLight.entityId,
             if (showProjectorPanel)
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
@@ -932,6 +946,35 @@ class DeviceDetailPage extends StatelessWidget {
                         onQuickSwitchToggled: (String entityId) => context
                             .read<HomeBloc>()
                             .add(ToggleEntity(entityId: entityId)),
+                        indicatorLightEntityId:
+                            climateIndicatorLight?.entityId,
+                        indicatorLightOn:
+                            climateIndicatorLight?.isOn ?? false,
+                        indicatorLightEffects:
+                            climateIndicatorLight?.effectList ??
+                                const <String>[],
+                        indicatorLightEffect:
+                            climateIndicatorLight?.effect,
+                        onIndicatorLightToggled:
+                            climateIndicatorLight == null
+                                ? null
+                                : () => context.read<HomeBloc>().add(
+                                      ToggleEntity(
+                                        entityId:
+                                            climateIndicatorLight.entityId,
+                                      ),
+                                    ),
+                        onIndicatorLightEffectSelected:
+                            climateIndicatorLight == null
+                                ? null
+                                : (String effect) =>
+                                    context.read<HomeBloc>().add(
+                                          SetLightEffect(
+                                            entityId: climateIndicatorLight
+                                                .entityId,
+                                            effect: effect,
+                                          ),
+                                        ),
                         onTemperatureChanged: (double value) => context
                             .read<HomeBloc>()
                             .add(SetClimateTemperature(

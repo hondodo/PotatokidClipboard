@@ -21,6 +21,12 @@ class ClimateControlPanel extends StatelessWidget {
     required this.onSwingModeSelected,
     this.quickSwitches = const <ClimateQuickSwitch>[],
     this.onQuickSwitchToggled,
+    this.indicatorLightEntityId,
+    this.indicatorLightOn = false,
+    this.indicatorLightEffects = const <String>[],
+    this.indicatorLightEffect,
+    this.onIndicatorLightToggled,
+    this.onIndicatorLightEffectSelected,
     this.areaLabel,
   });
 
@@ -37,6 +43,16 @@ class ClimateControlPanel extends StatelessWidget {
 
   /// 快捷开关点击：参数为实体 id；null 时不可点。
   final ValueChanged<String>? onQuickSwitchToggled;
+
+  /// 空调指示灯（light 域，`_indicator_light`），null 则不渲染该区。
+  ///
+  /// 米家空调的指示灯除开关外还支持灯光效果（Auto/Medium/High）。
+  final String? indicatorLightEntityId;
+  final bool indicatorLightOn;
+  final List<String> indicatorLightEffects;
+  final String? indicatorLightEffect;
+  final VoidCallback? onIndicatorLightToggled;
+  final ValueChanged<String>? onIndicatorLightEffectSelected;
   final String? areaLabel;
 
   static const Color _accent = Color(0xFF5FD3C4);
@@ -319,6 +335,46 @@ class ClimateControlPanel extends StatelessWidget {
                               : null,
                         ))
                     .toList(growable: false),
+              ),
+            ],
+            if (indicatorLightEntityId != null) ...<Widget>[
+              const SizedBox(height: 18),
+              _SectionTitle(label: '指示灯'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  FilterChip(
+                    label: Text(indicatorLightOn ? '已开启' : '已关闭'),
+                    selected: indicatorLightOn,
+                    showCheckmark: false,
+                    avatar: Icon(
+                      indicatorLightOn
+                          ? Icons.lightbulb_rounded
+                          : Icons.lightbulb_outline_rounded,
+                      size: 18,
+                      color: indicatorLightOn
+                          ? _accent
+                          : theme.colorScheme.outline,
+                    ),
+                    onSelected: available && onIndicatorLightToggled != null
+                        ? (bool _) => onIndicatorLightToggled!()
+                        : null,
+                  ),
+                  for (final String item in indicatorLightEffects)
+                    ChoiceChip(
+                      label: Text(item),
+                      selected: indicatorLightEffect == item,
+                      showCheckmark: false,
+                      onSelected: available &&
+                              onIndicatorLightEffectSelected != null
+                          ? (bool _) =>
+                              onIndicatorLightEffectSelected!(item)
+                          : null,
+                    ),
+                ],
               ),
             ],
           ],

@@ -16,6 +16,7 @@ class ClimateWidget extends StatelessWidget {
     required this.onDecrease,
     this.areaLabel,
     this.onOpenDetail,
+    this.powerWatts,
   });
 
   final HaEntityStateModel entity;
@@ -25,6 +26,9 @@ class ClimateWidget extends StatelessWidget {
   final VoidCallback onDecrease;
   final String? areaLabel;
   final VoidCallback? onOpenDetail;
+
+  /// 实时功率（W），来自同设备电量传感器（如空调插座）；null 则不显示。
+  final double? powerWatts;
 
   static const Color _accent = Color(0xFF5FD3C4);
 
@@ -40,6 +44,9 @@ class ClimateWidget extends StatelessWidget {
     final String status = available
         ? '${on ? hvacModeLabel(entity.hvacMode) : '已关闭'}$current'
         : '不可用';
+    // 实时功率跟在状态后（如「制冷 · 425 W · 卧室」），无传感器则不占位。
+    final String power =
+        powerWatts == null ? '' : ' · ${powerWatts!.round()} W';
 
     return Card(
       margin: EdgeInsets.zero,
@@ -91,7 +98,7 @@ class ClimateWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '$status · ${areaLabel ?? '未分配房间'}',
+                          '$status$power · ${areaLabel ?? '未分配房间'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

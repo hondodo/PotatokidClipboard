@@ -366,6 +366,10 @@ void main() {
     `fan_modes` / `swing_modes`），不支持的项目自动隐藏。
     另有米家空调快捷开关行（喜好 / 节能 / 睡眠 / 辅热 / 不直吹 / 提示音 /
     熄屏，`climate_quick_switch.dart` 按 MIoT 属性后缀匹配 switch 子实体，
+    收进面板并从下方原始行隐藏）；快捷开关后还有指示灯区（light 域
+    `_indicator_light`，开关 + 灯光效果 Auto/Medium/High，下发
+    ToggleEntity / SetLightEffect）。首页空调卡副标题带实时功率
+    （取 `powerStats[deviceId].currentWatts`，如「制冷 · 425 W · 卧室」）。
   - **✅ 家庭温湿度概览**：首页顶部按家庭展示温度 / 湿度（未选家庭显示全部，
     选中后只显示该家庭 + 「全部」返回）。HA 无「全屋温湿度」聚合实体，
     数据取家庭内 climate 的 `current_temperature` / `current_humidity`，
