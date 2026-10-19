@@ -100,6 +100,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「远程」行（云信账号登录：常态展示账号+状态，激活后行内输入框）的序号。
   static const int _remoteRow = 13;
 
+  /// 「WordPress密码」行（密码保护文章访问密码：常态掩码展示，激活后行内输入框）的序号。
+  static const int _wpPasswordRow = 14;
+
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
 
@@ -147,6 +150,11 @@ class _ProfilePageState extends State<ProfilePage> {
       TextEditingController();
   final FocusNode _remoteInputFocusNode = FocusNode();
 
+  /// 「WordPress密码」行输入框的控制器与焦点节点。
+  final TextEditingController _wpPasswordInputController =
+      TextEditingController();
+  final FocusNode _wpPasswordInputFocusNode = FocusNode();
+
   Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
@@ -191,6 +199,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _copyMsg.dispose();
     _remoteInputController.dispose();
     _remoteInputFocusNode.dispose();
+    _wpPasswordInputController.dispose();
+    _wpPasswordInputFocusNode.dispose();
     super.dispose();
   }
 
@@ -235,6 +245,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
     if (row == _remoteRow && mounted) _beginInlineEdit(_remoteRow);
+    if (row == _wpPasswordRow && mounted) _beginInlineEdit(_wpPasswordRow);
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -378,6 +389,9 @@ class _ProfilePageState extends State<ProfilePage> {
       case _remoteRow: // 远程：左/右键打开行内输入框
         _beginInlineEdit(_remoteRow);
         break;
+      case _wpPasswordRow: // WordPress密码：左/右键打开行内输入框
+        _beginInlineEdit(_wpPasswordRow);
+        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -454,6 +468,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 KeyedSubtree(
                   key: _rowKeys[_remoteRow],
                   child: _buildRemoteLoginRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_wpPasswordRow],
+                  child: _buildWpPasswordRow(inContent, c),
                 ),
                 const SizedBox(height: 12),
                 KeyedSubtree(
@@ -892,9 +911,48 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  /// 「WordPress密码」行：常态掩码展示（未设置显示「未设置」），
+  /// 点按 / OK / 右键进入行内输入（编辑态替换为掩码输入框）。
+  Widget _buildWpPasswordRow(bool inContent, ProfileFocusController c) {
+    if (_editingRow == _wpPasswordRow) return _buildWpPasswordEditRow();
+    final String value = AppSettings.instance.wpPassword.isEmpty
+        ? 'remote_not_set'.tr()
+        : '••••••';
+    return _SettingRow(
+      highlighted: inContent && c.row == _wpPasswordRow,
+      label: 'settings_wp_password'.tr(),
+      value: value,
+      canStepLeft: false,
+      canStepRight: true,
+      onTap: () {
+        c.select(_wpPasswordRow);
+        _beginInlineEdit(_wpPasswordRow);
+      },
+      onStepLeft: () => c.select(_wpPasswordRow),
+      onStepRight: () {
+        c.select(_wpPasswordRow);
+        _beginInlineEdit(_wpPasswordRow);
+      },
+    );
+  }
+
+  /// 「WordPress密码」行编辑态：掩码输入框（不预填），✕ 取消、✓ 提交保存。
+  Widget _buildWpPasswordEditRow() {
+    return _InlineEditFrame(
+      label: 'settings_wp_password'.tr(),
+      controller: _wpPasswordInputController,
+      focusNode: _wpPasswordInputFocusNode,
+      hintText: 'wp_password_input_hint'.tr(),
+      obscureText: true,
+      onCancel: _cancelInlineEdit,
+      onSubmit: _submitInlineEdit,
+    );
+  }
+
   /// 行内输入编辑态的焦点节点，按行号取（未配置的行返回 null）。
   FocusNode? _focusNodeOf(int row) {
     if (row == _remoteRow) return _remoteInputFocusNode;
+    if (row == _wpPasswordRow) return _wpPasswordInputFocusNode;
     return null;
   }
 
@@ -906,6 +964,10 @@ class _ProfilePageState extends State<ProfilePage> {
       // 云信账号：预填当前账号。
       _remoteInputController.text =
           context.read<RemoteLoginBloc>().state.account;
+    }
+    if (row == _wpPasswordRow) {
+      // 密码：不预填，必须由用户输入。
+      _wpPasswordInputController.text = '';
     }
     _editingRow = row;
     setState(() {});
@@ -923,6 +985,13 @@ class _ProfilePageState extends State<ProfilePage> {
       _cancelInlineEdit();
       if (account.isEmpty || !mounted) return;
       context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+    }
+    if (row == _wpPasswordRow) {
+      final String password = _wpPasswordInputController.text;
+      _cancelInlineEdit();
+      if (password.isEmpty || !mounted) return;
+      // 密码不 trim、原样保存；setWpPassword 内存赋值同步、落盘异步。
+      AppSettings.instance.setWpPassword(password);
     } else {
       // 未配置提交分支的行：安全退出编辑态，避免吞键卡死。
       _cancelInlineEdit();

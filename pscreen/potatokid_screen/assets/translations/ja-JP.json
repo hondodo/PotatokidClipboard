@@ -47,6 +47,8 @@
   "settings_reset_cancel": "キャンセル",
   "settings_reset_ok": "はい、リセットして終了",
   "settings_remote": "リモート",
+  "settings_wp_password": "WordPressパスワード",
+  "wp_password_input_hint": "WordPressパスワードを入力",
   "remote_not_set": "未設定",
   "remote_logging_in": "ログイン中",
   "remote_syncing": "データ同期中",

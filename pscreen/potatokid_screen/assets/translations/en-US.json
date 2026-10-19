@@ -47,6 +47,8 @@
   "settings_reset_cancel": "Cancel",
   "settings_reset_ok": "Yes, reset and exit",
   "settings_remote": "Remote",
+  "settings_wp_password": "WordPress Password",
+  "wp_password_input_hint": "Enter WordPress password",
   "remote_not_set": "Not set",
   "remote_logging_in": "Logging in",
   "remote_syncing": "Syncing data",
