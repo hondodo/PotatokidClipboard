@@ -3,6 +3,7 @@ import 'package:potatokid_screen/core/di/modules/app_module.dart';
 import 'package:potatokid_screen/core/di/modules/core_module.dart';
 import 'package:potatokid_screen/core/di/modules/home_module.dart';
 import 'package:potatokid_screen/core/di/modules/iptv_module.dart';
+import 'package:potatokid_screen/core/di/modules/msg_module.dart';
 import 'package:potatokid_screen/core/di/modules/network_module.dart';
 import 'package:potatokid_screen/core/di/modules/remote_module.dart';
 import 'package:potatokid_screen/core/di/modules/router_module.dart';
@@ -17,6 +18,7 @@ class Injection {
     await GetItConfig.init();
     await CoreModule.register();
     await RemoteModule.register();
+    await MsgModule.register();
     await NetworkModule.register();
     await RouterModule.register();
     await AppModule.register();
@@ -30,6 +32,7 @@ class Injection {
     await IptvModule.unregister();
     await HomeModule.unregister();
     await AppModule.unregister();
+    await MsgModule.unregister();
     await RemoteModule.unregister();
     await RouterModule.unregister();
     await NetworkModule.unregister();

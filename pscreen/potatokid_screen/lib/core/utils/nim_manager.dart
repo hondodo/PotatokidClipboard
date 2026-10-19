@@ -103,4 +103,39 @@ class NimManager {
 
   /// 被踢下线事件流。
   Stream<NIMKickedOfflineDetail> get onKickedOffline => NimCore.instance.loginService.onKickedOffline;
+
+  /// 新消息事件流（透传 SDK，仅上层关心文本消息）。
+  Stream<List<NIMMessage>> get onReceiveMessages => NimCore.instance.messageService.onReceiveMessages;
+
+  /// 发送 P2P 文本消息；任何一步失败记日志并返回 false，不抛出。
+  Future<bool> sendTextMessage({
+    required String toAccount,
+    required String text,
+  }) async {
+    try {
+      final NIMResult<String> cid =
+          await NimCore.instance.conversationIdUtil.p2pConversationId(toAccount);
+      if (!cid.isSuccess || cid.data == null) {
+        Log.error('[NimManager] p2pConversationId 失败: ${cid.code} ${cid.errorDetails}');
+        return false;
+      }
+      final NIMResult<NIMMessage> msg = await MessageCreator.createTextMessage(text);
+      if (!msg.isSuccess || msg.data == null) {
+        Log.error('[NimManager] createTextMessage 失败: ${msg.code} ${msg.errorDetails}');
+        return false;
+      }
+      final NIMResult<NIMSendMessageResult> r = await NimCore.instance.messageService.sendMessage(
+        message: msg.data!,
+        conversationId: cid.data!,
+      );
+      if (!r.isSuccess || r.data == null) {
+        Log.error('[NimManager] sendMessage 失败: ${r.code} ${r.errorDetails}');
+        return false;
+      }
+      return true;
+    } catch (e) {
+      Log.error('[NimManager] sendTextMessage 异常: $e');
+      return false;
+    }
+  }
 }

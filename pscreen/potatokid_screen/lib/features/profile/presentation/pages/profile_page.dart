@@ -17,6 +17,8 @@ import 'package:potatokid_screen/features/app/application/sleep_timer_controller
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_failure_guard.dart';
+import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:potatokid_screen/features/msg/presentation/widgets/message_overlay.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
@@ -24,6 +26,7 @@ import 'package:potatokid_screen/features/remote/application/bloc/remote_login_b
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:restart_app/restart_app.dart';
 
 /// 支持切换的语言列表（Locale 与翻译文件 key 一一对应）
@@ -927,9 +930,39 @@ class _ProfilePageState extends State<ProfilePage> {
   ///
   /// 返回与 OK 两类键集合与 `MainApp._handleLogical` 镜像。
   KeyEventResult _handlePageKey(FocusNode node, KeyEvent event) {
-    if (!_editingRemote) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final LogicalKeyboardKey key = event.logicalKey;
+    // 消息悬浮层可见时优先拦截物理按键（与 MainApp._handleLogical 镜像），
+    // 避免与下方远程编辑态的 OK/返回分支抢占焦点输入。
+    if (MessageOverlayController.instance.visible) {
+      MessageOverlayController.instance.onAnyKey();
+      final bool isBack = key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack;
+      if (isBack) {
+        MessageOverlayController.instance.handleBack();
+        return KeyEventResult.handled;
+      }
+      final bool ok = key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.space;
+      if (ok) {
+        MessageOverlayController.instance.handleOk();
+        return KeyEventResult.handled;
+      }
+      if (MessageOverlayController.instance.detail) {
+        final bool isArrow = key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown;
+        if (isArrow) {
+          MessageOverlay.scrollDetail(
+              key == LogicalKeyboardKey.arrowUp ? -1 : 1);
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.handled; // 吞掉其余按键
+    }
+    if (!_editingRemote) return KeyEventResult.ignored;
     // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
@@ -949,9 +982,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
+  /// 已登录时输入框下方附二维码（手机扫码取账号）。
   Widget _buildRemoteEditRow() {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final TextTheme textTheme = Theme.of(context).textTheme;
+    final RemoteLoginState remoteState =
+        context.read<RemoteLoginBloc>().state;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -960,42 +996,58 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.primary, width: 2),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'settings_remote'.tr(),
-            style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+          Row(
+            children: <Widget>[
+              Text(
+                'settings_remote'.tr(),
+                style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: _remoteInputController,
+                  focusNode: _remoteInputFocusNode,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.none,
+                  autocorrect: false,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.primary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'remote_input_hint'.tr(),
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                  onSubmitted: (_) => _submitRemoteEdit(),
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                onPressed: _endRemoteEdit,
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.check, color: scheme.primary),
+                onPressed: _submitRemoteEdit,
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: TextField(
-              controller: _remoteInputController,
-              focusNode: _remoteInputFocusNode,
-              textInputAction: TextInputAction.done,
-              textCapitalization: TextCapitalization.none,
-              autocorrect: false,
-              style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: scheme.primary,
+          if (remoteState.status == RemoteLoginStatus.loggedIn &&
+              remoteState.account.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: QrImageView(
+                data: remoteState.account,
+                size: 120,
+                backgroundColor: Colors.white,
               ),
-              decoration: InputDecoration(
-                hintText: 'remote_input_hint'.tr(),
-                isDense: true,
-                border: InputBorder.none,
-              ),
-              onSubmitted: (_) => _submitRemoteEdit(),
             ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
-            onPressed: _endRemoteEdit,
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.check, color: scheme.primary),
-            onPressed: _submitRemoteEdit,
-          ),
         ],
       ),
     );

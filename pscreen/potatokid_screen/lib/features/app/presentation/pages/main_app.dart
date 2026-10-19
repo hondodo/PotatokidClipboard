@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:potatokid_screen/features/msg/presentation/widgets/message_overlay.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
 import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
@@ -143,6 +146,39 @@ class MainApp extends StatelessWidget {
   /// - 返回：二次确认后退出应用。
   /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
+    // 消息浮层可见：OK 开详情 / 返回 关闭；详情内上下键转发浮层滚动全文
+    //（D-pad，长按经 KeyRepeatController 连续滚）；其余按键吞掉（防止浮层下
+    // 页面被操作，详情内 OK 亦忽略），并重置自动关闭计时。
+    if (MessageOverlayController.instance.visible) {
+      MessageOverlayController.instance.onAnyKey();
+      if (key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack) {
+        MessageOverlayController.instance.handleBack();
+        return true;
+      }
+      final bool ok =
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.gameButtonA;
+      if (ok) {
+        MessageOverlayController.instance.handleOk(); // 详情内为 no-op（忽略）
+        return true;
+      }
+      if (MessageOverlayController.instance.detail &&
+          key == LogicalKeyboardKey.arrowUp) {
+        MessageOverlay.scrollDetail(-1);
+        return true;
+      }
+      if (MessageOverlayController.instance.detail &&
+          key == LogicalKeyboardKey.arrowDown) {
+        MessageOverlay.scrollDetail(1);
+        return true;
+      }
+      return true; // 吞掉其余按键
+    }
+
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
 
@@ -294,64 +330,81 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Tab 状态填充（上报/浮层互斥读这里）；屏保退出时弹出缓存消息。
+    AppTabController.branchIndex = navigationShell.currentIndex;
+    final MessageOverlayController msgOverlay =
+        MessageOverlayController.instance;
+    final bool wasDeferred = msgOverlay.deferActive;
+    msgOverlay.deferActive = AppTabController.isScreensaver;
+    if (wasDeferred && !msgOverlay.deferActive) {
+      msgOverlay.onDeferEnd();
+    }
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
     // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
-    return ExitConfirmScope(
-      child: AutoHideChrome(
-        currentIndex: navigationShell.currentIndex,
-        profileBranchIndex: _profileBranchIndex,
-        child: Focus(
-          debugLabel: 'MainApp.rootOkHandler',
-          canRequestFocus: false,
-          onKeyEvent: (node, event) => _handleRootKey(context, event),
-          child: Scaffold(
-            backgroundColor: Colors.black,
-            body: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
-                // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
-                  // 「我的」页 tabs 始终显示，不参与显隐。
-                  onTap: () {
-                    if (navigationShell.currentIndex == _profileBranchIndex) {
-                      return;
-                    }
-                    context.read<AppBloc>().add(SetChrome(!chromeVisible));
-                  },
-                  child: navigationShell,
-                ),
-                // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
-                // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: ClipRect(
-                    child: AnimatedAlign(
+    return Stack(
+      children: <Widget>[
+        ExitConfirmScope(
+          child: AutoHideChrome(
+            currentIndex: navigationShell.currentIndex,
+            profileBranchIndex: _profileBranchIndex,
+            child: Focus(
+              debugLabel: 'MainApp.rootOkHandler',
+              canRequestFocus: false,
+              onKeyEvent: (node, event) => _handleRootKey(context, event),
+              child: Scaffold(
+                backgroundColor: Colors.black,
+                body: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
+                    // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
+                    GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
+                      // 「我的」页 tabs 始终显示，不参与显隐。
+                      onTap: () {
+                        if (navigationShell.currentIndex ==
+                            _profileBranchIndex) {
+                          return;
+                        }
+                        context.read<AppBloc>().add(SetChrome(!chromeVisible));
+                      },
+                      child: navigationShell,
+                    ),
+                    // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
+                    // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
+                    Align(
                       alignment: Alignment.topCenter,
-                      heightFactor: chromeVisible ? 1 : 0,
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeInOut,
-                      child: _TopNavBar(
-                        currentIndex: navigationShell.currentIndex,
-                        chromeVisible: chromeVisible,
-                        onTabSelected: _goTab,
+                      child: ClipRect(
+                        child: AnimatedAlign(
+                          alignment: Alignment.topCenter,
+                          heightFactor: chromeVisible ? 1 : 0,
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          child: _TopNavBar(
+                            currentIndex: navigationShell.currentIndex,
+                            chromeVisible: chromeVisible,
+                            onTabSelected: _goTab,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    // 悬浮遥控器蒙层（手机调试用），置于最上层。
+                    FloatingRemote(
+                      onKey: (button) => _onRemoteButton(context, button),
+                    ),
+                  ],
                 ),
-                // 悬浮遥控器蒙层（手机调试用），置于最上层。
-                FloatingRemote(
-                  onKey: (button) => _onRemoteButton(context, button),
-                ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+        // 消息浮层：全局最上层，独立于 rootOkHandler 焦点链；详情内 D-pad
+        // 滚动由上面的拦截层转发 [MessageOverlay.scrollDetail]。
+        const Positioned.fill(child: MessageOverlay()),
+      ],
     );
   }
 }
