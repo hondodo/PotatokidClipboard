@@ -97,23 +97,24 @@ class WordPressUtil {
 }
 ```
 
-实现要点：
+实现要点（2026-10-19 实测修正）：
 
 - 内部自建轻量 `Dio` 实例（不挂全局拦截器/日志），仅此方法使用
-- Step 1：POST `{origin}/wp-login.php?action=postpass`，`data` 为 `UrlEncodedQueryParameters`（`post_password`、`redirect_to=postUrl`、`Submit=提交`），`followRedirects: false`，`validateStatus` 允许 2xx/3xx
-  - 302 且 `set-cookie` 中存在 `wp-postpass_` → 成功，手工拼接 `name=value` Cookie 头
-  - 否则（200 表单页等）→ `WordPressPassException('密码错误')`
-  - `password` 为空（参数与 AppSettings 均空）→ `WordPressPassException('密码未设置')`
-- Step 2：GET `postUrl`，带 `Cookie` 头
-  - 解析：定位 `<body` 之后的 `class="entry-content` 标记，截取至下一个满足 `wp-block-group|wp-block-comments|sharedaddy|post-footer` 的 div；去 script/style → 块级标签换行 → 去其余标签 → 解码常见实体（`&nbsp; &amp; &lt; &gt; &#8217; &#8220; &#8221;` 等）→ 压缩空行 → trim
-  - 结果仍含 `post-password-form` 或正文为空 → `WordPressPassException('密码错误或正文为空')`
+- Step 1：POST `{origin}/wp-login.php?action=postpass`，`data` 为 `UrlEncodedQueryParameters`（`post_password`、`redirect_to=postUrl`、`Submit=提交`），`followRedirects: false`，`validateStatus` 允许 <400
+  - **实测：错误密码同样返回 302 并下发 `wp-postpass_*` cookie**，故 Step 1 只做「302 + cookie 存在」的必要检查（缺一 → `WordPressPassException('密码校验失败')`），真正的密码判定放在 Step 2
+  - `password` 为空（参数与 AppSettings 均空）→ `WordPressPassException('密码未设置')`（不发网络请求）
+- Step 2：GET `postUrl`，带手工拼接的 `name=value` Cookie 头
+  - **页面含 `post-password-form` → `WordPressPassException('密码错误')`**（实测：解密成功页面不含该字符串，被拒页面含）
+  - 解析：定位 `<body` 之后的 `class="entry-content` 标记 → 该 div 的结束用 `<div>`/`</div>` **深度配对**求出 → 再与 Jetpack 附加组件起点（`<div id="jp-post-flair"` / `<div class="sharedaddy`）取更早者截断（分享/点赞组件恒在正文之后）→ 去 script/style → 块级标签换行 → 去其余标签 → 解码常见实体（`&nbsp; &amp; &lt; &gt; &#8217; &#8220; &#8221;` 等）→ 压缩空行 → trim
+  - 结果为空 → `WordPressPassException('正文为空')`
 
 ## 五、验证与测试
 
-1. **单测**：新增 `test/wordpress_util_test.dart`（真实网络）：
-   - `fetchPostContent('https://potatokid5.wordpress.com/2026/10/19/hello/', password: '12345678')` → 等于 `'hello page'`
+1. **单测**：新增 `test/core/utils/wordpress_util_test.dart`（真实网络）：
+   - `fetchPostContent('https://potatokid5.wordpress.com/2026/10/19/hello/', password: '12345678')` → 断言**非空**、不含 `此内容受密码保护`、不含 `post-password-form`（**不硬编码正文**：实测该测试文章内容已在会话期间被作者从 `hello page` 改为 `更新内容`，硬编码会脆断）
    - 错误密码 → 抛 `WordPressPassException`
-   - 空密码 → 抛 `WordPressPassException`
+   - 空密码 → 抛 `WordPressPassException`（且不发网络请求）
+   - 缺省密码且 AppSettings 未设置 → 抛 `WordPressPassException`
 2. **静态检查**：`flutter analyze` 无新增告警
 3. **手动验证**（需设备）：
    - 设置页输入密码 → 显示 `••••••` → 杀进程重启 → 仍显示已设置
