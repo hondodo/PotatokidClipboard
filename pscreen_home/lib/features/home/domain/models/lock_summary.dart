@@ -5,7 +5,9 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 /// 识别**不依赖 friendly_name**（HA 里改名会变），按实体 id / 属性匹配。
 /// 以实测的鹿客门锁（`loock_cn_*_t2pv1`）为基准：
 /// - 上锁状态：`lock.*` 域，或 `sensor` / `binary_sensor` 的 id 含
-///   `_door_state_` / `_lock_state_` / `_lock_status_`（MIoT 属性名稳定）；
+///   `_door_state_` / `_lock_state_` / `_lock_status_` **且状态值确实是
+///   「已上锁 / 未上锁 / locked / unlocked」**（洗衣机等也有「门状态」传感器，
+///   必须靠状态值排除）；
 /// - 电池：`device_class == battery` 的 `sensor`（门锁本体 / 猫眼各一块）；
 /// - 电量更新时间：id 含 `battery_update_time` / `update_time` / `last_update`
 ///   的 Unix 秒 / 毫秒时间戳传感器；不会误取 `online_timestamp`。
@@ -119,17 +121,20 @@ class LockSummary {
     }
     // 2. 米家 / 鹿客门锁：MIoT 属性名 door_state 稳定，不随 friendly_name 变。
     //    实测 id：sensor.loock_*_door_state_p_3_1021 = 已上锁 / 未上锁。
+    //    注意：洗衣机等也有「门状态」传感器（如 `舱门已开`），因此必须
+    //    状态值确实是上锁 / 未上锁才算门锁，避免误判普通家电。
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != 'sensor' && entity.domain != 'binary_sensor') {
         continue;
       }
       if (!entity.isAvailable) continue;
       final String id = entity.entityId.toLowerCase();
-      if (id.contains('_door_state_') ||
+      final bool lockLikeId = id.contains('_door_state_') ||
           id.contains('_lock_state_') ||
-          id.contains('_lock_status_')) {
-        return entity;
-      }
+          id.contains('_lock_status_');
+      if (!lockLikeId) continue;
+      if (_parseLocked(entity.state, allowOnOff: false) == null) continue;
+      return entity;
     }
     return null;
   }

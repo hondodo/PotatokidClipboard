@@ -153,6 +153,34 @@ void main() {
       expect(summary, isNull);
     });
 
+    test('洗衣机等家电的门状态传感器不会被误判成门锁', () {
+      // 来自 washer_summary_test：sensor.wm_door_state_p_2_9 = 舱门已开
+      final LockSummary? summary = LockSummary.tryBuild(
+        deviceId: 'dev_wm',
+        name: '米家洗衣机 洗烘12kg',
+        entities: <HaEntityStateModel>[
+          _e('sensor.wm_status_p_2_2', '已关机', name: '洗衣机 工作状态'),
+          _e('sensor.wm_door_state_p_2_9', '舱门已开', name: '洗衣机 门状态'),
+          _e('sensor.wm_power_consumption_p_2_39', '14', name: '洗衣机 耗电量'),
+          _e('switch.wm_on_p_2_1', 'off', name: '洗衣机 洗衣机 开关'),
+        ],
+      );
+
+      expect(summary, isNull);
+    });
+
+    test('id 像门锁但状态是 on/off 的二进制传感器不被当作门锁', () {
+      final LockSummary? summary = LockSummary.tryBuild(
+        deviceId: 'dev_generic',
+        name: '某设备',
+        entities: <HaEntityStateModel>[
+          _e('binary_sensor.generic_lock_state_p_1_1', 'off'),
+        ],
+      );
+
+      expect(summary, isNull);
+    });
+
     test('只有联网时间戳时，不生成电量更新时间', () {
       final LockSummary? summary = LockSummary.tryBuild(
         deviceId: 'dev_lock',

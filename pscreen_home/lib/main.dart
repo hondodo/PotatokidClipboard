@@ -36,10 +36,7 @@ void main() {
       runApp(
         MultiBlocProvider(
           providers: <BlocProvider<dynamic>>[
-            BlocProvider<ConnectionBloc>(
-              create: (_) => Injection.get<ConnectionBloc>()
-                ..add(const StartConnection()),
-            ),
+            BlocProvider<ConnectionBloc>(create: (_) => Injection.get<ConnectionBloc>()..add(const StartConnection())),
             BlocProvider<HomeBloc>(create: (_) => Injection.get<HomeBloc>()),
           ],
           child: const App(),
@@ -47,9 +44,7 @@ void main() {
       );
     },
     (Object error, StackTrace stack) {
-      FlutterError.presentError(
-        FlutterErrorDetails(exception: error, stack: stack),
-      );
+      FlutterError.presentError(FlutterErrorDetails(exception: error, stack: stack));
     },
   );
 }
