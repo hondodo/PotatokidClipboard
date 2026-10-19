@@ -54,19 +54,22 @@ const List<({String labelKey, ThemeMode mode})> _themeOptions =
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
-  /// 「远程」行是否处于输入编辑态（跨组件静态信号）。
+  /// 当前处于行内输入编辑态的行号；null = 未编辑（跨组件静态信号）。
   ///
   /// 悬浮遥控器按键不经过 Flutter 焦点链（[MainApp] 的 FloatingRemote.onKey
   /// 直调 `_handleLogical`），页面级 Focus 拦截不到，故壳层在返回/OK 分支
   /// 优先读取此信号；物理/蓝牙遥控器仍由页面 Focus 先拦截（见
   /// `_ProfilePageState._handlePageKey`）。
-  static bool editingRemote = false;
+  static int? editingRow;
 
-  /// 取消「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器返回键触发）。
-  static VoidCallback? onCancelRemoteEdit;
+  /// 是否有行处于行内输入编辑态。
+  static bool get isInlineEditing => editingRow != null;
 
-  /// 提交「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器 OK 键触发）。
-  static VoidCallback? onSubmitRemoteEdit;
+  /// 取消行内输入编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器返回键触发）。
+  static VoidCallback? onCancelInlineEdit;
+
+  /// 提交行内输入编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器 OK 键触发）。
+  static VoidCallback? onSubmitInlineEdit;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -134,10 +137,10 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
 
-  /// 「远程」行是否处于输入编辑态：真值源为 [ProfilePage.editingRemote]
+  /// 当前行内编辑行号：真值源为 [ProfilePage.editingRow]
   /// （跨组件静态信号，悬浮遥控器直调路径读取）。
-  bool get _editingRemote => ProfilePage.editingRemote;
-  set _editingRemote(bool value) => ProfilePage.editingRemote = value;
+  int? get _editingRow => ProfilePage.editingRow;
+  set _editingRow(int? value) => ProfilePage.editingRow = value;
 
   /// 「远程」行输入框的控制器与焦点节点。
   final TextEditingController _remoteInputController =
@@ -161,8 +164,8 @@ class _ProfilePageState extends State<ProfilePage> {
     ProfileFocusController.instance.onStepRow = _stepRow;
     ProfileFocusController.instance.onActivateRow = _onActivateRow;
     ProfileFocusController.instance.addListener(_onFocusChanged);
-    ProfilePage.onCancelRemoteEdit = _endRemoteEdit;
-    ProfilePage.onSubmitRemoteEdit = _submitRemoteEdit;
+    ProfilePage.onCancelInlineEdit = _cancelInlineEdit;
+    ProfilePage.onSubmitInlineEdit = _submitInlineEdit;
   }
 
   @override
@@ -174,14 +177,14 @@ class _ProfilePageState extends State<ProfilePage> {
     if (ProfileFocusController.instance.onActivateRow == _onActivateRow) {
       ProfileFocusController.instance.onActivateRow = null;
     }
-    if (ProfilePage.onCancelRemoteEdit == _endRemoteEdit) {
-      ProfilePage.onCancelRemoteEdit = null;
+    if (ProfilePage.onCancelInlineEdit == _cancelInlineEdit) {
+      ProfilePage.onCancelInlineEdit = null;
     }
-    if (ProfilePage.onSubmitRemoteEdit == _submitRemoteEdit) {
-      ProfilePage.onSubmitRemoteEdit = null;
+    if (ProfilePage.onSubmitInlineEdit == _submitInlineEdit) {
+      ProfilePage.onSubmitInlineEdit = null;
     }
-    // 防御：编辑态中被销毁时复位静态信号，避免残留 true 卡住壳层按键。
-    ProfilePage.editingRemote = false;
+    // 防御：编辑态中被销毁时复位静态信号，避免残留值卡住壳层按键。
+    ProfilePage.editingRow = null;
     _cityApplyTimer?.cancel();
     _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
@@ -205,9 +208,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 焦点或行号变化时，让选中行滚入可视区，避免被屏幕边缘裁切。
   void _onFocusChanged() {
     final ProfileFocusController c = ProfileFocusController.instance;
-    // 焦点离开「远程」行时取消输入编辑态（不提交）。
-    if (_editingRemote && c.row != _remoteRow) {
-      _endRemoteEdit();
+    // 焦点离开编辑中的行时取消输入编辑态（不提交）。
+    if (_editingRow != null && c.row != _editingRow) {
+      _cancelInlineEdit();
     }
     if (!c.focused) return;
     if (c.row == _prevRow && _prevFocused) return;
@@ -231,7 +234,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _refreshRow && mounted) _refreshChannels();
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
-    if (row == _remoteRow && mounted) _beginRemoteEdit();
+    if (row == _remoteRow && mounted) _beginInlineEdit(_remoteRow);
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -373,7 +376,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _resetAll();
         break;
       case _remoteRow: // 远程：左/右键打开行内输入框
-        _beginRemoteEdit();
+        _beginInlineEdit(_remoteRow);
         break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
@@ -846,7 +849,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildRemoteLoginRow(bool inContent, ProfileFocusController c) {
     return BlocBuilder<RemoteLoginBloc, RemoteLoginState>(
       builder: (context, state) {
-        if (_editingRemote) {
+        if (_editingRow == _remoteRow) {
           return _buildRemoteEditRow();
         }
         final String value =
@@ -861,12 +864,12 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepRight: state.status != RemoteLoginStatus.notConfigured,
           onTap: () {
             c.select(_remoteRow);
-            _beginRemoteEdit();
+            _beginInlineEdit(_remoteRow);
           },
           onStepLeft: () => c.select(_remoteRow),
           onStepRight: () {
             c.select(_remoteRow);
-            _beginRemoteEdit();
+            _beginInlineEdit(_remoteRow);
           },
         );
       },
@@ -889,32 +892,45 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  /// 进入「远程」行输入编辑态：预填当前账号，下一帧聚焦弹出输入法。
-  void _beginRemoteEdit() {
-    if (_editingRemote || !mounted) return;
-    _remoteInputController.text =
-        context.read<RemoteLoginBloc>().state.account;
-    _editingRemote = true;
+  /// 行内输入编辑态的焦点节点，按行号取（未配置的行返回 null）。
+  FocusNode? _focusNodeOf(int row) {
+    if (row == _remoteRow) return _remoteInputFocusNode;
+    return null;
+  }
+
+  /// 进入行内输入编辑态：各行为自己的输入框装文本，下一帧聚焦弹出输入法。
+  void _beginInlineEdit(int row) {
+    if (_editingRow != null || !mounted) return;
+    if (row == _remoteRow) {
+      // 云信账号：预填当前账号。
+      _remoteInputController.text =
+          context.read<RemoteLoginBloc>().state.account;
+    }
+    _editingRow = row;
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _remoteInputFocusNode.requestFocus();
+      if (mounted) _focusNodeOf(row)?.requestFocus();
     });
   }
 
-  /// 提交输入：空串等价取消；有值则 trim 后派发 [RemoteLoginSubmit]。
-  void _submitRemoteEdit() {
-    if (!_editingRemote) return;
-    final String account = _remoteInputController.text.trim();
-    _endRemoteEdit();
-    if (account.isEmpty || !mounted) return;
-    context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+  /// 提交行内输入：按编辑中的行分发；空串一律视为取消。
+  void _submitInlineEdit() {
+    final int? row = _editingRow;
+    if (row == null) return;
+    if (row == _remoteRow) {
+      final String account = _remoteInputController.text.trim();
+      _cancelInlineEdit();
+      if (account.isEmpty || !mounted) return;
+      context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+    }
   }
 
-  /// 退出输入编辑态（取消，不提交）。
-  void _endRemoteEdit() {
-    if (!_editingRemote) return;
-    _editingRemote = false;
-    _remoteInputFocusNode.unfocus();
+  /// 退出行内输入编辑态（取消，不提交）。
+  void _cancelInlineEdit() {
+    final int? row = _editingRow;
+    if (row == null) return;
+    _editingRow = null;
+    _focusNodeOf(row)?.unfocus();
     if (mounted) setState(() {});
   }
 
@@ -923,7 +939,7 @@ class _ProfilePageState extends State<ProfilePage> {
   ///
   /// 仅覆盖经焦点链冒泡的按键（物理/蓝牙遥控器、键盘）。悬浮遥控器不走
   /// 焦点链（FloatingRemote.onKey 直调 `MainApp._handleLogical`），由
-  /// [MainApp] 在返回/OK 分支优先检查 [ProfilePage.editingRemote] 处理。
+  /// [MainApp] 在返回/OK 分支优先检查 [ProfilePage.isInlineEditing] 处理。
   ///
   /// 未编辑态一律 ignored，保持既有焦点导航/激活/退出行为不变；
   /// 上下左右键也保持 ignored（上/下移焦会经 _onFocusChanged 取消编辑，符合设计）。
@@ -962,11 +978,11 @@ class _ProfilePageState extends State<ProfilePage> {
       }
       return KeyEventResult.handled; // 吞掉其余按键
     }
-    if (!_editingRemote) return KeyEventResult.ignored;
+    if (_editingRow == null) return KeyEventResult.ignored;
     // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
-      _endRemoteEdit();
+      _cancelInlineEdit();
       return KeyEventResult.handled;
     }
     // OK 键 → 提交输入。
@@ -975,81 +991,32 @@ class _ProfilePageState extends State<ProfilePage> {
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA) {
-      _submitRemoteEdit();
+      _submitInlineEdit();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
-  /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
-  /// 已登录时输入框下方附二维码（手机扫码取账号）。
+  /// 「远程」行编辑态：共用 [_InlineEditFrame]；已登录时下方附二维码。
   Widget _buildRemoteEditRow() {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final TextTheme textTheme = Theme.of(context).textTheme;
     final RemoteLoginState remoteState =
         context.read<RemoteLoginBloc>().state;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.primaryContainer.withValues(alpha: 0.30),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.primary, width: 2),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Text(
-                'settings_remote'.tr(),
-                style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextField(
-                  controller: _remoteInputController,
-                  focusNode: _remoteInputFocusNode,
-                  textInputAction: TextInputAction.done,
-                  textCapitalization: TextCapitalization.none,
-                  autocorrect: false,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.primary,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'remote_input_hint'.tr(),
-                    isDense: true,
-                    border: InputBorder.none,
-                  ),
-                  onSubmitted: (_) => _submitRemoteEdit(),
-                ),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
-                onPressed: _endRemoteEdit,
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.check, color: scheme.primary),
-                onPressed: _submitRemoteEdit,
-              ),
-            ],
-          ),
-          if (remoteState.status == RemoteLoginStatus.loggedIn &&
+    return _InlineEditFrame(
+      label: 'settings_remote'.tr(),
+      controller: _remoteInputController,
+      focusNode: _remoteInputFocusNode,
+      hintText: 'remote_input_hint'.tr(),
+      onCancel: _cancelInlineEdit,
+      onSubmit: _submitInlineEdit,
+      obscureText: false,
+      child: (remoteState.status == RemoteLoginStatus.loggedIn &&
               remoteState.account.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: QrImageView(
-                data: remoteState.account,
-                size: 120,
-                backgroundColor: Colors.white,
-              ),
-            ),
-        ],
-      ),
+          ? QrImageView(
+              data: remoteState.account,
+              size: 120,
+              backgroundColor: Colors.white,
+            )
+          : null,
     );
   }
 
@@ -1230,6 +1197,101 @@ class _StepIcon extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Icon(icon, color: color, size: 24),
+      ),
+    );
+  }
+}
+
+/// 行内输入编辑态的共用外框：标题 + 输入框 + ✕ 取消 + ✓ 提交。
+///
+/// 云信「远程」行等输入行共用；[child] 用于附加内容（如云信行的二维码）。
+/// 视觉与原云信编辑态完全一致（外框、字体、密度逐项照搬）。
+class _InlineEditFrame extends StatelessWidget {
+  const _InlineEditFrame({
+    required this.label,
+    required this.controller,
+    required this.focusNode,
+    required this.hintText,
+    required this.onCancel,
+    required this.onSubmit,
+    this.obscureText = false,
+    this.child,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String hintText;
+  final VoidCallback onCancel;
+  final VoidCallback onSubmit;
+
+  /// 密码类输入用圆点遮蔽（默认 false，与原云信行一致）。
+  final bool obscureText;
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary, width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Text(
+                label,
+                style:
+                    textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  textInputAction: TextInputAction.done,
+                  textCapitalization: TextCapitalization.none,
+                  autocorrect: false,
+                  obscureText: obscureText,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.primary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
+                  onSubmitted: (_) => onSubmit(),
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                onPressed: onCancel,
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.check, color: scheme.primary),
+                onPressed: onSubmit,
+              ),
+            ],
+          ),
+          if (child != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: child,
+            ),
+        ],
       ),
     );
   }

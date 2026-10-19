@@ -198,16 +198,16 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA;
     if (ok) {
-      // 编辑「远程」行时 OK = 提交输入，不走 activate。
+      // 行内输入编辑态 OK = 提交输入，不走 activate。
       // 悬浮遥控器直调本方法、不经焦点链，页面 Focus 拦截不到，故在此优先处理；
       // 物理/蓝牙遥控器的 OK 已被页面 Focus 消费（见 ProfilePage._handlePageKey）。
       // 仅在「我的」分支生效：ProfilePage State 在 IndexedStack 常驻，
-      // 切走后 editingRemote 可能仍为 true，不限分支会吞掉其它页的 OK。
-      final VoidCallback? submitRemote = ProfilePage.onSubmitRemoteEdit;
+      // 切走后 editingRow 可能仍非 null，不限分支会吞掉其它页的 OK。
+      final VoidCallback? submitInline = ProfilePage.onSubmitInlineEdit;
       if (cur == _profileBranchIndex &&
-          ProfilePage.editingRemote &&
-          submitRemote != null) {
-        submitRemote();
+          ProfilePage.isInlineEditing &&
+          submitInline != null) {
+        submitInline();
         return true;
       }
       _pressOk(context);
@@ -218,13 +218,13 @@ class MainApp extends StatelessWidget {
     // 与系统返回一致，走二次确认，避免盒子上误触直接退出。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
-      // 编辑「远程」行时返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
+      // 行内输入编辑态返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
       // 同样仅限「我的」分支，理由同上。
-      final VoidCallback? cancelRemote = ProfilePage.onCancelRemoteEdit;
+      final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
       if (cur == _profileBranchIndex &&
-          ProfilePage.editingRemote &&
-          cancelRemote != null) {
-        cancelRemote();
+          ProfilePage.isInlineEditing &&
+          cancelInline != null) {
+        cancelInline();
         return true;
       }
       ExitConfirmScope.requestExit(context);
