@@ -39,7 +39,8 @@ class WordPressUtil {
   ///
   /// [password] 缺省时读取 [AppSettings.instance.wpPassword]。
   /// 文章未设密码时直接返回内容；设密码且校验通过时返回解密正文。
-  /// 密码错误、未提供或正文为空时抛 [WordPressPassException]。
+  /// 密码未设置、校验失败或正文为空 → [WordPressPassException]；
+  /// 网络错误 → [DioException]（与 GET 步骤一致透传）。
   static Future<String> fetchPostContent(
     String url, {
     String? password,
@@ -70,27 +71,22 @@ class WordPressUtil {
     final String origin = '${uri.scheme}://${uri.host}';
 
     // POST 不自动跟随重定向：错误/正确密码均返回 302 + wp-postpass cookie，
-    // 需要显式捕获 cookie 供第 3 步使用。
-    Response<String> postResponse;
-    try {
-      postResponse = await _dio.post<String>(
-        '$origin/wp-login.php?action=postpass',
-        data: <String, String>{
-          'post_password': effectivePassword,
-          'Submit': '确定',
+    // 需要显式捕获 cookie 供第 3 步使用。网络错误透传 [DioException]。
+    final Response<String> postResponse = await _dio.post<String>(
+      '$origin/wp-login.php?action=postpass',
+      data: <String, String>{
+        'post_password': effectivePassword,
+        'Submit': '确定',
+      },
+      options: Options(
+        headers: <String, String>{
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': url,
         },
-        options: Options(
-          headers: <String, String>{
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': url,
-          },
-          followRedirects: false,
-          validateStatus: (int? status) => status != null && status < 400,
-        ),
-      );
-    } on DioException {
-      throw const WordPressPassException('密码校验请求失败，请检查网络');
-    }
+        followRedirects: false,
+        validateStatus: (int? status) => status != null && status < 400,
+      ),
+    );
 
     final String? passCookie =
         _extractPostPassCookie(postResponse.headers.map['set-cookie']);
