@@ -12,6 +12,7 @@ import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.da
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/lock_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
@@ -316,6 +317,30 @@ class HomeState {
     final Map<String, FanSummary> result = <String, FanSummary>{};
     byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
       final FanSummary? summary = FanSummary.tryBuild(
+        deviceId: deviceId,
+        name: registry.devices[deviceId]?.name ?? list.first.displayName,
+        entities: list,
+      );
+      if (summary != null) result[deviceId] = summary;
+    });
+    return result;
+  }
+
+  /// 门锁摘要：device_id → 摘要（非门锁设备不出现）。
+  Map<String, LockSummary> get lockSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
+    for (final HaEntityStateModel entity in entities.values) {
+      final String? deviceId = registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      byDevice
+          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
+          .add(entity);
+    }
+
+    final Map<String, LockSummary> result = <String, LockSummary>{};
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
+      final LockSummary? summary = LockSummary.tryBuild(
         deviceId: deviceId,
         name: registry.devices[deviceId]?.name ?? list.first.displayName,
         entities: list,

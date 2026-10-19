@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/power_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
@@ -11,6 +13,7 @@ import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart'
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/lock_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
@@ -28,6 +31,7 @@ import 'package:pscreen_home/features/home/presentation/components/fan_light_wid
 import 'package:pscreen_home/features/home/presentation/components/fridge_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/lock_overview_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/range_hood_control_panel.dart';
@@ -78,36 +82,53 @@ class DeviceDetailPage extends StatelessWidget {
             );
           }
 
-          final WasherSummary? washer = state.washerSummaries[deviceId];
-          final WaterHeaterSummary? waterHeater =
-              state.waterHeaterSummaries[deviceId];
-          final KettleSummary? kettle = state.kettleSummaries[deviceId];
-          final FanSummary? fan = state.fanSummaries[deviceId];
+          // 门锁优先识别：安全设备只展示状态 / 电量，禁用全部控制。
+          final LockSummary? lock = state.lockSummaries[deviceId];
+          final bool isLockDevice = lock != null;
+          final WasherSummary? washer =
+              isLockDevice ? null : state.washerSummaries[deviceId];
+          final WaterHeaterSummary? waterHeater = isLockDevice
+              ? null
+              : state.waterHeaterSummaries[deviceId];
+          final KettleSummary? kettle =
+              isLockDevice ? null : state.kettleSummaries[deviceId];
+          final FanSummary? fan =
+              isLockDevice ? null : state.fanSummaries[deviceId];
           final ProjectorSummary? projector =
-              state.projectorSummaries[deviceId];
+              isLockDevice ? null : state.projectorSummaries[deviceId];
           final bool showProjectorPanel = projector != null;
-          final FridgeSummary? fridge = state.fridgeSummaries[deviceId];
+          final FridgeSummary? fridge =
+              isLockDevice ? null : state.fridgeSummaries[deviceId];
           final bool showFridgePanel = fridge != null;
-          final SocketSummary? socket = state.socketSummaries[deviceId];
+          final SocketSummary? socket =
+              isLockDevice ? null : state.socketSummaries[deviceId];
           final bool showSocketPanel = socket != null;
           final PowerStats? devicePower = state.powerStats[deviceId];
-          final MultiSwitchSummary? multiSwitch =
-              state.multiSwitchSummaries[deviceId];
+          final MultiSwitchSummary? multiSwitch = isLockDevice
+              ? null
+              : state.multiSwitchSummaries[deviceId];
           final bool showMultiSwitchPanel = multiSwitch != null;
-          final RiceCookerSummary? riceCooker =
-              state.riceCookerSummaries[deviceId];
+          final RiceCookerSummary? riceCooker = isLockDevice
+              ? null
+              : state.riceCookerSummaries[deviceId];
           final bool showRiceCookerPanel = riceCooker != null;
           final AirFryerSummary? airFryer =
-              state.airFryerSummaries[deviceId];
+              isLockDevice ? null : state.airFryerSummaries[deviceId];
           final bool showAirFryerPanel = airFryer != null;
-          final WaterPurifierSummary? purifier =
-              state.waterPurifierSummaries[deviceId];
+          final WaterPurifierSummary? purifier = isLockDevice
+              ? null
+              : state.waterPurifierSummaries[deviceId];
           final bool showPurifierPanel = purifier != null;
-          final RangeHoodSummary? hood = state.rangeHoodSummaries[deviceId];
+          final RangeHoodSummary? hood =
+              isLockDevice ? null : state.rangeHoodSummaries[deviceId];
           final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
+          final bool showLockPanel = lock != null;
+          // 功率历史仅驻内存，按设备订阅最近 1 小时的采样。
+          final PowerHistoryStore historyStore =
+              Injection.get<PowerHistoryStore>();
           // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
-          final bool hasClimatePanel =
+          final bool hasClimatePanel = !isLockDevice &&
               group.entities.any((HaEntityStateModel e) => e.isClimate);
           final List<ClimateQuickSwitch> climateQuickSwitches = hasClimatePanel
               ? ClimateQuickSwitch.buildList(group.entities)
@@ -136,6 +157,8 @@ class DeviceDetailPage extends StatelessWidget {
               group.primary?.entityId ??
               group.entities.first.entityId;
           final Set<String> hiddenIds = <String>{
+            if (showLockPanel)
+              for (final String entityId in lock.infoEntityIds) entityId,
             if (washer?.powerEntityId != null) washer!.powerEntityId!,
             if (washer?.modeEntityId != null) washer!.modeEntityId!,
             if (washer?.startEntityId != null) washer!.startEntityId!,
@@ -206,7 +229,8 @@ class DeviceDetailPage extends StatelessWidget {
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
               .toList(growable: false);
-          final int panelCount = washer == null &&
+          final int panelCount = !showLockPanel &&
+                  washer == null &&
                   waterHeater == null &&
                   kettle == null &&
                   !showFanPanel &&
@@ -221,7 +245,9 @@ class DeviceDetailPage extends StatelessWidget {
               ? 0
               : 1;
           final String headerStatus;
-          if (washer != null) {
+          if (lock != null) {
+            headerStatus = lock.statusLabel;
+          } else if (washer != null) {
             headerStatus =
                 washer.hasFault ? '故障' : washer.statusLabel;
           } else if (waterHeater != null) {
@@ -277,6 +303,10 @@ class DeviceDetailPage extends StatelessWidget {
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showLockPanel && index == 0) {
+                  return LockOverviewCard(summary: lock);
+                }
+
                 if (showHoodPanel && index == 0) {
                   final RangeHoodSummary current = hood;
                   return RangeHoodControlPanel(
@@ -558,6 +588,7 @@ class DeviceDetailPage extends StatelessWidget {
                                 entityId: socketIndicatorLightId,
                               ),
                             ),
+                    history: historyStore.watch(deviceId),
                   );
                 }
 
@@ -934,6 +965,30 @@ class DeviceDetailPage extends StatelessWidget {
                     .read<HomeBloc>()
                     .add(ToggleEntity(entityId: entity.entityId));
 
+                // 门锁属于安全设备：数据正常展示，控制项置灰禁用，
+                // 点击时提示出于安全暂不支持更改。
+                if (isLockDevice) {
+                  if (entity.isSwitchable) {
+                    return ButtonWidget(
+                      entity: entity,
+                      isToggling: false,
+                      onToggle: () {},
+                      areaLabel: areaLabel,
+                      blockedReason: '出于安全，暂不支持更改',
+                      onBlockedTap: () => _showLockBlocked(context),
+                    );
+                  }
+                  if (entity.isAction) {
+                    return ValueWidget(
+                      entity: entity,
+                      areaLabel: areaLabel,
+                      blockedReason: '出于安全，暂不支持更改',
+                      onBlockedTap: () => _showLockBlocked(context),
+                    );
+                  }
+                  return ValueWidget(entity: entity, areaLabel: areaLabel);
+                }
+
                 if (entity.isClimate) {
                   return Column(
                     children: <Widget>[
@@ -1002,7 +1057,10 @@ class DeviceDetailPage extends StatelessWidget {
                       ),
                       if (devicePower != null) ...<Widget>[
                         const SizedBox(height: 12),
-                        PowerStatsCard(stats: devicePower),
+                        PowerStatsCard(
+                          stats: devicePower,
+                          history: historyStore.watch(deviceId),
+                        ),
                       ],
                     ],
                   );
@@ -1051,5 +1109,17 @@ class DeviceDetailPage extends StatelessWidget {
         },
       ),
     );
+  }
+
+  /// 门锁控制项被安全锁定时的提示。
+  void _showLockBlocked(BuildContext context) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('出于安全，暂不支持更改'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 }

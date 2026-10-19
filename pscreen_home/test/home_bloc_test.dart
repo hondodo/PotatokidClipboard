@@ -7,6 +7,7 @@ import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/power_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -296,11 +297,16 @@ const Map<String, dynamic> _climateAttributes = <String, dynamic>{
   'swing_mode': 'off',
 };
 
+/// 测试用采样器：独立内存历史，避免用例之间互相污染。
+PowerSampler _powerSampler() => PowerSampler(
+      store: PowerHistoryStore(),
+      log: getIt<LogService>(),
+    );
+
 void main() {
   setUp(() {
     getIt.registerLazySingleton<LogService>(() => const LogService());
   });
-
   tearDown(() async {
     await getIt.reset();
   });
@@ -314,7 +320,7 @@ void main() {
           _entity('sensor.temp', '24'),
         ],
       );
-      final HomeBloc bloc = HomeBloc(repository: repo);
+      final HomeBloc bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
 
       expect(await _load(bloc), isTrue);
@@ -338,7 +344,7 @@ void main() {
       final _FakeHomeRepository repo = _FakeHomeRepository(
         states: <HaEntityStateModel>[],
       )..fetchError = const HaDisconnectException();
-      final HomeBloc bloc = HomeBloc(repository: repo);
+      final HomeBloc bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
 
       expect(await _load(bloc), isFalse);
@@ -358,7 +364,7 @@ void main() {
           _entity('switch.plug', 'off'),
         ],
       );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -446,7 +452,7 @@ void main() {
             'light.living': 'living',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -525,7 +531,7 @@ void main() {
             'switch.legacy': 'legacy',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -642,7 +648,7 @@ void main() {
             'switch.lonely': 'bedroom',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -716,7 +722,7 @@ void main() {
           _entity('climate.bedroom', 'cool', attributes: _climateAttributes),
         ],
       );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -921,7 +927,7 @@ void main() {
                 'dev_fan',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -1048,7 +1054,7 @@ void main() {
             'sensor.wm_run_status_p_2_11': 'dev_wm',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -1167,7 +1173,7 @@ void main() {
             'text.wh_preheat_timer_p_2_13': 'dev_wh',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -1295,7 +1301,7 @@ void main() {
             'button.k_cancel_cooking_a_2_2': 'dev_k',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });
@@ -1405,7 +1411,7 @@ void main() {
             'switch.sz_plug': 'sz_3f',
           },
         );
-      bloc = HomeBloc(repository: repo);
+      bloc = HomeBloc(repository: repo, sampler: _powerSampler());
       addTearDown(bloc.close);
       expect(await _load(bloc), isTrue);
     });

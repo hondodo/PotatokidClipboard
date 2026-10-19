@@ -16,11 +16,19 @@ class ButtonWidget extends StatelessWidget {
     this.areaLabel,
     this.icon,
     this.activeColor,
+    this.blockedReason,
+    this.onBlockedTap,
   });
 
   final HaEntityStateModel entity;
   final bool isToggling;
   final VoidCallback onToggle;
+
+  /// 非空表示安全锁定：卡片置灰、不可控制，但点击可提示 [blockedReason]。
+  final String? blockedReason;
+
+  /// 安全锁定时的点击回调（通常用于弹出提示）。
+  final VoidCallback? onBlockedTap;
 
   /// 所属房间展示名（未分配时由页面兜底为「未分配房间」）
   final String? areaLabel;
@@ -34,11 +42,14 @@ class ButtonWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final bool blocked = blockedReason != null;
     final bool on = entity.isOn;
-    final bool available = entity.isAvailable;
-    final Color accent = on
-        ? (activeColor ?? theme.colorScheme.primary)
-        : theme.colorScheme.onSurfaceVariant;
+    final bool available = entity.isAvailable && !blocked;
+    final Color accent = blocked
+        ? theme.colorScheme.outline
+        : (on
+            ? (activeColor ?? theme.colorScheme.primary)
+            : theme.colorScheme.onSurfaceVariant);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -48,7 +59,9 @@ class ButtonWidget extends StatelessWidget {
           ? theme.colorScheme.surfaceContainerHighest
           : theme.colorScheme.surfaceContainerLowest,
       child: InkWell(
-        onTap: available && !isToggling ? onToggle : null,
+        onTap: blocked
+            ? onBlockedTap
+            : (available && !isToggling ? onToggle : null),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -122,6 +135,7 @@ class ButtonWidget extends StatelessWidget {
   }
 
   String _statusText() {
+    if (blockedReason != null) return '已禁用';
     if (!entity.isAvailable) return '不可用';
     return entity.isOn ? '已开启' : '已关闭';
   }

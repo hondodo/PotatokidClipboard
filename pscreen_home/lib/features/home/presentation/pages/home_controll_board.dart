@@ -10,6 +10,7 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_sta
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/power_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -18,6 +19,7 @@ import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart'
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/lock_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
@@ -36,6 +38,7 @@ import 'package:pscreen_home/features/home/presentation/components/air_fryer_wid
 import 'package:pscreen_home/features/home/presentation/components/fridge_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/kettle_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/lock_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/rice_cooker_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/range_hood_widget.dart';
@@ -547,6 +550,7 @@ class _ControlGrid extends StatelessWidget {
           );
         }
 
+        final Map<String, LockSummary> locks = state.lockSummaries;
         final Map<String, WasherSummary> washers = state.washerSummaries;
         final Map<String, WaterHeaterSummary> waterHeaters =
             state.waterHeaterSummaries;
@@ -566,6 +570,8 @@ class _ControlGrid extends StatelessWidget {
             state.waterPurifierSummaries;
         final Map<String, RangeHoodSummary> hoods =
             state.rangeHoodSummaries;
+        final PowerHistoryStore historyStore =
+            Injection.get<PowerHistoryStore>();
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -580,6 +586,18 @@ class _ControlGrid extends StatelessWidget {
             final String areaLabel = state.areaLabelFor(
               group.primary?.entityId ?? group.entities.first.entityId,
             );
+
+            // 门锁：上锁状态 + 电池电量 + 电量更新时间（无快捷开关按钮）
+            final LockSummary? lock =
+                group.deviceId == null ? null : locks[group.deviceId];
+            if (lock != null) {
+              return LockWidget(
+                summary: lock,
+                areaLabel: areaLabel,
+                onOpenDetail: () => Injection.get<AppRouter>()
+                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+              );
+            }
 
             // 双开开关：两路按键状态
             final MultiSwitchSummary? multiSwitch = group.deviceId == null
@@ -607,6 +625,7 @@ class _ControlGrid extends StatelessWidget {
                 areaLabel: areaLabel,
                 isToggling:
                     state.togglingIds.contains(socket.powerEntityId),
+                history: historyStore.watch(socket.deviceId),
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),
