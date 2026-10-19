@@ -1,9 +1,9 @@
-import 'package:potatokid_screen/app/config/app_constants.dart';
-
 /// 把「网页查看地址」还原成「原始文件地址」的通用解析器。
 ///
 /// 代码托管平台（GitHub / Gitee / GitLab…）的**文件页地址返回的是 HTML 查看页**，
 /// 直接请求拿不到文件正文。要取正文必须改写成该平台的 raw 直链。
+///
+/// 这里只做地址还原，**不添加任何代理/加速前缀**，请求始终直接发往平台原始域名。
 ///
 /// 每个平台一条改写规则，统一注册在 [_rules]；以后要支持新平台，
 /// 只要写一个同签名的函数并追加进去即可，调用方无需改动。
@@ -20,29 +20,9 @@ class RawContentUrlResolver {
     // _gitlabViewToRaw,
   ];
 
-  /// 配置里的地址 → **真正用于请求的地址**：先做 raw 还原，再套加速前缀。
-  ///
-  /// 顺序不能反：前缀必须作用在最终的 raw 地址上（如
-  /// `https://gh-proxy.com/https://raw.githubusercontent.com/...`）。
-  static String toFetchable(String url) => applyGithubProxy(resolve(url));
-
-  /// 给 GitHub 地址套 [AppConstants.githubProxyPrefix] 加速前缀，其余域名原样返回。
-  ///
-  /// 国内直连 GitHub 常在连接阶段就超时；前缀留空则不做改写。
-  static String applyGithubProxy(String url) {
-    final String prefix = AppConstants.githubProxyPrefix;
-    if (prefix.isEmpty || url.startsWith(prefix)) return url;
-    final Uri? uri = Uri.tryParse(url);
-    if (uri == null) return url;
-    final String host = uri.host.toLowerCase();
-    final bool isGithub = host == 'github.com' ||
-        host.endsWith('.github.com') ||
-        host == 'githubusercontent.com' ||
-        host.endsWith('.githubusercontent.com');
-    return isGithub ? '$prefix$url' : url;
-  }
-
   /// 把 [url] 解析成能直接取到正文的地址；无需改写时原样返回。
+  ///
+  /// 返回的地址始终是平台原始域名，调用方可直接请求。
   static String resolve(String url) {
     final Uri? uri = Uri.tryParse(url);
     if (uri == null) return url;
@@ -64,7 +44,7 @@ class RawContentUrlResolver {
   /// - `{ref}` 只取一段（`main` / `master` / tag）。分支名自带 `/` 时无法离线还原，
   ///   这类分支请直接写 raw 地址，或用 GitHub 的 `?raw=true` 跳转。
   ///
-  /// 其余地址（如 `releases/download/...` 下载直链）不是查看页，原样返回。
+  /// 其余地址（如 raw 直链、`releases/download/...` 下载直链）不是查看页，原样返回。
   static String? _githubViewToRaw(Uri uri) {
     final String host = uri.host.toLowerCase();
     if (host != 'github.com' && !host.endsWith('.github.com')) return null;

@@ -20,6 +20,9 @@ import 'package:potatokid_screen/features/iptv/application/channel_failure_guard
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
+import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:restart_app/restart_app.dart';
 
@@ -48,6 +51,20 @@ const List<({String labelKey, ThemeMode mode})> _themeOptions =
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
+  /// 「远程」行是否处于输入编辑态（跨组件静态信号）。
+  ///
+  /// 悬浮遥控器按键不经过 Flutter 焦点链（[MainApp] 的 FloatingRemote.onKey
+  /// 直调 `_handleLogical`），页面级 Focus 拦截不到，故壳层在返回/OK 分支
+  /// 优先读取此信号；物理/蓝牙遥控器仍由页面 Focus 先拦截（见
+  /// `_ProfilePageState._handlePageKey`）。
+  static bool editingRemote = false;
+
+  /// 取消「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器返回键触发）。
+  static VoidCallback? onCancelRemoteEdit;
+
+  /// 提交「远程」行编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器 OK 键触发）。
+  static VoidCallback? onSubmitRemoteEdit;
+
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
@@ -73,6 +90,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
   static const int _resetRow = 12;
+
+  /// 「远程」行（云信账号登录：常态展示账号+状态，激活后行内输入框）的序号。
+  static const int _remoteRow = 13;
 
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
@@ -111,6 +131,16 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
 
+  /// 「远程」行是否处于输入编辑态：真值源为 [ProfilePage.editingRemote]
+  /// （跨组件静态信号，悬浮遥控器直调路径读取）。
+  bool get _editingRemote => ProfilePage.editingRemote;
+  set _editingRemote(bool value) => ProfilePage.editingRemote = value;
+
+  /// 「远程」行输入框的控制器与焦点节点。
+  final TextEditingController _remoteInputController =
+      TextEditingController();
+  final FocusNode _remoteInputFocusNode = FocusNode();
+
   Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
@@ -128,6 +158,8 @@ class _ProfilePageState extends State<ProfilePage> {
     ProfileFocusController.instance.onStepRow = _stepRow;
     ProfileFocusController.instance.onActivateRow = _onActivateRow;
     ProfileFocusController.instance.addListener(_onFocusChanged);
+    ProfilePage.onCancelRemoteEdit = _endRemoteEdit;
+    ProfilePage.onSubmitRemoteEdit = _submitRemoteEdit;
   }
 
   @override
@@ -139,10 +171,20 @@ class _ProfilePageState extends State<ProfilePage> {
     if (ProfileFocusController.instance.onActivateRow == _onActivateRow) {
       ProfileFocusController.instance.onActivateRow = null;
     }
+    if (ProfilePage.onCancelRemoteEdit == _endRemoteEdit) {
+      ProfilePage.onCancelRemoteEdit = null;
+    }
+    if (ProfilePage.onSubmitRemoteEdit == _submitRemoteEdit) {
+      ProfilePage.onSubmitRemoteEdit = null;
+    }
+    // 防御：编辑态中被销毁时复位静态信号，避免残留 true 卡住壳层按键。
+    ProfilePage.editingRemote = false;
     _cityApplyTimer?.cancel();
     _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
     _copyMsg.dispose();
+    _remoteInputController.dispose();
+    _remoteInputFocusNode.dispose();
     super.dispose();
   }
 
@@ -160,6 +202,10 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 焦点或行号变化时，让选中行滚入可视区，避免被屏幕边缘裁切。
   void _onFocusChanged() {
     final ProfileFocusController c = ProfileFocusController.instance;
+    // 焦点离开「远程」行时取消输入编辑态（不提交）。
+    if (_editingRemote && c.row != _remoteRow) {
+      _endRemoteEdit();
+    }
     if (!c.focused) return;
     if (c.row == _prevRow && _prevFocused) return;
     _prevRow = c.row;
@@ -182,6 +228,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _refreshRow && mounted) _refreshChannels();
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
+    if (row == _remoteRow && mounted) _beginRemoteEdit();
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -322,6 +369,9 @@ class _ProfilePageState extends State<ProfilePage> {
       case _resetRow: // 重置（右/左/OK 均触发确认弹窗）
         _resetAll();
         break;
+      case _remoteRow: // 远程：左/右键打开行内输入框
+        _beginRemoteEdit();
+        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -336,80 +386,88 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    return ColoredBox(
-      color: scheme.surface,
-      child: ListenableBuilder(
-        listenable: ProfileFocusController.instance,
-        builder: (context, _) {
-          final ProfileFocusController c = ProfileFocusController.instance;
-          final bool inContent = c.focused;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
-            children: <Widget>[
-              KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_sleepTimerRow],
-                child: _buildSleepTimerRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_backgroundPlaybackRow],
-                child: _buildBackgroundPlaybackRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_refreshRow],
-                child: _buildRefreshRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_removeInvalidRow],
-                child: _buildRemoveInvalidRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_copyInvalidRow],
-                child: _buildCopyInvalidRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_proxyRetryRow],
-                child: _buildProxyRetryRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_resetRow],
-                child: _buildResetRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_versionRow],
-                child: _buildVersionRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_weatherSourceRow],
-                child: _buildWeatherSourceRow(inContent, c),
-              ),
-              const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rowKeys[_disclaimerRow],
-                child: _buildDisclaimerRow(inContent, c),
-              ),
-            ],
-          );
-        },
+    return Focus(
+      onKeyEvent: _handlePageKey,
+      child: ColoredBox(
+        color: scheme.surface,
+        child: ListenableBuilder(
+          listenable: ProfileFocusController.instance,
+          builder: (context, _) {
+            final ProfileFocusController c = ProfileFocusController.instance;
+            final bool inContent = c.focused;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
+              children: <Widget>[
+                KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_sleepTimerRow],
+                  child: _buildSleepTimerRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_backgroundPlaybackRow],
+                  child: _buildBackgroundPlaybackRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_refreshRow],
+                  child: _buildRefreshRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_removeInvalidRow],
+                  child: _buildRemoveInvalidRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_copyInvalidRow],
+                  child: _buildCopyInvalidRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_proxyRetryRow],
+                  child: _buildProxyRetryRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_resetRow],
+                  child: _buildResetRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_remoteRow],
+                  child: _buildRemoteLoginRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_versionRow],
+                  child: _buildVersionRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_weatherSourceRow],
+                  child: _buildWeatherSourceRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_disclaimerRow],
+                  child: _buildDisclaimerRow(inContent, c),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -780,6 +838,169 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 「远程」行：常态展示账号与登录状态（`ABCD 正在登录`），点击 `>` / OK /
+  /// 左右键进入行内输入；编辑态替换为输入框（见 [_buildRemoteEditRow]）。
+  Widget _buildRemoteLoginRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<RemoteLoginBloc, RemoteLoginState>(
+      builder: (context, state) {
+        if (_editingRemote) {
+          return _buildRemoteEditRow();
+        }
+        final String value =
+            state.status == RemoteLoginStatus.notConfigured
+                ? 'remote_not_set'.tr()
+                : '${state.account} ${_remoteStatusLabel(state.status)}';
+        return _SettingRow(
+          highlighted: inContent && c.row == _remoteRow,
+          label: 'settings_remote'.tr(),
+          value: value,
+          canStepLeft: false,
+          canStepRight: state.status != RemoteLoginStatus.notConfigured,
+          onTap: () {
+            c.select(_remoteRow);
+            _beginRemoteEdit();
+          },
+          onStepLeft: () => c.select(_remoteRow),
+          onStepRight: () {
+            c.select(_remoteRow);
+            _beginRemoteEdit();
+          },
+        );
+      },
+    );
+  }
+
+  /// 「远程」行的登录状态文案。
+  String _remoteStatusLabel(RemoteLoginStatus status) {
+    switch (status) {
+      case RemoteLoginStatus.notConfigured:
+        return 'remote_not_set'.tr();
+      case RemoteLoginStatus.loggingIn:
+        return 'remote_logging_in'.tr();
+      case RemoteLoginStatus.syncing:
+        return 'remote_syncing'.tr();
+      case RemoteLoginStatus.loggedIn:
+        return 'remote_logged_in'.tr();
+      case RemoteLoginStatus.error:
+        return 'remote_error'.tr();
+    }
+  }
+
+  /// 进入「远程」行输入编辑态：预填当前账号，下一帧聚焦弹出输入法。
+  void _beginRemoteEdit() {
+    if (_editingRemote || !mounted) return;
+    _remoteInputController.text =
+        context.read<RemoteLoginBloc>().state.account;
+    _editingRemote = true;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _remoteInputFocusNode.requestFocus();
+    });
+  }
+
+  /// 提交输入：空串等价取消；有值则 trim 后派发 [RemoteLoginSubmit]。
+  void _submitRemoteEdit() {
+    if (!_editingRemote) return;
+    final String account = _remoteInputController.text.trim();
+    _endRemoteEdit();
+    if (account.isEmpty || !mounted) return;
+    context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+  }
+
+  /// 退出输入编辑态（取消，不提交）。
+  void _endRemoteEdit() {
+    if (!_editingRemote) return;
+    _editingRemote = false;
+    _remoteInputFocusNode.unfocus();
+    if (mounted) setState(() {});
+  }
+
+  /// 编辑态下拦截返回（取消编辑）与 OK/Enter/空格（提交），
+  /// 防止冒泡到 MainApp 根键处理器触发退出确认或 activate no-op。
+  ///
+  /// 仅覆盖经焦点链冒泡的按键（物理/蓝牙遥控器、键盘）。悬浮遥控器不走
+  /// 焦点链（FloatingRemote.onKey 直调 `MainApp._handleLogical`），由
+  /// [MainApp] 在返回/OK 分支优先检查 [ProfilePage.editingRemote] 处理。
+  ///
+  /// 未编辑态一律 ignored，保持既有焦点导航/激活/退出行为不变；
+  /// 上下左右键也保持 ignored（上/下移焦会经 _onFocusChanged 取消编辑，符合设计）。
+  ///
+  /// 返回与 OK 两类键集合与 `MainApp._handleLogical` 镜像。
+  KeyEventResult _handlePageKey(FocusNode node, KeyEvent event) {
+    if (!_editingRemote) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final LogicalKeyboardKey key = event.logicalKey;
+    // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _endRemoteEdit();
+      return KeyEventResult.handled;
+    }
+    // OK 键 → 提交输入。
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA) {
+      _submitRemoteEdit();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// 「远程」行编辑态：行内输入框 + ✕ 取消 + ✓ 提交。
+  Widget _buildRemoteEditRow() {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary, width: 2),
+      ),
+      child: Row(
+        children: <Widget>[
+          Text(
+            'settings_remote'.tr(),
+            style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: TextField(
+              controller: _remoteInputController,
+              focusNode: _remoteInputFocusNode,
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: scheme.primary,
+              ),
+              decoration: InputDecoration(
+                hintText: 'remote_input_hint'.tr(),
+                isDense: true,
+                border: InputBorder.none,
+              ),
+              onSubmitted: (_) => _submitRemoteEdit(),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+            onPressed: _endRemoteEdit,
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.check, color: scheme.primary),
+            onPressed: _submitRemoteEdit,
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 「免责声明」行：只读说明行。
   ///
   /// 声明频道数据来源与使用范围，没有可切换的值，因此不显示左右步进指示；
@@ -913,6 +1134,8 @@ class _SettingRow extends StatelessWidget {
                     child: Text(
                       value,
                       textAlign: wrapValue ? TextAlign.start : TextAlign.right,
+                      maxLines: wrapValue ? null : 1,
+                      overflow: wrapValue ? null : TextOverflow.ellipsis,
                       style: textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: accent,

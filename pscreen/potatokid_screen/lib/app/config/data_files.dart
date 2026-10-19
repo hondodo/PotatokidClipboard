@@ -30,7 +30,8 @@ class DataFile {
   /// 本地持久化缓存键。存的是**原始文本**，所以解析规则改了也不用清缓存。
   String get prefsKey => 'data_file_v1_$id';
 
-  /// GitHub 上的「文件页」地址；请求前由 [RawContentUrlResolver] 还原成 raw 直链。
+  /// GitHub 上的 raw 直链；请求前再经 [RawContentUrlResolver] 兜底还原
+  /// （本身就是 raw 直链时原样返回）。
   String get gitUrl => '${AppConstants.githubDataBaseUrl}$fileName';
 }
 
@@ -135,7 +136,7 @@ class DataFiles {
   /// 整轮同步的总超时上限：超过就放弃 git，直接用本地值。
   ///
   /// 所有文件是**并发**请求的，所以这里的上限只需覆盖「最慢的一个文件」，
-  /// 而不是全部之和。实测镜像中转抖动较大（单个请求 0.2s ~ 6s 都可能），
+  /// 而不是全部之和。实测直连 GitHub 时单个请求 0.2s ~ 6s 都可能，
   /// 留 12s 既能容忍抖动，又不会在断网时把启动卡太久。
   static const Duration _syncTimeout = Duration(seconds: 12);
 
@@ -210,8 +211,8 @@ class DataFiles {
   Future<void> _syncOne(DataFile file, SharedPreferences? prefs) async {
     try {
       final dynamic data = await DioManager().send(
-        // 配置里是 GitHub 文件页地址，这里还原成 raw 直链并套加速前缀。
-        url: RawContentUrlResolver.toFetchable(file.gitUrl),
+        // 直接访问 GitHub raw 直链：只在配置写成文件页地址时做一次还原。
+        url: RawContentUrlResolver.resolve(file.gitUrl),
         responseType: ResponseType.plain,
         notTipNetError: true,
         maxRetry: 0,
