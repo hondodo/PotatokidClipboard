@@ -26,8 +26,16 @@ class AppConstants {
   // static const String iptvM3uUrl =
   //     '${AppConstants.githubDataBaseUrl}source.txt';
 
+  /// ptools 服务端根地址（提供账号登录与 screen 数据文件）。
+  /// 注意：服务端仅支持 http，https 请求会被 nginx 302 降级，
+  /// 且 cookie 不跨 scheme 共享，故所有 ptools 请求固定走 http。
+  static const String toolsBaseUrl = 'http://ptool.w1.luyouxia.net';
+
+  /// ptools 登录接口（密码需在客户端做 MD5 后提交）。
+  static const String ptoolsLoginUrl = '$toolsBaseUrl/api/login';
+
   /// github 访问不稳定，缓存方案也不稳定，
-  static const String githubDataBaseUrl = 'https://ptool.w1.luyouxia.net/api/screen/';
+  static const String githubDataBaseUrl = '$toolsBaseUrl/api/screen/';
 
   /// IPTV 直播播放列表（m3u），首页进入时自动加载并播放。
   ///

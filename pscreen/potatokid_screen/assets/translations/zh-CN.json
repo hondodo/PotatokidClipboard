@@ -49,6 +49,10 @@
   "settings_remote": "远程",
   "settings_wp_password": "WordPress密码",
   "wp_password_input_hint": "输入WordPress密码",
+  "settings_tools_account": "Tools账号",
+  "settings_tools_password": "Tools密码",
+  "tools_account_input_hint": "输入Tools账号",
+  "tools_password_input_hint": "输入Tools密码",
   "remote_not_set": "未设置",
   "remote_logging_in": "正在登录",
   "remote_syncing": "同步数据",
@@ -69,5 +73,7 @@
   "weather_data_source": "天气数据来源",
   "weather_source_seniverse": "心知天气",
   "disclaimer_title": "免责声明",
-  "disclaimer_body": "本软件仅聚合网络公开直播源用于播放，不存储、不制作任何音视频内容；所有频道数据均来自互联网，版权归原权利人所有。若相关内容侵犯了您的合法权益，请通过 416049529@qq.com 告知，我们将及时处理。本软件仅供个人学习与技术研究，请勿用于商业用途。"
+  "disclaimer_body": "本软件仅聚合网络公开直播源用于播放，不存储、不制作任何音视频内容；所有频道数据均来自互联网，版权归原权利人所有。若相关内容侵犯了您的合法权益，请通过 416049529@qq.com 告知，我们将及时处理。本软件仅供个人学习与技术研究，请勿用于商业用途。",
+  "tools_login_ok": "已登录",
+  "tools_login_fail": "登录失败"
 }

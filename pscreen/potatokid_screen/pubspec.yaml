@@ -51,6 +51,9 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.1
 
+  # ptools 登录：密码需在客户端做 MD5 后提交
+  crypto: ^3.0.6
+
   # 设置页「版本」行：运行时读取平台打包的版本号（值来自本文件的 version:，无需手工维护）
   package_info_plus: ^10.2.1
 

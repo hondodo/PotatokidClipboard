@@ -1,13 +1,11 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:potatokid_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/app/config/app_constants.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
-import 'package:potatokid_screen/core/network/dio_manager.dart';
-import 'package:potatokid_screen/core/network/raw_content_url_resolver.dart';
+import 'package:potatokid_screen/core/utils/ptools_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 一个「可热更新」的数据文件：包内 `assets/datas` 提供默认值，GitHub 提供最新值。
@@ -210,16 +208,14 @@ class DataFiles {
   /// 同步单个文件：拉到有效内容就更新文本 + 落盘缓存，否则保留旧值。
   Future<void> _syncOne(DataFile file, SharedPreferences? prefs) async {
     try {
-      final dynamic data = await DioManager().send(
-        // 直接访问 GitHub raw 直链：只在配置写成文件页地址时做一次还原。
-        url: RawContentUrlResolver.resolve(file.gitUrl),
-        responseType: ResponseType.plain,
-        notTipNetError: true,
+      // 文件在 /api/screen/ 下、需登录后访问：经 PtoolsUtil 拉取，遇到未登录会
+      // 自动用保存的 Tools 账号/密码重登一次再取。
+      final String text = await PtoolsUtil.fetchUrl(
+        file.gitUrl,
         maxRetry: 0,
         connectTimeout: _requestTimeout,
         receiveTimeout: _requestTimeout,
       );
-      final String text = data is String ? data : '';
       // 空内容视为无效（可能是错误页/半截响应），保留旧值。
       if (text.trim().isEmpty) {
         Injection.get<LogService>().warn('[DataFiles] ${file.fileName} 内容为空，忽略');

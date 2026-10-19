@@ -33,8 +33,19 @@ class DioManager {
 
   CancelToken _sessionCancelToken = CancelToken();
   PersistCookieJar? _cookieJar;
+  final Completer<void> _initCompleter = Completer<void>();
 
   Future<void> _init() async {
+    try {
+      await _initInternal();
+      if (!_initCompleter.isCompleted) _initCompleter.complete();
+    } catch (e) {
+      const LogService().error('DioManager 初始化失败', error: e);
+      if (!_initCompleter.isCompleted) _initCompleter.complete();
+    }
+  }
+
+  Future<void> _initInternal() async {
     _dio.options
       ..connectTimeout = AppConstants.connectTimeout
       ..receiveTimeout = AppConstants.receiveTimeout
@@ -79,6 +90,7 @@ class DioManager {
     Duration? receiveTimeout,
     Duration? sendTimeout,
   }) async {
+    await _initCompleter.future;
     final connected = await _checkConnectivity();
     if (!connected) {
       if (!notTipNetError) {

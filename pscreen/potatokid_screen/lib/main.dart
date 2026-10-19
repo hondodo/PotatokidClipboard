@@ -14,6 +14,7 @@ import 'package:potatokid_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/core/utils/nim_manager.dart';
+import 'package:potatokid_screen/core/utils/ptools_util.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
@@ -87,6 +88,12 @@ void main() {
               Log.error('NIM initialize failed: $e');
             }),
       );
+
+      // 4.15 ptools 登录（不阻塞启动）：/api/screen/ 下的数据文件已改成需登录后
+      //      才可访问；先用已保存的 Tools 账号/密码登录一次拿到会话 Cookie，让
+      //      4.2 与后续频道拉取直接命中。失败不阻断启动——各拉取点遇到「未登录」
+      //      还会自行重登（见 PtoolsUtil.fetchUrl/loginWithSaved）。
+      unawaited(PtoolsUtil.loginWithSaved());
 
       // 4.2 同步数据文件最新版（GitHub，三个文件并发拉取）。本地值已在 2.1
       //     就绪，这里最坏等 DataFiles 内部超时（约 10s）后沿用本地值，

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -203,11 +205,12 @@ class MainApp extends StatelessWidget {
       // 物理/蓝牙遥控器的 OK 已被页面 Focus 消费（见 ProfilePage._handlePageKey）。
       // 仅在「我的」分支生效：ProfilePage State 在 IndexedStack 常驻，
       // 切走后 editingRow 可能仍非 null，不限分支会吞掉其它页的 OK。
-      final VoidCallback? submitInline = ProfilePage.onSubmitInlineEdit;
+      final Future<void> Function()? submitInline =
+          ProfilePage.onSubmitInlineEdit;
       if (cur == _profileBranchIndex &&
           ProfilePage.isInlineEditing &&
           submitInline != null) {
-        submitInline();
+        unawaited(submitInline());
         return true;
       }
       _pressOk(context);

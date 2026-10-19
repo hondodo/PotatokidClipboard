@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/app/config/app_config.dart';
+import 'package:potatokid_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/logging/log_service.dart';
 import 'package:potatokid_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/core/utils/app_version.dart';
+import 'package:potatokid_screen/core/utils/ptools_util.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -69,7 +71,7 @@ class ProfilePage extends StatefulWidget {
   static VoidCallback? onCancelInlineEdit;
 
   /// 提交行内输入编辑（由 [_ProfilePageState] 挂接，供悬浮遥控器 OK 键触发）。
-  static VoidCallback? onSubmitInlineEdit;
+  static Future<void> Function()? onSubmitInlineEdit;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -102,6 +104,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 「WordPress密码」行（密码保护文章访问密码：常态掩码展示，激活后行内输入框）的序号。
   static const int _wpPasswordRow = 14;
+
+  /// 「Tools账号」行（ptools 服务端登录账号：常态展示账号，激活后行内输入框）的序号。
+  static const int _toolsAccountRow = 15;
+
+  /// 「Tools密码」行（ptools 服务端登录密码：常态掩码展示，激活后行内输入框）的序号。
+  static const int _toolsPasswordRow = 16;
 
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
@@ -137,6 +145,10 @@ class _ProfilePageState extends State<ProfilePage> {
   final ValueNotifier<String?> _copyMsg = ValueNotifier<String?>(null);
   Timer? _copyMsgTimer;
 
+  /// Tools 登录结果提示：null=空闲，非空=「已登录」/「登录失败」。
+  final ValueNotifier<String?> _toolsMsg = ValueNotifier<String?>(null);
+  Timer? _toolsMsgTimer;
+
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
 
@@ -154,6 +166,16 @@ class _ProfilePageState extends State<ProfilePage> {
   final TextEditingController _wpPasswordInputController =
       TextEditingController();
   final FocusNode _wpPasswordInputFocusNode = FocusNode();
+
+  /// 「Tools账号」行输入框的控制器与焦点节点。
+  final TextEditingController _toolsAccountInputController =
+      TextEditingController();
+  final FocusNode _toolsAccountInputFocusNode = FocusNode();
+
+  /// 「Tools密码」行输入框的控制器与焦点节点。
+  final TextEditingController _toolsPasswordInputController =
+      TextEditingController();
+  final FocusNode _toolsPasswordInputFocusNode = FocusNode();
 
   Timer? _cityApplyTimer;
 
@@ -202,10 +224,16 @@ class _ProfilePageState extends State<ProfilePage> {
     _copyMsgTimer?.cancel();
     _refreshMsg.dispose();
     _copyMsg.dispose();
+    _toolsMsgTimer?.cancel();
+    _toolsMsg.dispose();
     _remoteInputController.dispose();
     _remoteInputFocusNode.dispose();
     _wpPasswordInputController.dispose();
     _wpPasswordInputFocusNode.dispose();
+    _toolsAccountInputController.dispose();
+    _toolsAccountInputFocusNode.dispose();
+    _toolsPasswordInputController.dispose();
+    _toolsPasswordInputFocusNode.dispose();
     super.dispose();
   }
 
@@ -251,6 +279,10 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _resetRow && mounted) _resetAll();
     if (row == _remoteRow && mounted) _beginInlineEdit(_remoteRow);
     if (row == _wpPasswordRow && mounted) _beginInlineEdit(_wpPasswordRow);
+    if (row == _toolsAccountRow && mounted) _beginInlineEdit(_toolsAccountRow);
+    if (row == _toolsPasswordRow && mounted) {
+      _beginInlineEdit(_toolsPasswordRow);
+    }
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -397,6 +429,12 @@ class _ProfilePageState extends State<ProfilePage> {
       case _wpPasswordRow: // WordPress密码：左/右键打开行内输入框
         _beginInlineEdit(_wpPasswordRow);
         break;
+      case _toolsAccountRow: // Tools账号：左/右键打开行内输入框
+        _beginInlineEdit(_toolsAccountRow);
+        break;
+      case _toolsPasswordRow: // Tools密码：左/右键打开行内输入框
+        _beginInlineEdit(_toolsPasswordRow);
+        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -478,6 +516,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 KeyedSubtree(
                   key: _rowKeys[_wpPasswordRow],
                   child: _buildWpPasswordRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_toolsAccountRow],
+                  child: _buildToolsAccountRow(inContent, c),
+                ),
+                const SizedBox(height: 12),
+                KeyedSubtree(
+                  key: _rowKeys[_toolsPasswordRow],
+                  child: _buildToolsPasswordRow(inContent, c),
                 ),
                 const SizedBox(height: 12),
                 KeyedSubtree(
@@ -954,10 +1002,92 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  /// 「Tools账号」行：常态展示已保存账号（未设置显示「未设置」），
+  /// 点按 / OK / 右键进入行内输入（编辑态预填当前账号）。
+  Widget _buildToolsAccountRow(bool inContent, ProfileFocusController c) {
+    if (_editingRow == _toolsAccountRow) return _buildToolsAccountEditRow();
+    final String account = AppSettings.instance.toolsAccount;
+    return ListenableBuilder(
+      listenable: _toolsMsg,
+      builder: (context, _) {
+        final String value = _toolsMsg.value ??
+            (account.isEmpty ? 'remote_not_set'.tr() : account);
+        return _SettingRow(
+          highlighted: inContent && c.row == _toolsAccountRow,
+          label: 'settings_tools_account'.tr(),
+          value: value,
+          canStepLeft: false,
+          canStepRight: true,
+          onTap: () {
+            c.select(_toolsAccountRow);
+            _beginInlineEdit(_toolsAccountRow);
+          },
+          onStepLeft: () => c.select(_toolsAccountRow),
+          onStepRight: () {
+            c.select(_toolsAccountRow);
+            _beginInlineEdit(_toolsAccountRow);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「Tools账号」行编辑态：明文输入框（预填当前账号），✕ 取消、✓ 提交保存。
+  Widget _buildToolsAccountEditRow() {
+    return _InlineEditFrame(
+      label: 'settings_tools_account'.tr(),
+      controller: _toolsAccountInputController,
+      focusNode: _toolsAccountInputFocusNode,
+      hintText: 'tools_account_input_hint'.tr(),
+      onCancel: _cancelInlineEdit,
+      onSubmit: _submitInlineEdit,
+    );
+  }
+
+  /// 「Tools密码」行：常态掩码展示（未设置显示「未设置」），
+  /// 点按 / OK / 右键进入行内输入（编辑态不预填）。
+  Widget _buildToolsPasswordRow(bool inContent, ProfileFocusController c) {
+    if (_editingRow == _toolsPasswordRow) return _buildToolsPasswordEditRow();
+    final String value = AppSettings.instance.toolsPassword.isEmpty
+        ? 'remote_not_set'.tr()
+        : '••••••';
+    return _SettingRow(
+      highlighted: inContent && c.row == _toolsPasswordRow,
+      label: 'settings_tools_password'.tr(),
+      value: value,
+      canStepLeft: false,
+      canStepRight: true,
+      onTap: () {
+        c.select(_toolsPasswordRow);
+        _beginInlineEdit(_toolsPasswordRow);
+      },
+      onStepLeft: () => c.select(_toolsPasswordRow),
+      onStepRight: () {
+        c.select(_toolsPasswordRow);
+        _beginInlineEdit(_toolsPasswordRow);
+      },
+    );
+  }
+
+  /// 「Tools密码」行编辑态：掩码输入框（不预填），✕ 取消、✓ 提交保存。
+  Widget _buildToolsPasswordEditRow() {
+    return _InlineEditFrame(
+      label: 'settings_tools_password'.tr(),
+      controller: _toolsPasswordInputController,
+      focusNode: _toolsPasswordInputFocusNode,
+      hintText: 'tools_password_input_hint'.tr(),
+      obscureText: true,
+      onCancel: _cancelInlineEdit,
+      onSubmit: _submitInlineEdit,
+    );
+  }
+
   /// 行内输入编辑态的焦点节点，按行号取（未配置的行返回 null）。
   FocusNode? _focusNodeOf(int row) {
     if (row == _remoteRow) return _remoteInputFocusNode;
     if (row == _wpPasswordRow) return _wpPasswordInputFocusNode;
+    if (row == _toolsAccountRow) return _toolsAccountInputFocusNode;
+    if (row == _toolsPasswordRow) return _toolsPasswordInputFocusNode;
     return null;
   }
 
@@ -974,6 +1104,14 @@ class _ProfilePageState extends State<ProfilePage> {
       // 密码：不预填，必须由用户输入。
       _wpPasswordInputController.text = '';
     }
+    if (row == _toolsAccountRow) {
+      // Tools 账号：预填当前账号，便于修改。
+      _toolsAccountInputController.text = AppSettings.instance.toolsAccount;
+    }
+    if (row == _toolsPasswordRow) {
+      // Tools 密码：不预填，必须由用户输入。
+      _toolsPasswordInputController.text = '';
+    }
     _editingRow = row;
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -982,7 +1120,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   /// 提交行内输入：按编辑中的行分发；空串一律视为取消。
-  void _submitInlineEdit() {
+  Future<void> _submitInlineEdit() async {
     final int? row = _editingRow;
     if (row == null) return;
     if (row == _remoteRow) {
@@ -996,6 +1134,20 @@ class _ProfilePageState extends State<ProfilePage> {
       if (password.isEmpty || !mounted) return;
       // 密码不 trim、原样保存；setWpPassword 内存赋值同步、落盘异步。
       AppSettings.instance.setWpPassword(password);
+    } else if (row == _toolsAccountRow) {
+      final String account = _toolsAccountInputController.text.trim();
+      _cancelInlineEdit();
+      if (account.isEmpty || !mounted) return;
+      // 账号 trim 后保存；setToolsAccount 内存赋值同步、落盘异步。
+      await AppSettings.instance.setToolsAccount(account);
+      await _refreshToolsSession();
+    } else if (row == _toolsPasswordRow) {
+      final String password = _toolsPasswordInputController.text;
+      _cancelInlineEdit();
+      if (password.isEmpty || !mounted) return;
+      // 密码不 trim、原样保存；setToolsPassword 内存赋值同步、落盘异步。
+      await AppSettings.instance.setToolsPassword(password);
+      await _refreshToolsSession();
     } else {
       // 未配置提交分支的行：安全退出编辑态，避免吞键卡死。
       _cancelInlineEdit();
@@ -1009,7 +1161,40 @@ class _ProfilePageState extends State<ProfilePage> {
     _editingRow = null;
     _focusNodeOf(row)?.unfocus();
     if (row == _wpPasswordRow) _wpPasswordInputController.clear();
+    if (row == _toolsPasswordRow) _toolsPasswordInputController.clear();
     if (mounted) setState(() {});
+  }
+
+  /// Tools 账号/密码提交后：登录 → 刷新数据文件 → 重载频道列表。
+  Future<void> _refreshToolsSession() async {
+    if (!mounted) return;
+    _toolsMsg.value = 'remote_logging_in'.tr();
+    try {
+      final bool ok = await PtoolsUtil.loginWithSaved();
+      if (!mounted) return;
+      if (!ok) {
+        _toolsMsg.value = 'tools_login_fail'.tr();
+        _toolsMsgTimer?.cancel();
+        _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) _toolsMsg.value = null;
+        });
+        return;
+      }
+      _toolsMsg.value = 'tools_login_ok'.tr();
+      _toolsMsgTimer?.cancel();
+      _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) _toolsMsg.value = null;
+      });
+      unawaited(DataFiles.instance.refresh());
+      context.read<IptvBloc>().add(const LoadIptv(isRefresh: true));
+    } catch (e) {
+      if (!mounted) return;
+      _toolsMsg.value = 'tools_login_fail'.tr();
+      _toolsMsgTimer?.cancel();
+      _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) _toolsMsg.value = null;
+      });
+    }
   }
 
   /// 编辑态下拦截返回（取消编辑）与 OK/Enter/空格（提交），
@@ -1069,7 +1254,7 @@ class _ProfilePageState extends State<ProfilePage> {
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA) {
-      _submitInlineEdit();
+      unawaited(_submitInlineEdit());
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
