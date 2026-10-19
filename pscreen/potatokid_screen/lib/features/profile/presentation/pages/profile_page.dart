@@ -174,6 +174,11 @@ class _ProfilePageState extends State<ProfilePage> {
     ProfileFocusController.instance.addListener(_onFocusChanged);
     ProfilePage.onCancelInlineEdit = _cancelInlineEdit;
     ProfilePage.onSubmitInlineEdit = _submitInlineEdit;
+    // 冷启动：AppSettings 异步加载完成后强制重建一次，保证密码掩码/未设置
+    // 展示与持久化值一致（本行不走 BlocBuilder，自行兜底）。
+    AppSettings.instance.ensureLoaded().whenComplete(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -985,8 +990,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _cancelInlineEdit();
       if (account.isEmpty || !mounted) return;
       context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
-    }
-    if (row == _wpPasswordRow) {
+    } else if (row == _wpPasswordRow) {
       final String password = _wpPasswordInputController.text;
       _cancelInlineEdit();
       if (password.isEmpty || !mounted) return;
@@ -1004,6 +1008,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == null) return;
     _editingRow = null;
     _focusNodeOf(row)?.unfocus();
+    if (row == _wpPasswordRow) _wpPasswordInputController.clear();
     if (mounted) setState(() {});
   }
 
