@@ -901,6 +901,7 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 进入行内输入编辑态：各行为自己的输入框装文本，下一帧聚焦弹出输入法。
   void _beginInlineEdit(int row) {
     if (_editingRow != null || !mounted) return;
+    if (_focusNodeOf(row) == null) return; // 未配置焦点节点的行不进入编辑态
     if (row == _remoteRow) {
       // 云信账号：预填当前账号。
       _remoteInputController.text =
@@ -922,6 +923,9 @@ class _ProfilePageState extends State<ProfilePage> {
       _cancelInlineEdit();
       if (account.isEmpty || !mounted) return;
       context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+    } else {
+      // 未配置提交分支的行：安全退出编辑态，避免吞键卡死。
+      _cancelInlineEdit();
     }
   }
 
