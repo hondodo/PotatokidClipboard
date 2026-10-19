@@ -32,6 +32,7 @@ class AppSettings {
   static const String _keyProxyRetry = 'app_proxy_retry_v1';
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
   static const String _keyNimAccount = 'app_nim_account_v1';
+  static const String _keyWpPassword = 'app_wp_password_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -65,6 +66,9 @@ class AppSettings {
   /// 云信「远程」账号；**空串表示未设置**。
   String _nimAccount = '';
 
+  /// WordPress 密码保护文章的访问密码；**空串表示未设置**。
+  String _wpPassword = '';
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -87,6 +91,9 @@ class AppSettings {
 
   /// 云信「远程」账号：空串表示未设置。
   String get nimAccount => _nimAccount;
+
+  /// WordPress 密码：空串表示未设置。
+  String get wpPassword => _wpPassword;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -128,6 +135,9 @@ class AppSettings {
 
       // 云信「远程」账号
       _nimAccount = prefs.getString(_keyNimAccount) ?? '';
+
+      // WordPress 密码
+      _wpPassword = prefs.getString(_keyWpPassword) ?? '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -243,6 +253,17 @@ class AppSettings {
     }
   }
 
+  /// 保存 WordPress 密码（空串表示清除）。
+  Future<void> setWpPassword(String password) async {
+    _wpPassword = password;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyWpPassword, password);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
   /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
   ///
   /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
@@ -272,6 +293,7 @@ class AppSettings {
     _proxyRetryEnabled = false;
     _backgroundPlayback = false;
     _nimAccount = '';
+    _wpPassword = '';
   }
 
   static String _themeModeToString(ThemeMode mode) {

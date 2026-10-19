@@ -30,4 +30,30 @@ void main() {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('app_nim_account_v1'), isNull);
   });
+
+  test('wpPassword 默认空串，setWpPassword 内存与持久化同步更新', () async {
+    final AppSettings settings = AppSettings.instance;
+    await settings.clearAllPersisted();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await settings.ensureLoaded();
+    expect(settings.wpPassword, isEmpty);
+
+    await settings.setWpPassword('12345678');
+    expect(settings.wpPassword, '12345678');
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('app_wp_password_v1'), '12345678');
+  });
+
+  test('clearAllPersisted 复位 wpPassword', () async {
+    final AppSettings settings = AppSettings.instance;
+    await settings.clearAllPersisted();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await settings.ensureLoaded();
+    await settings.setWpPassword('abcd');
+
+    await settings.clearAllPersisted();
+    expect(settings.wpPassword, isEmpty);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('app_wp_password_v1'), isNull);
+  });
 }
