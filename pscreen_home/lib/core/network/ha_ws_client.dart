@@ -173,6 +173,47 @@ class HaWsClient {
     });
   }
 
+  /// 明细历史（HA 只记录状态变化）。返回原始 `result`，由 data 层解析。
+  ///
+  /// `minimal_response` 返回紧凑结构 `{s, lu}`；`lu` 为 Unix 秒（浮点）。
+  Future<Object?> historyDuringPeriod({
+    required List<String> entityIds,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final Map<String, dynamic> msg =
+        await request('history/history_during_period', <String, dynamic>{
+      'start_time': start.toUtc().toIso8601String(),
+      'end_time': end.toUtc().toIso8601String(),
+      'entity_ids': entityIds,
+      'include_start_time_state': true,
+      'significant_changes_only': true,
+      'minimal_response': true,
+      'no_attributes': true,
+    });
+    return msg['result'];
+  }
+
+  /// 长期统计（聚合）。返回原始 `result`，由 data 层解析。
+  ///
+  /// 返回 `start` 为 Unix 毫秒（整数），`mean/min/max` 为聚合值。
+  Future<Object?> statisticsDuringPeriod({
+    required List<String> statisticIds,
+    required DateTime start,
+    required DateTime end,
+    required String period,
+  }) async {
+    final Map<String, dynamic> msg =
+        await request('recorder/statistics_during_period', <String, dynamic>{
+      'start_time': start.toUtc().toIso8601String(),
+      'end_time': end.toUtc().toIso8601String(),
+      'statistic_ids': statisticIds,
+      'period': period,
+      'types': <String>['mean', 'min', 'max'],
+    });
+    return msg['result'];
+  }
+
   // ---------------------------------------------------------------- 连接
 
   Future<void> _attempt() async {
