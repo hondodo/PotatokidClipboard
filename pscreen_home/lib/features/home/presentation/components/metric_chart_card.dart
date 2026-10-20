@@ -137,7 +137,7 @@ class _MetricChartCardState extends State<MetricChartCard> {
                 window: _range.duration,
                 height: 120,
                 unit: _metric.unit,
-                gapThreshold: _gapFor(_range),
+                gapThreshold: adaptiveGap(_gapFor(_range), _samples!),
               ),
           ],
         ),

@@ -126,4 +126,49 @@ void main() {
       );
     });
   });
+
+  group('adaptiveGap', () {
+    final DateTime now = DateTime(2026, 1, 1, 12);
+    MetricSample m(Duration d, double v) =>
+        MetricSample(at: now.add(d), value: v);
+
+    test('点太少或基准为 null 时原样返回', () {
+      expect(
+        adaptiveGap(const Duration(minutes: 2),
+            <MetricSample>[m(Duration.zero, 1), m(const Duration(minutes: 1), 2)]),
+        const Duration(minutes: 2),
+      );
+      expect(
+        adaptiveGap(null, <MetricSample>[
+          m(Duration.zero, 1),
+          m(const Duration(minutes: 1), 2),
+          m(const Duration(minutes: 2), 3),
+        ]),
+        isNull,
+      );
+    });
+
+    test('稀疏序列按中位间隔 5 倍放大阈值', () {
+      final Duration? gap = adaptiveGap(
+        const Duration(minutes: 2),
+        <MetricSample>[
+          m(Duration.zero, 1),
+          m(const Duration(hours: 2), 1),
+          m(const Duration(hours: 4), 1),
+        ],
+      );
+      expect(gap, const Duration(hours: 10));
+    });
+
+    test('密集序列保持基准阈值', () {
+      final Duration? gap = adaptiveGap(
+        const Duration(minutes: 10),
+        List<MetricSample>.generate(
+          20,
+          (int i) => m(Duration(seconds: i * 5), i.toDouble()),
+        ),
+      );
+      expect(gap, const Duration(minutes: 10));
+    });
+  });
 }

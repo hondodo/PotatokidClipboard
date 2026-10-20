@@ -274,8 +274,7 @@ class _SparklinePainter extends CustomPainter {
 
 /// 按相邻点时间差切段：超过 [gap] 处断开（null 时整条为一段）。
 @visibleForTesting
-List<List<MetricSample>> splitByGap(
-  List<MetricSample> samples,
+List<List<MetricSample>> splitByGap(  List<MetricSample> samples,
   Duration? gap,
 ) {
   if (samples.isEmpty) return const <List<MetricSample>>[];
@@ -379,4 +378,18 @@ List<_Plotted> _downsamplePlotted(List<_Plotted> input, double width) {
   // 收尾：保证曲线一直画到最右端（包括超出右边界的少量余量点）。
   if (start <= lastIndex) out.add(input[lastIndex]);
   return out;
+}
+
+/// 断线阈值自适应：HA 明细只记录「状态变化」，长时间恒定的传感器
+/// 相邻点可能相隔数小时。此时按中位间隔放大阈值，避免把恒定值误判成缺数据。
+Duration? adaptiveGap(Duration? base, List<MetricSample> samples) {
+  if (base == null || samples.length < 3) return base;
+  final List<int> gaps = <int>[];
+  for (int i = 1; i < samples.length; i++) {
+    gaps.add(samples[i].at.difference(samples[i - 1].at).inMilliseconds);
+  }
+  gaps.sort();
+  final int median = gaps[gaps.length ~/ 2];
+  final int floorMs = math.max(base.inMilliseconds, median * 5);
+  return Duration(milliseconds: floorMs);
 }
