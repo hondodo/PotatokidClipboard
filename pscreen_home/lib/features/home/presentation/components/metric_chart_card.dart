@@ -35,6 +35,7 @@ class _MetricChartCardState extends State<MetricChartCard> {
       : widget.availableMetrics.first;
   late HistoryRange _range = widget.initialRange;
   List<MetricSample>? _samples;
+  int _loadToken = 0;
 
   @override
   void initState() {
@@ -43,6 +44,7 @@ class _MetricChartCardState extends State<MetricChartCard> {
   }
 
   Future<void> _load() async {
+    final int token = ++_loadToken;
     final String? entityId = widget.entityIds[_metric];
     if (entityId == null) {
       if (mounted) setState(() => _samples = const <MetricSample>[]);
@@ -54,7 +56,8 @@ class _MetricChartCardState extends State<MetricChartCard> {
       range: _range,
       entityId: entityId,
     );
-    if (!mounted) return;
+    // 快速切换 metric / range 时丢弃过期结果。
+    if (!mounted || token != _loadToken) return;
     setState(() => _samples = samples);
   }
 
