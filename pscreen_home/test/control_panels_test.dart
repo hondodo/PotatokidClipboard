@@ -993,7 +993,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('智能插座面板：当前功率 / 累计电量 / 温度 / 次数',
+  testWidgets('智能插座面板：控制区与故障信息，用电信息交给独立卡片',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(420, 900);
     tester.view.devicePixelRatio = 1;
@@ -1006,10 +1006,9 @@ void main() {
       onToggle: () {},
     )));
 
-    expect(find.text('当前功率'), findsOneWidget);
-    expect(find.text('累计用电'), findsOneWidget);
-    expect(find.text('设备温度 46°C'), findsOneWidget);
-    expect(find.text('开关次数 3'), findsOneWidget);
+    expect(find.text('当前功率'), findsNothing);
+    expect(find.text('累计用电'), findsNothing);
+    expect(find.text('故障 无故障'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1053,26 +1052,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('用电信息卡：当前功率 / 累计电量 + 功率趋势图',
+  testWidgets('用电信息卡：曲线插槽 + 当前功率 / 累计电量 / 温度 / 次数',
       (WidgetTester tester) async {
-    final ValueNotifier<List<MetricSample>> history =
-        ValueNotifier<List<MetricSample>>(<MetricSample>[
-      MetricSample(
-        at: DateTime.now().subtract(const Duration(minutes: 20)),
-        value: 5,
-      ),
-      MetricSample(at: DateTime.now(), value: 30),
-    ]);
-    addTearDown(history.dispose);
-
     await tester.pumpWidget(_host(PowerStatsCard(
       stats: _socket().stats,
-      history: history,
+      chart: const Text('功率曲线'),
     )));
 
     expect(find.text('用电信息'), findsOneWidget);
     expect(find.text('当前功率'), findsOneWidget);
-    expect(find.byType(MetricSparkline), findsOneWidget);
+    expect(find.text('累计用电'), findsOneWidget);
+    expect(find.text('功率曲线'), findsOneWidget);
+    expect(find.text('设备温度 46°C'), findsOneWidget);
+    expect(find.text('开关次数 3'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('用电信息卡：没有累计用电时整块隐藏',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_host(const PowerStatsCard(
+      stats: PowerStats(currentWatts: 12.3),
+    )));
+
+    expect(find.text('当前功率'), findsOneWidget);
+    expect(find.text('12 W'), findsOneWidget);
+    expect(find.text('累计用电'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

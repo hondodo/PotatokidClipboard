@@ -1,11 +1,8 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
-import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
-/// 智能插座详情面板：当前功率、功率趋势、累计电量、设备温度、开关次数。
+/// 智能插座详情面板：电源 / 故障 / 快捷开关；用电信息由独立卡片展示。
 class SocketControlPanel extends StatelessWidget {
   const SocketControlPanel({
     super.key,
@@ -17,15 +14,11 @@ class SocketControlPanel extends StatelessWidget {
     this.indicatorLightEntityId,
     this.indicatorLightOn = false,
     this.onIndicatorLightToggled,
-    this.history,
   });
 
   final SocketSummary summary;
   final bool isToggling;
   final VoidCallback onToggle;
-
-  /// 功率历史订阅；null 则不绘制趋势图。
-  final ValueListenable<List<MetricSample>>? history;
 
   /// 插座次级开关（童锁 / 定时），空列表则不渲染该区。
   final List<SocketQuickSwitch> quickSwitches;
@@ -100,79 +93,13 @@ class SocketControlPanel extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        '当前功率',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        summary.stats.currentPowerLabel,
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          height: 1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Text(
-                      '累计用电',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      summary.stats.totalLabel,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: _accent,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            if (history != null)
-              ValueListenableBuilder<List<MetricSample>>(
-                valueListenable: history!,
-                builder:
-                    (BuildContext context, List<MetricSample> samples, _) {
-                  return MetricSparkline(samples: samples);
-                },
-              ),
-            if (history != null) const SizedBox(height: 18),
+            const SizedBox(height: 14),
             const Divider(height: 1),
             const SizedBox(height: 12),
             Wrap(
               spacing: 18,
               runSpacing: 8,
               children: <Widget>[
-                _Info(
-                  icon: Icons.thermostat_rounded,
-                  label: '设备温度',
-                  value: summary.stats.deviceTemperature == null
-                      ? '—'
-                      : '${summary.stats.deviceTemperature}°C',
-                ),
-                _Info(
-                  icon: Icons.swap_horiz_rounded,
-                  label: '开关次数',
-                  value: summary.stats.switchCount?.toString() ?? '—',
-                ),
                 _Info(
                   icon: Icons.info_outline_rounded,
                   label: '故障',

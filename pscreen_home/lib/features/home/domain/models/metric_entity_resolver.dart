@@ -8,8 +8,9 @@ import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 /// 优先级（分数高者胜）：
 /// 1. `100`：entity_id 就是 `*_temperature` / `*_humidity` / `*_electric_power`
 ///    （模板 / 辅助元素最干净的命名）；
-/// 2. `80`：HA 标准 `device_class`（temperature / humidity / power）；
-/// 3. `40`：entity_id 中间出现该词元（如 `..._electric_power_p_5_1`）。
+/// 2. `90`：功率实体名含 `ac_power`（空调外机功率，优先于插座功率）；
+/// 3. `80`：HA 标准 `device_class`（temperature / humidity / power）；
+/// 4. `40`：entity_id 中间出现该词元（如 `..._electric_power_p_5_1`）。
 ///
 /// 这样 `..._humidity_range_p_10_6`（状态是 `40-70`）不会抢走真正的湿度计。
 /// 数值型 sensor 全部落选时，才回退 climate 属性（仅内存曲线）。
@@ -24,6 +25,11 @@ abstract final class MetricEntityResolver {
     Metric.power: 'power',
     Metric.temperature: 'temperature',
     Metric.humidity: 'humidity',
+  };
+
+  /// 功率的特殊命名：空调外机功率独立于插座功率，优先取它。
+  static const Map<Metric, String> _preferredTokens = <Metric, String>{
+    Metric.power: 'ac_power',
   };
 
   /// 返回该设备的 metric → 数据来源映射（缺失的 metric 不出现）。
@@ -49,6 +55,11 @@ abstract final class MetricEntityResolver {
       if (e.domain == 'sensor') {
         _tokens.forEach((Metric metric, String token) {
           consider(metric, MetricSource(e.entityId), _nameScore(e.entityId, token));
+        });
+        _preferredTokens.forEach((Metric metric, String token) {
+          if (_nameScore(e.entityId, token) > 0) {
+            consider(metric, MetricSource(e.entityId), 90);
+          }
         });
       }
     }

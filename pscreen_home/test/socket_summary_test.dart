@@ -136,5 +136,18 @@ void main() {
       expect(stats.totalKwh, 1859.3);
       expect(stats.hasData, isTrue);
     });
+
+    test('同时有插座功率与外机功率时优先展示外机功率', () {
+      final PowerStats? stats = PowerStats.tryBuild(<HaEntityStateModel>[
+        _e('sensor.xiaomi_cn_735376016_m9_electric_power_p_2_1', '0',
+            name: '电功率'),
+        _e('sensor.xiaomi_cn_735376016_m9_outdoor_ac_power_p_12_1314',
+            '1423.8',
+            name: '空调外机功率'),
+      ]);
+      expect(stats!.currentWatts, 0);
+      expect(stats.acPowerWatts, 1423.8);
+      expect(stats.currentPowerLabel, '1424 W');
+    });
   });
 }

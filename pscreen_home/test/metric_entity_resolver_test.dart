@@ -27,6 +27,19 @@ void main() {
         'sensor.d1_electric_power_p_5_1');
   });
 
+  test('空调外机功率 _ac_power_ 优先于 _electric_power_', () {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'd1b',
+      title: '空调',
+      entities: <HaEntityStateModel>[
+        e('sensor.ac_electric_power_p_2_1'),
+        e('sensor.ac_outdoor_ac_power_p_12_1314'),
+      ],
+    );
+    expect(MetricEntityResolver.resolve(group)[Metric.power]?.entityId,
+        'sensor.ac_outdoor_ac_power_p_12_1314');
+  });
+
   test('温度取 sensor._temperature_ 实体，湿度取 _humidity_ 实体', () {
     final HaDeviceGroup group = HaDeviceGroup(
       deviceId: 'd2',

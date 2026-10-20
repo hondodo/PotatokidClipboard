@@ -71,7 +71,7 @@ class PowerStats {
       acPowerWatts != null;
 
   String get currentPowerLabel {
-    final double? value = currentWatts ?? acPowerWatts;
+    final double? value = acPowerWatts ?? currentWatts;
     if (value == null) return '—';
     if (value <= 0) return '0 W';
     if (value < 0.1) return '<0.1 W';

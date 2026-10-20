@@ -5,7 +5,6 @@ import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
-import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
@@ -129,9 +128,25 @@ class DeviceDetailPage extends StatelessWidget {
           final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
           final bool showLockPanel = lock != null;
-          // 功率历史仅驻内存，按设备订阅最近 1 小时的采样。
-          final MetricHistoryStore historyStore =
-              Injection.get<MetricHistoryStore>();
+          // 功率曲线与当前功率共用同一实体，避免数字与曲线数据源不一致。
+          final String? powerEntityId =
+              devicePower?.acPowerEntityId ?? devicePower?.currentEntityId;
+          final HistoryService historyService =
+              Injection.get<HistoryService>();
+          final Widget? powerCard = devicePower == null
+              ? null
+              : PowerStatsCard(
+                  stats: devicePower,
+                  chart: powerEntityId == null
+                      ? null
+                      : MetricChartContent(
+                          service: historyService,
+                          deviceId: deviceId,
+                          sources: <Metric, MetricSource>{
+                            Metric.power: MetricSource(powerEntityId),
+                          },
+                        ),
+                );
           // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
           final bool hasClimatePanel = !isLockDevice &&
               group.entities.any((HaEntityStateModel e) => e.isClimate);
@@ -209,6 +224,8 @@ class DeviceDetailPage extends StatelessWidget {
                 entity.entityId,
             if (devicePower?.currentEntityId != null)
               devicePower!.currentEntityId!,
+            if (devicePower?.acPowerEntityId != null)
+              devicePower!.acPowerEntityId!,
             if (devicePower?.totalEntityId != null)
               devicePower!.totalEntityId!,
             if (devicePower?.temperatureEntityId != null)
@@ -252,18 +269,16 @@ class DeviceDetailPage extends StatelessWidget {
               ? 0
               : 1;
           // 该设备可绘制的指标（数值型 sensor 或 climate 属性）；无则不出曲线卡。
+          // 功率已由「用电信息」卡展示，这里排除，避免重复出曲线。
           final Map<Metric, MetricSource> metricSources =
-              MetricEntityResolver.resolve(group);
-          final bool showMetricChart = metricSources.isNotEmpty;
-          // 空调：温湿度紧跟「用电信息」；其余设备仍放列表末尾。
-          final Map<Metric, MetricSource> inlineMetricSources =
               <Metric, MetricSource>{
             for (final MapEntry<Metric, MetricSource> entry
-                in metricSources.entries)
+                in MetricEntityResolver.resolve(group).entries)
               if (entry.key != Metric.power) entry.key: entry.value,
           };
+          final bool showMetricChart = metricSources.isNotEmpty;
           final bool showInlineMetricChart =
-              hasClimatePanel && inlineMetricSources.isNotEmpty;
+              hasClimatePanel && metricSources.isNotEmpty;
           final bool showTailMetricChart =
               showMetricChart && !showInlineMetricChart;
           final String headerStatus;
@@ -598,29 +613,37 @@ class DeviceDetailPage extends StatelessWidget {
                 }
 
                 if (showSocketPanel && index == 0) {
-                  return SocketControlPanel(
-                    summary: socket,
-                    isToggling: state.togglingIds
-                        .contains(socket.powerEntityId),
-                    onToggle: () => context.read<HomeBloc>().add(
-                          ToggleEntity(
-                            entityId: socket.powerEntityId,
-                          ),
-                        ),
-                    quickSwitches: socketQuickSwitches,
-                    onQuickSwitchToggled: (String entityId) => context
-                        .read<HomeBloc>()
-                        .add(ToggleEntity(entityId: entityId)),
-                    indicatorLightEntityId: socketIndicatorLightId,
-                    indicatorLightOn: socketIndicatorLightOn,
-                    onIndicatorLightToggled: socketIndicatorLightId == null
-                        ? null
-                        : () => context.read<HomeBloc>().add(
+                  return Column(
+                    children: <Widget>[
+                      SocketControlPanel(
+                        summary: socket,
+                        isToggling: state.togglingIds
+                            .contains(socket.powerEntityId),
+                        onToggle: () => context.read<HomeBloc>().add(
                               ToggleEntity(
-                                entityId: socketIndicatorLightId,
+                                entityId: socket.powerEntityId,
                               ),
                             ),
-                          history: historyStore.watch(deviceId, Metric.power),
+                        quickSwitches: socketQuickSwitches,
+                        onQuickSwitchToggled: (String entityId) => context
+                            .read<HomeBloc>()
+                            .add(ToggleEntity(entityId: entityId)),
+                        indicatorLightEntityId: socketIndicatorLightId,
+                        indicatorLightOn: socketIndicatorLightOn,
+                        onIndicatorLightToggled:
+                            socketIndicatorLightId == null
+                                ? null
+                                : () => context.read<HomeBloc>().add(
+                                      ToggleEntity(
+                                        entityId: socketIndicatorLightId,
+                                      ),
+                                    ),
+                      ),
+                      if (powerCard != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        powerCard,
+                      ],
+                    ],
                   );
                 }
 
@@ -1087,19 +1110,16 @@ class DeviceDetailPage extends StatelessWidget {
                               mode: mode,
                             )),
                       ),
-                      if (devicePower != null) ...<Widget>[
+                      if (powerCard != null) ...<Widget>[
                         const SizedBox(height: 12),
-                        PowerStatsCard(
-                          stats: devicePower,
-                          history: historyStore.watch(deviceId, Metric.power),
-                        ),
+                        powerCard,
                       ],
                       if (showInlineMetricChart) ...<Widget>[
                         const SizedBox(height: 12),
                         MetricChartCard(
-                          service: Injection.get<HistoryService>(),
+                          service: historyService,
                           deviceId: deviceId,
-                          sources: inlineMetricSources,
+                          sources: metricSources,
                         ),
                       ],
                     ],

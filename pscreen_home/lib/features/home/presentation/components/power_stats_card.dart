@@ -1,26 +1,24 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
-import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
-/// 通用用电信息卡：当前功率 + 累计电量（有则显示）+ 功率趋势图 + 设备温度 / 开关次数。
+/// 通用用电信息卡：当前功率 + 累计电量（有则显示）+ 可选曲线 +
+/// 设备温度 / 开关次数（有则显示）。
 ///
 /// 有「当前功率」的设备（智能插座、空调插座等）统一用本卡展示用电信息；
-/// 传入 [history] 时绘制最近 1 小时的功率趋势图（仅内存，不持久化）。
+/// [chart] 传入区间曲线（如 [MetricChartContent]），不传则只显示数值。
 class PowerStatsCard extends StatelessWidget {
   const PowerStatsCard({
     super.key,
     required this.stats,
     this.title = '用电信息',
-    this.history,
+    this.chart,
   });
 
   final PowerStats stats;
   final String title;
 
-  /// 功率历史订阅；null 则不绘制趋势图。
-  final ValueListenable<List<MetricSample>>? history;
+  /// 曲线区（通常为功率区间曲线）；null 则不绘制。
+  final Widget? chart;
 
   static const Color _accent = Color(0xFF64B5F6);
 
@@ -88,15 +86,9 @@ class PowerStatsCard extends StatelessWidget {
                   ),
               ],
             ),
-            if (history != null) ...<Widget>[
+            if (chart != null) ...<Widget>[
               const SizedBox(height: 12),
-              ValueListenableBuilder<List<MetricSample>>(
-                valueListenable: history!,
-                builder:
-                    (BuildContext context, List<MetricSample> samples, _) {
-                  return MetricSparkline(samples: samples);
-                },
-              ),
+              chart!,
             ],
             if (stats.deviceTemperature != null ||
                 stats.switchCount != null) ...<Widget>[

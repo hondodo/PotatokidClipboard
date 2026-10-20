@@ -7,8 +7,43 @@ import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 指标曲线卡：共享 range 切换，功率 / 温度 / 湿度分区同时展示（无需切换）。
-class MetricChartCard extends StatefulWidget {
+class MetricChartCard extends StatelessWidget {
   const MetricChartCard({
+    super.key,
+    required this.service,
+    required this.deviceId,
+    required this.sources,
+    this.initialRange = HistoryRange.h24,
+  });
+
+  final HistoryService service;
+  final String deviceId;
+  final Map<Metric, MetricSource> sources;
+  final HistoryRange initialRange;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHigh,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: MetricChartContent(
+          service: service,
+          deviceId: deviceId,
+          sources: sources,
+          initialRange: initialRange,
+        ),
+      ),
+    );
+  }
+}
+
+/// 曲线内容：range 切换 + 各指标分区，可嵌入其他卡片。
+class MetricChartContent extends StatefulWidget {
+  const MetricChartContent({
     super.key,
     required this.service,
     required this.deviceId,
@@ -26,56 +61,47 @@ class MetricChartCard extends StatefulWidget {
         ..sort((Metric a, Metric b) => a.index - b.index);
 
   @override
-  State<MetricChartCard> createState() => _MetricChartCardState();
+  State<MetricChartContent> createState() => _MetricChartContentState();
 }
 
-class _MetricChartCardState extends State<MetricChartCard> {
+class _MetricChartContentState extends State<MetricChartContent> {
   late HistoryRange _range = widget.initialRange;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainerHigh,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SizedBox(
-              height: 32,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: <Widget>[
-                  for (final HistoryRange r in HistoryRange.values)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(r.label),
-                        selected: r == _range,
-                        showCheckmark: false,
-                        onSelected: (_) => setState(() => _range = r),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            for (final Metric metric in widget.metrics) ...<Widget>[
-              const SizedBox(height: 18),
-              _MetricSection(
-                key: ValueKey<Metric>(metric),
-                service: widget.service,
-                deviceId: widget.deviceId,
-                metric: metric,
-                source: widget.sources[metric]!,
-                range: _range,
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SizedBox(
+          height: 32,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: <Widget>[
+              for (final HistoryRange r in HistoryRange.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(r.label),
+                    selected: r == _range,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() => _range = r),
+                  ),
+                ),
             ],
-          ],
+          ),
         ),
-      ),
+        for (final Metric metric in widget.metrics) ...<Widget>[
+          const SizedBox(height: 18),
+          _MetricSection(
+            key: ValueKey<Metric>(metric),
+            service: widget.service,
+            deviceId: widget.deviceId,
+            metric: metric,
+            source: widget.sources[metric]!,
+            range: _range,
+          ),
+        ],
+      ],
     );
   }
 }
