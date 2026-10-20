@@ -11,7 +11,7 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppRouter appRouter = Injection.get<AppRouter>();
     return MaterialApp.router(
-      title: '中控台',
+      title: '薯仔的中控台',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       theme: _buildTheme(Brightness.light),

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "pscreen_home" "\0"
+            VALUE "CompanyName", "potatokid.tools" "\0"
+            VALUE "FileDescription", "薯仔的中控台" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "pscreen_home" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 potatokid.tools. All rights reserved." "\0"
             VALUE "OriginalFilename", "pscreen_home.exe" "\0"
-            VALUE "ProductName", "pscreen_home" "\0"
+            VALUE "ProductName", "薯仔的中控台" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

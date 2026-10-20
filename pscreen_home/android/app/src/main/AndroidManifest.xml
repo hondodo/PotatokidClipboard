@@ -3,9 +3,9 @@
          否则 release 包完全无法联网） -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="pscreen_home"
+        android:label="薯仔的中控台"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true">
         <!-- Android 9+ 默认禁止明文流量，而墙控面板连接的局域网 Home Assistant
              通常是 http://192.168.x.x:8123 → ws:// 明文 WebSocket，必须放行 -->

@@ -1,4 +1,4 @@
-package com.example.pscreen_home
+package potatokid.tools.homecontroller
 
 import io.flutter.embedding.android.FlutterActivity
 
