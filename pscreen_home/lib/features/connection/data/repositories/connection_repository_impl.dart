@@ -4,22 +4,19 @@ import 'package:pscreen_home/features/connection/domain/repositories/connection_
 
 /// 连接数据仓库实现：从 [AppConfig] 取连接信息，委托给 WebSocket 客户端。
 class ConnectionRepositoryImpl implements ConnectionRepository {
-  ConnectionRepositoryImpl({required this._client});
+  ConnectionRepositoryImpl({required this.client});
 
-  final HaWsClient _client;
-
-  @override
-  Stream<HaConnectionInfo> watchConnection() => _client.watchConnection();
+  final HaWsClient client;
 
   @override
-  HaConnectionInfo get current => _client.connection;
+  Stream<HaConnectionInfo> watchConnection() => client.watchConnection();
 
   @override
-  Future<void> connect() => _client.connect(
-        wsUrl: AppConfig.haWsUrl,
-        token: AppConfig.haToken,
-      );
+  HaConnectionInfo get current => client.connection;
 
   @override
-  Future<void> disconnect() => _client.disconnect();
+  Future<void> connect() => client.connect(wsUrl: AppConfig.haWsUrl, token: AppConfig.haToken);
+
+  @override
+  Future<void> disconnect() => client.disconnect();
 }
