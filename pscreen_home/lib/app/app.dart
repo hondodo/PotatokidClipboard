@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/ui/ui_scale.dart';
 
 /// 应用根组件：MaterialApp.router + GoRouter 路由配置。
 /// 中控屏场景固定使用暗色主题。
@@ -10,6 +11,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppRouter appRouter = Injection.get<AppRouter>();
+    final UiScaleController uiScale = Injection.get<UiScaleController>();
     return MaterialApp.router(
       title: '薯仔的中控台',
       debugShowCheckedModeBanner: false,
@@ -17,6 +19,14 @@ class App extends StatelessWidget {
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       routerConfig: appRouter.router,
+      // 全局界面缩放：设置页调整后立即生效，Navigator / 弹窗 / 页面一起等比放大
+      builder: (BuildContext context, Widget? child) => ListenableBuilder(
+        listenable: uiScale,
+        builder: (BuildContext context, Widget? _) => UiScaleScope(
+          scale: uiScale.scale,
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 

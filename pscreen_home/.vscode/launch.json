@@ -44,5 +44,12 @@
             "type": "dart",
             "flutterMode": "release"
         },
+        {
+            "name": "potatokid_home RK3288 (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.5:5555",
+        },
     ]
 }

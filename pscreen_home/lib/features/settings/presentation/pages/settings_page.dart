@@ -4,6 +4,7 @@ import 'package:pscreen_home/app/config/app_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
+import 'package:pscreen_home/core/ui/ui_scale.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
@@ -29,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
+  late double _uiScale;
 
   @override
   void initState() {
@@ -37,6 +39,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _hostController = TextEditingController(text: AppConfig.haHost);
     _tokenController = TextEditingController(text: AppConfig.haToken);
     _sampleSeconds = store.powerSampleSeconds;
+    _uiScale = store.uiScale;
   }
 
   @override
@@ -97,6 +100,13 @@ class _SettingsPageState extends State<SettingsPage> {
     final SettingsStore store = Injection.get<SettingsStore>();
     await store.savePowerSampleSeconds(seconds);
     Injection.get<MetricSampler>().setInterval(Duration(seconds: seconds));
+  }
+
+  /// 界面缩放：松手后应用（拖动过程中实时改倍数会让滑块在手指下变大变小，
+  /// 手感会飘），数值持久化，重启后保持。
+  void _applyUiScale(double value) {
+    setState(() => _uiScale = value);
+    Injection.get<UiScaleController>().update(value);
   }
 
   @override
@@ -168,6 +178,48 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           const SizedBox(height: 24),
+          Text(
+            '界面缩放',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '整块界面（卡片、字号、间距、点击热区）等比放大，适配 15 寸大屏远距离触控；松开滑块生效并自动保存。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Slider(
+                  value: _uiScale,
+                  min: SettingsStore.minUiScale,
+                  max: SettingsStore.maxUiScale,
+                  divisions: 20,
+                  label: '${(_uiScale * 100).round()}%',
+                  onChanged: (double value) =>
+                      setState(() => _uiScale = value),
+                  onChangeEnd: _applyUiScale,
+                ),
+              ),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  '${(_uiScale * 100).round()}%',
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           FilledButton.icon(
             onPressed: _saving ? null : _save,
             icon: _saving

@@ -28,6 +28,18 @@ class SettingsStore {
   /// 可选的功率采样间隔（秒），设置页按此顺序展示。
   static const List<int> powerSampleOptions = <int>[1, 2, 3, 4, 5, 10, 30];
 
+  /// 全局界面缩放倍数（1.0 = 原始尺寸，仅作用于本应用）。
+  static const String uiScaleKey = 'ui_scale';
+
+  /// 15 寸 1920x1080 大屏的默认缩放：卡片/字号整体放大 1.5 倍。
+  static const double defaultUiScale = 1.5;
+  static const double minUiScale = 1.0;
+  static const double maxUiScale = 2.0;
+
+  /// 收敛到合法范围，避免读到脏数据后界面被放大到不可用。
+  static double normalizeUiScale(double value) =>
+      value.clamp(minUiScale, maxUiScale).toDouble();
+
   SharedPreferences? _prefs;
 
   /// 初始化（DI 注册时调用一次；失败时降级为无覆盖）
@@ -53,6 +65,29 @@ class SettingsStore {
     return powerSampleOptions.contains(value)
         ? value
         : defaultPowerSampleSeconds;
+  }
+
+  /// 全局界面缩放倍数（未设置时回落 [defaultUiScale]）。
+  double get uiScale {
+    final double? value = _prefs?.getDouble(uiScaleKey);
+    if (value == null) return defaultUiScale;
+    return normalizeUiScale(value);
+  }
+
+  /// 持久化界面缩放；等于默认值时移除键（回落默认）。
+  Future<void> saveUiScale(double value) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      final double next = normalizeUiScale(value);
+      if ((next - defaultUiScale).abs() < 0.001) {
+        await prefs.remove(uiScaleKey);
+      } else {
+        await prefs.setDouble(uiScaleKey, next);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入界面缩放失败：$e');
+    }
   }
 
   /// 持久化地址与令牌；空字符串表示删除覆盖（回落 .env）。

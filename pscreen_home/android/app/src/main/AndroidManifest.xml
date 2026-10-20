@@ -26,8 +26,13 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- HOME + DEFAULT：把本应用注册为系统桌面（launcher）。
+                 开机后系统直接进入本应用；若同时存在其他桌面，首次会弹选择框，
+                 选中本应用并点「始终」后即可开机自启，不依赖 BOOT_COMPLETED（Android 7.1 更可靠）。 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
