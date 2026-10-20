@@ -10,11 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// 一个「可热更新」的数据文件：包内 `assets/datas` 提供默认值，GitHub 提供最新值。
 class DataFile {
-  const DataFile({
-    required this.id,
-    required this.fileName,
-    required this.assetPath,
-  });
+  const DataFile({required this.id, required this.fileName, required this.assetPath});
 
   /// 标识，用于日志与缓存键。
   final String id;
@@ -71,51 +67,19 @@ class DataFiles {
   /// **新增文件**：这里加一条；若它需要自动写进某个全局配置，再到 [_consumers]
   /// 里接上消费方（像 [IptvSourceRules] 那样按需读取的则不用）。
   static const List<DataFile> _files = <DataFile>[
-    DataFile(
-      id: idTvNameOrder,
-      fileName: 'tv_name_order.txt',
-      assetPath: 'assets/datas/tv_name_order.txt',
-    ),
-    DataFile(
-      id: idTvNameHide,
-      fileName: 'tv_name_hide.txt',
-      assetPath: 'assets/datas/tv_name_hide.txt',
-    ),
-    DataFile(
-      id: idWeatherCities,
-      fileName: 'weather_cities.txt',
-      assetPath: 'assets/datas/weather_cities.txt',
-    ),
-    DataFile(
-      id: idCollect,
-      fileName: 'collect.m3u',
-      assetPath: 'assets/datas/collect.m3u',
-    ),
-    DataFile(
-      id: idGuovinApi,
-      fileName: 'guovin-api.m3u',
-      assetPath: 'assets/datas/guovin-api.m3u',
-    ),
-    DataFile(
-      id: idAudio,
-      fileName: 'audio.m3u',
-      assetPath: 'assets/datas/audio.m3u',
-    ),
-    DataFile(
-      id: idRemoveSource,
-      fileName: 'remove_source.txt',
-      assetPath: 'assets/datas/remove_source.txt',
-    ),
+    DataFile(id: idTvNameOrder, fileName: 'tv_name_order.txt', assetPath: 'assets/datas/tv_name_order.txt'),
+    DataFile(id: idTvNameHide, fileName: 'tv_name_hide.txt', assetPath: 'assets/datas/tv_name_hide.txt'),
+    DataFile(id: idWeatherCities, fileName: 'weather_cities.txt', assetPath: 'assets/datas/weather_cities.txt'),
+    DataFile(id: idCollect, fileName: 'collect.m3u', assetPath: 'assets/datas/collect.m3u'),
+    DataFile(id: idGuovinApi, fileName: 'guovin-api.m3u', assetPath: 'assets/datas/guovin-api.m3u'),
+    DataFile(id: idAudio, fileName: 'audio.m3u', assetPath: 'assets/datas/audio.m3u'),
+    DataFile(id: idRemoveSource, fileName: 'remove_source.txt', assetPath: 'assets/datas/remove_source.txt'),
     DataFile(
       id: idRemoveSourceContains,
       fileName: 'remove_source_contains.txt',
       assetPath: 'assets/datas/remove_source_contains.txt',
     ),
-    DataFile(
-      id: idNotRemoveSource,
-      fileName: 'not_remove_source.txt',
-      assetPath: 'assets/datas/not_remove_source.txt',
-    ),
+    DataFile(id: idNotRemoveSource, fileName: 'not_remove_source.txt', assetPath: 'assets/datas/not_remove_source.txt'),
   ];
 
   /// 文件 id → 把「逗号分隔」的解析结果写进全局配置。
@@ -123,10 +87,10 @@ class DataFiles {
   /// 只有需要**主动推**给消费方的文件才登记在这里；自己按需读取的不用。
   static final Map<String, void Function(List<String> values)> _consumers =
       <String, void Function(List<String> values)>{
-    idTvNameOrder: (List<String> v) => AppConfig.tvNameOrder = v,
-    idTvNameHide: (List<String> v) => AppConfig.tvNameHide = v,
-    idWeatherCities: (List<String> v) => AppConfig.weatherCities = v,
-  };
+        idTvNameOrder: (List<String> v) => AppConfig.tvNameOrder = v,
+        idTvNameHide: (List<String> v) => AppConfig.tvNameHide = v,
+        idWeatherCities: (List<String> v) => AppConfig.weatherCities = v,
+      };
 
   /// 单个文件的请求超时（都是小文本文件，不需要默认的 15/20 秒）。
   static const Duration _requestTimeout = Duration(seconds: 8);
@@ -136,7 +100,7 @@ class DataFiles {
   /// 所有文件是**并发**请求的，所以这里的上限只需覆盖「最慢的一个文件」，
   /// 而不是全部之和。实测直连 GitHub 时单个请求 0.2s ~ 6s 都可能，
   /// 留 12s 既能容忍抖动，又不会在断网时把启动卡太久。
-  static const Duration _syncTimeout = Duration(seconds: 12);
+  static const Duration _syncTimeout = Duration(seconds: 60);
 
   /// 各文件当前生效的**原始文本**。
   final Map<String, String> _texts = <String, String>{};
@@ -186,9 +150,7 @@ class DataFiles {
     try {
       await _syncAll().timeout(_syncTimeout);
     } on TimeoutException {
-      Injection.get<LogService>().warn(
-        '[DataFiles] git 同步超过 ${_syncTimeout.inSeconds}s，沿用本地值',
-      );
+      Injection.get<LogService>().warn('[DataFiles] git 同步超过 ${_syncTimeout.inSeconds}s，沿用本地值');
     } catch (e) {
       Injection.get<LogService>().warn('[DataFiles] git 同步失败，沿用本地值: $e');
     }
@@ -225,9 +187,7 @@ class DataFiles {
       _apply(file.id, parseList(text));
       _revision++;
       await prefs?.setString(file.prefsKey, text);
-      Injection.get<LogService>().info(
-        '[DataFiles] ${file.fileName} 已同步(${text.length} 字符)',
-      );
+      Injection.get<LogService>().info('[DataFiles] ${file.fileName} 已同步(${text.length} 字符)');
     } catch (e) {
       Injection.get<LogService>().warn('[DataFiles] ${file.fileName} 同步失败: $e');
     }

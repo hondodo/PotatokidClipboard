@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/features/home/domain/models/power_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_sparkline.dart';
 
-/// 智能插座卡片：开关 + 当前功率 + 累计电量。
+/// 智能插座卡片：开关 + 当前功率 + 功率趋势 + 累计电量。
 class SocketWidget extends StatelessWidget {
   const SocketWidget({
     super.key,
@@ -10,6 +13,7 @@ class SocketWidget extends StatelessWidget {
     required this.onToggle,
     this.areaLabel,
     this.onOpenDetail,
+    this.history,
   });
 
   final SocketSummary summary;
@@ -17,6 +21,9 @@ class SocketWidget extends StatelessWidget {
   final VoidCallback onToggle;
   final String? areaLabel;
   final VoidCallback? onOpenDetail;
+
+  /// 功率历史订阅；null 则不绘制趋势图。
+  final ValueListenable<List<PowerSample>>? history;
 
   static const Color _accent = Color(0xFF64B5F6);
 
@@ -98,7 +105,24 @@ class SocketWidget extends StatelessWidget {
                   ),
                 ],
               ),
-              const Spacer(),
+              if (history != null) ...<Widget>[
+                const SizedBox(height: 2),
+                Expanded(
+                  child: ValueListenableBuilder<List<PowerSample>>(
+                    valueListenable: history!,
+                    builder:
+                        (BuildContext context, List<PowerSample> samples, _) {
+                      return PowerSparkline(
+                        height: null,
+                        showLabels: false,
+                        samples: samples,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ] else
+                const Spacer(),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[

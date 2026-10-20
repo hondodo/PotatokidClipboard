@@ -7,6 +7,7 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
+import 'package:pscreen_home/features/home/application/power_history.dart';
 
 /// 设置页：Home Assistant 连接配置（地址 + 长期访问令牌）。
 ///
@@ -27,12 +28,15 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _tokenController;
   bool _tokenVisible = false;
   bool _saving = false;
+  late int _sampleSeconds;
 
   @override
   void initState() {
     super.initState();
+    final SettingsStore store = Injection.get<SettingsStore>();
     _hostController = TextEditingController(text: AppConfig.haHost);
     _tokenController = TextEditingController(text: AppConfig.haToken);
+    _sampleSeconds = store.powerSampleSeconds;
   }
 
   @override
@@ -43,8 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 保存：持久化输入 → 更新生效值 → 生效值变化时重连刷新。
-  Future<void> _save() async {
-    final String hostInput = _hostController.text.trim();
+  Future<void> _save() async {    final String hostInput = _hostController.text.trim();
     final String tokenInput = _tokenController.text.trim();
 
     // 覆盖语义：与 .env 默认值相同（或清空）= 不覆盖，保持跟随 .env；
@@ -88,6 +91,14 @@ class _SettingsPageState extends State<SettingsPage> {
       );
   }
 
+  /// 选择功率采样间隔：持久化并即时生效（运行中调整采样周期）。
+  Future<void> _applySampleSeconds(int seconds) async {
+    setState(() => _sampleSeconds = seconds);
+    final SettingsStore store = Injection.get<SettingsStore>();
+    await store.savePowerSampleSeconds(seconds);
+    Injection.get<PowerSampler>().setInterval(Duration(seconds: seconds));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -128,6 +139,33 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             maxLines: 1,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '功率采样间隔',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '当前功率图表的记录频率，仅保留最近 1 小时（不持久化）。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final int seconds in SettingsStore.powerSampleOptions)
+                ChoiceChip(
+                  label: Text('$seconds 秒'),
+                  selected: _sampleSeconds == seconds,
+                  onSelected: (_) => _applySampleSeconds(seconds),
+                ),
+            ],
           ),
           const SizedBox(height: 24),
           FilledButton.icon(

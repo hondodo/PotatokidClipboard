@@ -63,5 +63,38 @@ void main() {
       expect(store.hostOverride, '');
       expect(store.tokenOverride, 'my_token');
     });
+
+    test('功率采样间隔默认 5 秒，保存后跨实例生效', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      expect(store.powerSampleSeconds,
+          SettingsStore.defaultPowerSampleSeconds);
+
+      await store.savePowerSampleSeconds(10);
+      expect(store.powerSampleSeconds, 10);
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.powerSampleSeconds, 10);
+    });
+
+    test('保存默认间隔 = 删除键，非法值回落默认', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      await store.savePowerSampleSeconds(30);
+      expect(store.powerSampleSeconds, 30);
+
+      await store.savePowerSampleSeconds(
+          SettingsStore.defaultPowerSampleSeconds);
+      expect(store.powerSampleSeconds,
+          SettingsStore.defaultPowerSampleSeconds);
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(SettingsStore.powerSampleSecondsKey), isFalse);
+
+      await store.savePowerSampleSeconds(7);
+      expect(store.powerSampleSeconds,
+          SettingsStore.defaultPowerSampleSeconds);
+    });
   });
 }

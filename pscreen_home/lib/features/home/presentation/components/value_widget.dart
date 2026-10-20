@@ -15,6 +15,8 @@ class ValueWidget extends StatelessWidget {
     super.key,
     required this.entity,
     this.areaLabel,
+    this.blockedReason,
+    this.onBlockedTap,
   });
 
   final HaEntityStateModel entity;
@@ -22,17 +24,84 @@ class ValueWidget extends StatelessWidget {
   /// 所属房间展示名（未分配时由页面兜底为「未分配房间」）
   final String? areaLabel;
 
+  /// 非空表示安全锁定：整体置灰，点击只提示 [blockedReason]。
+  final String? blockedReason;
+
+  /// 安全锁定时的点击回调（通常用于弹出提示）。
+  final VoidCallback? onBlockedTap;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final bool available = entity.isAvailable;
-    final Color accent =
-        available ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.outline;
-    final String status = !available
-        ? '不可用'
-        : entity.isAction
-            ? '暂不支持操作'
-            : entity.valueLabel;
+    final bool blocked = blockedReason != null;
+    final bool available = entity.isAvailable && !blocked;
+    final Color accent = available
+        ? theme.colorScheme.onSurfaceVariant
+        : theme.colorScheme.outline;
+    final String status = blocked
+        ? blockedReason!
+        : !entity.isAvailable
+            ? '不可用'
+            : entity.isAction
+                ? '暂不支持操作'
+                : entity.valueLabel;
+
+    final Widget content = Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: <Widget>[
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(HaDomainIcons.of(entity.domain), color: accent, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Text(
+                  entity.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: available
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.outline,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
+                  TextSpan(
+                    style: theme.textTheme.bodySmall,
+                    children: <InlineSpan>[
+                      TextSpan(
+                        text: status,
+                        style: TextStyle(color: accent),
+                      ),
+                      TextSpan(
+                        text: ' · ${areaLabel ?? '未分配房间'}',
+                        style:
+                            TextStyle(color: theme.colorScheme.outline),
+                      ),
+                    ],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
 
     return Card(
       margin: EdgeInsets.zero,
@@ -41,63 +110,10 @@ class ValueWidget extends StatelessWidget {
       color: available
           ? theme.colorScheme.surfaceContainerHighest
           : theme.colorScheme.surfaceContainerLowest,
-      // 不可交互：不挂 InkWell，仅静态展示
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: <Widget>[
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(HaDomainIcons.of(entity.domain), color: accent, size: 24),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Text(
-                    entity.displayName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: available
-                          ? theme.colorScheme.onSurface
-                          : theme.colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text.rich(
-                    TextSpan(
-                      style: theme.textTheme.bodySmall,
-                      children: <InlineSpan>[
-                        TextSpan(
-                          text: status,
-                          style: TextStyle(color: accent),
-                        ),
-                        TextSpan(
-                          text: ' · ${areaLabel ?? '未分配房间'}',
-                          style:
-                              TextStyle(color: theme.colorScheme.outline),
-                        ),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      // 普通数据实体不可交互；安全锁定时仍可点击以提示原因。
+      child: blocked
+          ? InkWell(onTap: onBlockedTap, child: content)
+          : content,
     );
   }
 }

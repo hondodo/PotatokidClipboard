@@ -20,6 +20,13 @@ class SettingsStore {
   /// 覆盖值的 SharedPreferences 键
   static const String hostKey = 'ha_host_override';
   static const String tokenKey = 'ha_token_override';
+  static const String powerSampleSecondsKey = 'power_sample_seconds';
+
+  /// 功率采样间隔默认值（秒）。
+  static const int defaultPowerSampleSeconds = 5;
+
+  /// 可选的功率采样间隔（秒），设置页按此顺序展示。
+  static const List<int> powerSampleOptions = <int>[1, 2, 3, 4, 5, 10, 30];
 
   SharedPreferences? _prefs;
 
@@ -39,6 +46,15 @@ class SettingsStore {
   /// 持久化的令牌覆盖值（空 = 未覆盖，使用 .env）
   String get tokenOverride => _prefs?.getString(tokenKey) ?? '';
 
+  /// 功率采样间隔（秒）。未设置或非法值时回落 [defaultPowerSampleSeconds]。
+  int get powerSampleSeconds {
+    final int? value = _prefs?.getInt(powerSampleSecondsKey);
+    if (value == null) return defaultPowerSampleSeconds;
+    return powerSampleOptions.contains(value)
+        ? value
+        : defaultPowerSampleSeconds;
+  }
+
   /// 持久化地址与令牌；空字符串表示删除覆盖（回落 .env）。
   Future<void> save({required String host, required String token}) async {
     final SharedPreferences? prefs = _prefs;
@@ -56,6 +72,22 @@ class SettingsStore {
       }
     } catch (e) {
       Injection.get<LogService>().warn('写入本地配置失败：$e');
+    }
+  }
+
+  /// 持久化功率采样间隔；等于默认值时移除键（回落默认）。
+  Future<void> savePowerSampleSeconds(int seconds) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      if (seconds == defaultPowerSampleSeconds ||
+          !powerSampleOptions.contains(seconds)) {
+        await prefs.remove(powerSampleSecondsKey);
+      } else {
+        await prefs.setInt(powerSampleSecondsKey, seconds);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入采样间隔失败：$e');
     }
   }
 }

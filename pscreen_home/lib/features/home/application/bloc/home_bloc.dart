@@ -8,6 +8,7 @@ import 'package:pscreen_home/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/power_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
@@ -18,7 +19,11 @@ import 'package:pscreen_home/features/home/domain/repositories/home_repository.d
 /// - [EntityStateChanged]：WS 推送的单实体状态更新；
 /// - [ToggleEntity]：乐观更新 + 失败回滚。
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
-  HomeBloc({required this.repository}) : super(HomeState.initial()) {
+  HomeBloc({required this.repository, required PowerSampler sampler})
+      : _sampler = sampler,
+        super(HomeState.initial()) {
+    // 绑定功率采样源并启动：按配置间隔记录最近 1 小时的功率曲线。
+    _sampler.bind(() => state.powerStats);
     on<LoadHome>(_onLoadHome);
     on<EntityStateChanged>(_onEntityStateChanged);
     on<ToggleEntity>(_onToggleEntity);
@@ -49,6 +54,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   final HomeRepository repository;
+  final PowerSampler _sampler;
   StreamSubscription<HaEntityStateModel>? _subscription;
 
   Future<void> _onLoadHome(LoadHome event, Emitter<HomeState> emit) async {
@@ -480,6 +486,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   @override
   Future<void> close() {
+    _sampler.stop();
     _subscription?.cancel();
     return super.close();
   }

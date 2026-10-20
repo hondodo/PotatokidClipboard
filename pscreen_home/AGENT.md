@@ -101,6 +101,7 @@ lib/
 │       │   │   └── device_detail_page.dart     # 设备详情页（逐实体控制）
 │       │   └── components/            # light/climate_widget、device_widget、value_widget、*_control_panel
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
+│       ├── application/power_history.dart  # 内存功率历史 + 定时采样器
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
 │       │   ├── models/ha_registry_model.dart       # 注册表模型（家庭/房间/设备/实体归属）
@@ -112,6 +113,7 @@ lib/
 │       │   ├── models/projector_summary.dart       # 投影仪摘要（button/number/select/notify）
 │       │   ├── models/fridge_summary.dart          # 冰箱摘要（三舱温度 + 模式）
 │       │   ├── models/power_stats.dart             # 插座用电信息（功率/累计/温度/次数）
+│       │   ├── models/power_sample.dart            # 功率采样点（时刻 + W）
 │       │   ├── models/socket_summary.dart          # 智能插座摘要
 │       │   ├── models/socket_quick_switch.dart     # 插座快捷开关（童锁/定时/指示灯）
 │       │   ├── models/climate_quick_switch.dart    # 空调快捷开关（喜好/节能/辅热等）
@@ -125,8 +127,8 @@ lib/
 │       │   ├── models/water_usage_record.dart      # 单次用水记录（event 历史）
 │       │   └── repositories/          # HomeRepository（纯抽象）
 │       └── data/repositories/         # HomeRepositoryImpl
-│   └── settings/                       # 设置（HA 连接配置）
-│       └── presentation/pages/settings_page.dart   # 地址 / 令牌表单（复用 ConnectionBloc）
+│   └── settings/                       # 设置（HA 连接配置 + 功率采样间隔）
+│       └── presentation/pages/settings_page.dart   # 地址 / 令牌 / 采样间隔（复用 ConnectionBloc）
 └── shared/                            # 跨 feature 公共组件（暂空，按需创建）
 ```
 
@@ -425,9 +427,13 @@ void main() {
   - **✅ 双开开关**：同一设备下的 `_on_p_2_1` / `_on_p_3_1` 识别为左/右两路，
     首页卡显示两路状态，详情页独立开关 + 全开/全关；指示灯、模式、按键事件
     继续以列表展示。
-  - **✅ 智能插座 / 空调插座用电信息**：智能插座卡片显示当前功率与累计电量，
-    详情页显示功率、累计电量、设备温度、开关次数；空调插座详情在温控面板
-    后追加「当前功率」。插座详情另有快捷开关行（童锁 / 定时 + 指示灯，
+  - **✅ 智能插座 / 空调插座用电信息**：智能插座卡片显示当前功率、功率趋势与
+    累计电量，详情页显示功率趋势、累计电量、设备温度、开关次数；空调插座详情
+    在温控面板后追加「用电信息」卡（当前功率 + 功率趋势）。功率趋势由
+    `PowerHistoryStore` 在内存中记录最近 24 小时（不持久化，启动后开始采样），
+    `PowerSampler` 按设置的间隔（默认 5 秒，可选 1/2/3/4/5/10/30 秒）采样，
+    图表用 `PowerSparkline`（CustomPainter）绘制，样式对齐 Windows 任务管理器。
+    插座详情另有快捷开关行（童锁 / 定时 + 指示灯，
     `socket_quick_switch.dart`，指示灯是 light 域单独处理）。今日 / 近一月
     用电是米家云端统计，HA 只暴露当前功率与累计电量，未做估算。
   - **✅ 冰箱卡片 / 详情**：冷藏、冷冻、变温三舱当前温度 + 目标温度 + 模式
