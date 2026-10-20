@@ -4,10 +4,11 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
-import 'package:pscreen_home/features/home/application/power_history.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
@@ -125,8 +126,8 @@ class DeviceDetailPage extends StatelessWidget {
           final bool showFanPanel = fan != null;
           final bool showLockPanel = lock != null;
           // 功率历史仅驻内存，按设备订阅最近 1 小时的采样。
-          final PowerHistoryStore historyStore =
-              Injection.get<PowerHistoryStore>();
+          final MetricHistoryStore historyStore =
+              Injection.get<MetricHistoryStore>();
           // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
           final bool hasClimatePanel = !isLockDevice &&
               group.entities.any((HaEntityStateModel e) => e.isClimate);
@@ -590,7 +591,7 @@ class DeviceDetailPage extends StatelessWidget {
                                 entityId: socketIndicatorLightId,
                               ),
                             ),
-                    history: historyStore.watch(deviceId),
+                          history: historyStore.watch(deviceId, Metric.power),
                   );
                 }
 
@@ -1061,7 +1062,7 @@ class DeviceDetailPage extends StatelessWidget {
                         const SizedBox(height: 12),
                         PowerStatsCard(
                           stats: devicePower,
-                          history: historyStore.watch(deviceId),
+                    history: historyStore.watch(deviceId, Metric.power),
                         ),
                       ],
                     ],

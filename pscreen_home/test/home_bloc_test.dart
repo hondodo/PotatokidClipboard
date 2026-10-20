@@ -7,7 +7,7 @@ import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
-import 'package:pscreen_home/features/home/application/power_history.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -314,8 +314,8 @@ const Map<String, dynamic> _climateAttributes = <String, dynamic>{
 };
 
 /// 测试用采样器：独立内存历史，避免用例之间互相污染。
-PowerSampler _powerSampler() => PowerSampler(
-      store: PowerHistoryStore(),
+MetricSampler _powerSampler() => MetricSampler(
+      store: MetricHistoryStore(),
       log: getIt<LogService>(),
     );
 

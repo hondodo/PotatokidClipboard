@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/home/domain/models/power_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
-import 'package:pscreen_home/features/home/presentation/components/power_sparkline.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 智能插座详情面板：当前功率、功率趋势、累计电量、设备温度、开关次数。
 class SocketControlPanel extends StatelessWidget {
@@ -25,7 +25,7 @@ class SocketControlPanel extends StatelessWidget {
   final VoidCallback onToggle;
 
   /// 功率历史订阅；null 则不绘制趋势图。
-  final ValueListenable<List<PowerSample>>? history;
+  final ValueListenable<List<MetricSample>>? history;
 
   /// 插座次级开关（童锁 / 定时），空列表则不渲染该区。
   final List<SocketQuickSwitch> quickSwitches;
@@ -147,10 +147,11 @@ class SocketControlPanel extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             if (history != null)
-              ValueListenableBuilder<List<PowerSample>>(
+              ValueListenableBuilder<List<MetricSample>>(
                 valueListenable: history!,
-                builder: (BuildContext context, List<PowerSample> samples, _) {
-                  return PowerSparkline(samples: samples);
+                builder:
+                    (BuildContext context, List<MetricSample> samples, _) {
+                  return MetricSparkline(samples: samples);
                 },
               ),
             if (history != null) const SizedBox(height: 18),

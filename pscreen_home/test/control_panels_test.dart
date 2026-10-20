@@ -6,7 +6,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
-import 'package:pscreen_home/features/home/domain/models/power_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
@@ -21,7 +21,7 @@ import 'package:pscreen_home/features/home/presentation/components/light_control
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_widget.dart';
-import 'package:pscreen_home/features/home/presentation/components/power_sparkline.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
@@ -1020,13 +1020,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final ValueNotifier<List<PowerSample>> history =
-        ValueNotifier<List<PowerSample>>(<PowerSample>[
-      PowerSample(
+    final ValueNotifier<List<MetricSample>> history =
+        ValueNotifier<List<MetricSample>>(<MetricSample>[
+      MetricSample(
         at: DateTime.now().subtract(const Duration(minutes: 30)),
-        watts: 12,
+        value: 12,
       ),
-      PowerSample(at: DateTime.now(), watts: 48),
+      MetricSample(at: DateTime.now(), value: 48),
     ]);
     addTearDown(history.dispose);
 
@@ -1049,19 +1049,19 @@ void main() {
       ),
     ));
 
-    expect(find.byType(PowerSparkline), findsOneWidget);
+    expect(find.byType(MetricSparkline), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('用电信息卡：当前功率 / 累计电量 + 功率趋势图',
       (WidgetTester tester) async {
-    final ValueNotifier<List<PowerSample>> history =
-        ValueNotifier<List<PowerSample>>(<PowerSample>[
-      PowerSample(
+    final ValueNotifier<List<MetricSample>> history =
+        ValueNotifier<List<MetricSample>>(<MetricSample>[
+      MetricSample(
         at: DateTime.now().subtract(const Duration(minutes: 20)),
-        watts: 5,
+        value: 5,
       ),
-      PowerSample(at: DateTime.now(), watts: 30),
+      MetricSample(at: DateTime.now(), value: 30),
     ]);
     addTearDown(history.dispose);
 
@@ -1072,7 +1072,7 @@ void main() {
 
     expect(find.text('用电信息'), findsOneWidget);
     expect(find.text('当前功率'), findsOneWidget);
-    expect(find.byType(PowerSparkline), findsOneWidget);
+    expect(find.byType(MetricSparkline), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

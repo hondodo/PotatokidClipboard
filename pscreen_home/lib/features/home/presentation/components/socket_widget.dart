@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/home/domain/models/power_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
-import 'package:pscreen_home/features/home/presentation/components/power_sparkline.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 智能插座卡片：开关 + 当前功率 + 功率趋势 + 累计电量。
 class SocketWidget extends StatelessWidget {
@@ -23,7 +23,7 @@ class SocketWidget extends StatelessWidget {
   final VoidCallback? onOpenDetail;
 
   /// 功率历史订阅；null 则不绘制趋势图。
-  final ValueListenable<List<PowerSample>>? history;
+  final ValueListenable<List<MetricSample>>? history;
 
   static const Color _accent = Color(0xFF64B5F6);
 
@@ -108,11 +108,11 @@ class SocketWidget extends StatelessWidget {
               if (history != null) ...<Widget>[
                 const SizedBox(height: 2),
                 Expanded(
-                  child: ValueListenableBuilder<List<PowerSample>>(
+                  child: ValueListenableBuilder<List<MetricSample>>(
                     valueListenable: history!,
                     builder:
-                        (BuildContext context, List<PowerSample> samples, _) {
-                      return PowerSparkline(
+                        (BuildContext context, List<MetricSample> samples, _) {
+                      return MetricSparkline(
                         height: null,
                         showLabels: false,
                         samples: samples,

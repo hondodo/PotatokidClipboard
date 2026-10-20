@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/home/domain/models/power_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
-import 'package:pscreen_home/features/home/presentation/components/power_sparkline.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 通用用电信息卡：当前功率 + 累计电量（有则显示）+ 功率趋势图 + 设备温度 / 开关次数。
 ///
@@ -20,7 +20,7 @@ class PowerStatsCard extends StatelessWidget {
   final String title;
 
   /// 功率历史订阅；null 则不绘制趋势图。
-  final ValueListenable<List<PowerSample>>? history;
+  final ValueListenable<List<MetricSample>>? history;
 
   static const Color _accent = Color(0xFF64B5F6);
 
@@ -90,10 +90,11 @@ class PowerStatsCard extends StatelessWidget {
             ),
             if (history != null) ...<Widget>[
               const SizedBox(height: 12),
-              ValueListenableBuilder<List<PowerSample>>(
+              ValueListenableBuilder<List<MetricSample>>(
                 valueListenable: history!,
-                builder: (BuildContext context, List<PowerSample> samples, _) {
-                  return PowerSparkline(samples: samples);
+                builder:
+                    (BuildContext context, List<MetricSample> samples, _) {
+                  return MetricSparkline(samples: samples);
                 },
               ),
             ],

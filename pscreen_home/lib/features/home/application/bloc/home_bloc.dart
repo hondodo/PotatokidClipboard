@@ -8,9 +8,11 @@ import 'package:pscreen_home/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
-import 'package:pscreen_home/features/home/application/power_history.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
+import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
@@ -19,11 +21,11 @@ import 'package:pscreen_home/features/home/domain/repositories/home_repository.d
 /// - [EntityStateChanged]：WS 推送的单实体状态更新；
 /// - [ToggleEntity]：乐观更新 + 失败回滚。
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
-  HomeBloc({required this.repository, required PowerSampler sampler})
+  HomeBloc({required this.repository, required MetricSampler sampler})
       : _sampler = sampler,
         super(HomeState.initial()) {
-    // 绑定功率采样源并启动：按配置间隔记录最近 1 小时的功率曲线。
-    _sampler.bind(() => state.powerStats);
+    // 绑定指标采样源并启动：按配置间隔记录各设备最近 24 小时的曲线。
+    _sampler.bind(_readMetricValues);
     on<LoadHome>(_onLoadHome);
     on<EntityStateChanged>(_onEntityStateChanged);
     on<ToggleEntity>(_onToggleEntity);
@@ -54,8 +56,19 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   final HomeRepository repository;
-  final PowerSampler _sampler;
+  final MetricSampler _sampler;
   StreamSubscription<HaEntityStateModel>? _subscription;
+
+  /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
+  Map<String, Map<Metric, double?>> _readMetricValues() {
+    final Map<String, Map<Metric, double?>> out =
+        <String, Map<Metric, double?>>{};
+    state.powerStats.forEach((String deviceId, PowerStats stats) {
+      if (stats.currentEntityId == null) return;
+      out[deviceId] = <Metric, double?>{Metric.power: stats.currentWatts};
+    });
+    return out;
+  }
 
   Future<void> _onLoadHome(LoadHome event, Emitter<HomeState> emit) async {
     emit(state.copyWith(isLoading: true, clearError: true));

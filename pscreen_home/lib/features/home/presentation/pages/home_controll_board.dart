@@ -10,11 +10,12 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_sta
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
-import 'package:pscreen_home/features/home/application/power_history.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
@@ -570,8 +571,8 @@ class _ControlGrid extends StatelessWidget {
             state.waterPurifierSummaries;
         final Map<String, RangeHoodSummary> hoods =
             state.rangeHoodSummaries;
-        final PowerHistoryStore historyStore =
-            Injection.get<PowerHistoryStore>();
+        final MetricHistoryStore historyStore =
+            Injection.get<MetricHistoryStore>();
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -625,7 +626,10 @@ class _ControlGrid extends StatelessWidget {
                 areaLabel: areaLabel,
                 isToggling:
                     state.togglingIds.contains(socket.powerEntityId),
-                history: historyStore.watch(socket.deviceId),
+                history: historyStore.watch(
+                  socket.deviceId,
+                  Metric.power,
+                ),
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),

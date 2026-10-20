@@ -7,7 +7,7 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
-import 'package:pscreen_home/features/home/application/power_history.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 
 /// 设置页：Home Assistant 连接配置（地址 + 长期访问令牌）。
 ///
@@ -96,7 +96,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _sampleSeconds = seconds);
     final SettingsStore store = Injection.get<SettingsStore>();
     await store.savePowerSampleSeconds(seconds);
-    Injection.get<PowerSampler>().setInterval(Duration(seconds: seconds));
+    Injection.get<MetricSampler>().setInterval(Duration(seconds: seconds));
   }
 
   @override
