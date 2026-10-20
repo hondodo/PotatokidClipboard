@@ -14,6 +14,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart'
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
@@ -1456,6 +1457,49 @@ void main() {
       expect(sz.hasData, isFalse);
       expect(sz.temperature, isNull);
       expect(sz.humidity, isNull);
+    });
+  });
+
+  group('HomeBloc 指标采样', () {
+    test('按设备记录功率 / 温度 / 湿度', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('switch.plug', 'on'),
+          _entity('sensor.plug_electric_power_1', '12.5'),
+          _entity('sensor.plug_temperature_1', '31.2'),
+          _entity('sensor.plug_humidity_1', '48'),
+          _entity('sensor.plug_temperature_2', '99'),
+        ],
+      )
+        ..registry = const HaRegistry(
+          deviceIdByEntity: <String, String>{
+            'sensor.plug_electric_power_1': 'dev-plug',
+            'sensor.plug_temperature_1': 'dev-plug',
+            'sensor.plug_temperature_2': 'dev-plug',
+            'sensor.plug_humidity_1': 'dev-plug',
+          },
+        );
+      final MetricHistoryStore store = MetricHistoryStore();
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: MetricSampler(
+          store: store,
+          log: getIt<LogService>(),
+          interval: const Duration(milliseconds: 10),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(store.seriesOf('dev-plug', Metric.power).last.value, 12.5);
+      expect(
+        store.seriesOf('dev-plug', Metric.temperature).last.value,
+        31.2,
+        reason: '同设备多个温度传感器时取首个匹配',
+      );
+      expect(store.seriesOf('dev-plug', Metric.humidity).last.value, 48);
     });
   });
 }

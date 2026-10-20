@@ -12,7 +12,7 @@ import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
-import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
@@ -60,12 +60,35 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   StreamSubscription<HaEntityStateModel>? _subscription;
 
   /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
+  ///
+  /// 遍历全部实体（不受首页家庭/房间筛选影响），保证切换筛选后历史连贯。
   Map<String, Map<Metric, double?>> _readMetricValues() {
+    final Map<String, Map<Metric, String>> entityIdsByDevice =
+        <String, Map<Metric, String>>{};
+    for (final HaEntityStateModel entity in state.entities.values) {
+      final String? deviceId = state.registry.deviceIdOf(entity.entityId);
+      if (deviceId == null) continue;
+      final Map<Metric, String> matched =
+          MetricEntityResolver.matchEntity(entity);
+      if (matched.isEmpty) continue;
+      final Map<Metric, String> target = entityIdsByDevice.putIfAbsent(
+        deviceId,
+        () => <Metric, String>{},
+      );
+      matched.forEach((Metric metric, String entityId) {
+        target.putIfAbsent(metric, () => entityId);
+      });
+    }
+
     final Map<String, Map<Metric, double?>> out =
         <String, Map<Metric, double?>>{};
-    state.powerStats.forEach((String deviceId, PowerStats stats) {
-      if (stats.currentEntityId == null) return;
-      out[deviceId] = <Metric, double?>{Metric.power: stats.currentWatts};
+    entityIdsByDevice.forEach((String deviceId, Map<Metric, String> ids) {
+      out[deviceId] = <Metric, double?>{
+        for (final MapEntry<Metric, String> entry in ids.entries)
+          entry.key: double.tryParse(
+            state.entities[entry.value]?.state ?? '',
+          ),
+      };
     });
     return out;
   }

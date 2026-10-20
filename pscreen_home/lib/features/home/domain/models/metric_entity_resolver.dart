@@ -13,20 +13,31 @@ abstract final class MetricEntityResolver {
   static Map<Metric, String> resolve(HaDeviceGroup group) {
     final Map<Metric, String> result = <Metric, String>{};
     for (final HaEntityStateModel e in group.entities) {
-      if (e.domain != 'sensor') continue;
-      if (e.entityId.contains('_electric_power_') &&
-          !result.containsKey(Metric.power)) {
-        result[Metric.power] = e.entityId;
-      }
-      if (e.entityId.contains('_temperature_') &&
-          !result.containsKey(Metric.temperature)) {
-        result[Metric.temperature] = e.entityId;
-      }
-      if (e.entityId.contains('_humidity_') &&
-          !result.containsKey(Metric.humidity)) {
-        result[Metric.humidity] = e.entityId;
-      }
+      _add(result, e);
     }
     return result;
+  }
+
+  /// 单个实体匹配的 metric（无匹配返回空 map）；供采样器遍历全部实体用。
+  static Map<Metric, String> matchEntity(HaEntityStateModel entity) {
+    final Map<Metric, String> result = <Metric, String>{};
+    _add(result, entity);
+    return result;
+  }
+
+  static void _add(Map<Metric, String> result, HaEntityStateModel e) {
+    if (e.domain != 'sensor') return;
+    if (e.entityId.contains('_electric_power_') &&
+        !result.containsKey(Metric.power)) {
+      result[Metric.power] = e.entityId;
+    }
+    if (e.entityId.contains('_temperature_') &&
+        !result.containsKey(Metric.temperature)) {
+      result[Metric.temperature] = e.entityId;
+    }
+    if (e.entityId.contains('_humidity_') &&
+        !result.containsKey(Metric.humidity)) {
+      result[Metric.humidity] = e.entityId;
+    }
   }
 }

@@ -4,11 +4,13 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
@@ -33,6 +35,7 @@ import 'package:pscreen_home/features/home/presentation/components/fridge_contro
 import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/lock_overview_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_chart_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
 import 'package:pscreen_home/features/home/presentation/components/range_hood_control_panel.dart';
@@ -247,6 +250,10 @@ class DeviceDetailPage extends StatelessWidget {
                   !showHoodPanel
               ? 0
               : 1;
+          // 该设备可绘制的指标（仅数值型 sensor）；无则不出曲线卡。
+          final Map<Metric, String> metricEntityIds =
+              MetricEntityResolver.resolve(group);
+          final bool showMetricChart = metricEntityIds.isNotEmpty;
           final String headerStatus;
           if (lock != null) {
             headerStatus = lock.statusLabel;
@@ -302,10 +309,20 @@ class DeviceDetailPage extends StatelessWidget {
             ),
             body: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: entities.length + panelCount,
+              itemCount:
+                  entities.length + panelCount + (showMetricChart ? 1 : 0),
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
+                if (showMetricChart &&
+                    index == panelCount + entities.length) {
+                  return MetricChartCard(
+                    service: Injection.get<HistoryService>(),
+                    deviceId: deviceId,
+                    entityIds: metricEntityIds,
+                  );
+                }
+
                 if (showLockPanel && index == 0) {
                   return LockOverviewCard(summary: lock);
                 }
@@ -1062,7 +1079,7 @@ class DeviceDetailPage extends StatelessWidget {
                         const SizedBox(height: 12),
                         PowerStatsCard(
                           stats: devicePower,
-                    history: historyStore.watch(deviceId, Metric.power),
+                          history: historyStore.watch(deviceId, Metric.power),
                         ),
                       ],
                     ],
