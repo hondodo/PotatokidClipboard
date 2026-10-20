@@ -4,6 +4,7 @@ import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/history_range.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 class _FakeRepo implements HomeRepository {
@@ -62,7 +63,7 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.week,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
 
@@ -82,7 +83,7 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.month,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
 
@@ -90,8 +91,8 @@ void main() {
     expect(repo.detailCalls, 0);
   });
 
-  test('明细起点缺失时回退统计（自适应兜底）', () async {
-    // 明细只覆盖最近 2 小时（更早被 purge）→ 整个 range 改用统计。
+  test('明细只覆盖最近一段时，与统计拼接而不是丢弃明细', () async {
+    // 明细只覆盖最近 2 小时（更早被 purge）→ 统计补齐前半段，明细保留后半段。
     final _FakeRepo repo = _FakeRepo(
       detail: <MetricSample>[at(now.subtract(const Duration(hours: 2)), 10)],
       stats: <MetricSample>[at(now.subtract(const Duration(days: 6)), 30)],
@@ -103,13 +104,15 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.week,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
 
     expect(repo.detailCalls, 1);
     expect(repo.statsCalls, 1);
-    expect(out.single.value, 30);
+    expect(out.length, 2);
+    expect(out.first.value, 30);
+    expect(out.last.value, 10);
   });
 
   test('明细为空时回退统计', () async {
@@ -123,7 +126,7 @@ void main() {
       deviceId: 'd',
       metric: Metric.humidity,
       range: HistoryRange.h24,
-      entityId: 'sensor.h',
+      source: const MetricSource('sensor.h'),
       now: now,
     );
 
@@ -142,13 +145,13 @@ void main() {
           deviceId: 'd',
           metric: Metric.power,
           range: HistoryRange.month,
-          entityId: 'sensor.d',
+          source: const MetricSource('sensor.d'),
           now: now),
       service.load(
           deviceId: 'd',
           metric: Metric.power,
           range: HistoryRange.month,
-          entityId: 'sensor.d',
+          source: const MetricSource('sensor.d'),
           now: now),
     ];
     await Future.wait(futures);
@@ -164,7 +167,7 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.month,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
     service.invalidate();
@@ -172,7 +175,7 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.month,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
 
@@ -197,12 +200,39 @@ void main() {
       deviceId: 'd',
       metric: Metric.power,
       range: HistoryRange.h1,
-      entityId: 'sensor.d',
+      source: const MetricSource('sensor.d'),
       now: now,
     );
 
     expect(out.length, 2);
     expect(out.first.value, 99);
     expect(out.last.value, 12);
+  });
+
+  test('climate 属性只取内存采样，不请求 HA', () async {
+    final MetricHistoryStore store = MetricHistoryStore();
+    store.record('d', Metric.temperature, 26.5, now: now);
+
+    final _FakeRepo repo = _FakeRepo(
+      detail: <MetricSample>[at(now, 10)],
+      stats: <MetricSample>[at(now, 20)],
+    );
+    final HistoryService service =
+        HistoryService(repository: repo, store: store);
+
+    final List<MetricSample> out = await service.load(
+      deviceId: 'd',
+      metric: Metric.temperature,
+      range: HistoryRange.month,
+      source: const MetricSource(
+        'climate.ac',
+        attribute: 'current_temperature',
+      ),
+      now: now,
+    );
+
+    expect(repo.detailCalls, 0);
+    expect(repo.statsCalls, 0);
+    expect(out.single.value, 26.5);
   });
 }

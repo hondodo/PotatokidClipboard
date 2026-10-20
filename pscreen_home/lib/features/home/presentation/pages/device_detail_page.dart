@@ -11,6 +11,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
@@ -250,10 +251,21 @@ class DeviceDetailPage extends StatelessWidget {
                   !showHoodPanel
               ? 0
               : 1;
-          // 该设备可绘制的指标（仅数值型 sensor）；无则不出曲线卡。
-          final Map<Metric, String> metricEntityIds =
+          // 该设备可绘制的指标（数值型 sensor 或 climate 属性）；无则不出曲线卡。
+          final Map<Metric, MetricSource> metricSources =
               MetricEntityResolver.resolve(group);
-          final bool showMetricChart = metricEntityIds.isNotEmpty;
+          final bool showMetricChart = metricSources.isNotEmpty;
+          // 空调：温湿度紧跟「用电信息」；其余设备仍放列表末尾。
+          final Map<Metric, MetricSource> inlineMetricSources =
+              <Metric, MetricSource>{
+            for (final MapEntry<Metric, MetricSource> entry
+                in metricSources.entries)
+              if (entry.key != Metric.power) entry.key: entry.value,
+          };
+          final bool showInlineMetricChart =
+              hasClimatePanel && inlineMetricSources.isNotEmpty;
+          final bool showTailMetricChart =
+              showMetricChart && !showInlineMetricChart;
           final String headerStatus;
           if (lock != null) {
             headerStatus = lock.statusLabel;
@@ -310,16 +322,16 @@ class DeviceDetailPage extends StatelessWidget {
             body: ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount:
-                  entities.length + panelCount + (showMetricChart ? 1 : 0),
+                  entities.length + panelCount + (showTailMetricChart ? 1 : 0),
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(height: 12),
               itemBuilder: (BuildContext context, int index) {
-                if (showMetricChart &&
+                if (showTailMetricChart &&
                     index == panelCount + entities.length) {
                   return MetricChartCard(
                     service: Injection.get<HistoryService>(),
                     deviceId: deviceId,
-                    entityIds: metricEntityIds,
+                    sources: metricSources,
                   );
                 }
 
@@ -1080,6 +1092,14 @@ class DeviceDetailPage extends StatelessWidget {
                         PowerStatsCard(
                           stats: devicePower,
                           history: historyStore.watch(deviceId, Metric.power),
+                        ),
+                      ],
+                      if (showInlineMetricChart) ...<Widget>[
+                        const SizedBox(height: 12),
+                        MetricChartCard(
+                          service: Injection.get<HistoryService>(),
+                          deviceId: deviceId,
+                          sources: inlineMetricSources,
                         ),
                       ],
                     ],

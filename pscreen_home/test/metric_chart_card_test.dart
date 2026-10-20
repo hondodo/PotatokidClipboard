@@ -4,25 +4,28 @@ import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_chart_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
-void main() {
-  testWidgets('渲染 range 按钮与 metric 切换，默认 24h', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MetricChartCard(
-            service: HistoryService(
-              repository: _NoopRepo(),
-              store: MetricHistoryStore(),
-            ),
-            deviceId: 'd',
-            entityIds: const <Metric, String>{Metric.power: 'sensor.d'},
+Widget _card(Map<Metric, MetricSource> sources) => MaterialApp(
+      home: Scaffold(
+        body: MetricChartCard(
+          service: HistoryService(
+            repository: _NoopRepo(),
+            store: MetricHistoryStore(),
           ),
+          deviceId: 'd',
+          sources: sources,
         ),
       ),
+    );
+
+void main() {
+  testWidgets('渲染 range 按钮，默认 24h', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _card(const <Metric, MetricSource>{Metric.power: MetricSource('sensor.d')}),
     );
     await tester.pump();
 
@@ -35,57 +38,40 @@ void main() {
     expect(find.byType(MetricSparkline), findsOneWidget);
   });
 
-  testWidgets('只显示可用的 metric', (WidgetTester tester) async {
+  testWidgets('温度与湿度分区同时展示，无需切换', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MetricChartCard(
-            service: HistoryService(
-              repository: _NoopRepo(),
-              store: MetricHistoryStore(),
-            ),
-            deviceId: 'd',
-            entityIds: const <Metric, String>{
-              Metric.temperature: 'sensor.t',
-              Metric.humidity: 'sensor.h',
-            },
-          ),
-        ),
-      ),
+      _card(const <Metric, MetricSource>{
+        Metric.temperature: MetricSource('sensor.t'),
+        Metric.humidity: MetricSource('sensor.h'),
+      }),
     );
     await tester.pump();
 
     expect(find.text('温度'), findsOneWidget);
     expect(find.text('湿度'), findsOneWidget);
     expect(find.text('功率'), findsNothing);
+    expect(find.byType(MetricSparkline), findsNWidgets(2));
+
+    final List<MetricSparkline> charts =
+        tester.widgetList<MetricSparkline>(find.byType(MetricSparkline)).toList();
+    expect(charts[0].unit, '°C');
+    expect(charts[1].unit, '%');
   });
 
-  testWidgets('切换 metric 后曲线单位跟随', (WidgetTester tester) async {
+  testWidgets('功率 / 温度 / 湿度同时可见', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: MetricChartCard(
-            service: HistoryService(
-              repository: _NoopRepo(),
-              store: MetricHistoryStore(),
-            ),
-            deviceId: 'd',
-            entityIds: const <Metric, String>{
-              Metric.power: 'sensor.p',
-              Metric.temperature: 'sensor.t',
-            },
-          ),
-        ),
-      ),
+      _card(const <Metric, MetricSource>{
+        Metric.power: MetricSource('sensor.p'),
+        Metric.temperature: MetricSource('sensor.t'),
+        Metric.humidity: MetricSource('sensor.h'),
+      }),
     );
     await tester.pump();
 
-    await tester.tap(find.text('温度'));
-    await tester.pump();
-
-    final MetricSparkline chart =
-        tester.widget<MetricSparkline>(find.byType(MetricSparkline));
-    expect(chart.unit, '°C');
+    expect(find.text('功率'), findsOneWidget);
+    expect(find.text('温度'), findsOneWidget);
+    expect(find.text('湿度'), findsOneWidget);
+    expect(find.byType(MetricSparkline), findsNWidgets(3));
   });
 }
 

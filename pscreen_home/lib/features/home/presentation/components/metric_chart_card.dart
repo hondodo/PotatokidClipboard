@@ -3,80 +3,34 @@ import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/domain/models/history_range.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
-/// 指标曲线卡：range 切换 + metric 切换 + 曲线。
+/// 指标曲线卡：共享 range 切换，功率 / 温度 / 湿度分区同时展示（无需切换）。
 class MetricChartCard extends StatefulWidget {
   const MetricChartCard({
     super.key,
     required this.service,
     required this.deviceId,
-    required this.entityIds,
-    this.initialMetric = Metric.power,
+    required this.sources,
     this.initialRange = HistoryRange.h24,
   });
 
   final HistoryService service;
   final String deviceId;
-  final Map<Metric, String> entityIds;
-  final Metric initialMetric;
+  final Map<Metric, MetricSource> sources;
   final HistoryRange initialRange;
 
-  List<Metric> get availableMetrics =>
-      entityIds.keys.toList(growable: false);
+  List<Metric> get metrics =>
+      sources.keys.toList(growable: false)
+        ..sort((Metric a, Metric b) => a.index - b.index);
 
   @override
   State<MetricChartCard> createState() => _MetricChartCardState();
 }
 
 class _MetricChartCardState extends State<MetricChartCard> {
-  late Metric _metric = widget.availableMetrics.contains(widget.initialMetric)
-      ? widget.initialMetric
-      : widget.availableMetrics.first;
   late HistoryRange _range = widget.initialRange;
-  List<MetricSample>? _samples;
-  int _loadToken = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final int token = ++_loadToken;
-    final String? entityId = widget.entityIds[_metric];
-    if (entityId == null) {
-      if (mounted) setState(() => _samples = const <MetricSample>[]);
-      return;
-    }
-    final List<MetricSample> samples = await widget.service.load(
-      deviceId: widget.deviceId,
-      metric: _metric,
-      range: _range,
-      entityId: entityId,
-    );
-    // 快速切换 metric / range 时丢弃过期结果。
-    if (!mounted || token != _loadToken) return;
-    setState(() => _samples = samples);
-  }
-
-  /// 明细段的断线阈值：采样越密、窗口越长，允许的间隔越大。
-  static Duration? _gapFor(HistoryRange range) {
-    switch (range) {
-      case HistoryRange.h1:
-      case HistoryRange.h6:
-        return const Duration(minutes: 2);
-      case HistoryRange.h12:
-      case HistoryRange.h24:
-        return const Duration(minutes: 10);
-      case HistoryRange.week:
-        return const Duration(hours: 1);
-      case HistoryRange.month:
-      case HistoryRange.year:
-        return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,49 +56,125 @@ class _MetricChartCardState extends State<MetricChartCard> {
                         label: Text(r.label),
                         selected: r == _range,
                         showCheckmark: false,
-                        onSelected: (_) {
-                          setState(() => _range = r);
-                          _load();
-                        },
+                        onSelected: (_) => setState(() => _range = r),
                       ),
                     ),
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 32,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: <Widget>[
-                  for (final Metric m in widget.availableMetrics)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(m.label),
-                        selected: m == _metric,
-                        showCheckmark: false,
-                        onSelected: (_) {
-                          setState(() => _metric = m);
-                          _load();
-                        },
-                      ),
-                    ),
-                ],
+            for (final Metric metric in widget.metrics) ...<Widget>[
+              const SizedBox(height: 18),
+              _MetricSection(
+                key: ValueKey<Metric>(metric),
+                service: widget.service,
+                deviceId: widget.deviceId,
+                metric: metric,
+                source: widget.sources[metric]!,
+                range: _range,
               ),
-            ),
-            const SizedBox(height: 12),
-            if (_samples != null)
-              MetricSparkline(
-                samples: _samples!,
-                window: _range.duration,
-                height: 120,
-                unit: _metric.unit,
-                gapThreshold: adaptiveGap(_gapFor(_range), _samples!),
-              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 单个指标分区：标题 + 曲线，随内存采样实时刷新。
+class _MetricSection extends StatefulWidget {
+  const _MetricSection({
+    super.key,
+    required this.service,
+    required this.deviceId,
+    required this.metric,
+    required this.source,
+    required this.range,
+  });
+
+  final HistoryService service;
+  final String deviceId;
+  final Metric metric;
+  final MetricSource source;
+  final HistoryRange range;
+
+  @override
+  State<_MetricSection> createState() => _MetricSectionState();
+}
+
+class _MetricSectionState extends State<_MetricSection> {
+  List<MetricSample>? _samples;
+  int _loadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MetricSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.range != widget.range ||
+        oldWidget.service != widget.service ||
+        oldWidget.deviceId != widget.deviceId) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final int token = ++_loadToken;
+    final List<MetricSample> samples = await widget.service.load(
+      deviceId: widget.deviceId,
+      metric: widget.metric,
+      range: widget.range,
+      source: widget.source,
+    );
+    // 快速切换 range 时丢弃过期结果。
+    if (!mounted || token != _loadToken) return;
+    setState(() => _samples = samples);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<MetricSample>? loaded = _samples;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text(widget.metric.label, style: theme.textTheme.titleSmall),
+            const Spacer(),
+            Text(
+              widget.metric.unit,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (loaded == null)
+          const SizedBox(height: 110)
+        else
+          ValueListenableBuilder<List<MetricSample>>(
+            valueListenable:
+                widget.service.watch(widget.deviceId, widget.metric),
+            builder: (BuildContext context, _, Widget? child) {
+              final List<MetricSample> merged = widget.service.mergeLive(
+                widget.deviceId,
+                widget.metric,
+                loaded,
+              );
+              return MetricSparkline(
+                samples: merged,
+                window: widget.range.duration,
+                height: 110,
+                unit: widget.metric.unit,
+              );
+            },
+          ),
+      ],
     );
   }
 }

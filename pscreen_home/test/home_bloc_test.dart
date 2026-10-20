@@ -1501,5 +1501,73 @@ void main() {
       );
       expect(store.seriesOf('dev-plug', Metric.humidity).last.value, 48);
     });
+
+    test('空调温湿度取 climate 属性', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('climate.ac', 'cool', attributes: <String, dynamic>{
+            'current_temperature': 26.5,
+            'current_humidity': 55,
+          }),
+        ],
+      )
+        ..registry = const HaRegistry(
+          deviceIdByEntity: <String, String>{'climate.ac': 'dev-ac'},
+        );
+      final MetricHistoryStore store = MetricHistoryStore();
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: MetricSampler(
+          store: store,
+          log: getIt<LogService>(),
+          interval: const Duration(milliseconds: 10),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(store.seriesOf('dev-ac', Metric.temperature).last.value, 26.5);
+      expect(store.seriesOf('dev-ac', Metric.humidity).last.value, 55);
+      expect(store.seriesOf('dev-ac', Metric.power), isEmpty);
+    });
+
+    test('同设备有温度 sensor 时不重复记 climate 属性', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[
+          _entity('climate.ac2', 'heat', attributes: <String, dynamic>{
+            'current_temperature': 30.0,
+          }),
+          _entity('sensor.ac2_temperature_p_1_1', '25.3'),
+        ],
+      )
+        ..registry = const HaRegistry(
+          deviceIdByEntity: <String, String>{
+            'climate.ac2': 'dev-ac2',
+            'sensor.ac2_temperature_p_1_1': 'dev-ac2',
+          },
+        );
+      final MetricHistoryStore store = MetricHistoryStore();
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: MetricSampler(
+          store: store,
+          log: getIt<LogService>(),
+          interval: const Duration(milliseconds: 10),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      final List<double> values = store
+          .seriesOf('dev-ac2', Metric.temperature)
+          .map((MetricSample s) => s.value)
+          .toList();
+      expect(values, isNotEmpty);
+      expect(values.every((double v) => v == 25.3), isTrue);
+    });
   });
 }

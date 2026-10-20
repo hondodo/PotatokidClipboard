@@ -13,6 +13,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.d
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
@@ -62,32 +63,27 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
   ///
   /// 遍历全部实体（不受首页家庭/房间筛选影响），保证切换筛选后历史连贯。
+  /// 温度 / 湿度优先取同设备数值型 sensor，没有时回退 climate 属性。
   Map<String, Map<Metric, double?>> _readMetricValues() {
-    final Map<String, Map<Metric, String>> entityIdsByDevice =
-        <String, Map<Metric, String>>{};
+    final Map<String, List<HaEntityStateModel>> byDevice =
+        <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in state.entities.values) {
       final String? deviceId = state.registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      final Map<Metric, String> matched =
-          MetricEntityResolver.matchEntity(entity);
-      if (matched.isEmpty) continue;
-      final Map<Metric, String> target = entityIdsByDevice.putIfAbsent(
-        deviceId,
-        () => <Metric, String>{},
-      );
-      matched.forEach((Metric metric, String entityId) {
-        target.putIfAbsent(metric, () => entityId);
-      });
+      (byDevice[deviceId] ??= <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, Map<Metric, double?>> out =
         <String, Map<Metric, double?>>{};
-    entityIdsByDevice.forEach((String deviceId, Map<Metric, String> ids) {
+    byDevice.forEach((String deviceId, List<HaEntityStateModel> entities) {
+      final Map<Metric, MetricSource> sources =
+          MetricEntityResolver.resolveEntities(entities);
+      if (sources.isEmpty) return;
       out[deviceId] = <Metric, double?>{
-        for (final MapEntry<Metric, String> entry in ids.entries)
-          entry.key: double.tryParse(
-            state.entities[entry.value]?.state ?? '',
-          ),
+        for (final MapEntry<Metric, MetricSource> entry in sources.entries)
+          entry.key: state.entities[entry.value.entityId] == null
+              ? null
+              : entry.value.valueOf(state.entities[entry.value.entityId]!),
       };
     });
     return out;
