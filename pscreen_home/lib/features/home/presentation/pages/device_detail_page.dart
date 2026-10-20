@@ -226,8 +226,10 @@ class DeviceDetailPage extends StatelessWidget {
               for (final HaEntityStateModel entity in group.entities)
                 entity.entityId,
           };
+          // 详情页标题已显示设备名，列表项裁剪掉重复的设备名前缀。
           final List<HaEntityStateModel> entities = group.entities
               .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
+              .map((HaEntityStateModel e) => e.withoutDeviceName(group.title))
               .toList(growable: false);
           final int panelCount = !showLockPanel &&
                   washer == null &&

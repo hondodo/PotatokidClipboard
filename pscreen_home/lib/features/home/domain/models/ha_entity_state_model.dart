@@ -73,6 +73,26 @@ class HaEntityStateModel {
     return entityId.split('.').skip(1).join('.');
   }
 
+  /// 去掉指定前缀后的显示名。
+  ///
+  /// 详情页标题已展示设备名，列表项再拼一次会重复；传入设备名即可裁剪
+  /// friendly_name 的前缀。不匹配或裁完为空时原样返回。
+  String displayNameWithout(String prefix) {
+    final String name = displayName.trim();
+    if (prefix.isEmpty || !name.startsWith(prefix)) return name;
+    final String trimmed = name.substring(prefix.length).trim();
+    return trimmed.isEmpty ? name : trimmed;
+  }
+
+  /// 返回裁剪掉设备名前缀的副本（同步 friendly_name）。
+  HaEntityStateModel withoutDeviceName(String deviceName) {
+    final String stripped = displayNameWithout(deviceName);
+    if (stripped == displayName) return this;
+    return copyWith(
+      attributes: <String, dynamic>{...attributes, 'friendly_name': stripped},
+    );
+  }
+
   /// 是否为开（climate / water_heater 的状态是模式，off 以外均视为开启）
   bool get isOn {
     if (!isAvailable) return false;

@@ -133,6 +133,45 @@ void main() {
       expect(merged.displayName, '卧室大灯');
       expect(entity.brightnessValue, 204, reason: '原对象保持不可变');
     });
+
+    test('displayNameWithout 裁剪设备名前缀', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{
+          'friendly_name': '小米空调 开发者模式',
+        },
+      );
+      expect(entity.displayNameWithout('小米空调'), '开发者模式');
+      // 前缀不匹配 / 为空时原样返回
+      expect(entity.displayNameWithout('别的设备'), '小米空调 开发者模式');
+      expect(entity.displayNameWithout(''), '小米空调 开发者模式');
+    });
+
+    test('displayNameWithout 裁完为空时保留原名', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{'friendly_name': '小米空调'},
+      );
+      expect(entity.displayNameWithout('小米空调'), '小米空调');
+    });
+
+    test('withoutDeviceName 返回裁剪副本且不影响原对象', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{
+          'friendly_name': '小米空调 开发者模式',
+          'brightness': 128,
+        },
+      );
+      final HaEntityStateModel stripped = entity.withoutDeviceName('小米空调');
+      expect(stripped.displayName, '开发者模式');
+      expect(stripped.brightnessValue, 128, reason: '其余属性保留');
+      expect(entity.displayName, '小米空调 开发者模式', reason: '原对象不变');
+    });
+
+    test('withoutDeviceName 无需裁剪时返回同一实例', () {
+      final HaEntityStateModel entity = buildEntity(
+        attributes: const <String, dynamic>{'friendly_name': '卧室大灯'},
+      );
+      expect(entity.withoutDeviceName('小米空调'), same(entity));
+    });
   });
 
   group('HaArea 家庭/房间拆分', () {
