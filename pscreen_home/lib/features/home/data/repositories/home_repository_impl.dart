@@ -3,6 +3,7 @@ import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/network/net_exceptions.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 
@@ -318,4 +319,90 @@ class HomeRepositoryImpl implements HomeRepository {
       serviceData: <String, dynamic>{'message': message},
     );
   }
+
+  @override
+  Future<List<MetricSample>> fetchMetricDetail({
+    required List<String> entityIds,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final Object? result = await client.historyDuringPeriod(
+      entityIds: entityIds,
+      start: start,
+      end: end,
+    );
+    return _parseMetricHistory(result);
+  }
+
+  @override
+  Future<List<MetricSample>> fetchMetricStats({
+    required List<String> statisticIds,
+    required DateTime start,
+    required DateTime end,
+    required String period,
+  }) async {
+    final Object? result = await client.statisticsDuringPeriod(
+      statisticIds: statisticIds,
+      start: start,
+      end: end,
+      period: period,
+    );
+    return _parseMetricStatistics(result);
+  }
+
+  /// 明细：紧凑项 `{s, lu}`，`lu` 为 Unix 秒（浮点）。
+  List<MetricSample> _parseMetricHistory(Object? result) {
+    if (result is! Map) return const <MetricSample>[];
+    final List<MetricSample> out = <MetricSample>[];
+    for (final Object? rawList in result.values) {
+      if (rawList is! List) continue;
+      for (final Object? item in rawList) {
+        if (item is! Map) continue;
+        final Object? s = item['s'];
+        final Object? lu = item['lu'];
+        if (s is! String || lu is! num) continue;
+        final double? value = double.tryParse(s);
+        if (value == null) continue;
+        out.add(MetricSample(
+          at: DateTime.fromMillisecondsSinceEpoch(
+            (lu * 1000).round(),
+            isUtc: true,
+          ).toLocal(),
+          value: value,
+        ));
+      }
+    }
+    out.sort((MetricSample a, MetricSample b) => a.at.compareTo(b.at));
+    return out;
+  }
+
+  /// 统计：`start` 为 Unix 毫秒，`mean/min/max` 为聚合值。
+  List<MetricSample> _parseMetricStatistics(Object? result) {
+    if (result is! Map) return const <MetricSample>[];
+    final List<MetricSample> out = <MetricSample>[];
+    for (final Object? rawList in result.values) {
+      if (rawList is! List) continue;
+      for (final Object? item in rawList) {
+        if (item is! Map) continue;
+        final Object? startTs = item['start'];
+        if (startTs is! num) continue;
+        final double? mean = _asDouble(item['mean']);
+        if (mean == null) continue;
+        out.add(MetricSample(
+          at: DateTime.fromMillisecondsSinceEpoch(
+            startTs.round(),
+            isUtc: true,
+          ).toLocal(),
+          value: mean,
+          min: _asDouble(item['min']),
+          max: _asDouble(item['max']),
+        ));
+      }
+    }
+    out.sort((MetricSample a, MetricSample b) => a.at.compareTo(b.at));
+    return out;
+  }
+
+  static double? _asDouble(Object? value) =>
+      value is num ? value.toDouble() : null;
 }

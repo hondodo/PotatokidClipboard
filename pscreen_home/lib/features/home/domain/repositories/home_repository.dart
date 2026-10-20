@@ -1,5 +1,6 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 
 /// 主页数据仓库（抽象接口，只定义方法签名）
@@ -125,5 +126,20 @@ abstract class HomeRepository {
   Future<void> pressNotifyAction({
     required String entityId,
     required String message,
+  });
+
+  /// 拉取指标明细历史（HA states 表，只记状态变化）。
+  Future<List<MetricSample>> fetchMetricDetail({
+    required List<String> entityIds,
+    required DateTime start,
+    required DateTime end,
+  });
+
+  /// 拉取指标长期统计（聚合）。
+  Future<List<MetricSample>> fetchMetricStats({
+    required List<String> statisticIds,
+    required DateTime start,
+    required DateTime end,
+    required String period,
   });
 }

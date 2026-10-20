@@ -14,6 +14,7 @@ import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart'
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
@@ -200,6 +201,21 @@ class _FakeHomeRepository implements HomeRepository {
     required DateTime start,
     required DateTime end,
   }) async => usageRecords;
+
+  @override
+  Future<List<MetricSample>> fetchMetricDetail({
+    required List<String> entityIds,
+    required DateTime start,
+    required DateTime end,
+  }) async => const <MetricSample>[];
+
+  @override
+  Future<List<MetricSample>> fetchMetricStats({
+    required List<String> statisticIds,
+    required DateTime start,
+    required DateTime end,
+    required String period,
+  }) async => const <MetricSample>[];
 
   @override
   Future<void> setTextValue({
