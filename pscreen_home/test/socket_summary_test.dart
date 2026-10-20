@@ -18,13 +18,14 @@ HaEntityStateModel _e(
       },
     );
 
-List<HaEntityStateModel> _socketEntities() => <HaEntityStateModel>[
+List<HaEntityStateModel> _socketEntities({String fault = '无故障'}) =>
+    <HaEntityStateModel>[
       _e('switch.cuco_on_p_2_1', 'on', name: '插座 开关'),
       _e('sensor.cuco_electric_power_p_11_2', '0', name: '当前功率'),
       _e('sensor.cuco_power_consumption_p_11_1', '0.01', name: '累计电量'),
       _e('sensor.cuco_temperature_p_12_2', '46', name: '设备温度'),
       _e('sensor.cuco_on_off_count_p_12_1', '3', name: '开关次数'),
-      _e('sensor.cuco_fault_p_2_3', '无故障', name: '故障'),
+      _e('sensor.cuco_fault_p_2_3', fault, name: '故障'),
     ];
 
 void main() {
@@ -46,6 +47,52 @@ void main() {
       expect(summary.stats.deviceTemperature, 46);
       expect(summary.stats.switchCount, 3);
       expect(summary.hasFault, isFalse);
+    });
+
+    test('故障值为 0 视为无故障', () {
+      final SocketSummary? summary = SocketSummary.tryBuild(
+        deviceId: 'dev_socket',
+        name: '阳台植物灯',
+        entities: _socketEntities(fault: '0'),
+      );
+
+      expect(summary, isNotNull);
+      expect(summary!.hasFault, isFalse);
+      expect(summary.statusLabel, '已开启');
+    });
+
+    test('空调设备不会被当作智能插座', () {
+      final SocketSummary? summary = SocketSummary.tryBuild(
+        deviceId: 'dev_ac',
+        name: '小米空调',
+        entities: <HaEntityStateModel>[
+          _e('climate.xiaomi_cn_735376016_m9', 'cool', name: '空调'),
+          _e('switch.xiaomi_cn_735376016_m9_favorite_on_p_2_19', 'off',
+              name: '收藏'),
+          _e('sensor.xiaomi_cn_735376016_m9_electric_power_p_12_13_14',
+              '1423.8',
+              name: '外机功率'),
+          _e('sensor.xiaomi_cn_735376016_m9_power_consumption_p_20_1',
+              '1859.3',
+              name: '累计电量'),
+          _e('sensor.xiaomi_cn_735376016_m9_fault_p_2_3', '0', name: '故障'),
+        ],
+      );
+
+      expect(summary, isNull);
+    });
+
+    test('收藏开关不会被当作插座电源', () {
+      final SocketSummary? summary = SocketSummary.tryBuild(
+        deviceId: 'dev_other',
+        name: '收藏开关设备',
+        entities: <HaEntityStateModel>[
+          _e('switch.demo_favorite_on_p_2_19', 'off', name: '收藏'),
+          _e('sensor.demo_electric_power_p_11_2', '12', name: '当前功率'),
+        ],
+      );
+
+      expect(summary, isNull);
     });
 
     test('只有电量没有当前功率的开关设备不当作智能插座', () {
@@ -70,6 +117,24 @@ void main() {
       expect(stats!.currentPowerLabel, '1.5 W');
       expect(stats.totalKwh, isNull);
       expect(stats.totalLabel, '—');
+    });
+
+    test('空调外机功率按 _ac_power_ 解析', () {
+      final PowerStats? stats = PowerStats.tryBuild(<HaEntityStateModel>[
+        _e('sensor.xiaomi_cn_735376016_m9_outdoor_ac_power_p_12_1314',
+            '1423.8',
+            name: '空调外机功率'),
+        _e('sensor.xiaomi_cn_735376016_m9_power_consumption_p_20_1', '1859.3',
+            name: '累计电量'),
+      ]);
+      expect(stats, isNotNull);
+      expect(stats!.acPowerWatts, 1423.8);
+      expect(stats.acPowerEntityId,
+          'sensor.xiaomi_cn_735376016_m9_outdoor_ac_power_p_12_1314');
+      expect(stats.currentWatts, isNull);
+      expect(stats.currentPowerLabel, '1424 W');
+      expect(stats.totalKwh, 1859.3);
+      expect(stats.hasData, isTrue);
     });
   });
 }

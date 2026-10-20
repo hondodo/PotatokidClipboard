@@ -17,8 +17,13 @@ class SocketSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
-    final HaEntityStateModel? power =
-        _byId(entities, '_on_p_2_1', domain: 'switch');
+    if (entities.any((HaEntityStateModel e) => e.isClimate)) return null;
+    final HaEntityStateModel? power = _byId(
+      entities,
+      '_on_p_2_1',
+      domain: 'switch',
+      ending: true,
+    );
     if (power == null) return null;
     final PowerStats? stats = PowerStats.tryBuild(entities);
     if (stats == null || stats.currentWatts == null) return null;
@@ -43,7 +48,8 @@ class SocketSummary {
   bool get hasFault {
     final String? value = fault;
     if (value == null) return false;
-    return value != '无故障' &&
+    return value != '0' &&
+        value != '无故障' &&
         value != 'No Faults' &&
         value != 'unknown' &&
         value.isNotEmpty;
@@ -55,10 +61,12 @@ class SocketSummary {
     Iterable<HaEntityStateModel> entities,
     String part, {
     required String domain,
+    bool ending = false,
   }) {
     for (final HaEntityStateModel entity in entities) {
       if (entity.domain != domain) continue;
-      if (entity.entityId.contains(part)) return entity;
+      final String id = entity.entityId;
+      if (ending ? id.endsWith(part) : id.contains(part)) return entity;
     }
     return null;
   }

@@ -896,7 +896,8 @@ class _ControlGrid extends StatelessWidget {
                 areaLabel: state.areaLabelFor(climate.entityId),
                 powerWatts: group.deviceId == null
                     ? null
-                    : state.powerStats[group.deviceId]?.currentWatts,
+                    : (state.powerStats[group.deviceId]?.acPowerWatts ??
+                        state.powerStats[group.deviceId]?.currentWatts),
                 onToggle: () => context
                     .read<HomeBloc>()
                     .add(ToggleEntity(entityId: climate.entityId)),
