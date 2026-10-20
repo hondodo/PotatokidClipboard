@@ -127,6 +127,39 @@ void main() {
     });
   });
 
+  group('坐标轴范围', () {
+    final DateTime now = DateTime(2026, 1, 1, 12);
+    MetricSample m(double v) => MetricSample(at: now, value: v);
+
+    test('非负数据不让下限变负（功率 0 ~ 1233 → 轴下限 0）', () {
+      final List<MetricSample> samples = <MetricSample>[m(0), m(1233)];
+
+      expect(dataRange(samples), (min: 0.0, max: 1233.0));
+      final ({double min, double max}) axis = axisRange(samples);
+      expect(axis.min, 0);
+      expect(axis.max, closeTo(1417.95, 0.01));
+    });
+
+    test('含负值数据保留负向留白（温度 -5 ~ 10）', () {
+      final List<MetricSample> samples = <MetricSample>[m(-5), m(10)];
+
+      expect(dataRange(samples), (min: -5.0, max: 10.0));
+      final ({double min, double max}) axis = axisRange(samples);
+      expect(axis.min, closeTo(-7.25, 0.01));
+      expect(axis.max, closeTo(12.25, 0.01));
+    });
+
+    test('恒定 0 时不出现除零范围', () {
+      expect(axisRange(<MetricSample>[m(0)]), (min: 0.0, max: 1.0));
+    });
+
+    test('恒定非零值围绕基准展开', () {
+      final ({double min, double max}) axis = axisRange(<MetricSample>[m(50)]);
+      expect(axis.min, closeTo(42.5, 0.01));
+      expect(axis.max, closeTo(57.5, 0.01));
+    });
+  });
+
   group('adaptiveGap', () {
     final DateTime now = DateTime(2026, 1, 1, 12);
     MetricSample m(Duration d, double v) =>

@@ -106,26 +106,8 @@ class _SparklinePainter extends CustomPainter {
     }
   }
 
-  ({double min, double max}) _valueRange(List<MetricSample> plotted) {
-    double lo = plotted.first.value;
-    double hi = plotted.first.value;
-    for (final MetricSample s in plotted) {
-      final double pointLo = math.min(s.value, s.min ?? s.value);
-      final double pointHi = math.max(s.value, s.max ?? s.value);
-      if (pointLo < lo) lo = pointLo;
-      if (pointHi > hi) hi = pointHi;
-    }
-    if (hi - lo < 0.001) {
-      lo = lo > 0 ? lo * 0.85 : lo * 1.15;
-      hi = hi > 0 ? hi * 1.15 : hi * 0.85;
-      if (hi - lo < 0.001) return (min: 0, max: 1);
-    } else {
-      final double pad = (hi - lo) * 0.15;
-      lo -= pad;
-      hi += pad;
-    }
-    return (min: lo, max: hi);
-  }
+  ({double min, double max}) _valueRange(List<MetricSample> plotted) =>
+      axisRange(plotted);
 
   List<List<Offset>> _segments(Size size) {
     if (samples.isEmpty || size.width <= 0 || size.height <= 0) {
@@ -220,7 +202,8 @@ class _SparklinePainter extends CustomPainter {
 
   void _drawLabels(Canvas canvas, Size size) {
     if (samples.isEmpty) return;
-    final ({double min, double max}) range = _valueRange(samples);
+    // 标签显示真实数据范围（不含绘图留白），避免出现负功率之类的假象。
+    final ({double min, double max}) range = dataRange(samples);
     _text(canvas, '${_fmt(range.max)} $unit', Offset(size.width, 0),
         alignRight: true);
     _text(canvas, _fmt(range.min), Offset(size.width, size.height),
@@ -378,6 +361,40 @@ List<_Plotted> _downsamplePlotted(List<_Plotted> input, double width) {
   // 收尾：保证曲线一直画到最右端（包括超出右边界的少量余量点）。
   if (start <= lastIndex) out.add(input[lastIndex]);
   return out;
+}
+
+/// 真实数据范围（含统计点的 min/max 区间），用于角标文字。
+@visibleForTesting
+({double min, double max}) dataRange(List<MetricSample> samples) {
+  double lo = samples.first.value;
+  double hi = samples.first.value;
+  for (final MetricSample s in samples) {
+    final double pointLo = math.min(s.value, s.min ?? s.value);
+    final double pointHi = math.max(s.value, s.max ?? s.value);
+    if (pointLo < lo) lo = pointLo;
+    if (pointHi > hi) hi = pointHi;
+  }
+  return (min: lo, max: hi);
+}
+
+/// 绘图用 y 轴范围：在数据范围外留 15% 边距，但不越过 0（功率/湿度 ≥ 0）。
+@visibleForTesting
+({double min, double max}) axisRange(List<MetricSample> samples) {
+  final ({double min, double max}) raw = dataRange(samples);
+  double lo = raw.min;
+  double hi = raw.max;
+  if (hi - lo < 0.001) {
+    lo = lo > 0 ? lo * 0.85 : lo * 1.15;
+    hi = hi > 0 ? hi * 1.15 : hi * 0.85;
+    if (hi - lo < 0.001) return (min: 0, max: 1);
+  } else {
+    final double pad = (hi - lo) * 0.15;
+    lo -= pad;
+    hi += pad;
+  }
+  // 非负数据保持 0 基线，避免坐标轴出现负功率。
+  if (raw.min >= 0 && lo < 0) lo = 0;
+  return (min: lo, max: hi);
 }
 
 /// 断线阈值自适应：HA 明细只记录「状态变化」，长时间恒定的传感器
