@@ -47,16 +47,17 @@ void main() {
           'packages/pscreen_screen/assets/datas/x.txt');
     });
 
-    test('isConfigured 反映是否已配置', () {
-      expect(ScreenAssets.isConfigured, isFalse);
-      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+    test('isConfigured 表示是否调用过 configure', () {
       expect(ScreenAssets.isConfigured, isTrue);
     });
 
-    test('requireConfigured 未配置时抛出 StateError', () {
-      expect(() => ScreenAssets.requireConfigured(), throwsStateError);
+    test('空根前缀对共享包自身合法，但宿主自检会抛异常', () {
+      ScreenAssets.configure(root: '');
+      expect(ScreenAssets.root, '');
+      expect(() => ScreenAssets.requireHostConfigured(), throwsStateError);
+
       ScreenAssets.configure(root: 'packages/pscreen_screen/');
-      expect(() => ScreenAssets.requireConfigured(), returnsNormally);
+      expect(() => ScreenAssets.requireHostConfigured(), returnsNormally);
     });
   });
 }
