@@ -23,20 +23,17 @@
        path: ../packages/pscreen_screen
    ```
 
-2. **在宿主自己的 pubspec 里声明共享包的资产**
+2. **资产由共享包自己声明，宿主无需再声明**
 
-   ```yaml
-   flutter:
-     assets:
-       - packages/pscreen_screen/assets/datas/
-   ```
+   共享包的 `pubspec.yaml` 里已经声明了 `assets: - assets/datas/`。当它作为依赖被
+   引入时，flutter_tools 会把该目录展开，并给资产键加上 `packages/pscreen_screen/`
+   前缀——也就是 `packages/pscreen_screen/assets/datas/<文件名>`，正好对应宿主
+   启动时设置的 `ScreenAssets.configure(root: 'packages/pscreen_screen/')`。
 
-   为什么宿主必须自己声明：flutter_tools 对**依赖包**解析资产时不展开通配目录
-   （`packages/flutter_tools/lib/src/asset.dart` 里对依赖包传
-   `wildcardDirectories: <Uri>[]`，注释即 "Do not track wildcard directories for
-   dependencies"）。因此共享包自己声明的 `assets: - assets/datas/`（目录）在被依赖时
-   不会生效，只有宿主显式声明 `packages/pscreen_screen/assets/datas/` 才会被打进
-   bundle，资产键为 `packages/pscreen_screen/assets/datas/<文件名>`。
+   **宿主不要在自己的 pubspec 里声明这份资产**：pubspec 里的目录通配是相对
+   **声明方自己的目录**解析的，写 `- packages/pscreen_screen/assets/datas/` 会被
+   解析成 `<宿主目录>/packages/pscreen_screen/assets/datas/`，构建时报
+   `Error: unable to find directory entry in pubspec.yaml`。
 
 3. **启动时配置根前缀并做接入自检**
 

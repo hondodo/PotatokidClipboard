@@ -182,20 +182,23 @@ potatokid_clipboard/
 
 ### 5.2 资产
 
-共享包的资产经 `packages/pscreen_screen/assets/...` 路径被宿主声明：
+共享包的资产由**共享包自己的** `pubspec.yaml` 声明（`assets: - assets/datas/`）。
+作为依赖被引入时，flutter_tools 会展开该目录并给资产键加上
+`packages/pscreen_screen/` 前缀，宿主**不需要**再在自己的 pubspec 里声明它。
+
+宿主只声明自己的资产：
 
 ```yaml
 flutter:
   assets:
     - .env
     - assets/icon/                       # 宿主原有
-    - packages/pscreen_screen/assets/datas/
-    - packages/pscreen_screen/assets/translations/
-    - packages/pscreen_screen/assets/weather/
-    - packages/pscreen_screen/assets/logo/
 ```
 
-`assets/translations/` 仅 `potatokid_screen` 使用（easy_localization）；`pscreen_home` 声明无害（未被引用）。
+> 宿主若写 `- packages/pscreen_screen/assets/datas/`，pubspec 的目录通配是相对
+> **声明方自己的目录**解析的，会被解析成
+> `<宿主目录>/packages/pscreen_screen/assets/datas/`，构建时报
+> `Error: unable to find directory entry in pubspec.yaml`。
 
 ### 5.3 `.env`
 

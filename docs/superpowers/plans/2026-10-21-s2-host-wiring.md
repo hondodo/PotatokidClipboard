@@ -83,18 +83,24 @@ environment:
   sdk: ^3.11.5
 ```
 
-- [ ] **Step 3: 声明共享包资产**
+- [ ] **Step 3: 确认没有为共享包资产添加任何声明**
 
-把 `flutter:` 段的 `assets:` 改为：
+把 `flutter:` 段的 `assets:` 保持为宿主自己的资产即可：
 
 ```yaml
   assets:
     - .env
     - assets/icon/
-    # 共享包资产：包内代码用 ScreenAssets.path('assets/datas/...') 读取，
-    # 在宿主 bundle 内位于 packages/pscreen_screen/ 前缀下。
-    - packages/pscreen_screen/assets/datas/
 ```
+
+> **不要**为共享包的 `assets/datas/` 加任何条目。共享包自己的 `pubspec.yaml` 已声明
+> `assets: - assets/datas/`，作为依赖被引入时 flutter_tools 会展开该目录并给资产键
+> 加上 `packages/pscreen_screen/` 前缀，宿主**不需要**再声明。
+>
+> 宿主若写 `- packages/pscreen_screen/assets/datas/`，pubspec 的目录通配会相对
+> **声明方自己的目录**解析，被解析成
+> `<宿主目录>/packages/pscreen_screen/assets/datas/`，构建时报
+> `Error: unable to find directory entry in pubspec.yaml`。
 
 > `assets/icon/` 为 pscreen_home 原有目录，实施前先确认实际目录名：
 >
@@ -779,7 +785,7 @@ Expected: `Built build\app\outputs\flutter-apk\app-debug.apk`
 - [ ] **Step 5: 资产打包核对**
 
 Run: `Get-ChildItem pscreen_home/build/flutter_assets/packages/pscreen_screen/assets/datas`
-Expected: 列出 `tv_name_order.txt` 等 9 个数据文件。**为空则说明 Task 1 Step 3 的资产声明未生效**，回到该步检查 `packages/pscreen_screen/assets/datas/` 前缀。
+Expected: 列出 `tv_name_order.txt` 等 10 个数据文件。**为空则说明共享包的 path 依赖没生效**——回到 Task 1 确认 `pscreen_screen` 依赖已写进 `pubspec.yaml` 且 `flutter pub get` 成功。**不要**因此在宿主 pubspec 里补 `- packages/pscreen_screen/assets/datas/`（那样会让构建直接报 `unable to find directory entry in pubspec.yaml`）。
 
 - [ ] **Step 6: 现有中控台回归（人工）**
 
