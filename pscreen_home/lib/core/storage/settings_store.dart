@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 约定：
 /// - 存储值为**覆盖值**，空字符串表示「无覆盖」；
-/// - 生效优先级：持久化覆盖 > `.env` 默认值（见 `AppConfig`）；
+/// - 生效优先级：持久化覆盖 > `.env` 默认值（见 `HaConfig`）；
 /// - 清空输入并保存即删除覆盖，回落到 `.env`。
 ///
 /// `ready` 在 `StorageModule.register()` 中 await 完成，

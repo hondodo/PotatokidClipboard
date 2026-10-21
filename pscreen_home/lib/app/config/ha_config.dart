@@ -1,7 +1,7 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// 环境配置，值来源于根目录 .env（通过 pubspec assets 声明）。
-/// 在 main() 中调用 AppConfig.initialize() 后使用。
+/// 在 main() 中调用 HaConfig.initialize() 后使用。
 ///
 /// 连接信息分两层，**生效优先级：持久化覆盖 > .env 默认值**：
 /// - `.env` 键 `AS_HOST` / `AS_KEY`：部署默认值（见 [envHost] / [envToken]）；
@@ -11,8 +11,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 ///
 /// 覆盖值存 **host 原始地址**（如 `192.168.1.10:8123`），
 /// 转 ws 协议在 [haWsUrl] 统一处理。
-class AppConfig {
-  const AppConfig._();
+class HaConfig {
+  const HaConfig._();
 
   /// .env 默认地址（AS_HOST），无覆盖时的生效值
   static String envHost = 'http://localhost:8123';

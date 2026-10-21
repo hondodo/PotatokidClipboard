@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/logging/log_service.dart';
-import 'package:pscreen_home/core/network/net_exceptions.dart';
+import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
 import 'package:pscreen_home/core/utils/bloc_event.dart';
-import 'package:pscreen_home/core/utils/error_message.dart';
+import 'package:pscreen_home/core/utils/ha_error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
@@ -121,7 +121,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('加载实体状态失败', error: e, stackTrace: s);
-      emit(state.copyWith(isLoading: false, errorMessage: mapErrorToMessage(e), errorType: e.toNetErrorType()));
+      emit(state.copyWith(isLoading: false, errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
       completeBlocEvent(event.completer, success: false);
     }
   }
@@ -183,7 +183,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         state.copyWith(
           entities: <String, HaEntityStateModel>{...state.entities, event.entityId: current},
           togglingIds: <String>{...state.togglingIds}..remove(event.entityId),
-          errorMessage: mapErrorToMessage(e),
+          errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),
       );
@@ -377,7 +377,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('按钮操作失败：${current.entityId}', error: e, stackTrace: s);
-      emit(state.copyWith(errorMessage: mapErrorToMessage(e), errorType: e.toNetErrorType()));
+      emit(state.copyWith(errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
       completeBlocEvent(event.completer, success: false);
     }
   }
@@ -481,7 +481,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('notify 动作执行失败：${current.entityId}', error: e, stackTrace: s);
-      emit(state.copyWith(errorMessage: mapErrorToMessage(e), errorType: e.toNetErrorType()));
+      emit(state.copyWith(errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
       completeBlocEvent(event.completer, success: false);
     }
   }
@@ -508,7 +508,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit(
         state.copyWith(
           entities: <String, HaEntityStateModel>{...state.entities, current.entityId: current},
-          errorMessage: mapErrorToMessage(e),
+          errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),
       );

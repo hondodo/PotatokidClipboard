@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/core/logging/log_service.dart';
-import 'package:pscreen_home/core/network/net_exceptions.dart';
+import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
@@ -366,7 +366,7 @@ void main() {
 
       expect(await _load(bloc), isFalse);
       expect(bloc.state.errorMessage, '与 Home Assistant 的连接已断开');
-      expect(bloc.state.errorType, NetErrorType.disconnect);
+      expect(bloc.state.errorType, HaErrorType.disconnect);
     });
   });
 
@@ -408,7 +408,7 @@ void main() {
           reason: '控制失败必须回滚乐观更新');
       expect(bloc.state.togglingIds, isEmpty);
       expect(bloc.state.errorMessage, '设备离线');
-      expect(bloc.state.errorType, NetErrorType.requestError);
+      expect(bloc.state.errorType, HaErrorType.requestError);
     });
 
     test('不可控实体（sensor 域）直接拒绝', () async {

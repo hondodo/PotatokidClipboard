@@ -43,7 +43,7 @@ class HaDataException implements Exception {
 }
 
 /// 网络错误语义类型：供 BLoC 状态映射使用
-enum NetErrorType {
+enum HaErrorType {
   disconnect,
   authError,
   requestError,
@@ -51,13 +51,13 @@ enum NetErrorType {
   unknown,
 }
 
-extension NetExceptionX on Object {
-  NetErrorType toNetErrorType() {
+extension HaExceptionX on Object {
+  HaErrorType toNetErrorType() {
     final self = this;
-    if (self is HaDisconnectException) return NetErrorType.disconnect;
-    if (self is HaAuthException) return NetErrorType.authError;
-    if (self is HaRequestException) return NetErrorType.requestError;
-    if (self is HaDataException) return NetErrorType.dataError;
-    return NetErrorType.unknown;
+    if (self is HaDisconnectException) return HaErrorType.disconnect;
+    if (self is HaAuthException) return HaErrorType.authError;
+    if (self is HaRequestException) return HaErrorType.requestError;
+    if (self is HaDataException) return HaErrorType.dataError;
+    return HaErrorType.unknown;
   }
 }

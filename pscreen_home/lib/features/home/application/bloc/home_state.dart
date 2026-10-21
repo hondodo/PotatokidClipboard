@@ -1,4 +1,4 @@
-import 'package:pscreen_home/core/network/net_exceptions.dart';
+import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -63,7 +63,7 @@ class HomeState {
   final String selectedAreaId;
 
   final String? errorMessage;
-  final NetErrorType? errorType;
+  final HaErrorType? errorType;
 
   /// 可筛选的房间：含有任意实体的房间，保持注册表顺序。
   List<HaArea> get availableAreas {
@@ -624,7 +624,7 @@ class HomeState {
     String? selectedHomeName,
     String? selectedAreaId,
     String? errorMessage,
-    NetErrorType? errorType,
+    HaErrorType? errorType,
     bool clearError = false,
   }) {
     return HomeState._(

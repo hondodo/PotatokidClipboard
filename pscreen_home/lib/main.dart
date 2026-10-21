@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/app/app.dart';
-import 'package:pscreen_home/app/config/app_config.dart';
+import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
@@ -17,13 +17,13 @@ void main() {
       WidgetsFlutterBinding.ensureInitialized();
 
       // 1. 加载 .env 默认连接配置（AS_HOST / AS_KEY）
-      await AppConfig.initialize();
+      await HaConfig.initialize();
 
       // 2. 依赖注入（含网络、本地持久化、路由、业务模块）
       await Injection.init();
 
       // 3. 应用上次手动设置的连接配置（持久化优先，空则回落 .env）
-      AppConfig.applyOverrides(
+      HaConfig.applyOverrides(
         host: Injection.get<SettingsStore>().hostOverride,
         token: Injection.get<SettingsStore>().tokenOverride,
       );

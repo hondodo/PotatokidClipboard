@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pscreen_home/app/config/app_config.dart';
+import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
@@ -36,8 +36,8 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     final SettingsStore store = Injection.get<SettingsStore>();
-    _hostController = TextEditingController(text: AppConfig.haHost);
-    _tokenController = TextEditingController(text: AppConfig.haToken);
+    _hostController = TextEditingController(text: HaConfig.haHost);
+    _tokenController = TextEditingController(text: HaConfig.haToken);
     _sampleSeconds = store.powerSampleSeconds;
     _uiScale = store.uiScale;
   }
@@ -56,21 +56,21 @@ class _SettingsPageState extends State<SettingsPage> {
     // 覆盖语义：与 .env 默认值相同（或清空）= 不覆盖，保持跟随 .env；
     // 不同才存持久化。生效值据此归一化后与当前生效值比较，判定是否刷新。
     final String hostPersist =
-        hostInput == AppConfig.envHost ? '' : hostInput;
+        hostInput == HaConfig.envHost ? '' : hostInput;
     final String tokenPersist =
-        tokenInput == AppConfig.envToken ? '' : tokenInput;
+        tokenInput == HaConfig.envToken ? '' : tokenInput;
     final String newHost =
-        hostPersist.isEmpty ? AppConfig.envHost : hostPersist;
+        hostPersist.isEmpty ? HaConfig.envHost : hostPersist;
     final String newToken =
-        tokenPersist.isEmpty ? AppConfig.envToken : tokenPersist;
+        tokenPersist.isEmpty ? HaConfig.envToken : tokenPersist;
     final bool changed =
-        newHost != AppConfig.haHost || newToken != AppConfig.haToken;
+        newHost != HaConfig.haHost || newToken != HaConfig.haToken;
 
     setState(() => _saving = true);
     final SettingsStore store = Injection.get<SettingsStore>();
     await store.save(host: hostPersist, token: tokenPersist);
     // 从存储回读（保证与实际持久化结果一致，失败时自动回落）
-    AppConfig.applyOverrides(
+    HaConfig.applyOverrides(
       host: store.hostOverride,
       token: store.tokenOverride,
     );
@@ -78,8 +78,8 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _saving = false);
 
     // 回显生效值：清空保存后输入框显示回落的 .env 值
-    _hostController.text = AppConfig.haHost;
-    _tokenController.text = AppConfig.haToken;
+    _hostController.text = HaConfig.haHost;
+    _tokenController.text = HaConfig.haToken;
 
     if (changed) {
       context.read<ConnectionBloc>().add(const Reconnect());
@@ -121,7 +121,7 @@ class _SettingsPageState extends State<SettingsPage> {
             decoration: InputDecoration(
               labelText: 'Home Assistant 地址',
               hintText: '如 192.168.1.10:8123 或 home.example.com:8123',
-              helperText: AppConfig.hasHostOverride
+              helperText: HaConfig.hasHostOverride
                   ? '已手动设置，优先于 .env（清空保存可恢复）'
                   : '当前使用 .env 默认值',
               border: const OutlineInputBorder(),
@@ -135,7 +135,7 @@ class _SettingsPageState extends State<SettingsPage> {
             obscureText: !_tokenVisible,
             decoration: InputDecoration(
               labelText: '长期访问令牌 (KEY)',
-              helperText: AppConfig.hasTokenOverride
+              helperText: HaConfig.hasTokenOverride
                   ? '已手动设置，优先于 .env（清空保存可恢复）'
                   : '当前使用 .env 默认值',
               border: const OutlineInputBorder(),
