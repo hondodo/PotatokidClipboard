@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_state.dart';
@@ -68,7 +68,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     try {
       await _repository.autoLogin();
     } catch (e, s) {
-      Injection.get<LogService>().error('远程自动登录失败', error: e, stackTrace: s);
+      ScreenInjection.get<LogService>().error('远程自动登录失败', error: e, stackTrace: s);
       if (seq == _opSeq) {
         emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
       }
@@ -95,7 +95,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     try {
       await _repository.switchAccount(account);
     } catch (e, s) {
-      Injection.get<LogService>().error('切换账号失败: $account', error: e, stackTrace: s);
+      ScreenInjection.get<LogService>().error('切换账号失败: $account', error: e, stackTrace: s);
       if (seq == _opSeq) {
         emit(state.copyWith(status: RemoteLoginStatus.error, errorMessage: '$e'));
       }
@@ -148,7 +148,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     Emitter<RemoteLoginState> emit,
   ) {
     _syncFallbackTimer?.cancel();
-    Injection.get<LogService>()
+    ScreenInjection.get<LogService>()
         .error('云信登录失败: code=${event.error.code} desc=${event.error.desc}');
     emit(state.copyWith(
       status: RemoteLoginStatus.error,
@@ -161,7 +161,7 @@ class RemoteLoginBloc extends Bloc<RemoteLoginEvent, RemoteLoginState> {
     Emitter<RemoteLoginState> emit,
   ) {
     _syncFallbackTimer?.cancel();
-    Injection.get<LogService>().error('云信被踢下线: ${event.reasonDesc}');
+    ScreenInjection.get<LogService>().error('云信被踢下线: ${event.reasonDesc}');
     emit(state.copyWith(
       status: RemoteLoginStatus.error,
       errorMessage: event.reasonDesc,

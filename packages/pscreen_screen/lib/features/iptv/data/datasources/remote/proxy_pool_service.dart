@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/dio_pretty_logger.dart';
 
@@ -73,14 +73,14 @@ class ProxyPoolService {
       if (proxies.isEmpty) {
         final String body = res.data?.toString() ?? '';
         final String head = body.length > 200 ? '${body.substring(0, 200)}…' : body;
-        Injection.get<LogService>().warn('[ProxyPoolService] 代理列表为空(status=${res.statusCode})，响应: $head');
+        ScreenInjection.get<LogService>().warn('[ProxyPoolService] 代理列表为空(status=${res.statusCode})，响应: $head');
         return;
       }
       _cache = proxies;
       _cursor = 0;
-      Injection.get<LogService>().info('[ProxyPoolService] 已获取 ${proxies.length} 个 HTTP 代理');
+      ScreenInjection.get<LogService>().info('[ProxyPoolService] 已获取 ${proxies.length} 个 HTTP 代理');
     } catch (e) {
-      Injection.get<LogService>().warn('[ProxyPoolService] 获取代理列表失败: $e');
+      ScreenInjection.get<LogService>().warn('[ProxyPoolService] 获取代理列表失败: $e');
     } finally {
       _fetching = false;
     }
@@ -129,13 +129,13 @@ class ProxyPoolService {
       final String contentType = res.headers.value('content-type')?.toLowerCase() ?? '';
       final bool html = contentType.contains('text/html');
       final bool ok = status >= 200 && status < 400 && !html;
-      Injection.get<LogService>().info(
+      ScreenInjection.get<LogService>().info(
         '[ProxyPoolService] 探测 $proxy → 状态=$status '
         '类型=${contentType.isEmpty ? '-' : contentType} 可用=$ok',
       );
       return ok;
     } catch (e) {
-      Injection.get<LogService>().info('[ProxyPoolService] 探测 $proxy 连接失败: $e');
+      ScreenInjection.get<LogService>().info('[ProxyPoolService] 探测 $proxy 连接失败: $e');
       return false;
     } finally {
       token.cancel('probe done');

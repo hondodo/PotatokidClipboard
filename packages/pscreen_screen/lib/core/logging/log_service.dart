@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// 统一日志服务，通过 DI 注入使用：`Injection.get<LogService>()`
+/// 统一日志服务，通过 DI 注入使用：`ScreenInjection.get<LogService>()`
 class LogService {
   const LogService();
 

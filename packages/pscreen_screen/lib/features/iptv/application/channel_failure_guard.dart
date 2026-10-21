@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/hosts/app_hosts.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/features/iptv/data/datasources/local/iptv_source_rules.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -199,13 +199,13 @@ class ChannelFailureGuard extends ChangeNotifier {
     _confirming = false;
     // 探测期间该频道又播成功过（例如换代理后能播）→ 说明地址并非真失效，放弃记录。
     if ((_successTicks[channelName] ?? 0) != startTick) {
-      Injection.get<LogService>().info(
+      ScreenInjection.get<LogService>().info(
         '[ChannelFailureGuard] 频道$channelName 在确认期间已恢复播放，取消记录失效地址',
       );
       return;
     }
     if (confirmed.isEmpty) {
-      Injection.get<LogService>().info(
+      ScreenInjection.get<LogService>().info(
         '[ChannelFailureGuard] 频道$channelName 候选地址经确认未判定失效，已忽略',
       );
       return;
@@ -215,7 +215,7 @@ class ChannelFailureGuard extends ChangeNotifier {
     _invalidUrls.addAll(confirmed);
     if (_invalidUrls.length == before) return;
     await _persist();
-    Injection.get<LogService>().info(
+    ScreenInjection.get<LogService>().info(
       '[ChannelFailureGuard] 频道$channelName 已记录 ${confirmed.length} 个失效地址',
     );
     notifyListeners();
@@ -240,7 +240,7 @@ class ChannelFailureGuard extends ChangeNotifier {
         validateStatus: (_) => true,
       ),
     );
-    final LogService log = Injection.get<LogService>();
+    final LogService log = ScreenInjection.get<LogService>();
     final List<String> confirmed = <String>[];
     // 参照地址是否可达：仅在出现连接层失败时才探测一次，结果复用。
     bool? referenceOk;

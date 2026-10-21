@@ -1,6 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/net_exceptions.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
@@ -190,7 +190,7 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
         clearError: true,
       ));
     } catch (e, s) {
-      Injection.get<LogService>().error('加载直播频道失败', error: e, stackTrace: s);
+      ScreenInjection.get<LogService>().error('加载直播频道失败', error: e, stackTrace: s);
       completeBlocEvent(event.completer, success: false);
       // 4) 失败：有兜底（缓存 / 现行）→ 保留现有频道继续播、不切错误页；
       //    否则 → 用包内默认列表兜底；再不行才进入错误视图。
@@ -200,7 +200,7 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
           await _repository.loadDefaultRemoteChannels(),
         );
         if (defaults.isNotEmpty) {
-          Injection.get<LogService>().info('[IptvBloc] 接口不可用，已用包内默认频道列表兜底');
+          ScreenInjection.get<LogService>().info('[IptvBloc] 接口不可用，已用包内默认频道列表兜底');
           emit(state.copyWith(
             isLoading: false,
             isRefreshing: false,

@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
-import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_screen/app/app_log.dart';
 
 /// 定时关闭控制器（全局单例，[ChangeNotifier]）。
 ///
@@ -78,7 +77,7 @@ class SleepTimerController extends ChangeNotifier {
 
   /// 定时到点：退出应用。
   Future<void> _shutdown() async {
-    Injection.get<LogService>().info('[SleepTimer] 定时关闭生效，退出应用');
+    Log.i('[SleepTimer] 定时关闭生效，退出应用');
     // 复用返回键退出的方式：结束 Activity（与系统返回最终效果一致）。
     await SystemNavigator.pop();
   }

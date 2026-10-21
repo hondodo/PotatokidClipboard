@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/net_exceptions.dart';
 import 'package:pscreen_screen/core/utils/bloc_event.dart';
@@ -51,7 +51,7 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
       emit(state.copyWith(isLoading: false, data: data));
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
-      Injection.get<LogService>().error('加载天气失败', error: e, stackTrace: s);
+      ScreenInjection.get<LogService>().error('加载天气失败', error: e, stackTrace: s);
       emit(
         state.copyWith(
           isLoading: false,

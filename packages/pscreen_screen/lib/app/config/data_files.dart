@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -150,9 +151,9 @@ class DataFiles {
     try {
       await _syncAll().timeout(_syncTimeout);
     } on TimeoutException {
-      Injection.get<LogService>().warn('[DataFiles] git 同步超过 ${_syncTimeout.inSeconds}s，沿用本地值');
+      ScreenInjection.get<LogService>().warn('[DataFiles] git 同步超过 ${_syncTimeout.inSeconds}s，沿用本地值');
     } catch (e) {
-      Injection.get<LogService>().warn('[DataFiles] git 同步失败，沿用本地值: $e');
+      ScreenInjection.get<LogService>().warn('[DataFiles] git 同步失败，沿用本地值: $e');
     }
   }
 
@@ -180,16 +181,16 @@ class DataFiles {
       );
       // 空内容视为无效（可能是错误页/半截响应），保留旧值。
       if (text.trim().isEmpty) {
-        Injection.get<LogService>().warn('[DataFiles] ${file.fileName} 内容为空，忽略');
+        ScreenInjection.get<LogService>().warn('[DataFiles] ${file.fileName} 内容为空，忽略');
         return;
       }
       _texts[file.id] = text;
       _apply(file.id, parseList(text));
       _revision++;
       await prefs?.setString(file.prefsKey, text);
-      Injection.get<LogService>().info('[DataFiles] ${file.fileName} 已同步(${text.length} 字符)');
+      ScreenInjection.get<LogService>().info('[DataFiles] ${file.fileName} 已同步(${text.length} 字符)');
     } catch (e) {
-      Injection.get<LogService>().warn('[DataFiles] ${file.fileName} 同步失败: $e');
+      ScreenInjection.get<LogService>().warn('[DataFiles] ${file.fileName} 同步失败: $e');
     }
   }
 
@@ -201,7 +202,7 @@ class DataFiles {
 
   static Future<String> _readAsset(DataFile file) async {
     try {
-      return await rootBundle.loadString(file.assetPath);
+      return await rootBundle.loadString(ScreenAssets.path(file.assetPath));
     } catch (_) {
       return '';
     }

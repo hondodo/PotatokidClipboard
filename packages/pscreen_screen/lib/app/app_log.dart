@@ -1,11 +1,11 @@
 // ignore_for_file: avoid_print
-import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 
 class Log {
   static void d(String message) {
     try {
-      Injection.get<LogService>().debug(message);
+      ScreenInjection.get<LogService>().debug(message);
     } catch (e) {
       print('[AppLog] log debug error: $e');
     }
@@ -13,7 +13,7 @@ class Log {
 
   static void i(String message) {
     try {
-      Injection.get<LogService>().info(message);
+      ScreenInjection.get<LogService>().info(message);
     } catch (e) {
       print('[AppLog] log debug error: $e');
     }
@@ -21,7 +21,7 @@ class Log {
 
   static void warn(String message) {
     try {
-      Injection.get<LogService>().debug(message);
+      ScreenInjection.get<LogService>().debug(message);
     } catch (e) {
       print('[AppLog] log debug error: $e');
     }
@@ -29,7 +29,7 @@ class Log {
 
   static void error(String message, {Object? error, StackTrace? stackTrace}) {
     try {
-      Injection.get<LogService>().error(message);
+      ScreenInjection.get<LogService>().error(message);
     } catch (e) {
       print('[AppLog] log debug error: $e');
     }
