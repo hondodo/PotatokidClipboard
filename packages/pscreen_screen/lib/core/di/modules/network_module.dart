@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 

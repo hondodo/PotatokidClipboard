@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
 

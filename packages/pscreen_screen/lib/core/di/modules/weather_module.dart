@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/data/repositories/weather_repository_impl.dart';
 import 'package:pscreen_screen/features/weather/domain/repositories/weather_repository.dart';

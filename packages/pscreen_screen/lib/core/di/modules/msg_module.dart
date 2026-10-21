@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:nim_core_v2/nim_core.dart';
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 import 'package:pscreen_screen/features/msg/application/message_command_executor.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_router.dart';
@@ -55,6 +56,7 @@ class MsgModule {
       deviceModel: () => PlatformChannelService.instance.deviceModel(),
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
+      sceneProvider: getIt<CurrentSceneProvider>(),
     );
     getIt.registerLazySingleton<ReportingService>(
       () => reporting,

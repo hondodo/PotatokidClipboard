@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/data/repositories/iptv_repository_impl.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';

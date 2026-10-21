@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
 import 'package:pscreen_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
