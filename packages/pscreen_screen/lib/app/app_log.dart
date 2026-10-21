@@ -21,7 +21,7 @@ class Log {
 
   static void warn(String message) {
     try {
-      ScreenInjection.get<LogService>().debug(message);
+      ScreenInjection.get<LogService>().warn(message);
     } catch (e) {
       print('[AppLog] log debug error: $e');
     }

@@ -100,12 +100,8 @@ class ReportingService {
     });
   }
 
-  /// 当前位置文本：在频道上报频道名，否则报当前场景描述。
-  String positionText() {
-    final String? name = channelInfo.nameAt(liveChannel.index);
-    if (name != null) return name;
-    return sceneProvider.describe();
-  }
+  /// 当前位置文本：由注入的场景描述器决定（各宿主自行决定「频道名还是页名」）。
+  String positionText() => sceneProvider.describe();
 
   String get _deviceModelCache => _model ?? 'Android TV';
 

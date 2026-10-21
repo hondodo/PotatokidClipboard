@@ -106,7 +106,7 @@ class MessageOverlayController extends ChangeNotifier {
     return true;
   }
 
-  /// 浮层可见期间任意按键（由 MainApp 拦截层调用）：重置自动关闭计时。
+  /// 浮层可见期间任意按键（由宿主按键拦截层调用）：重置自动关闭计时。
   void onAnyKey() {
     if (!_visible || _detail) return;
     _resetIdleTimer();

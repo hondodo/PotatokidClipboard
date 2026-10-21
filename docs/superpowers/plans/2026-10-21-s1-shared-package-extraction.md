@@ -811,6 +811,9 @@ Create `packages/pscreen_screen/lib/features/msg/application/current_scene_provi
 ///
 /// 抽象原因：电视端有 4-tab 外壳（页名由 Tab 决定），中控屏没有 Tab
 /// （页名恒为「中控台」）。共享包不能依赖任一宿主的导航实现。
+///
+/// **场景描述完全由宿主决定**：电视端在首页要报「当前频道名」、在其余 Tab 要报
+/// 「当前页名」；中控屏没有频道概念，恒报「中控台」。共享包只负责把描述发出去。
 abstract class CurrentSceneProvider {
   const CurrentSceneProvider();
 
@@ -845,29 +848,36 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
 把 `positionText()` 方法体替换为：
 
 ```dart
-  /// 当前位置文本：在频道上报频道名，否则报当前场景描述。
-  String positionText() {
-    final String? name = channelInfo.nameAt(liveChannel.index);
-    if (name != null) return name;
-    return sceneProvider.describe();
-  }
+  /// 当前位置文本：由注入的场景描述器决定（各宿主自行决定「频道名还是页名」）。
+  String positionText() => sceneProvider.describe();
 ```
 
-> 原实现是「仅当 `AppTabController.branchIndex == 0`（首页）时才报频道名，否则报页名」。新实现改为「有频道名就报频道名，否则报场景描述」—— 对电视端而言 `AppTabController.pageName` 在非首页时返回「时间页 / 屏保 / 设置」，而频道名在首页才有意义，两者语义一致。
+> 场景语义（频道名还是页名）**完全由宿主的 `CurrentSceneProvider` 实现决定**，
+> 共享包不做任何「是不是在频道」的判断。电视端实现见 Task 6 Step 5：
+> 只有停在首页（`branchIndex == 0`）才报频道名，其余 Tab 报页名——
+> 这与重构前的语义一致。共享包不能自己判断，因为 `MainApp` 用
+> `StatefulShellRoute.indexedStack`，离开首页时首页分支仍然挂载、
+> `ChannelInfoProvider.instance.channels` 不会清空，共享包若「有频道名就报」
+> 就会把「当前频道是设置」误报成「当前频道是CCTV-1」。
 
 - [ ] **Step 3: 改写 `message_overlay_controller.dart` 的文档注释**
 
-该文件仅在注释里提到 `AppTabController`（无 import），把注释改为不指向宿主类：
+该文件无 import，仅在两处注释里提到宿主类（`AppTabController` / `MainApp`），把注释改为不指向宿主类：
 
 ```dart
   /// 屏保互斥：真值由宿主外壳依自身导航状态填充。
   bool deferActive = false;
 ```
 
+```dart
+  /// 浮层可见期间任意按键（由宿主按键拦截层调用）：重置自动关闭计时。
+  void onAnyKey() {
+```
+
 - [ ] **Step 4: 确认包内不再引用宿主外壳**
 
-Run: `grep -rn "app_tab_controller\|features/app/" packages/pscreen_screen/lib`
-Expected: 无输出
+Run: `grep -rn "package:potatokid_screen\|app_tab_controller\|AppTabController\|MainApp" packages/pscreen_screen/`
+Expected: 无输出（README / analysis_options 里的散文除外）
 
 - [ ] **Step 5: 提交**
 
@@ -1060,14 +1070,30 @@ Create `pscreen/potatokid_screen/lib/features/app/application/tv_scene_provider.
 
 ```dart
 import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 
-/// 电视端场景描述：当前 Tab 页名（主页 / 时间页 / 屏保 / 设置）。
+/// 电视端场景描述。
+///
+/// 还原重构前的上报语义：**只有停在首页（正在看直播）时报频道名**，
+/// 其余 Tab（时间页 / 屏保 / 设置）报当前页名。
+///
+/// 注意：`MainApp` 用 `StatefulShellRoute.indexedStack`，离开首页时首页分支
+/// 仍然挂载、`ChannelInfoProvider.instance.channels` 不会清空——所以必须先判
+/// `branchIndex == 0`，否则会把「当前频道是设置」误报成「当前频道是CCTV-1」。
 class TvSceneProvider extends CurrentSceneProvider {
   const TvSceneProvider();
 
   @override
-  String describe() => AppTabController.pageName;
+  String describe() {
+    if (AppTabController.branchIndex == 0) {
+      final String? name = ChannelInfoProvider.instance
+          .nameAt(LiveChannelController.instance.index);
+      if (name != null) return name;
+    }
+    return AppTabController.pageName;
+  }
 }
 ```
 
@@ -1138,13 +1164,30 @@ Expected: `No issues found!`
 Run: `cd pscreen/potatokid_screen && flutter test`
 Expected: 全部通过。若 `reporting_service_test.dart` 因新增构造参数失败，按下述改测试：
 
+在测试文件内加一个假的场景描述器（与 Task 7 Step 4 迁入共享包时用的实现保持一致）：
+
+```dart
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+
+class _FakeSceneProvider extends CurrentSceneProvider {
+  const _FakeSceneProvider(this.text);
+
+  final String text;
+
+  @override
+  String describe() => text;
+}
+```
+
+构造改为：
+
 ```dart
     ReportingService(
       sender: sender,
       deviceModel: () => 'Test TV',
       channelInfo: channelInfo,
       liveChannel: liveChannel,
-      sceneProvider: const StaticSceneProvider('测试场景'),
+      sceneProvider: const _FakeSceneProvider('测试场景'),
     );
 ```
 
