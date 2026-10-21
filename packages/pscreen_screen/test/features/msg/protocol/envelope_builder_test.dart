@@ -1,7 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pscreen_control/features/protocol/envelope_builder.dart';
+import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
+import 'package:pscreen_screen/features/msg/protocol/message_envelope.dart';
 
 void main() {
   test('纯文本不加信封', () {
@@ -44,5 +45,31 @@ void main() {
     final String s2 = buildCommandEnvelope('channel', <String, dynamic>{'index': 5});
     final Map<String, dynamic> m2 = jsonDecode(s2) as Map<String, dynamic>;
     expect(m2['args']['index'], 5);
+  });
+
+  group('构造与解析闭环', () {
+    test('命令信封能被屏幕端解析器识别为 command', () {
+      final String body = buildCommandEnvelope(
+        'channel',
+        <String, dynamic>{'name': 'CCTV-1'},
+      );
+      final ParsedMessage parsed = parseIncomingText(body);
+      expect(parsed.kind, EnvelopeKind.command);
+      expect(parsed.commandName, 'channel');
+      expect(parsed.args?['name'], 'CCTV-1');
+    });
+
+    test('文本命令信封解析出 content', () {
+      final ParsedMessage parsed = parseIncomingText(buildTextCommand('你好'));
+      expect(parsed.kind, EnvelopeKind.command);
+      expect(parsed.commandName, 'text');
+      expect(parsed.args?['content'], '你好');
+    });
+
+    test('纯文本原样发送时被解析为 plainText', () {
+      final ParsedMessage parsed = parseIncomingText(buildPlainText('喝水'));
+      expect(parsed.kind, EnvelopeKind.plainText);
+      expect(parsed.plainText, '喝水');
+    });
   });
 }
