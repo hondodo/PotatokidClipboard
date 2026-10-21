@@ -17,4 +17,10 @@ class RouteNames {
 
   /// 设置页完整路径
   static String get settingsPath => '/$settings';
+
+  // 遥控页（遥控面板 + 会话列表两 tab）
+  static const String remoteControl = 'remote';
+
+  /// 遥控页完整路径
+  static String get remoteControlPath => '/$remoteControl';
 }
