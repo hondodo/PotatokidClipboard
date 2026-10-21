@@ -53,7 +53,7 @@ import 'package:pscreen_screen/app/config/screen_assets.dart';
 
 void main() {
   group('ScreenAssets', () {
-    setUp(() => ScreenAssets.configure(root: '');
+    setUp(() => ScreenAssets.configure(root: ''));
     tearDown(() => ScreenAssets.configure(root: ''));
 
     test('默认根路径为空，path 直接拼接相对路径', () {
