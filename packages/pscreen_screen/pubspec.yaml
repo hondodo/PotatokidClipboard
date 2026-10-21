@@ -39,9 +39,12 @@ dev_dependencies:
   fake_async: ^1.3.0
 
 flutter:
-  # 共享包自己的资产（供本包的 `flutter test` 使用）。
-  # 注意：**宿主必须在自己的 pubspec.yaml 里另行声明**
-  # `packages/pscreen_screen/assets/datas/`——Flutter 不会把依赖包的资产
-  # 自动打进宿主 bundle，宿主不声明就会 404。
+  # 共享包自己的资产（仅供本包 `flutter test` 使用；根前缀为空时资产键就是
+  # `assets/datas/<文件名>`）。
+  #
+  # 宿主**必须**在自己的 pubspec.yaml 里另行声明
+  # `packages/pscreen_screen/assets/datas/`：flutter_tools 对依赖包解析资产时
+  # 不展开通配目录（`asset.dart` 对依赖包传 `wildcardDirectories: <Uri>[]`），
+  # 本块在被依赖时不会生效。
   assets:
     - assets/datas/

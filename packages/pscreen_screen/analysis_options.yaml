@@ -1,8 +1,24 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The lint rules applied to this project can be customized in the section below.
+#
+# 说明：本包的代码是从 pscreen/potatokid_screen 原样搬过来的，lint 规则与两个
+# 宿主保持一致（`avoid_print` / `prefer_single_quotes` 等一律**未启用**）。
+# 共享包只含能力层，不做风格整改——风格统一是独立的一轮改动。
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+    - web/**
 
 linter:
   rules:
-    prefer_single_quotes: true
-    require_trailing_commas: true
-    avoid_print: true
-    unawaited_futures: true
+    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule

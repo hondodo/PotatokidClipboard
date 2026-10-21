@@ -164,10 +164,13 @@ dev_dependencies:
   fake_async: ^1.3.0
 
 flutter:
-  # 共享包自己的资产（供本包的 `flutter test` 使用）。
-  # 注意：**宿主必须在自己的 pubspec.yaml 里另行声明**
-  # `packages/pscreen_screen/assets/datas/`——Flutter 不会把依赖包的资产
-  # 自动打进宿主 bundle，宿主不声明就会 404。
+  # 共享包自己的资产（仅供本包 `flutter test` 使用；根前缀为空时资产键就是
+  # `assets/datas/<文件名>`）。
+  #
+  # 宿主**必须**在自己的 pubspec.yaml 里另行声明
+  # `packages/pscreen_screen/assets/datas/`：flutter_tools 对依赖包解析资产时
+  # 不展开通配目录（`asset.dart` 对依赖包传 `wildcardDirectories: <Uri>[]`），
+  # 本块在被依赖时不会生效。
   assets:
     - assets/datas/
 ```
@@ -175,15 +178,38 @@ flutter:
 Create `packages/pscreen_screen/analysis_options.yaml`:
 
 ```yaml
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The lint rules applied to this project can be customized in the section below.
+#
+# 说明：本包的代码是从 pscreen/potatokid_screen 原样搬过来的，lint 规则与两个
+# 宿主保持一致（`avoid_print` / `prefer_single_quotes` 等一律**未启用**）。
+# 共享包只含能力层，不做风格整改——风格统一是独立的一轮改动。
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+    - web/**
 
 linter:
   rules:
-    prefer_single_quotes: true
-    require_trailing_commas: true
-    avoid_print: true
-    unawaited_futures: true
+    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
 ```
+
+> 包的 lint 规则必须与两个宿主（`pscreen/potatokid_screen` / `pscreen_home`）**保持一致**：
+> 那边的 `avoid_print` / `prefer_single_quotes` / `require_trailing_commas` /
+> `unawaited_futures` 全是注释掉的（未启用）。66 个搬过来的文件带着不少
+> `print()`、双引号字符串和缺尾逗号，若在包里启用这四条规则，后面的
+> `flutter analyze` → `No issues found!` 门槛会全部卡在风格 info 上。
+> **不要**在本次结构重构里顺手改风格——那是独立的一轮改动。
 
 Create `packages/pscreen_screen/lib/core/di/get_it.dart`（与两个宿主的 `core/di/get_it.dart` 逐字一致）:
 
@@ -341,11 +367,20 @@ Create `tool/migrate_shared_package.mjs`:
 ```javascript
 import fs from 'node:fs';
 import path from 'node:path';
+import child_process from 'node:child_process';
 
-const ROOT = path.resolve(process.argv[2] ?? '.');
+const argv = process.argv.slice(2);
+const ROOT = path.resolve(argv.find((a) => !a.startsWith('--')) ?? '.');
+const DRY_RUN = argv.includes('--dry-run');
+const FORCE = argv.includes('--force');
+
 const SRC_LIB = path.join(ROOT, 'pscreen', 'potatokid_screen', 'lib');
 const PKG = path.join(ROOT, 'packages', 'pscreen_screen');
 const PKG_LIB = path.join(PKG, 'lib');
+
+// 预期搬迁的文件数。数量对不上说明 MOVES 里有前缀写错、或源目录结构变了——
+// 宁可报错停下，也不能只搬一半（半搬 = 宿主与包各持一份，import 指向混乱）。
+const EXPECTED_COUNT = 66;
 
 // 源前缀 -> 包内前缀。顺序敏感：长前缀在前，避免前缀互相覆盖。
 const MOVES = [
@@ -372,6 +407,13 @@ const MOVES = [
   ['features/weather/domain/', 'features/weather/domain/'],
 ];
 
+// 脚本会改写/删除的路径。迁移前工作区必须是干净的，否则脚本的改写会盖掉
+// 未提交的修改（或者和未提交的新文件冲突）。
+const AFFECTED_PATHS = [
+  'pscreen/potatokid_screen/lib',
+  'packages/pscreen_screen',
+];
+
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -384,31 +426,53 @@ function walk(dir, out = []) {
 
 function movePlan() {
   const plan = [];
+  const perPrefix = [];
   for (const [from, to] of MOVES) {
     const srcRoot = path.join(SRC_LIB, from);
+    let hits = [];
     if (fs.existsSync(srcRoot) && fs.statSync(srcRoot).isFile()) {
-      plan.push({ from, to, file: srcRoot });
-      continue;
+      hits = [srcRoot];
+    } else {
+      hits = walk(srcRoot);
     }
-    for (const f of walk(srcRoot)) {
+    perPrefix.push({ from, to, count: hits.length });
+    for (const f of hits) {
       const rel = path.relative(srcRoot, f).split(path.sep).join('/');
       plan.push({ from: `${from}${rel}`, to: `${to}${rel}`, file: f });
     }
   }
-  return plan;
+  return { plan, perPrefix };
 }
 
-const plan = movePlan();
-console.log(`待搬迁 ${plan.length} 个文件`);
+function fail(msg) {
+  console.error(`✗ ${msg}`);
+  process.exit(1);
+}
 
+function gitStatus(paths) {
+  try {
+    const out = child_process.execSync(
+      `git status --porcelain -- ${paths.map((p) => `"${p}"`).join(' ')}`,
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return out.split('\n').filter((l) => l.trim().length > 0);
+  } catch {
+    // git 不可用 / 不在仓库里：无法判定脏不脏，交给后面的断言兜底。
+    return [];
+  }
+}
+
+const { plan, perPrefix } = movePlan();
 const prefixMap = MOVES.map(([from, to]) => [from, to]);
 
 // 改写 import：package:potatokid_screen/<src> -> package:pscreen_screen/<dst>
 function rewrite(text) {
   let out = text;
   for (const [from, to] of prefixMap) {
-    const fromWithSlash = from.endsWith('/') ? from : `${from}.dart`;
-    const toWithSlash = to.endsWith('/') ? to : `${to}.dart`;
+    // MOVES 里的文件级条目已经带 `.dart` 后缀，目录级条目不带——两种都要覆盖到，
+    // 否则会拼出 `.../app_log.dart.dart` 这种永远匹配不上的 key。
+    const fromWithSlash = from.endsWith('/') ? from : (from.endsWith('.dart') ? from : `${from}.dart`);
+    const toWithSlash = to.endsWith('/') ? to : (to.endsWith('.dart') ? to : `${to}.dart`);
     const stem = from.endsWith('/') ? from.slice(0, -1) : from;
     const toStem = to.endsWith('/') ? to.slice(0, -1) : to;
     out = out.replaceAll(
@@ -426,10 +490,90 @@ function rewrite(text) {
   return out;
 }
 
-for (const { from, to, file } of plan) {
+// 源文件删空后，向上把空目录一并清掉——否则会留下空壳目录
+// （例如 features/remote/application/ 迁空后仍留在宿主 app 里）。
+function pruneEmptyDirs(dir) {
+  let cur = dir;
+  while (cur !== SRC_LIB && cur.startsWith(SRC_LIB)) {
+    if (!fs.existsSync(cur)) break;
+    if (fs.readdirSync(cur).length > 0) break;
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    fs.rmdirSync(cur);
+    cur = parent;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// --dry-run：只打印计划，不写、不改、不删。
+// ---------------------------------------------------------------------------
+if (DRY_RUN) {
+  console.log(`试运行（--dry-run）：待搬迁 ${plan.length} 个文件`);
+  for (const { from, to } of plan) {
+    console.log(`  ${from} -> ${to}`);
+  }
+  if (plan.length === 0) {
+    console.log('提示：源目录下已无待搬迁文件——这次迁移看起来已经执行过了。');
+  } else {
+    if (plan.length !== EXPECTED_COUNT) {
+      console.log(`⚠ 计划文件数 ${plan.length} 与预期 ${EXPECTED_COUNT} 不符。`);
+      console.log('  可能是 MOVES 里有前缀写错了。');
+    }
+    for (const p of perPrefix.filter((x) => x.count === 0)) {
+      console.log(`⚠ 前缀没有匹配到任何文件：${p.from}`);
+    }
+  }
+  console.log('试运行结束：没有写入、没有改写、没有删除任何文件。');
+  process.exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// 以下是破坏性执行路径。
+// ---------------------------------------------------------------------------
+
+// 1) 已经不在"待搬迁"状态 → 拒绝破坏性重跑（--force 可跳过）。
+if (plan.length === 0) {
+  if (!FORCE) {
+    console.error('✗ 没有待搬迁的文件：源目录下的目标文件都已不在原处。');
+    console.error('  这次迁移看起来已经执行过了（脚本会删除源文件，重跑只会得到空计划）。');
+    console.error('  如果确实想重新执行（例如只想重跑宿主侧的 import 改写），请显式加 --force。');
+    process.exit(1);
+  }
+  console.warn('⚠ --force：0 个文件可搬迁，只重跑宿主侧的 import 改写。');
+}
+
+// 2) 工作区必须干净（--force 可跳过）——否则脚本的改写会盖掉未提交的修改。
+if (!FORCE) {
+  const dirty = gitStatus(AFFECTED_PATHS);
+  if (dirty.length > 0) {
+    console.error('✗ 受影响路径的工作区不干净，已中止（没有搬迁任何文件）：');
+    for (const line of dirty) console.error(`  ${line}`);
+    console.error('  先提交或 stash 这些改动再重跑；确实要强行执行请加 --force。');
+    process.exit(1);
+  }
+}
+
+// 3) 数量与前缀断言：搬一半比不搬更糟。
+if (plan.length !== 0) {
+  if (plan.length !== EXPECTED_COUNT) {
+    fail(`计划文件数 ${plan.length} 与预期 ${EXPECTED_COUNT} 不符，已中止（没有搬迁任何文件）。`);
+  }
+  for (const p of perPrefix) {
+    if (p.count === 0) {
+      fail(`MOVES 前缀没有匹配到任何文件：${p.from} —— 可能是前缀写错了，已中止（没有搬迁任何文件）。`);
+    }
+  }
+}
+
+// 4) 写入包内目标文件。写完立刻复查目标确实落盘——否则后面的删除阶段
+//    会把源文件删掉，内容就丢了。
+for (const { to, file } of plan) {
   const dest = path.join(PKG_LIB, to);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, rewrite(fs.readFileSync(file, 'utf8')));
+  if (!fs.existsSync(dest)) {
+    fail(`写入目标文件失败：${dest} 不存在，源文件保持不动。`);
+  }
 }
 
 // 宿主侧剩余文件也要改写 import
@@ -440,11 +584,17 @@ for (const f of walk(SRC_LIB)) {
   if (next !== text) fs.writeFileSync(f, next);
 }
 
-// 删除源文件
+// 6) 删除源文件。删除前逐个复查目标文件仍然在——目标丢失就绝不删源。
+const missing = plan.filter(({ to }) => !fs.existsSync(path.join(PKG_LIB, to)));
+if (missing.length > 0) {
+  for (const { from, to } of missing) {
+    console.error(`✗ 目标文件缺失，源文件保留：${from} -> ${to}`);
+  }
+  process.exit(1);
+}
 for (const { file } of plan) {
   if (fs.existsSync(file)) fs.rmSync(file);
-  const dir = path.dirname(file);
-  if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+  pruneEmptyDirs(path.dirname(file));
 }
 
 console.log(`搬迁完成：${plan.length} 个文件 -> ${path.relative(ROOT, PKG_LIB)}`);
@@ -452,8 +602,19 @@ console.log(`搬迁完成：${plan.length} 个文件 -> ${path.relative(ROOT, PK
 
 - [ ] **Step 2: 试运行脚本并核对文件数**
 
+Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard" --dry-run`
+Expected: 打印 66 行 `源 -> 目标` 计划，末尾提示 `试运行结束：没有写入、没有改写、没有删除任何文件。`
+
 Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard"`
-Expected: 输出 `待搬迁 66 个文件` 与 `搬迁完成：66 个文件`
+Expected: 输出 `搬迁完成：66 个文件 -> packages\pscreen_screen\lib`
+
+> 脚本是**破坏性一次性**的：它会删除源文件。因此它带了三道闸——
+> ① 计划文件数必须等于 `EXPECTED_COUNT`（66），且每个 MOVES 前缀都必须命中文件；
+> ② 受影响路径（`pscreen/potatokid_screen/lib`、`packages/pscreen_screen`）的
+> 工作区必须干净；
+> ③ 源文件已不在原处（迁移已跑过）时直接报错退出，**不会**打印
+> `待搬迁 0 个文件` 后假装成功。`--dry-run` 可只打印计划，`--force` 可跳过 ② ③。
+> 删除源文件前会复查目标文件确实落盘。
 
 核对：
 
@@ -523,8 +684,12 @@ git commit -m "refactor(screen): 一次性搬迁 66 个能力层文件到 pscree
 Run: `grep -rn "Injection.get<" packages/pscreen_screen/lib`
 Expected: 列出全部命中（应为 **8** 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `remote_login_bloc` / `weather_bloc`）
 
-Run: `grep -rn "package:pscreen_screen/core/di/injection.dart" packages/pscreen_screen/lib`
-Expected: 无输出（脚本已把 import 路径改成了 `package:pscreen_screen/core/di/injection.dart`，但该文件**尚未存在于共享包**——这正是本任务要消除的依赖）
+Run: `grep -rn "package:potatokid_screen/core/di/injection.dart" packages/pscreen_screen/lib`
+Expected: 列出全部命中（应为 **8** 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `remote_login_bloc` / `weather_bloc`）
+
+> 迁移脚本的 MOVES 里**没有** `core/di/`（DI 入口在 Task 5 才搬），所以这 8 处 import
+> 仍是 `package:potatokid_screen/core/di/injection.dart` —— 它们指向的是宿主，
+> 正是本任务要消除的依赖。
 
 - [ ] **Step 2: 修 `sleep_timer_controller`**
 
@@ -533,7 +698,7 @@ Expected: 无输出（脚本已把 import 路径改成了 `package:pscreen_scree
 import 区删除
 
 ```dart
-import 'package:pscreen_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 ```
 
@@ -611,8 +776,8 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 
 - [ ] **Step 7: 复查零残留**
 
-Run: `grep -rn "package:pscreen_screen/core/di/injection.dart\|Injection.get<" packages/pscreen_screen/lib`
-Expected: 无输出
+Run: `grep -rn "package:potatokid_screen/\|Injection.get<" packages/pscreen_screen/lib`
+Expected: 无输出（包内不再有任何指向宿主的 import，也不再用宿主的 `Injection` 门面）
 
 - [ ] **Step 8: 包内分析**
 
@@ -1029,10 +1194,24 @@ Create `tool/migrate_shared_tests.mjs`:
 ```javascript
 import fs from 'node:fs';
 import path from 'node:path';
+import child_process from 'node:child_process';
 
-const ROOT = path.resolve(process.argv[2] ?? '.');
+const argv = process.argv.slice(2);
+const ROOT = path.resolve(argv.find((a) => !a.startsWith('--')) ?? '.');
+const DRY_RUN = argv.includes('--dry-run');
+const FORCE = argv.includes('--force');
 const SRC_TEST = path.join(ROOT, 'pscreen', 'potatokid_screen', 'test');
 const PKG_TEST = path.join(ROOT, 'packages', 'pscreen_screen', 'test');
+
+// 预期迁移的测试文件数。数量对不上说明 MAP 里有路径写错、或测试已经迁走过一次——
+// 宁可报错停下，也不能只迁一半（半迁 = 宿主与包各留一份测试）。
+const EXPECTED_COUNT = 11;
+
+// 受影响路径：迁移前工作区必须干净，否则脚本会盖掉未提交的修改。
+const AFFECTED_PATHS = [
+  'pscreen/potatokid_screen/test',
+  'packages/pscreen_screen/test',
+];
 
 // 测试文件 -> 包内测试路径
 const MAP = {
@@ -1103,21 +1282,120 @@ function rewrite(text) {
   return out;
 }
 
+function fail(msg) {
+  console.error(`✗ ${msg}`);
+  process.exit(1);
+}
+
+function gitStatus(paths) {
+  try {
+    const out = child_process.execSync(
+      `git status --porcelain -- ${paths.map((p) => `"${p}"`).join(' ')}`,
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return out.split('\n').filter((l) => l.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+// --- 计划 ---------------------------------------------------------------
+// MAP 里每个条目都要落到计划或"缺失"清单里；既不静默跳过，也不静默丢弃。
+const plan = [];
+const missing = [];
 for (const [from, to] of Object.entries(MAP)) {
   const src = path.join(SRC_TEST, from);
-  if (!fs.existsSync(src)) {
-    console.log(`跳过（不存在）：${from}`);
-    continue;
+  if (fs.existsSync(src)) {
+    plan.push({ from, to, src, dest: path.join(PKG_TEST, to) });
+  } else {
+    missing.push(from);
   }
-  const dest = path.join(PKG_TEST, to);
+}
+
+// --- --dry-run：只打印计划，不写、不删 ----------------------------------
+if (DRY_RUN) {
+  console.log(`试运行（--dry-run）：待迁移 ${plan.length} 个测试文件`);
+  for (const { from, to } of plan) {
+    console.log(`  ${from} -> ${to}`);
+  }
+  if (plan.length !== EXPECTED_COUNT) {
+    console.log(`⚠ 计划文件数 ${plan.length} 与预期 ${EXPECTED_COUNT} 不符。`);
+    for (const from of missing) {
+      console.log(`⚠ 源测试不存在：${from}`);
+    }
+  }
+  console.log('试运行结束：没有写入、没有删除任何文件。');
+  process.exit(0);
+}
+
+// --- 破坏性执行路径 -----------------------------------------------------
+if (plan.length === 0) {
+  if (!FORCE) {
+    console.error('✗ 没有待迁移的测试文件：源测试目录下的目标文件都已不在原处。');
+    console.error('  这次迁移看起来已经执行过了（脚本会删除源文件，重跑只会得到空计划）。');
+    console.error('  如果确实想重新执行，请显式加 --force。');
+    process.exit(1);
+  }
+  console.warn('⚠ --force：0 个文件可迁移。');
+}
+if (plan.length !== 0 && plan.length !== EXPECTED_COUNT) {
+  console.error(`✗ 计划文件数 ${plan.length} 与预期 ${EXPECTED_COUNT} 不符，已中止（没有迁移任何文件）。`);
+  for (const from of missing) {
+    console.error(`  源测试不存在：${from}`);
+  }
+  process.exit(1);
+}
+if (!FORCE) {
+  const dirty = gitStatus(AFFECTED_PATHS);
+  if (dirty.length > 0) {
+    console.error('✗ 受影响路径的工作区不干净，已中止（没有迁移任何文件）：');
+    for (const line of dirty) console.error(`  ${line}`);
+    console.error('  先提交或 stash 这些改动再重跑；确实要强行执行请加 --force。');
+    process.exit(1);
+  }
+}
+
+// --- 执行：先写目标、确认落盘，再删源 ------------------------------------
+for (const { from, to, src, dest } of plan) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, rewrite(fs.readFileSync(src, 'utf8')));
-  fs.rmSync(src);
+  if (!fs.existsSync(dest)) {
+    fail(`写入目标文件失败：${dest} 不存在，源文件保持不动。`);
+  }
   console.log(`迁移：${from} -> ${to}`);
+}
+
+// 删除源文件前逐个复查目标确实落盘——目标丢失就绝不删源。
+const lost = plan.filter(({ dest }) => !fs.existsSync(dest));
+if (lost.length > 0) {
+  for (const { from, to } of lost) {
+    console.error(`✗ 目标文件缺失，源文件保留：${from} -> ${to}`);
+  }
+  process.exit(1);
+}
+for (const { src } of plan) {
+  fs.rmSync(src);
 }
 ```
 
+> **脚本必须具备的加固（与 `tool/migrate_shared_package.mjs` 同款）**：
+>
+> 1. **数量断言**：`const EXPECTED_COUNT = 11;`——计划文件数不等于 11 就报错退出，
+>    一个文件都不迁。MAP 里的路径写错时不能静默跳过。
+> 2. **`--dry-run`**：打印完整迁移计划（源 → 目标）后 `exit(0)`，不写、不改、不删。
+> 3. **"已迁移"守卫**：源测试目录下的文件已不在原处（计划为空）时 `exit(1)`，
+>    并提示"这次迁移看起来已经执行过了"——绝不能像原来那样打印
+>    `跳过（不存在）：...` 然后 `exit(0)`，那会让人误以为迁移成功。
+> 4. **工作区干净检查**：`git status --porcelain -- pscreen/potatokid_screen/test
+>    packages/pscreen_screen/test` 有输出就中止（除非 `--force`）。
+> 5. **先写后删**：写完目标文件确认落盘，才允许删源文件；删除阶段再复查一次。
+>
+> `--force` 只用来跳过上面这些「保护性中止」，正常流程不需要它。
+
 - [ ] **Step 3: 跑迁移脚本**
+
+Run: `node tool/migrate_shared_tests.mjs "E:/Code/potatokid_clipboard" --dry-run`
+Expected: 打印 11 行 `源 -> 目标` 计划，末尾提示 `试运行结束：没有写入、没有删除任何文件。`
 
 Run: `node tool/migrate_shared_tests.mjs "E:/Code/potatokid_clipboard"`
 Expected: 11 行 `迁移：...`
@@ -1244,13 +1522,19 @@ Create `packages/pscreen_screen/README.md`:
    ```
 
 2. **在宿主自己的 pubspec 里声明共享包的资产**
-   （Flutter **不会**把依赖包的资产自动打进宿主 bundle）
 
    ```yaml
    flutter:
      assets:
        - packages/pscreen_screen/assets/datas/
    ```
+
+   为什么宿主必须自己声明：flutter_tools 对**依赖包**解析资产时不展开通配目录
+   （`packages/flutter_tools/lib/src/asset.dart` 里对依赖包传
+   `wildcardDirectories: <Uri>[]`，注释即 "Do not track wildcard directories for
+   dependencies"）。因此共享包自己声明的 `assets: - assets/datas/`（目录）在被依赖时
+   不会生效，只有宿主显式声明 `packages/pscreen_screen/assets/datas/` 才会被打进
+   bundle，资产键为 `packages/pscreen_screen/assets/datas/<文件名>`。
 
 3. **启动时配置根前缀并做接入自检**
 
