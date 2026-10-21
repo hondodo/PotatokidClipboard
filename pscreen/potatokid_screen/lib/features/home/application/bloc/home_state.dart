@@ -1,4 +1,4 @@
-import 'package:potatokid_screen/core/network/net_exceptions.dart';
+import 'package:pscreen_screen/core/network/net_exceptions.dart';
 import 'package:potatokid_screen/features/home/data/models/home_model.dart';
 
 /// 首页状态（不可变，通过 copyWith 更新）

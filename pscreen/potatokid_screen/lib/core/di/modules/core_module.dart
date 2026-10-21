@@ -1,6 +1,6 @@
 import 'package:potatokid_screen/core/di/get_it.dart';
-import 'package:potatokid_screen/core/utils/app_version.dart';
-import 'package:potatokid_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
+import 'package:pscreen_screen/core/utils/nim_manager.dart';
 
 /// 核心模块：注册启动期就绪的基础服务（应用版本信息、网易云信 NIM 单例）。
 ///

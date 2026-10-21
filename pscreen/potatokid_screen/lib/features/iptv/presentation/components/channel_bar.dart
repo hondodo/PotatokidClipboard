@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
+import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
 ///

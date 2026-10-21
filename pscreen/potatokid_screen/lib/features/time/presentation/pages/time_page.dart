@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:potatokid_screen/features/time/application/time_style_controller.dart';
-import 'package:potatokid_screen/features/time/domain/lunar_calendar.dart';
+import 'package:pscreen_screen/features/time/application/time_style_controller.dart';
+import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/time/presentation/components/analog_dial_clock.dart';
 import 'package:potatokid_screen/features/time/presentation/components/flowing_gradient_background.dart';
 

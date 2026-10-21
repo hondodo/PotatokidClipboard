@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
-import 'package:potatokid_screen/features/weather/application/bloc/weather_state.dart';
-import 'package:potatokid_screen/features/weather/data/weather_data_convert.dart';
-import 'package:potatokid_screen/features/weather/domain/models/weather_models.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_state.dart';
+import 'package:pscreen_screen/features/weather/data/weather_data_convert.dart';
+import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
 
 /// 天气小组件：消费全局 [WeatherBloc]，在无数据时不占位、不挡内容。
 ///

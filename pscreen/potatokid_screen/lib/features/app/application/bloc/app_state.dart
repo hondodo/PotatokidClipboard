@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
 /// 应用级全局状态（不可变，通过 copyWith 更新）
 class AppState {

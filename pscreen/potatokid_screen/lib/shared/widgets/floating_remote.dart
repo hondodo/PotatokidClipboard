@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:potatokid_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 

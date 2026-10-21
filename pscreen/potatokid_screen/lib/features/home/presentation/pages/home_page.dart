@@ -1,10 +1,10 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:potatokid_screen/features/app/application/sleep_timer_controller.dart';
-import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
-import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
-import 'package:potatokid_screen/features/iptv/application/bloc/iptv_state.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/live_player_widget.dart';
 
 /// 首页（电视）：「首页」Tab 主体为全屏 IPTV 直播。

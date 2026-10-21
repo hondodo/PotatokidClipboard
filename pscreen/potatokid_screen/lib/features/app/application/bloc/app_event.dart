@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
 /// 应用级事件基类
 abstract class AppEvent {

@@ -1,8 +1,8 @@
 import 'package:potatokid_screen/core/di/get_it.dart';
-import 'package:potatokid_screen/core/utils/nim_manager.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
-import 'package:potatokid_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
-import 'package:potatokid_screen/features/remote/domain/repositories/remote_login_repository.dart';
+import 'package:pscreen_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:pscreen_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
+import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 
 /// 远程登录模块：云信账号登录（Repository + Bloc）。
 ///

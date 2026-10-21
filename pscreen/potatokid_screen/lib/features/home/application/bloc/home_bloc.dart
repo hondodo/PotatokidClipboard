@@ -1,9 +1,9 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
-import 'package:potatokid_screen/core/logging/log_service.dart';
-import 'package:potatokid_screen/core/network/net_exceptions.dart';
-import 'package:potatokid_screen/core/utils/bloc_event.dart';
-import 'package:potatokid_screen/core/utils/error_message.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/network/net_exceptions.dart';
+import 'package:pscreen_screen/core/utils/bloc_event.dart';
+import 'package:pscreen_screen/core/utils/error_message.dart';
 import 'package:potatokid_screen/features/home/application/bloc/home_event.dart';
 import 'package:potatokid_screen/features/home/application/bloc/home_state.dart';
 import 'package:potatokid_screen/features/home/data/models/home_model.dart';

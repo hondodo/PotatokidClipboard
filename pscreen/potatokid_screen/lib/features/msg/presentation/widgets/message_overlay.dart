@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 
 /// 消息浮层：顶部滑入卡片 + 详情窗（设计 §5.2）。
 class MessageOverlay extends StatefulWidget {

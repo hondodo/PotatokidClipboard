@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:potatokid_screen/core/network/http_base_request.dart';
-import 'package:potatokid_screen/core/network/http_method.dart';
+import 'package:pscreen_screen/core/network/http_base_request.dart';
+import 'package:pscreen_screen/core/network/http_method.dart';
 
 /// 首页接口定义层：每个接口对应一个 [HttpBaseRequest] 子类。
 /// 只声明「请求什么」，公共参数/Header/派发由基类完成。

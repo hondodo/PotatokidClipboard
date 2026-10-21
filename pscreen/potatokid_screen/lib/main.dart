@@ -7,21 +7,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:potatokid_screen/app/app.dart';
-import 'package:potatokid_screen/app/app_log.dart';
-import 'package:potatokid_screen/app/config/app_config.dart';
-import 'package:potatokid_screen/app/config/app_constants.dart';
-import 'package:potatokid_screen/app/config/data_files.dart';
+import 'package:pscreen_screen/app/app_log.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/app/config/app_constants.dart';
+import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
-import 'package:potatokid_screen/core/utils/nim_manager.dart';
-import 'package:potatokid_screen/core/utils/ptools_util.dart';
+import 'package:pscreen_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
-import 'package:potatokid_screen/features/iptv/application/bloc/iptv_bloc.dart';
-import 'package:potatokid_screen/features/iptv/application/bloc/iptv_event.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
-import 'package:potatokid_screen/features/weather/application/bloc/weather_bloc.dart';
-import 'package:potatokid_screen/features/weather/application/bloc/weather_event.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_event.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(

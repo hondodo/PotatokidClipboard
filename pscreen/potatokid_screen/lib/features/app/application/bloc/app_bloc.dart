@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:potatokid_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
-import 'package:potatokid_screen/features/app/application/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
 /// 内部事件：持久化设置加载完成，用于在 bloc 事件循环内安全 emit。
 class _PersistedSettingsLoaded extends AppEvent {
