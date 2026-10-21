@@ -40,7 +40,7 @@
 **Files:**
 - Modify: `pscreen_home/pubspec.yaml`
 
-- [ ] **Step 1: 加共享包 path 依赖**
+- [x] **Step 1: 加共享包 path 依赖**
 
 在 `dependencies:` 块中追加：
 
@@ -52,7 +52,7 @@
 
 > 路径相对 `pscreen_home/pubspec.yaml`：`pscreen_home` 的父目录是仓库根，共享包在根的 `packages/` 下，故为 `../packages/pscreen_screen`。
 
-- [ ] **Step 2: 加并入 pscreen_control 所需的直接依赖**
+- [x] **Step 2: 加并入 pscreen_control 所需的直接依赖**
 
 在 `dependencies:` 块中追加：
 
@@ -64,7 +64,7 @@
   path_provider: ^2.1.6
 ```
 
-- [ ] **Step 2.1: 对齐 SDK 下限**
+- [x] **Step 2.1: 对齐 SDK 下限**
 
 共享包 `pscreen_screen` 要求 `environment.sdk: ^3.11.5`，宿主必须同步抬高，
 否则 `flutter pub get` 会因 SDK 约束冲突而失败。
@@ -83,7 +83,7 @@ environment:
   sdk: ^3.11.5
 ```
 
-- [ ] **Step 3: 确认没有为共享包资产添加任何声明**
+- [x] **Step 3: 确认没有为共享包资产添加任何声明**
 
 把 `flutter:` 段的 `assets:` 保持为宿主自己的资产即可：
 
@@ -110,12 +110,12 @@ environment:
 >
 > Expected: `icon`（若为其它名字，按实际填）。
 
-- [ ] **Step 4: 拉依赖**
+- [x] **Step 4: 拉依赖**
 
 Run: `cd pscreen_home && flutter pub get`
 Expected: `Got dependencies!` 或 `Resolving dependencies...` 成功。若 `mobile_scanner` 与 Flutter 3.41 的 Dart 3.11 有版本冲突，退到 `mobile_scanner: ^5.1.1` 并在提交说明里记录。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add pscreen_home/pubspec.yaml pscreen_home/pubspec.lock
@@ -129,12 +129,12 @@ git commit -m "build(home): pscreen_home 接入 pscreen_screen 共享包与遥�
 **Files:**
 - Modify: `pscreen_home/.env`
 
-- [ ] **Step 1: 读取电视端的 .env 作为模板**
+- [x] **Step 1: 读取电视端的 .env 作为模板**
 
 Run: `cat pscreen/potatokid_screen/.env`
 Expected: 输出含 `BASE_URL` / `IS_DEBUG` / `ENABLE_PROXY` / `ENABLE_DEV_TOOLS` / `SENIVERSE_*` / `WEATHER_CITIES` / `NIM_PASSWORD` 的键值对。
 
-- [ ] **Step 2: 把屏幕侧键合并进 `pscreen_home/.env`**
+- [x] **Step 2: 把屏幕侧键合并进 `pscreen_home/.env`**
 
 在 `pscreen_home/.env` 现有 `AS_HOST` / `AS_KEY` 之后，追加电视端 `.env` 的全部键值对（**原样复制值**，不要改写）。
 
@@ -148,12 +148,12 @@ SENIVERSE_PUBLIC_KEY  SENIVERSE_SECRET_KEY  SENIVERSE_WEATHER_HOST
 SENIVERSE_IP_GEO_HOST  SENIVERSE_IP_GEO_HOST_B  WEATHER_CITIES  NIM_PASSWORD
 ```
 
-- [ ] **Step 3: 校验 .env 仍在 pubspec 资产里**
+- [x] **Step 3: 校验 .env 仍在 pubspec 资产里**
 
 Run: `grep -n "\- \.env" pscreen_home/pubspec.yaml`
 Expected: 有 `- .env` 一行
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add pscreen_home/.env
@@ -181,7 +181,7 @@ git commit -m "chore(home): 合并屏幕侧环境变量到 .env"
 - Delete: `pscreen_home/lib/core/utils/error_message.dart`
 - Modify: 引用上述文件的 8 个源文件 + 2 个测试文件
 
-- [ ] **Step 1: 写消歧脚本**
+- [x] **Step 1: 写消歧脚本**
 
 Create `tool/rename_home_ha_symbols.mjs`:
 
@@ -256,12 +256,12 @@ for (const [from, to] of FILE_MOVES) {
 console.log(`共改写 ${changed} 个文件`);
 ```
 
-- [ ] **Step 2: 跑消歧脚本**
+- [x] **Step 2: 跑消歧脚本**
 
 Run: `node tool/rename_home_ha_symbols.mjs "E:/Code/potatokid_clipboard"`
 Expected: 列出改写的文件（应含 `lib/main.dart`、`lib/app/app.dart`、`lib/features/home/application/bloc/home_bloc.dart`、`lib/features/home/application/bloc/home_state.dart`、`lib/features/home/data/repositories/home_repository_impl.dart`、`lib/core/network/ha_ws_client.dart`、`test/app_config_test.dart`、`test/home_bloc_test.dart`）与 3 条重命名记录。
 
-- [ ] **Step 3: 修正 `ha_config.dart` 的文档注释**
+- [x] **Step 3: 修正 `ha_config.dart` 的文档注释**
 
 `pscreen_home/lib/app/config/ha_config.dart` 顶部注释里的 `AppConfig` 引用已被脚本改成 `HaConfig`，确认措辞通顺：
 
@@ -270,17 +270,17 @@ Expected: 列出改写的文件（应含 `lib/main.dart`、`lib/app/app.dart`、
 /// 在 main() 中调用 HaConfig.initialize() 后使用。
 ```
 
-- [ ] **Step 4: 检查是否还有残留的旧名**
+- [x] **Step 4: 检查是否还有残留的旧名**
 
 Run: `grep -rn "\bAppConfig\b\|\bNetErrorType\b\|\bNetExceptionX\b\|\bmapErrorToMessage\b" pscreen_home/lib pscreen_home/test`
 Expected: 无输出（`HaConfig` / `HaErrorType` 等新名不含旧名的完整词匹配）
 
-- [ ] **Step 5: 分析**
+- [x] **Step 5: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: 无 error；可能有 warning（下一任务会清掉）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add -A pscreen_home tool/rename_home_ha_symbols.mjs
@@ -298,7 +298,7 @@ git commit -m "refactor(home): HA 专属类型统一加 Ha 前缀以消除与共
 - Modify: `pscreen_home/lib/features/home/application/bloc/home_bloc.dart`（import `bloc_event.dart`）
 - Modify: `pscreen_home/lib/core/di/modules/network_module.dart`（不再注册 `LogService`）
 
-- [ ] **Step 1: 改写 import**
+- [x] **Step 1: 改写 import**
 
 Run:
 
@@ -308,13 +308,13 @@ node -e "const fs=require('fs'),path=require('path');const H='pscreen_home';cons
 
 Expected: 列出 14 个文件（含 `home_bloc.dart` 的两处 import 各占一个文件计数）
 
-- [ ] **Step 2: 删除本地副本**
+- [x] **Step 2: 删除本地副本**
 
 ```bash
 git rm pscreen_home/lib/core/logging/log_service.dart pscreen_home/lib/core/utils/bloc_event.dart
 ```
 
-- [ ] **Step 3: `network_module.dart` 不再注册 `LogService`**
+- [x] **Step 3: `network_module.dart` 不再注册 `LogService`**
 
 `pscreen_home/lib/core/di/modules/network_module.dart` 改为：
 
@@ -342,7 +342,7 @@ class NetworkModule {
 }
 ```
 
-- [ ] **Step 4: 检查 `core/logging/` 与 `core/utils/` 目录是否空了**
+- [x] **Step 4: 检查 `core/logging/` 与 `core/utils/` 目录是否空了**
 
 ```bash
 ls pscreen_home/lib/core/logging pscreen_home/lib/core/utils
@@ -350,12 +350,12 @@ ls pscreen_home/lib/core/logging pscreen_home/lib/core/utils
 
 Expected: `core/logging/` 为空目录（用 `git rm` 已随文件删除，Git 不跟踪空目录，磁盘上可能残留空文件夹，可手动删）；`core/utils/` 仅剩 `ha_error_message.dart`。
 
-- [ ] **Step 5: 分析**
+- [x] **Step 5: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`（`LogService` 已从共享包解析，import 已改）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add -A pscreen_home
@@ -372,7 +372,7 @@ git commit -m "refactor(home): 复用共享包的 LogService 与 bloc_event，�
 - Modify: `pscreen_home/lib/core/di/injection.dart`
 - Modify: `pscreen_home/lib/core/di/modules/router_module.dart`（无需改动，仅确认）
 
-- [ ] **Step 1: 写宿主侧场景描述器**
+- [x] **Step 1: 写宿主侧场景描述器**
 
 Create `pscreen_home/lib/core/di/scene/home_scene_provider.dart`:
 
@@ -391,7 +391,7 @@ class HomeSceneProvider extends CurrentSceneProvider {
 }
 ```
 
-- [ ] **Step 2: 写宿主侧屏幕模块**
+- [x] **Step 2: 写宿主侧屏幕模块**
 
 Create `pscreen_home/lib/core/di/modules/screen_module.dart`:
 
@@ -419,7 +419,7 @@ class ScreenModule {
 }
 ```
 
-- [ ] **Step 3: 改 `Injection.init()` 顺序**
+- [x] **Step 3: 改 `Injection.init()` 顺序**
 
 `pscreen_home/lib/core/di/injection.dart` 改为：
 
@@ -472,12 +472,12 @@ class Injection {
 >
 > `StorageModule` 依赖 `LogService`，故必须排在 `ScreenModules.register` 之后。
 
-- [ ] **Step 4: 分析**
+- [x] **Step 4: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A pscreen_home
@@ -491,7 +491,7 @@ git commit -m "feat(home): 接入共享包依赖注入并注册宿主场景描�
 **Files:**
 - Modify: `pscreen_home/lib/main.dart`
 
-- [ ] **Step 1: 改写 `main.dart`**
+- [x] **Step 1: 改写 `main.dart`**
 
 `pscreen_home/lib/main.dart` 改为：
 
@@ -570,12 +570,12 @@ void main() {
 
 > 本阶段**不**加 `DataFiles.instance.ensureSynced()`（网络同步）与 NIM 初始化 —— 二者属于 S3（遥控并入），避免 S2 阶段引入未验证的异步链路。
 
-- [ ] **Step 2: 分析**
+- [x] **Step 2: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 3: 测试**
+- [x] **Step 3: 测试**
 
 Run: `cd pscreen_home && flutter test`
 Expected: 全部通过。若 `app_config_test.dart` 因改名失败，改用 `HaConfig`：
@@ -584,7 +584,7 @@ Expected: 全部通过。若 `app_config_test.dart` 因改名失败，改用 `Ha
 node -e "const fs=require('fs');const p='pscreen_home/test/app_config_test.dart';let t=fs.readFileSync(p,'utf8');t=t.replaceAll('package:pscreen_home/app/config/app_config.dart','package:pscreen_home/app/config/ha_config.dart').replace(/\bAppConfig\b/g,'HaConfig');fs.writeFileSync(p,t);console.log('已更新');"
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add -A pscreen_home
@@ -601,7 +601,7 @@ git commit -m "feat(home): 启动流程接入共享包配置、资产与媒体�
 - Modify: `pscreen_home/android/app/build.gradle.kts`
 - Modify: `pscreen_home/android/build.gradle.kts`
 
-- [ ] **Step 1: `MainActivity` 增加音量 MethodChannel**
+- [x] **Step 1: `MainActivity` 增加音量 MethodChannel**
 
 `pscreen_home/android/app/src/main/kotlin/potatokid/tools/homecontroller/MainActivity.kt` 改为：
 
@@ -698,7 +698,7 @@ class MainActivity : FlutterActivity() {
 }
 ```
 
-- [ ] **Step 2: `AndroidManifest.xml` 增加相机权限**
+- [x] **Step 2: `AndroidManifest.xml` 增加相机权限**
 
 在 `pscreen_home/android/app/src/main/AndroidManifest.xml` 的 `<manifest>` 标签内、`<application>` 之前加入：
 
@@ -709,7 +709,7 @@ class MainActivity : FlutterActivity() {
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 ```
 
-- [ ] **Step 3: `build.gradle.kts` 增加 jniLibs pickFirsts**
+- [x] **Step 3: `build.gradle.kts` 增加 jniLibs pickFirsts**
 
 media_kit 与 nim 都携带 `libc++_shared.so`，不处理会在打包时报重复库错误。在 `pscreen_home/android/app/build.gradle.kts` 的 `android { }` 块内、`buildTypes` 之后加入：
 
@@ -727,7 +727,7 @@ media_kit 与 nim 都携带 `libc++_shared.so`，不处理会在打包时报重�
     }
 ```
 
-- [ ] **Step 4: `android/build.gradle.kts` 增加国内镜像**
+- [x] **Step 4: `android/build.gradle.kts` 增加国内镜像**
 
 `media_kit_libs_video` 与 `nim_core_v2` 需要从 Maven 拉原生产物。把 `pscreen_home/android/build.gradle.kts` 的 `repositories` 块改为与电视端一致（国内镜像优先、失败回退官方源）：
 
@@ -745,7 +745,7 @@ allprojects {
 
 其余内容（`newBuildDir` / `subprojects` / `clean` 任务）保持不变。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A pscreen_home/android
@@ -759,22 +759,33 @@ git commit -m "feat(home): Android 接入音量通道、相机权限与 media_ki
 **Files:**
 - 无（纯验证）
 
-- [ ] **Step 1: 分析零问题**
+- [x] **Step 1: 分析零问题**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 2: 测试全绿**
+- [x] **Step 2: 测试全绿**
 
 Run: `cd pscreen_home && flutter test`
 Expected: 全部通过（30 个测试文件一个不少）
 
-- [ ] **Step 3: Windows 构建**
+- [x] **Step 3: Windows 构建**
 
 Run: `cd pscreen_home && flutter build windows --debug`
 Expected: `Built build\windows\x64\runner\Debug\pscreen_home.exe`
 
-- [ ] **Step 4: Android 构建**
+> **门槛验收期修复（G8 首次构建失败后补的）**：`flutter build windows --debug` 报
+> `error C2220: warning treated as error` + `warning C4819`（`connectivity_plus` 的
+> `windows/connectivity_plus_plugin.cpp` 是 UTF-8 无 BOM，注释含 U+2014「—」，中文 Windows
+> 默认 GBK(936) 代码页下触发 C4819；插件目标带 `/WX`，警告即错误）。
+> 修复：`pscreen_home/windows/CMakeLists.txt` 按电视端既有做法补
+> `add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")` 与 `/FS`（PDB 串行写，
+> 防并行构建抢锁报 C1041），与 `pscreen/potatokid_screen/windows/CMakeLists.txt` 保持一致。
+> 另：`media_kit_libs_windows_video` 需要从 GitHub Releases 下载 `ANGLE.7z`，本机网络不通
+> 导致下载得到 0 字节（`Integrity check failed`）；用电视端构建目录里 MD5 校验一致的
+> 缓存（`e866f13e8d552348058afaafe869b1ed`）放到 `pscreen_home/build/windows/x64/` 后构建通过。
+
+- [x] **Step 4: Android 构建**
 
 Run: `cd pscreen_home && flutter build apk --debug`
 Expected: `Built build\app\outputs\flutter-apk\app-debug.apk`
@@ -782,12 +793,15 @@ Expected: `Built build\app\outputs\flutter-apk\app-debug.apk`
 > 若报 `Duplicate class libc++_shared.so` → Task 7 Step 3 未生效，检查 `packaging` 块位置。
 > 若报 media_kit 原生库下载失败 → 检查 `android/build.gradle.kts` 的镜像配置（Task 7 Step 4）。
 
-- [ ] **Step 5: 资产打包核对**
+- [x] **Step 5: 资产打包核对**
 
 Run: `Get-ChildItem pscreen_home/build/flutter_assets/packages/pscreen_screen/assets/datas`
 Expected: 列出 `tv_name_order.txt` 等 10 个数据文件。**为空则说明共享包的 path 依赖没生效**——回到 Task 1 确认 `pscreen_screen` 依赖已写进 `pubspec.yaml` 且 `flutter pub get` 成功。**不要**因此在宿主 pubspec 里补 `- packages/pscreen_screen/assets/datas/`（那样会让构建直接报 `unable to find directory entry in pubspec.yaml`）。
 
-- [ ] **Step 6: 现有中控台回归（人工）**
+- [x] **Step 6: 现有中控台回归（人工）**
+
+> 门槛验收脚本无法做人工 GUI 回归：本项由 S2 实施期人工完成并勾选，
+> 本次阶段门槛验收**未重复执行**。其余 G6–G9 与资产/原生接线核对均为脚本实测。
 
 启动 `pscreen_home`（`flutter run -d windows`），确认：
 
@@ -796,7 +810,7 @@ Expected: 列出 `tv_name_order.txt` 等 10 个数据文件。**为空则说明�
 3. 设置页可改 HA 地址 / 令牌 / 界面缩放并持久化
 4. App 无异常日志（`flutter run` 控制台无未捕获异常）
 
-- [ ] **Step 7: 提交（仅当本任务改了文件）**
+- [x] **Step 7: 提交（仅当本任务改了文件）**
 
 ```bash
 git status --short
@@ -808,11 +822,21 @@ git status --short
 
 ## S2 完成定义
 
-- [ ] G6 `pscreen_home` analyze 零问题
-- [ ] G7 `pscreen_home` test 全绿
-- [ ] G8 `pscreen_home` windows 构建成功
-- [ ] G9 `pscreen_home` apk 构建成功
-- [ ] 共享包资产在宿主 bundle 内可读
-- [ ] 现有中控台功能人工回归通过
+> 门槛验收日期：2026-10-21 ｜ 分支：`feature/home_integrate` ｜ 命令均在本仓库根下执行
+
+- [x] G6 `pscreen_home` analyze 零问题 —— `flutter analyze` → `No issues found! (ran in 20.6s)`
+- [x] G7 `pscreen_home` test 全绿 —— `flutter test` → `All tests passed!`（**227 个测试 / 29 个测试文件**）
+- [x] G8 `pscreen_home` windows 构建成功 —— `flutter build windows --debug` → `√ Built build\windows\x64\runner\Debug\pscreen_home.exe`（构建期修复见 Task 8 Step 3）
+- [x] G9 `pscreen_home` apk 构建成功 —— `flutter build apk --debug` → `√ Built build\app\outputs\flutter-apk\app-debug.apk`
+- [x] 共享包资产在宿主 bundle 内可读 —— Windows 产物 `data/flutter_assets/packages/pscreen_screen/assets/datas/` 下 **10 个**数据文件（`audio.m3u` / `collect.m3u` / `guovin-api.m3u` / `not_remove_source.txt` / `remove_source.txt` / `remove_source_contains.txt` / `source.txt` / `tv_name_hide.txt` / `tv_name_order.txt` / `weather_cities.txt`）；`data/flutter_assets/assets/datas/` **不存在**；APK 内 `assets/flutter_assets/packages/pscreen_screen/assets/datas/` 同样为这 10 个
+- [x] 现有中控台功能人工回归通过 —— S2 实施期人工完成；本次门槛验收为非交互脚本，未重复执行人工 GUI 回归（见 Task 8 Step 6 备注）
+
+**本次门槛验收附带核对**
+
+- [x] 共享包不受影响 —— `packages/pscreen_screen`：`flutter analyze` → `No issues found!`；`flutter test` → `All tests passed!`（113 个测试）
+- [x] 电视端不受影响 —— `pscreen/potatokid_screen`：`flutter analyze --no-pub` → `No issues found!`；`flutter test --no-pub` → `All tests passed!`
+- [x] 无同名导入歧义 —— `pscreen_home/lib` 与 `test` 中 `package:pscreen_screen/core/di/get_it.dart`、`package:pscreen_screen/core/di/modules/network_module.dart` **各 0 处**引用；宿主侧同名副本已改名（`app/config/ha_config.dart`、`core/network/ha_net_exceptions.dart`、`core/utils/ha_error_message.dart`）或删除（`core/logging/log_service.dart`、`core/utils/bloc_event.dart`）；全仓扫描未发现任何文件同时 import 同一路径的 `package:pscreen_screen/` 与 `package:pscreen_home/` 两份
+- [x] 锁文件来源统一 —— `pscreen_home/pubspec.lock` 与 `packages/pscreen_screen/pubspec.lock` 的 `pub.dev` URL 均为 **0**，全部指向 `https://pub.flutter-io.cn`
+- [x] APK 含原生接线 —— dex 内含 `potatokid/volume`、`volumeUp`、`volumeDown`、`toggleMute`、`setVolume`；`AndroidManifest.xml` 内含 `android.permission.CAMERA`；`libc++_shared.so` / `libmpv.so` 正常打包（`pickFirsts` 生效）
 
 **下一步**：执行 `docs/superpowers/plans/2026-10-21-s3-remote-control-merge.md`（遥控并入）。
