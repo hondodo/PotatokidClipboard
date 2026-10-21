@@ -21,7 +21,7 @@ class MessageOverlayController extends ChangeNotifier {
   bool _detail = false;
   Timer? _idleTimer;
 
-  /// 屏保互斥：真值由 MainApp 依 AppTabController.isScreensaver 填充。
+  /// 屏保互斥：真值由宿主外壳依自身导航状态填充。
   bool deferActive = false;
 
   /// 屏保期间缓存的最新消息（未弹出）。
@@ -43,7 +43,7 @@ class MessageOverlayController extends ChangeNotifier {
     _display(text);
   }
 
-  /// 退出屏保（MainApp 在 deferActive 转 false 时调用）。
+  /// 退出屏保（宿主在 deferActive 转 false 时调用）。
   void onDeferEnd() {
     final String? pendingText = _pending;
     if (deferActive || pendingText == null) return;

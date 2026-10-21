@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/app_log.dart';
-import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 
 /// 文本发送抽象（生产为 NimManager 包装；测试用 Fake）。
 abstract class MessageSender {
@@ -18,6 +18,7 @@ class ReportingService {
     required this.deviceModel,
     required this.channelInfo,
     required this.liveChannel,
+    required this.sceneProvider,
     DateTime Function()? now,
     Duration? heartbeatInterval,
   })  : _now = now ?? DateTime.now,
@@ -40,6 +41,10 @@ class ReportingService {
   final Future<String> Function() deviceModel;
   final ChannelInfoProvider channelInfo;
   final LiveChannelController liveChannel;
+
+  /// 当前场景描述提供者（由宿主注入）。
+  final CurrentSceneProvider sceneProvider;
+
   final DateTime Function() _now;
 
   /// 实际生效的心跳间隔（构造时可覆盖，默认 [heartbeatInterval]）。
@@ -95,13 +100,11 @@ class ReportingService {
     });
   }
 
-  /// 当前位置文本：在频道上报频道名，否则报当前页名。
+  /// 当前位置文本：在频道上报频道名，否则报当前场景描述。
   String positionText() {
-    if (AppTabController.branchIndex == 0) {
-      final String? name = channelInfo.nameAt(liveChannel.index);
-      if (name != null) return name;
-    }
-    return AppTabController.pageName;
+    final String? name = channelInfo.nameAt(liveChannel.index);
+    if (name != null) return name;
+    return sceneProvider.describe();
   }
 
   String get _deviceModelCache => _model ?? 'Android TV';
