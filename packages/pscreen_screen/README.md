@@ -32,15 +32,19 @@
        - packages/pscreen_screen/assets/datas/
    ```
 
-3. **在任何资产读取之前配置根前缀**
+3. **启动时配置根前缀并做接入自检**
 
    ```dart
    ScreenAssets.configure(root: 'packages/pscreen_screen/');
+   ScreenAssets.requireHostConfigured();   // 未配置就抛异常
    ```
 
    忘记这一步 → 资产读取 404 且被上层 `catch` 吞掉，表现为「频道规则为空、
-   城市列表为空」这类**静默故障**。共享包内的唯一资产读取点会调
-   `ScreenAssets.requireConfigured()` 把这种失败变成显式异常。
+   城市列表为空」这类**静默故障**。自检放在启动期，让它立刻失败而不是等到
+   第一次读资产。
+
+   注意：共享包自己跑测试时根前缀是空串（资产就在包内 `assets/datas/`），
+   这是合法的；`requireHostConfigured()` 只用于宿主。
 
 4. **不要与宿主自己的 `core/di/get_it.dart` 同时 import 包的同名文件**
    —— 两边都有 `getIt` / `GetItConfig`，同时 import 会产生歧义引用错误。

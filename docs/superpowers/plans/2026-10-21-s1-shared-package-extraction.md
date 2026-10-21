@@ -97,16 +97,17 @@ void main() {
           'packages/pscreen_screen/assets/datas/x.txt');
     });
 
-    test('isConfigured 反映是否已配置', () {
-      expect(ScreenAssets.isConfigured, isFalse);
-      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+    test('isConfigured 表示是否调用过 configure', () {
       expect(ScreenAssets.isConfigured, isTrue);
     });
 
-    test('requireConfigured 未配置时抛出 StateError', () {
-      expect(() => ScreenAssets.requireConfigured(), throwsStateError);
+    test('空根前缀对共享包自身合法，但宿主自检会抛异常', () {
+      ScreenAssets.configure(root: '');
+      expect(ScreenAssets.root, '');
+      expect(() => ScreenAssets.requireHostConfigured(), throwsStateError);
+
       ScreenAssets.configure(root: 'packages/pscreen_screen/');
-      expect(() => ScreenAssets.requireConfigured(), returnsNormally);
+      expect(() => ScreenAssets.requireHostConfigured(), returnsNormally);
     });
   });
 }
@@ -230,8 +231,13 @@ Create `packages/pscreen_screen/lib/app/config/screen_assets.dart`:
 ///
 /// Flutter 只把**宿主** pubspec 中声明的资产打进 bundle；依赖包的资产必须由
 /// 宿主以 `packages/<包名>/...` 形式声明，且包内代码要用同样的前缀读取。
-/// 因此这里把前缀做成可配置：包自身跑测试时为空，宿主接入时设为
-/// `packages/pscreen_screen/`。
+/// 因此这里把前缀做成可配置。
+///
+/// 两种场景的根前缀不同：
+/// - **共享包自身**（跑自己的 `flutter test`）：根前缀为空 `''`，资产键就是
+///   `assets/datas/x.txt`（包自己的 pubspec 声明了 `assets/datas/`）。
+/// - **宿主 App**：根前缀为 `packages/pscreen_screen/`，资产键是
+///   `packages/pscreen_screen/assets/datas/x.txt`。
 ///
 /// **使用约定**：[path] 应在**读取资产的那一刻**调用，不要把结果缓存下来 ——
 /// 宿主可能在首次读取之后才调用 [configure]。
@@ -241,17 +247,22 @@ class ScreenAssets {
   /// 资产根前缀，末尾恒为 `/`。
   static String _root = '';
 
+  /// 是否已调用过 [configure]（与根前缀是否为空无关）。
+  static bool _configured = false;
+
   /// 当前根前缀。
   static String get root => _root;
 
-  /// 是否已配置根前缀。
+  /// 宿主是否已完成接入配置（调用过 [configure]）。
   ///
   /// 宿主**必须**在读取任何共享包资产之前调用 [configure]：忘记配置会让所有
   /// 资产读取 404 且被上层 `catch` 吞掉，表现为「频道规则为空、城市列表为空」
-  /// 这类静默故障。用 [requireConfigured] 把这种失败变成显式异常。
-  static bool get isConfigured => _root.isNotEmpty;
+  /// 这类静默故障。宿主用 [requireHostConfigured] 在启动期把它变成显式失败。
+  static bool get isConfigured => _configured;
 
   /// 设置根前缀：自动补尾部 `/`、去掉头部 `/`。
+  ///
+  /// 传入空串是合法的（共享包自身场景）。
   static void configure({required String root}) {
     var normalized = root.trim();
     while (normalized.endsWith('/')) {
@@ -261,17 +272,20 @@ class ScreenAssets {
       normalized = normalized.substring(1);
     }
     _root = normalized.isEmpty ? '' : '$normalized/';
+    _configured = true;
   }
 
-  /// 断言根前缀已配置；未配置时抛 [StateError]。
+  /// 宿主接入自检：根前缀为空时抛 [StateError]。
   ///
-  /// 由共享包内**唯一的资产读取点**调用（`DataFiles._readAsset`），把
-  /// 「宿主忘记 configure」从静默降级变成显式失败。
-  static void requireConfigured() {
+  /// **只在宿主启动路径调用**（紧接 [configure] 之后）——共享包自身跑测试时
+  /// 根前缀为空是合法的。放在启动期的好处是「忘记 configure」立刻失败，
+  /// 而不是等到第一次读资产时被 `catch` 吞掉、变成运行期的静默降级。
+  static void requireHostConfigured() {
     if (_root.isEmpty) {
       throw StateError(
         'ScreenAssets 未配置：宿主必须先调用 '
         'ScreenAssets.configure(root: "packages/pscreen_screen/")，'
+        '并在其后调用 ScreenAssets.requireHostConfigured() 做接入自检；'
         '否则依赖包的资产无法被读取。',
       );
     }
@@ -573,18 +587,15 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 写死前缀既破坏 const 又会在首次访问时快照下当时的根前缀）。
 
 只改**唯一的资产读取点**：找到读取包内资产的那个方法（形如 `_readAsset(DataFile file)`，
-内部用 `rootBundle.loadString(file.assetPath)`），把它改成：
+内部用 `rootBundle.loadString(file.assetPath)`），把读取那一行改成：
 
 ```dart
-  Future<String> _readAsset(DataFile file) async {
-    try {
-      ScreenAssets.requireConfigured();
       return await rootBundle.loadString(ScreenAssets.path(file.assetPath));
-    } catch (e) {
-      return '';
-    }
-  }
 ```
+
+**不要**在这里加任何配置校验：该方法有 `catch` 兜底，任何异常都会被吞成空串，
+把校验放进来等于没有校验。宿主接入自检（`ScreenAssets.requireHostConfigured()`）
+放在宿主的启动路径里做，见 S2 Task 6。
 
 `DataFile.assetPath` 保持**相对路径**（`'assets/datas/xxx.txt'`）不变，
 `DataFile` 类与 `_files` 列表一个字都不动。
@@ -864,7 +875,10 @@ import 'package:pscreen_screen/app/config/screen_assets.dart';
 ```dart
       // 1.9 资产根路径：共享包的资产在宿主 bundle 内位于
       //     packages/pscreen_screen/ 前缀下，读取前必须先告知共享包。
+      //     紧接一次接入自检：忘记配置就在启动期立刻失败，
+      //     而不是等第一次读资产时被 catch 吞成空串。
       ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      ScreenAssets.requireHostConfigured();
 ```
 
 - [ ] **Step 5: 为电视端实现并注册 `CurrentSceneProvider`**
@@ -1147,15 +1161,19 @@ Create `packages/pscreen_screen/README.md`:
        - packages/pscreen_screen/assets/datas/
    ```
 
-3. **在任何资产读取之前配置根前缀**
+3. **启动时配置根前缀并做接入自检**
 
    ```dart
    ScreenAssets.configure(root: 'packages/pscreen_screen/');
+   ScreenAssets.requireHostConfigured();   // 未配置就抛异常
    ```
 
    忘记这一步 → 资产读取 404 且被上层 `catch` 吞掉，表现为「频道规则为空、
-   城市列表为空」这类**静默故障**。共享包内的唯一资产读取点会调
-   `ScreenAssets.requireConfigured()` 把这种失败变成显式异常。
+   城市列表为空」这类**静默故障**。自检放在启动期，让它立刻失败而不是等到
+   第一次读资产。
+
+   注意：共享包自己跑测试时根前缀是空串（资产就在包内 `assets/datas/`），
+   这是合法的；`requireHostConfigured()` 只用于宿主。
 
 4. **不要与宿主自己的 `core/di/get_it.dart` 同时 import 包的同名文件**
    —— 两边都有 `getIt` / `GetItConfig`，同时 import 会产生歧义引用错误。

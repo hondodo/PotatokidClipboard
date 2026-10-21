@@ -22,7 +22,7 @@
 | 2 | 共享包（Dio 语义）与宿主（HA 语义）都有 `NetErrorType` / `NetExceptionX` / `mapErrorToMessage` | 宿主改名 `HaErrorType` / `HaExceptionX` / `mapHaErrorToMessage` |
 | 3 | `LogService` 会双重注册（get_it 重复注册直接抛异常） | 宿主删除本地 `LogService`，由共享包的 `NetworkModule` 注册；宿主 `NetworkModule` 只留 `HaWsClient` |
 | 4 | `bloc_event.dart` 两边逐字相同 | 宿主删除本地副本，改引用共享包 |
-| 5 | 共享包资产在宿主 bundle 内前缀为 `packages/pscreen_screen/` | 启动时 `ScreenAssets.configure(root: 'packages/pscreen_screen/')` |
+| 5 | 共享包资产在宿主 bundle 内前缀为 `packages/pscreen_screen/` | 启动时 `ScreenAssets.configure(root: 'packages/pscreen_screen/')` + `ScreenAssets.requireHostConfigured()` 自检 |
 
 ## 阶段验收门槛
 
@@ -517,7 +517,10 @@ void main() {
 
       // 0.1 资产根路径：共享包的资产在宿主 bundle 内位于
       //     packages/pscreen_screen/ 前缀下，读取前必须先告知共享包。
+      //     紧接一次接入自检：忘记配置就在启动期立刻失败，
+      //     而不是等第一次读资产时被 catch 吞成空串。
       ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      ScreenAssets.requireHostConfigured();
 
       // 1. 加载 .env：HA 连接配置（AS_HOST / AS_KEY）与屏幕侧配置共用同一份
       //    .env。flutter_dotenv 的 load() 会覆盖式重载，重复调用安全。
