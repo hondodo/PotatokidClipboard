@@ -1,4 +1,4 @@
-import 'package:get_it/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 
 /// 共享包的依赖解析门面。
 ///
@@ -8,5 +8,5 @@ import 'package:get_it/get_it.dart';
 class ScreenInjection {
   const ScreenInjection._();
 
-  static T get<T extends Object>() => GetIt.instance<T>();
+  static T get<T extends Object>() => getIt<T>();
 }
