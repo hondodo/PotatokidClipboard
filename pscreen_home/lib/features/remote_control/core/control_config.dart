@@ -1,6 +1,6 @@
 /// 环境常量。
-class AppConfig {
-  const AppConfig._();
+class ControlConfig {
+  const ControlConfig._();
 
   /// 管理员云信账号（TV 上报目标）。
   static const String adminAccount = '1000001';

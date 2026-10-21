@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pscreen_control/features/send/data/tv_directory.dart';
+import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 
 /// 目标选择器：预设列表多选 + 手动输入 + 扫码。
 class TargetPicker extends StatelessWidget {

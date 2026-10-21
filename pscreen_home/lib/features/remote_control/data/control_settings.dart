@@ -1,10 +1,10 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 持久化：登录账号、token、管理员最近勾选的 TV 目标。
-class AppSettings {
-  AppSettings._();
+class ControlSettings {
+  ControlSettings._();
 
-  static final AppSettings instance = AppSettings._();
+  static final ControlSettings instance = ControlSettings._();
 
   static const String _kAccount = 'nim_account';
   static const String _kToken = 'nim_token';

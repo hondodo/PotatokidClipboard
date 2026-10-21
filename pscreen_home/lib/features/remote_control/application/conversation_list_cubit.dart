@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:pscreen_control/app/utils/app_log.dart';
+import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 
 import 'conversation_source.dart';
 
@@ -62,7 +62,7 @@ class ConversationListCubit extends Cubit<ConversationListState> {
     } catch (e) {
       // fetch 失败保持现有列表；已关闭则静默丢弃。
       if (isClosed) return;
-      AppLog.e('conversation refresh failed: $e');
+      ControlLog.e('conversation refresh failed: $e');
     }
   }
 

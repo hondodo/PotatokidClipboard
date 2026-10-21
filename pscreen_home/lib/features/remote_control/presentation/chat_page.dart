@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:pscreen_control/app/di/injection.dart';
-import 'package:pscreen_control/core/chat_message_item.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/send/presentation/widgets/command_panel.dart';
+import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
 
 /// 聊天页：消息流（NIM 实时） + 底部输入（文本/命令）。
 class ChatPage extends StatefulWidget {
@@ -26,10 +26,10 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     // 进入聊天页即标为已读（内部 fire-and-forget，失败仅记日志）。
-    unawaited(getIt<NimClient>().markConversationRead(widget.account));
+    unawaited(Injection.get<NimClient>().markConversationRead(widget.account));
     // 流按批次到达（批内旧→新）；reversed 后 insertAll(0) 使最新在索引 0，
     // 配合 ListView(reverse: true) 最新消息显示在底部。
-    _msgSub = getIt<NimClient>()
+    _msgSub = Injection.get<NimClient>()
         .watchMessages(widget.account)
         .listen((List<ChatMessageItem> batch) {
       if (!mounted || batch.isEmpty) return;
@@ -46,7 +46,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send(String body) async {
     if (body.isEmpty) return;
-    final bool ok = await getIt<NimClient>()
+    final bool ok = await Injection.get<NimClient>()
         .sendText(toAccount: widget.account, text: body);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

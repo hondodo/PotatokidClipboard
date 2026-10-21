@@ -1,9 +1,9 @@
 import 'package:nim_core_v2/nim_core.dart';
 
-import 'package:pscreen_control/app/storage/app_settings.dart';
-import 'package:pscreen_control/app/utils/app_log.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/admin/application/conversation_list_cubit.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/core/control_log.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/application/conversation_list_cubit.dart';
 
 /// 会话数据源抽象（生产为 NIM SDK；测试 Fake）。
 abstract class ConversationSource {
@@ -42,7 +42,7 @@ class NimConversationSource implements ConversationSource {
         await nim.localConversationService.getConversationList(0, 100);
     final List<NIMConversation> list =
         result.data?.conversationList ?? <NIMConversation>[];
-    final String myAccount = AppSettings.instance.nimAccount;
+    final String myAccount = ControlSettings.instance.nimAccount;
     final List<ConversationItem> items = <ConversationItem>[];
     for (final NIMConversation c in list) {
       // 仅展示 P2P 会话；team/superTeam 的 conversationId 不是对方账号。
@@ -70,7 +70,7 @@ class NimConversationSource implements ConversationSource {
         return target.data!;
       }
     } catch (e) {
-      AppLog.e('[ConversationSource] conversationTargetId 异常: $e');
+      ControlLog.e('[ConversationSource] conversationTargetId 异常: $e');
     }
     return peerAccountFromConversationId(cid, myAccount);
   }

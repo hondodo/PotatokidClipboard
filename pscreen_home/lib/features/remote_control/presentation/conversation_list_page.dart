@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pscreen_control/app/di/injection.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/admin/application/conversation_list_cubit.dart';
-import 'package:pscreen_control/features/admin/presentation/chat_page.dart';
-import 'package:pscreen_control/features/send/data/tv_directory.dart';
+import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/application/conversation_list_cubit.dart';
+import 'package:pscreen_home/features/remote_control/presentation/chat_page.dart';
+import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 
 /// 会话列表（管理员 Tab 2）。
 class ConversationListPage extends StatelessWidget {
@@ -14,8 +14,8 @@ class ConversationListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<ConversationListCubit>(
       create: (_) => ConversationListCubit(
-        source: NimConversationSource(nim: getIt<NimClient>()),
-        nameOf: getIt<TvDirectory>().nameOf,
+        source: NimConversationSource(nim: Injection.get<NimClient>()),
+        nameOf: Injection.get<TvDirectory>().nameOf,
       )..refresh(),
       child: const _ConversationListView(),
     );

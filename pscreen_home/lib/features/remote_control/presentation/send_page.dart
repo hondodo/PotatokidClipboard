@@ -3,16 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:nim_core_v2/nim_core.dart';
-import 'package:pscreen_control/app/config/app_config.dart';
-import 'package:pscreen_control/app/di/injection.dart';
-import 'package:pscreen_control/app/storage/app_settings.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/send/application/send_cubit.dart';
-import 'package:pscreen_control/features/send/data/tv_directory.dart';
-import 'package:pscreen_control/features/send/presentation/widgets/command_panel.dart';
-import 'package:pscreen_control/features/send/presentation/widgets/target_picker.dart';
-import 'package:pscreen_control/features/scan/presentation/qr_scan_page.dart';
-import 'package:pscreen_control/features/admin/presentation/conversation_list_page.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/application/send_cubit.dart';
+import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/target_picker.dart';
+import 'package:pscreen_home/features/remote_control/presentation/qr_scan_page.dart';
+import 'package:pscreen_home/features/remote_control/presentation/conversation_list_page.dart';
 
 /// 发送端主页：按账号分叉。
 class SendPage extends StatelessWidget {
@@ -20,11 +20,11 @@ class SendPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String account = AppSettings.instance.nimAccount;
-    final bool isAdmin = account == AppConfig.adminAccount;
+    final String account = ControlSettings.instance.nimAccount;
+    final bool isAdmin = account == ControlConfig.adminAccount;
     return BlocProvider<SendCubit>(
       create: (_) => SendCubit(
-        nim: getIt<NimClient>(),
+        nim: Injection.get<NimClient>(),
         persistTargets: isAdmin,
       ),
       child: isAdmin ? const _AdminSendShell() : const _FamilySendPage(),
@@ -42,7 +42,7 @@ mixin _DisconnectHintMixin<T extends StatefulWidget> on State<T> {
   @override
   void initState() {
     super.initState();
-    final NimClient nim = getIt<NimClient>();
+    final NimClient nim = Injection.get<NimClient>();
     _kickSub = nim.onKickedOffline.listen((_) => _showDisconnected());
     _loginSub = nim.onLoginStatus.listen((NIMLoginStatus s) {
       // 离线/未登录态提示（网络断开时 SDK 登录态会转为未登录）。
@@ -241,7 +241,7 @@ class _BroadcastTabState extends State<_BroadcastTab>
   @override
   void initState() {
     super.initState();
-    getIt<TvDirectory>().loadFromAssets();
+    Injection.get<TvDirectory>().loadFromAssets();
   }
 
   @override
@@ -256,7 +256,7 @@ class _BroadcastTabState extends State<_BroadcastTab>
     super.build(context);
     return BlocBuilder<SendCubit, SendState>(
       builder: (BuildContext context, SendState state) {
-        final TvDirectory dir = getIt<TvDirectory>();
+        final TvDirectory dir = Injection.get<TvDirectory>();
         return SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(16),

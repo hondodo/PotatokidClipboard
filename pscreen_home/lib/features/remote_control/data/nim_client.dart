@@ -7,22 +7,22 @@ import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.da
     hide Log;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:pscreen_control/app/config/app_config.dart';
-import 'package:pscreen_control/app/storage/app_settings.dart';
-import 'package:pscreen_control/app/utils/app_log.dart';
-import 'package:pscreen_control/core/chat_message_item.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/core/control_log.dart';
+import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
 
 /// NIM 客户端薄封装（模式同 TV 端 NimManager；init/login 调用序列照抄）。
 class NimClient {
   /// SDK 初始化（幂等；失败记日志并返回 false，UI 层提示）。
   Future<bool> init() async {
     try {
-      final NIMSDKOptions options = await _buildOptions(AppConfig.nimAppKey);
+      final NIMSDKOptions options = await _buildOptions(ControlConfig.nimAppKey);
       final NIMResult<void> value = await NimCore.instance.initialize(options);
-      AppLog.i('[NimClient] initialize result: $value');
+      ControlLog.i('[NimClient] initialize result: $value');
       return value.isSuccess;
     } catch (e) {
-      AppLog.e('[NimClient] initialize 失败: $e');
+      ControlLog.e('[NimClient] initialize 失败: $e');
       return false;
     }
   }
@@ -83,28 +83,28 @@ class NimClient {
   }
 
   Future<bool> _login(String account, {String? token}) async {
-    final String useToken = token ?? AppSettings.instance.nimToken;
+    final String useToken = token ?? ControlSettings.instance.nimToken;
     try {
       final NIMResult<void> result = await NimCore.instance.loginService
           .login(account, useToken, NIMLoginOption());
       if (result.isSuccess) {
         if (token != null) {
-          await AppSettings.instance.setNimToken(token);
+          await ControlSettings.instance.setNimToken(token);
         }
-        await AppSettings.instance.setNimAccount(account);
+        await ControlSettings.instance.setNimAccount(account);
         return true;
       }
-      AppLog.e('[NimClient] login 失败: ${result.code}');
+      ControlLog.e('[NimClient] login 失败: ${result.code}');
       return false;
     } catch (e) {
-      AppLog.e('[NimClient] login 异常: $e');
+      ControlLog.e('[NimClient] login 异常: $e');
       return false;
     }
   }
 
   Future<void> logout() async {
     await NimCore.instance.loginService.logout();
-    await AppSettings.instance.setNimAccount('');
+    await ControlSettings.instance.setNimAccount('');
   }
 
   /// 发送 P2P 文本（与 TV 端 sendTextMessage 同构）。
@@ -116,25 +116,25 @@ class NimClient {
       final NIMResult<String> cid = await NimCore
           .instance.conversationIdUtil.p2pConversationId(toAccount);
       if (!cid.isSuccess || cid.data == null) {
-        AppLog.e('[NimClient] p2pConversationId 失败: ${cid.code}');
+        ControlLog.e('[NimClient] p2pConversationId 失败: ${cid.code}');
         return false;
       }
       final NIMResult<NIMMessage> msg =
           await MessageCreator.createTextMessage(text);
       if (!msg.isSuccess || msg.data == null) {
-        AppLog.e('[NimClient] createTextMessage 失败: ${msg.code}');
+        ControlLog.e('[NimClient] createTextMessage 失败: ${msg.code}');
         return false;
       }
       final NIMResult<NIMSendMessageResult> r = await NimCore
           .instance.messageService
           .sendMessage(message: msg.data!, conversationId: cid.data!);
       if (!r.isSuccess || r.data == null) {
-        AppLog.e('[NimClient] sendMessage 失败: ${r.code}');
+        ControlLog.e('[NimClient] sendMessage 失败: ${r.code}');
         return false;
       }
       return true;
     } catch (e) {
-      AppLog.e('[NimClient] sendText 异常: $e');
+      ControlLog.e('[NimClient] sendText 异常: $e');
       return false;
     }
   }
@@ -161,17 +161,17 @@ class NimClient {
           .instance.conversationIdUtil
           .p2pConversationId(peerAccount);
       if (!cid.isSuccess || cid.data == null) {
-        AppLog.e('[NimClient] markConversationRead p2pConversationId 失败: ${cid.code}');
+        ControlLog.e('[NimClient] markConversationRead p2pConversationId 失败: ${cid.code}');
         return;
       }
       final NIMResult<int> r = await NimCore
           .instance.localConversationService
           .markConversationRead(cid.data!);
       if (!r.isSuccess) {
-        AppLog.e('[NimClient] markConversationRead 失败: ${r.code}');
+        ControlLog.e('[NimClient] markConversationRead 失败: ${r.code}');
       }
     } catch (e) {
-      AppLog.e('[NimClient] markConversationRead 异常: $e');
+      ControlLog.e('[NimClient] markConversationRead 异常: $e');
     }
   }
 

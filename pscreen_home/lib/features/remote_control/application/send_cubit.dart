@@ -1,8 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pscreen_control/app/storage/app_settings.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/protocol/envelope_builder.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 part 'send_state.dart';
 
@@ -11,7 +11,7 @@ class SendCubit extends Cubit<SendState> {
   SendCubit({required this.nim, this.persistTargets = false})
       : super(SendState(
             targets: persistTargets
-                ? AppSettings.instance.selectedTvAccounts
+                ? ControlSettings.instance.selectedTvAccounts
                 : const <String>[]));
 
   final NimClient nim;
@@ -86,7 +86,7 @@ class SendCubit extends Cubit<SendState> {
   Future<void> _persistTargets() async {
     if (!persistTargets) return;
     try {
-      await AppSettings.instance
+      await ControlSettings.instance
           .setSelectedTvAccounts(List<String>.from(state.targets));
     } catch (_) {
       // prefs 未加载/写入失败均非致命

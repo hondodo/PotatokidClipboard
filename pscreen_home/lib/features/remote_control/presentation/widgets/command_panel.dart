@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pscreen_control/features/protocol/envelope_builder.dart';
+import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 /// 命令快捷面板：音量±/静音/频道。
 class CommandPanel extends StatelessWidget {
