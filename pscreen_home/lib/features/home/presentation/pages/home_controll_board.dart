@@ -100,6 +100,12 @@ class HomeControllBoard extends StatelessWidget {
                   context.read<HomeBloc>().add(const LoadHome()),
             ),
             IconButton(
+              tooltip: '遥控',
+              icon: const Icon(Icons.cast_rounded),
+              onPressed: () =>
+                  Injection.get<AppRouter>().push(RouteNames.remoteControlPath),
+            ),
+            IconButton(
               tooltip: '设置',
               icon: const Icon(Icons.settings_rounded),
               onPressed: () =>
