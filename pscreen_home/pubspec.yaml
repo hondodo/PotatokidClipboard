@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.11.0
+  sdk: ^3.11.5
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -46,6 +46,18 @@ dependencies:
   web_socket_channel: ^3.0.0
   # 本地持久化（手动设置的 HA 地址 / 令牌，优先于 .env）
   shared_preferences: ^2.3.0
+  # 屏幕能力共享包（IPTV / 天气 / 时钟 / 消息协议 / 网络基础设施）
+  pscreen_screen:
+    path: ../packages/pscreen_screen
+  # 遥控端（并入自 pscreen_control）：NIM 收发、扫码、目录
+  nim_core_v2: ^10.9.91
+  mobile_scanner: ^6.0.0
+  equatable: ^2.0.7
+  path_provider: ^2.1.6
+  # IPTV 直播播放（libmpv）
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
 
 dev_dependencies:
   flutter_test:
