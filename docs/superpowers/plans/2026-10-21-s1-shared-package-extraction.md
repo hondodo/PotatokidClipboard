@@ -218,12 +218,19 @@ class ScreenAssets {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: 拉依赖**
+
+Run: `cd packages/pscreen_screen; $env:PUB_HOSTED_URL="https://pub.flutter-io.cn"; flutter pub get`
+Expected: `Got dependencies!`
+
+> **全局约定**：本仓库的 `pubspec.lock` 使用 `https://pub.flutter-io.cn` 镜像源。执行 `flutter pub get` 前先设 `$env:PUB_HOSTED_URL="https://pub.flutter-io.cn"`，否则 lock 文件会被整体改写成 `https://pub.dev`，产生上百行无意义 diff。
+
+- [ ] **Step 5: 运行测试确认通过**
 
 Run: `cd packages/pscreen_screen && flutter test test/app/config/screen_assets_test.dart`
 Expected: PASS —— 3 tests passed
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
 git add packages/pscreen_screen
@@ -232,19 +239,14 @@ git commit -m "feat(screen): 建立 pscreen_screen 共享包骨架与 ScreenAsse
 
 ---
 
-### Task 2: 搬迁 core 与 app 基础层
+### Task 2: 执行搬迁（脚本一次搬完 66 个文件）
 
 **Files:**
-- Create: `packages/pscreen_screen/lib/core/logging/log_service.dart`（自 `pscreen/potatokid_screen/lib/core/logging/log_service.dart`）
-- Create: `packages/pscreen_screen/lib/core/network/*.dart`（8 个文件）
-- Create: `packages/pscreen_screen/lib/core/utils/*.dart`（9 个文件）
-- Create: `packages/pscreen_screen/lib/core/media/sleep_timer_controller.dart`
-- Create: `packages/pscreen_screen/lib/core/media/video_aspect_mode.dart`
-- Create: `packages/pscreen_screen/lib/app/app_log.dart`
-- Create: `packages/pscreen_screen/lib/app/config/{app_config,app_constants,data_files}.dart`
-- Create: `packages/pscreen_screen/lib/app/hosts/app_hosts.dart`
-- Modify: `pscreen/potatokid_screen/lib/core/utils/sleep_timer_controller.dart` → 删除（迁至 `core/media/`）
-- Modify: `pscreen/potatokid_screen/lib/core/utils/video_aspect_mode.dart` → 删除（迁至 `core/media/`）
+- Create: `packages/pscreen_screen/lib/**`（66 个文件，由脚本从 `pscreen/potatokid_screen/lib` 迁入）
+- Create: `packages/pscreen_screen/assets/datas/**`（9 个数据文件）
+- Create: `tool/migrate_shared_package.mjs`
+- Delete: `pscreen/potatokid_screen/lib/` 下对应的 66 个文件
+- Modify: `pscreen/potatokid_screen/lib/` 下剩余文件（import 前缀改写）
 
 - [ ] **Step 1: 写搬迁脚本**
 
@@ -375,9 +377,67 @@ node -e "const fs=require('fs');const p='packages/pscreen_screen/lib';let n=0;(f
 
 Expected: `包内 dart 文件数: 66`（不含 Task 1 建的 4 个 → 实际应为 70；用 `>= 66` 判定）
 
-- [ ] **Step 3: 修正 `sleep_timer_controller` 的宿主 DI 依赖**
+- [ ] **Step 3: 把包内资产复制进共享包**
 
-`packages/pscreen_screen/lib/core/media/sleep_timer_controller.dart` 里原有一行 `import 'package:potatokid_screen/core/di/injection.dart';` 与 `Injection.get<LogService>()`。改为使用共享包自己的门面与全局日志：
+```bash
+mkdir -p packages/pscreen_screen/assets
+cp -r pscreen/potatokid_screen/assets/datas packages/pscreen_screen/assets/
+```
+
+Run: `ls packages/pscreen_screen/assets/datas`
+Expected: 列出 `tv_name_order.txt`、`tv_name_hide.txt`、`weather_cities.txt`、`collect.m3u`、`guovin-api.m3u`、`audio.m3u`、`remove_source.txt`、`remove_source_contains.txt`、`not_remove_source.txt`
+
+- [ ] **Step 4: 核对 import 改写结果**
+
+Run: `grep -rn "package:potatokid_screen/core/\|package:potatokid_screen/app/\|package:potatokid_screen/features/iptv/\|package:potatokid_screen/features/msg/\|package:potatokid_screen/features/remote/\|package:potatokid_screen/features/time/\|package:potatokid_screen/features/weather/" packages/pscreen_screen/lib pscreen/potatokid_screen/lib`
+Expected: 无输出（所有被迁走的引用都已改为 `package:pscreen_screen/...`）
+
+Run: `grep -rn "package:pscreen_screen/" pscreen/potatokid_screen/lib | head -20`
+Expected: 有输出（电视端剩余文件引用共享包的新路径），且每一条对应的目标文件在 `packages/pscreen_screen/lib` 下确实存在
+
+- [ ] **Step 5: 提交（机械搬迁完成，尚未编译通过）**
+
+```bash
+git add packages/pscreen_screen tool/migrate_shared_package.mjs
+git add -A pscreen/potakid_screen/lib pscreen/potatokid_screen/lib
+git commit -m "refactor(screen): 一次性搬迁 66 个能力层文件到 pscreen_screen 共享包"
+```
+
+> 本次提交处于**中间态**（包内尚有宿主 DI 依赖与资产路径待修，见 Task 3–5），允许 `flutter analyze` 报错。
+
+---
+
+### Task 3: 修包内的宿主 DI 依赖与资产路径
+
+**Files:**
+- Modify: `packages/pscreen_screen/lib/core/media/sleep_timer_controller.dart`
+- Modify: `packages/pscreen_screen/lib/app/app_log.dart`
+- Modify: `packages/pscreen_screen/lib/app/config/data_files.dart`
+- Modify: `packages/pscreen_screen/lib/features/iptv/application/bloc/iptv_bloc.dart`
+- Modify: `packages/pscreen_screen/lib/features/iptv/application/channel_failure_guard.dart`
+- Modify: `packages/pscreen_screen/lib/features/iptv/data/datasources/remote/proxy_pool_service.dart`
+- Modify: `packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`
+
+- [ ] **Step 1: 列出包内所有残留的宿主 DI 引用**
+
+Run: `grep -rn "Injection.get<" packages/pscreen_screen/lib`
+Expected: 列出全部命中（应为 7 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `weather_bloc`）
+
+Run: `grep -rn "package:pscreen_screen/core/di/injection.dart" packages/pscreen_screen/lib`
+Expected: 无输出（脚本已把 import 路径改成了 `package:pscreen_screen/core/di/injection.dart`，但该文件**尚未存在于共享包**——这正是本任务要消除的依赖）
+
+- [ ] **Step 2: 修 `sleep_timer_controller`**
+
+`packages/pscreen_screen/lib/core/media/sleep_timer_controller.dart`：
+
+import 区删除
+
+```dart
+import 'package:pscreen_screen/core/di/injection.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
+```
+
+改为
 
 ```dart
 import 'package:pscreen_screen/app/app_log.dart';
@@ -395,17 +455,39 @@ Injection.get<LogService>().info('[SleepTimer] 定时关闭生效，退出应用
 Log.info('[SleepTimer] 定时关闭生效，退出应用');
 ```
 
-删除 `import 'package:pscreen_screen/core/logging/log_service.dart';`（若已不再使用）。
+- [ ] **Step 3: 修 `app_log.dart` 与 `data_files.dart`**
 
-- [ ] **Step 4: 修正 `app_log.dart` 与 `data_files.dart` 的宿主 DI 依赖**
+`packages/pscreen_screen/lib/app/app_log.dart`：把 import 改为
 
-`packages/pscreen_screen/lib/app/app_log.dart`：把 `import 'package:potatokid_screen/core/di/injection.dart';` 改为 `import 'package:pscreen_screen/core/di/screen_injection.dart';`，并把 `Injection.get<LogService>()` 改为 `ScreenInjection.get<LogService>()`。
+```dart
+import 'package:pscreen_screen/core/di/screen_injection.dart';
+```
 
-`packages/pscreen_screen/lib/app/config/data_files.dart`：同样把 `Injection.get<...>()` 改为 `ScreenInjection.get<...>()`，import 改为 `package:pscreen_screen/core/di/screen_injection.dart`。
+并把 `Injection.get<LogService>()` 改为 `ScreenInjection.get<LogService>()`。
 
-- [ ] **Step 5: 修正包内资产路径（改用 `ScreenAssets`）**
+`packages/pscreen_screen/lib/app/config/data_files.dart`：import 改为
 
-`packages/pscreen_screen/lib/app/config/data_files.dart` 中所有 `'assets/datas/xxx'` 形式的字面量改为 `ScreenAssets.path('assets/datas/xxx')`。
+```dart
+import 'package:pscreen_screen/core/di/screen_injection.dart';
+```
+
+并把其中所有 `Injection.get<...>()` 改为 `ScreenInjection.get<...>()`。
+
+- [ ] **Step 4: 修 iptv 的三个文件**
+
+以下三个文件的 import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，并把 `Injection.get<X>()` 改为 `ScreenInjection.get<X>()`：
+
+- `packages/pscreen_screen/lib/features/iptv/application/bloc/iptv_bloc.dart`
+- `packages/pscreen_screen/lib/features/iptv/application/channel_failure_guard.dart`
+- `packages/pscreen_screen/lib/features/iptv/data/datasources/remote/proxy_pool_service.dart`
+
+- [ ] **Step 5: 修 `weather_bloc`**
+
+`packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<LogService>()` → `ScreenInjection.get<LogService>()`。
+
+- [ ] **Step 6: 资产路径改用 `ScreenAssets`**
+
+`packages/pscreen_screen/lib/app/config/data_files.dart` 中所有 `'assets/datas/xxx'` 字面量改为 `ScreenAssets.path('assets/datas/xxx')`。
 
 具体替换（9 处）：
 
@@ -423,118 +505,35 @@ Log.info('[SleepTimer] 定时关闭生效，退出应用');
 
 → 全部包成 `ScreenAssets.path('...')`，并加 import `package:pscreen_screen/app/config/screen_assets.dart`。
 
-- [ ] **Step 6: 把包内资产复制进共享包**
+- [ ] **Step 7: 复查零残留**
 
-```bash
-mkdir -p packages/pscreen_screen/assets
-cp -r pscreen/potatokid_screen/assets/datas packages/pscreen_screen/assets/
-```
+Run: `grep -rn "package:pscreen_screen/core/di/injection.dart\|Injection.get<" packages/pscreen_screen/lib`
+Expected: 无输出
 
-Run: `ls packages/pscreen_screen/assets/datas`
-Expected: 列出 `tv_name_order.txt`、`tv_name_hide.txt`、`weather_cities.txt`、`collect.m3u`、`guovin-api.m3u`、`audio.m3u`、`remove_source.txt`、`remove_source_contains.txt`、`not_remove_source.txt`
-
-- [ ] **Step 7: 包内分析**
+- [ ] **Step 8: 包内分析**
 
 Run: `cd packages/pscreen_screen && flutter pub get && flutter analyze`
-Expected: 0 errors。剩余问题集中在**尚未搬迁**的 feature（iptv/time/weather/msg/remote 还没搬完）会报 "URI doesn't exist" —— 属预期，Task 3–5 修完后再要求零错误。
+Expected: 仅剩 Task 4（`ReportingService` 的 `AppTabController` 依赖）与 Task 5（DI 入口尚未搬入）相关报错；其余均为 0。
 
-- [ ] **Step 8: 提交（core/app 层可编译状态）**
+> `flutter pub get` 请带镜像：`$env:PUB_HOSTED_URL="https://pub.flutter-io.cn"; flutter pub get`，与仓库既有 lock 文件的源保持一致。
+
+- [ ] **Step 9: 提交**
 
 ```bash
-git add packages/pscreen_screen tool/migrate_shared_package.mjs
-git add -A pscreen/potatokid_screen/lib
-git commit -m "refactor(screen): 搬迁 core/app 基础层到 pscreen_screen 共享包"
+git add -A packages/pscreen_screen
+git commit -m "refactor(screen): 共享包解除宿主 DI 依赖，资产路径改用 ScreenAssets"
 ```
 
 ---
 
-### Task 3: 搬迁 IPTV 能力层
-
-**Files:**
-- Create: `packages/pscreen_screen/lib/features/iptv/**`（23 个文件，由脚本迁入）
-- Modify: `pscreen/potatokid_screen/lib/features/iptv/presentation/**`（import 改写，由脚本完成）
-- Delete: `pscreen/potatokid_screen/lib/features/iptv/{application,data,domain}/`
-
-- [ ] **Step 1: 跑搬迁脚本**
-
-Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard"`
-Expected: `待搬迁 23 个文件`（本次只搬 iptv/time/weather/msg/remote 剩余项）
-
-- [ ] **Step 2: 检查 iptv 的宿主 DI 依赖**
-
-包内以下文件原本 import 宿主 `core/di/injection.dart`：
-
-- `features/iptv/application/bloc/iptv_bloc.dart`
-- `features/iptv/application/channel_failure_guard.dart`
-- `features/iptv/data/datasources/remote/proxy_pool_service.dart`
-
-逐个把 `Injection.get<X>()` 改成 `ScreenInjection.get<X>()`，import 改成 `package:pscreen_screen/core/di/screen_injection.dart`。
-
-- [ ] **Step 3: 检查 iptv 内部互相引用是否仍指向旧路径**
-
-Run: `grep -rn "package:potatokid_screen/features/iptv" packages/pscreen_screen/lib`
-Expected: 无输出（脚本已改写为 `package:pscreen_screen/features/iptv`）
-
-- [ ] **Step 4: 包内分析**
-
-Run: `cd packages/pscreen_screen && flutter analyze`
-Expected: 剩余报错只来自尚未搬迁的 time/weather/msg/remote 与 host 专属引用
-
-- [ ] **Step 5: 提交**
-
-```bash
-git add -A packages/pscreen_screen pscreen/potatokid_screen
-git commit -m "refactor(screen): 搬迁 IPTV 能力层到共享包"
-```
-
----
-
-### Task 4: 搬迁 time / weather 能力层
-
-**Files:**
-- Create: `packages/pscreen_screen/lib/features/time/{application,domain}/`
-- Create: `packages/pscreen_screen/lib/features/weather/{application,data,domain}/`
-- Delete: `pscreen/potatokid_screen/lib/features/time/{application,domain}/`
-- Delete: `pscreen/potatokid_screen/lib/features/weather/{application,data,domain}/`
-
-- [ ] **Step 1: 跑搬迁脚本**
-
-Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard"`
-Expected: `待搬迁 17 个文件`（time 2 + weather 12 + 剩余 msg/remote 3）
-
-- [ ] **Step 2: 修正 weather_bloc 的宿主 DI 依赖**
-
-`packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart` 原 import 宿主 `core/di/injection.dart` → 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<X>()` → `ScreenInjection.get<X>()`。
-
-- [ ] **Step 3: 包内分析**
-
-Run: `cd packages/pscreen_screen && flutter analyze`
-Expected: 剩余报错只来自 msg / remote
-
-- [ ] **Step 4: 提交**
-
-```bash
-git add -A packages/pscreen_screen pscreen/potatokid_screen
-git commit -m "refactor(screen): 搬迁 time/weather 能力层到共享包"
-```
-
----
-
-### Task 5: 搬迁 msg / remote 能力层并解耦 `ReportingService`
+### Task 4: `CurrentSceneProvider` 抽象与 `ReportingService` 解耦
 
 **Files:**
 - Create: `packages/pscreen_screen/lib/features/msg/application/current_scene_provider.dart`
-- Create: `packages/pscreen_screen/lib/features/msg/application/{message_command_executor,message_overlay_controller,message_router,reporting_service}.dart`
-- Create: `packages/pscreen_screen/lib/features/msg/protocol/message_envelope.dart`
-- Create: `packages/pscreen_screen/lib/features/remote/**`
 - Modify: `packages/pscreen_screen/lib/features/msg/application/reporting_service.dart`
+- Modify: `packages/pscreen_screen/lib/features/msg/application/message_overlay_controller.dart`
 
-- [ ] **Step 1: 跑搬迁脚本**
-
-Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard"`
-Expected: `待搬迁 15 个文件`（msg 5 + remote 9 + 余量）
-
-- [ ] **Step 2: 新增 `CurrentSceneProvider` 抽象**
+- [ ] **Step 1: 新增 `CurrentSceneProvider` 抽象**
 
 Create `packages/pscreen_screen/lib/features/msg/application/current_scene_provider.dart`:
 
@@ -551,7 +550,7 @@ abstract class CurrentSceneProvider {
 }
 ```
 
-- [ ] **Step 3: 改写 `ReportingService` 去掉 `AppTabController` 依赖**
+- [ ] **Step 2: 改写 `ReportingService` 去掉 `AppTabController` 依赖**
 
 在 `packages/pscreen_screen/lib/features/msg/application/reporting_service.dart`：
 
@@ -585,7 +584,9 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
   }
 ```
 
-- [ ] **Step 4: 改写 `message_overlay_controller.dart` 的文档注释**
+> 原实现是「仅当 `AppTabController.branchIndex == 0`（首页）时才报频道名，否则报页名」。新实现改为「有频道名就报频道名，否则报场景描述」—— 对电视端而言 `AppTabController.pageName` 在非首页时返回「时间页 / 屏保 / 设置」，而频道名在首页才有意义，两者语义一致。
+
+- [ ] **Step 3: 改写 `message_overlay_controller.dart` 的文档注释**
 
 该文件仅在注释里提到 `AppTabController`（无 import），把注释改为不指向宿主类：
 
@@ -594,21 +595,21 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
   bool deferActive = false;
 ```
 
-- [ ] **Step 5: 包内分析**
+- [ ] **Step 4: 确认包内不再引用宿主外壳**
 
-Run: `cd packages/pscreen_screen && flutter analyze`
-Expected: `No issues found!`
+Run: `grep -rn "app_tab_controller\|features/app/" packages/pscreen_screen/lib`
+Expected: 无输出
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
-git add -A packages/pscreen_screen pscreen/potatokid_screen
-git commit -m "refactor(screen): 搬迁 msg/remote 能力层并抽出 CurrentSceneProvider"
+git add -A packages/pscreen_screen
+git commit -m "refactor(screen): 抽出 CurrentSceneProvider 解除 ReportingService 对宿主的依赖"
 ```
 
 ---
 
-### Task 6: 共享包 DI 入口 `ScreenModules`
+### Task 5: 共享包 DI 入口 `ScreenModules`
 
 **Files:**
 - Create: `packages/pscreen_screen/lib/core/di/modules/{core_module,network_module,remote_module,msg_module,iptv_module,weather_module}.dart`
@@ -690,7 +691,7 @@ git commit -m "feat(screen): 共享包新增 ScreenModules 依赖注册入口"
 
 ---
 
-### Task 7: `potatokid_screen` 接入共享包
+### Task 6: `potatokid_screen` 接入共享包
 
 **Files:**
 - Modify: `pscreen/potatokid_screen/pubspec.yaml`
@@ -892,7 +893,7 @@ git commit -m "refactor(screen): potatokid_screen 接入 pscreen_screen 共享�
 
 ---
 
-### Task 8: 迁移测试到共享包
+### Task 7: 迁移测试到共享包
 
 **Files:**
 - Create: `packages/pscreen_screen/test/**`（自 `pscreen/potatokid_screen/test/` 迁入）
@@ -966,7 +967,7 @@ Expected: 11 行 `迁移：...`
 
 - [ ] **Step 4: 修 `reporting_service_test.dart` 的新构造参数**
 
-按 Task 7 Step 7 的说明给 `ReportingService(...)` 补 `sceneProvider:`，并补一条 `positionText()` 断言。
+按 Task 6 Step 5 的说明给 `ReportingService(...)` 补 `sceneProvider:`，并补一条 `positionText()` 断言。
 
 - [ ] **Step 5: 共享包测试全绿**
 
@@ -987,7 +988,7 @@ git commit -m "test(screen): 能力层测试迁移到 pscreen_screen 共享包"
 
 ---
 
-### Task 9: S1 门槛验收
+### Task 8: S1 门槛验收
 
 **Files:**
 - Modify: `packages/pscreen_screen/README.md`（新建）
