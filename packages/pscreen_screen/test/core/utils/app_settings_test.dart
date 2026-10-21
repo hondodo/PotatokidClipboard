@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

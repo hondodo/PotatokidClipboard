@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/iptv/domain/channel_name_normalizer.dart';
+import 'package:pscreen_screen/features/iptv/domain/channel_name_normalizer.dart';
 
 void main() {
   group('前缀补连字符', () {

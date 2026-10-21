@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/core/utils/platform_channel_service.dart';
+import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

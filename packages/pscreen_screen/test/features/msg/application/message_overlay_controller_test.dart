@@ -1,6 +1,6 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 
 void main() {
   late MessageOverlayController c;

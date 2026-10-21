@@ -2,11 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
-import 'package:potatokid_screen/app/config/app_config.dart';
-import 'package:potatokid_screen/core/utils/app_settings.dart';
-import 'package:potatokid_screen/core/utils/nim_manager.dart';
-import 'package:potatokid_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
-import 'package:potatokid_screen/features/remote/domain/repositories/remote_login_repository.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
+import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// NimManager 手工 Fake：仅覆写用到的方法，其余走 Mock 的 noSuchMethod。

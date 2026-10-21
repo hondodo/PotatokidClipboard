@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/iptv/application/channel_info_provider.dart';
-import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
-import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
-import 'package:potatokid_screen/features/msg/application/message_command_executor.dart';
-import 'package:potatokid_screen/features/msg/application/message_overlay_controller.dart';
-import 'package:potatokid_screen/features/msg/application/message_router.dart';
+import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
+import 'package:pscreen_screen/features/msg/application/message_command_executor.dart';
+import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:pscreen_screen/features/msg/application/message_router.dart';
 
 /// 记录型音量 Fake（实现 VolumeControl 接口）。
 class FakeVolume implements VolumeControl {

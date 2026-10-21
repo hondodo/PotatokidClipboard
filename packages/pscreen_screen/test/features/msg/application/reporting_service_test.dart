@@ -1,11 +1,11 @@
 // test/features/msg/reporting_service_test.dart
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
-import 'package:potatokid_screen/features/iptv/application/channel_info_provider.dart';
-import 'package:potatokid_screen/features/iptv/application/live_channel_controller.dart';
-import 'package:potatokid_screen/features/iptv/domain/models/iptv_channel.dart';
-import 'package:potatokid_screen/features/msg/application/reporting_service.dart';
+import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 
 /// 假发送器：记录目标与文本。
 class FakeSender implements MessageSender {
@@ -19,6 +19,19 @@ class FakeSender implements MessageSender {
   }
 }
 
+/// 假场景提供者：返回固定文案。
+///
+/// 共享包不持有 Tab / 页名这套宿主语义（首屏报频道名、其余 Tab 报页名，由宿主的
+/// TvSceneProvider 决定），因此这里只验证一件事：注入的场景描述被**如实上报**。
+class _FakeSceneProvider extends CurrentSceneProvider {
+  const _FakeSceneProvider(this.text);
+
+  final String text;
+
+  @override
+  String describe() => text;
+}
+
 void main() {
   late FakeSender sender;
   late ReportingService service;
@@ -30,12 +43,12 @@ void main() {
       const IptvChannel(name: 'CCTV-5', sources: <String>['b']),
     ]);
     LiveChannelController.instance.setCount(2);
-    AppTabController.branchIndex = 0;
     service = ReportingService(
       sender: sender,
       deviceModel: () async => 'MiBOX 4',
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
+      sceneProvider: const _FakeSceneProvider('测试场景'),
       now: () => DateTime(2026, 10, 15, 20, 30),
     );
   });
@@ -44,7 +57,6 @@ void main() {
     service.dispose();
     ChannelInfoProvider.instance.setChannels(<IptvChannel>[]);
     LiveChannelController.instance.setCount(0);
-    AppTabController.branchIndex = 0;
   });
 
   test('登录：发两条给 1000001（账号时间型号 + 正在收看）', () async {
@@ -53,16 +65,12 @@ void main() {
     expect(sender.sent.length, 2);
     expect(sender.sent[0].$1, '1000001');
     expect(sender.sent[0].$2, 'TV_001于2026-10-15 20:30使用MiBOX 4登录成功。');
-    expect(sender.sent[1].$2, '正在收看CCTV-1');
+    expect(sender.sent[1].$2, '正在收看测试场景');
     service.stop();
   });
 
-  test('不在频道页（时间页）→ 正在收看时间页', () async {
-    AppTabController.branchIndex = 1;
-    service.start('TV_001');
-    await pumpEventQueue();
-    expect(sender.sent[1].$2, '正在收看时间页');
-    service.stop();
+  test('非频道场景使用注入的场景描述', () {
+    expect(service.positionText(), '测试场景');
   });
 
   test('切台确认（防抖后）发切换频道消息', () async {
@@ -118,6 +126,7 @@ void main() {
       deviceModel: () async => 'MiBOX 4',
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
+      sceneProvider: const _FakeSceneProvider('测试场景'),
       now: now,
       heartbeatInterval: interval,
     );
@@ -136,13 +145,13 @@ void main() {
       async.elapse(const Duration(milliseconds: 100));
       async.flushMicrotasks();
       expect(sender.sent.length, 1);
-      expect(sender.sent[0].$2, '已收看0分钟，当前频道是CCTV-1');
+      expect(sender.sent[0].$2, '已收看0分钟，当前频道是测试场景');
 
       nowValue = nowValue.add(const Duration(minutes: 6));
       async.elapse(const Duration(milliseconds: 100));
       async.flushMicrotasks();
       expect(sender.sent.length, 2);
-      expect(sender.sent[1].$2, '已收看6分钟，当前频道是CCTV-1');
+      expect(sender.sent[1].$2, '已收看6分钟，当前频道是测试场景');
     });
   });
 
@@ -183,12 +192,12 @@ void main() {
       async.elapse(const Duration(milliseconds: 100));
       async.flushMicrotasks();
       expect(sender.sent, isNotEmpty);
-      expect(sender.sent.first.$2, '已收看0分钟，当前频道是CCTV-1');
+      expect(sender.sent.first.$2, '已收看0分钟，当前频道是测试场景');
 
       nowValue = nowValue.add(const Duration(minutes: 4));
       async.elapse(const Duration(milliseconds: 100));
       async.flushMicrotasks();
-      expect(sender.sent.last.$2, '已收看4分钟，当前频道是CCTV-1');
+      expect(sender.sent.last.$2, '已收看4分钟，当前频道是测试场景');
     });
   });
 }

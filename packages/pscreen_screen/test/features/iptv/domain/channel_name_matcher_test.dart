@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/iptv/domain/channel_name_matcher.dart';
+import 'package:pscreen_screen/features/iptv/domain/channel_name_matcher.dart';
 
 void main() {
   group('ChannelNameMatcher 精确全等', () {

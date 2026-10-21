@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:potatokid_screen/features/msg/protocol/message_envelope.dart';
+import 'package:pscreen_screen/features/msg/protocol/message_envelope.dart';
 
 void main() {
   test('纯文本 → plainText', () {

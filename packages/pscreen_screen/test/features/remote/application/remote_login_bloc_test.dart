@@ -6,12 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
-import 'package:potatokid_screen/core/di/get_it.dart';
-import 'package:potatokid_screen/core/logging/log_service.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_bloc.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_event.dart';
-import 'package:potatokid_screen/features/remote/application/bloc/remote_login_state.dart';
-import 'package:potatokid_screen/features/remote/domain/repositories/remote_login_repository.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_event.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_state.dart';
+import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 
 /// RemoteLoginRepository 手工 Fake：流可控、方法可配置。
 class FakeRemoteLoginRepository extends Mock implements RemoteLoginRepository {
