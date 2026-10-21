@@ -357,7 +357,7 @@ git commit -m "feat(screen): 建立 pscreen_screen 共享包骨架与 ScreenAsse
 - Delete: `pscreen/potatokid_screen/lib/` 下对应的 66 个文件
 - Modify: `pscreen/potatokid_screen/lib/` 下剩余文件（import 前缀改写）
 
-- [ ] **Step 1: 写搬迁脚本**
+- [x] **Step 1: 写搬迁脚本**
 
 Create `tool/migrate_shared_package.mjs`:
 
@@ -597,7 +597,7 @@ for (const { file } of plan) {
 console.log(`搬迁完成：${plan.length} 个文件 -> ${path.relative(ROOT, PKG_LIB)}`);
 ```
 
-- [ ] **Step 2: 试运行脚本并核对文件数**
+- [x] **Step 2: 试运行脚本并核对文件数**
 
 Run: `node tool/migrate_shared_package.mjs "E:/Code/potatokid_clipboard" --dry-run`
 Expected: 打印 66 行 `源 -> 目标` 计划，末尾提示 `试运行结束：没有写入、没有改写、没有删除任何文件。`
@@ -621,7 +621,7 @@ node -e "const fs=require('fs');const p='packages/pscreen_screen/lib';let n=0;(f
 
 Expected: `包内 dart 文件数: 66`（不含 Task 1 建的 4 个 → 实际应为 70；用 `>= 66` 判定）
 
-- [ ] **Step 3: 把包内资产复制进共享包**
+- [x] **Step 3: 把包内资产复制进共享包**
 
 ```bash
 mkdir -p packages/pscreen_screen/assets
@@ -645,7 +645,7 @@ Run: `ls packages/pscreen_screen/assets/datas`
 Expected: 只列出 10 个真实数据文件，**没有** `.gitkeep`
 （占位文件会跟着被打进两个宿主的 bundle，是多余的）
 
-- [ ] **Step 4: 核对 import 改写结果**
+- [x] **Step 4: 核对 import 改写结果**
 
 Run: `grep -rn "package:potatokid_screen/core/\|package:potatokid_screen/app/\|package:potatokid_screen/features/iptv/\|package:potatokid_screen/features/msg/\|package:potatokid_screen/features/remote/\|package:potatokid_screen/features/time/\|package:potatokid_screen/features/weather/" packages/pscreen_screen/lib pscreen/potatokid_screen/lib`
 Expected: 无输出（所有被迁走的引用都已改为 `package:pscreen_screen/...`）
@@ -653,7 +653,7 @@ Expected: 无输出（所有被迁走的引用都已改为 `package:pscreen_scre
 Run: `grep -rn "package:pscreen_screen/" pscreen/potatokid_screen/lib | head -20`
 Expected: 有输出（电视端剩余文件引用共享包的新路径），且每一条对应的目标文件在 `packages/pscreen_screen/lib` 下确实存在
 
-- [ ] **Step 5: 提交（机械搬迁完成，尚未编译通过）**
+- [x] **Step 5: 提交（机械搬迁完成，尚未编译通过）**
 
 ```bash
 git add packages/pscreen_screen tool/migrate_shared_package.mjs
@@ -676,7 +676,7 @@ git commit -m "refactor(screen): 一次性搬迁 66 个能力层文件到 pscree
 - Modify: `packages/pscreen_screen/lib/features/iptv/data/datasources/remote/proxy_pool_service.dart`
 - Modify: `packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`
 
-- [ ] **Step 1: 列出包内所有残留的宿主 DI 引用**
+- [x] **Step 1: 列出包内所有残留的宿主 DI 引用**
 
 Run: `grep -rn "Injection.get<" packages/pscreen_screen/lib`
 Expected: 列出全部命中（应为 **8** 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `remote_login_bloc` / `weather_bloc`）
@@ -688,7 +688,7 @@ Expected: 列出全部命中（应为 **8** 个文件：`sleep_timer_controller`
 > 仍是 `package:potatokid_screen/core/di/injection.dart` —— 它们指向的是宿主，
 > 正是本任务要消除的依赖。
 
-- [ ] **Step 2: 修 `sleep_timer_controller`**
+- [x] **Step 2: 修 `sleep_timer_controller`**
 
 `packages/pscreen_screen/lib/core/media/sleep_timer_controller.dart`：
 
@@ -717,7 +717,7 @@ Injection.get<LogService>().info('[SleepTimer] 定时关闭生效，退出应用
 Log.info('[SleepTimer] 定时关闭生效，退出应用');
 ```
 
-- [ ] **Step 3: 修 `app_log.dart` 与 `data_files.dart`**
+- [x] **Step 3: 修 `app_log.dart` 与 `data_files.dart`**
 
 `packages/pscreen_screen/lib/app/app_log.dart`：把 import 改为
 
@@ -735,7 +735,7 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 
 并把其中所有 `Injection.get<...>()` 改为 `ScreenInjection.get<...>()`。
 
-- [ ] **Step 4: 修 iptv 的三个文件**
+- [x] **Step 4: 修 iptv 的三个文件**
 
 以下三个文件的 import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，并把 `Injection.get<X>()` 改为 `ScreenInjection.get<X>()`：
 
@@ -743,13 +743,13 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 - `packages/pscreen_screen/lib/features/iptv/application/channel_failure_guard.dart`
 - `packages/pscreen_screen/lib/features/iptv/data/datasources/remote/proxy_pool_service.dart`
 
-- [ ] **Step 5: 修 `remote_login_bloc` 与 `weather_bloc`**
+- [x] **Step 5: 修 `remote_login_bloc` 与 `weather_bloc`**
 
 `packages/pscreen_screen/lib/features/remote/application/bloc/remote_login_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<X>()` → `ScreenInjection.get<X>()`。
 
 `packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<LogService>()` → `ScreenInjection.get<LogService>()`。
 
-- [ ] **Step 6: 资产路径改用 `ScreenAssets`（前缀只在读取点应用）**
+- [x] **Step 6: 资产路径改用 `ScreenAssets`（前缀只在读取点应用）**
 
 `packages/pscreen_screen/lib/app/config/data_files.dart`：
 
@@ -771,19 +771,19 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 `DataFile` 类与 `_files` 列表一个字都不动。
 另加 import `package:pscreen_screen/app/config/screen_assets.dart`。
 
-- [ ] **Step 7: 复查零残留**
+- [x] **Step 7: 复查零残留**
 
 Run: `grep -rn "package:potatokid_screen/\|Injection.get<" packages/pscreen_screen/lib`
 Expected: 无输出（包内不再有任何指向宿主的 import，也不再用宿主的 `Injection` 门面）
 
-- [ ] **Step 8: 包内分析**
+- [x] **Step 8: 包内分析**
 
 Run: `cd packages/pscreen_screen && flutter pub get && flutter analyze`
 Expected: 仅剩 Task 4（`ReportingService` 的 `AppTabController` 依赖）与 Task 5（DI 入口尚未搬入）相关报错；其余均为 0。
 
 > `flutter pub get` 请带镜像：`$env:PUB_HOSTED_URL="https://pub.flutter-io.cn"; flutter pub get`，与仓库既有 lock 文件的源保持一致。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add -A packages/pscreen_screen
@@ -799,7 +799,7 @@ git commit -m "refactor(screen): 共享包解除宿主 DI 依赖，资产路径�
 - Modify: `packages/pscreen_screen/lib/features/msg/application/reporting_service.dart`
 - Modify: `packages/pscreen_screen/lib/features/msg/application/message_overlay_controller.dart`
 
-- [ ] **Step 1: 新增 `CurrentSceneProvider` 抽象**
+- [x] **Step 1: 新增 `CurrentSceneProvider` 抽象**
 
 Create `packages/pscreen_screen/lib/features/msg/application/current_scene_provider.dart`:
 
@@ -819,7 +819,7 @@ abstract class CurrentSceneProvider {
 }
 ```
 
-- [ ] **Step 2: 改写 `ReportingService` 去掉 `AppTabController` 依赖**
+- [x] **Step 2: 改写 `ReportingService` 去掉 `AppTabController` 依赖**
 
 在 `packages/pscreen_screen/lib/features/msg/application/reporting_service.dart`：
 
@@ -857,7 +857,7 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
 > `ChannelInfoProvider.instance.channels` 不会清空，共享包若「有频道名就报」
 > 就会把「当前频道是设置」误报成「当前频道是CCTV-1」。
 
-- [ ] **Step 3: 改写 `message_overlay_controller.dart` 的文档注释**
+- [x] **Step 3: 改写 `message_overlay_controller.dart` 的文档注释**
 
 该文件无 import，仅在两处注释里提到宿主类（`AppTabController` / `MainApp`），把注释改为不指向宿主类：
 
@@ -871,12 +871,12 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
   void onAnyKey() {
 ```
 
-- [ ] **Step 4: 确认包内不再引用宿主外壳**
+- [x] **Step 4: 确认包内不再引用宿主外壳**
 
 Run: `grep -rn "package:potatokid_screen\|app_tab_controller\|AppTabController\|MainApp" packages/pscreen_screen/`
 Expected: 无输出（README / analysis_options 里的散文除外）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A packages/pscreen_screen
@@ -891,7 +891,7 @@ git commit -m "refactor(screen): 抽出 CurrentSceneProvider 解除 ReportingSer
 - Create: `packages/pscreen_screen/lib/core/di/modules/{core_module,network_module,remote_module,msg_module,iptv_module,weather_module}.dart`
 - Create: `packages/pscreen_screen/lib/core/di/screen_modules.dart`
 
-- [ ] **Step 1: 把 `potatokid_screen` 的 6 个 Module 搬进共享包并改写**
+- [x] **Step 1: 把 `potatokid_screen` 的 6 个 Module 搬进共享包并改写**
 
 从 `pscreen/potatokid_screen/lib/core/di/modules/` 取 `core_module` / `network_module` / `remote_module` / `msg_module` / `iptv_module` / `weather_module`，落到 `packages/pscreen_screen/lib/core/di/modules/`。
 
@@ -900,17 +900,17 @@ git commit -m "refactor(screen): 抽出 CurrentSceneProvider 解除 ReportingSer
 - `import 'package:potatokid_screen/core/di/get_it.dart';` → `import 'package:pscreen_screen/core/di/get_it.dart';`
 - 其余 `package:potatokid_screen/...` → `package:pscreen_screen/...`（脚本已处理大部分）
 
-- [ ] **Step 2: 把 `getIt` 全局引用改为参数传入**
+- [x] **Step 2: 把 `getIt` 全局引用改为参数传入**
 
 共享包不持有 DI 根，但 `getIt` 是 `GetIt.instance` 全局单例，**直接沿用**即可，无需改写 —— 共享包的 `core/di/get_it.dart` 已定义同名全局变量 `getIt`，各 Module 内的 `getIt<...>()` 引用会自动指向共享包那份（同一实例）。
 
 确认：共享包 `lib/core/di/get_it.dart` 内容为 `final GetIt getIt = GetIt.instance;`，与宿主同实例。
 
-- [ ] **Step 3: `MsgModule` 里 `NimMessageSender` 的 `NimManager` 解析**
+- [x] **Step 3: `MsgModule` 里 `NimMessageSender` 的 `NimManager` 解析**
 
 `msg_module.dart` 中 `getIt<NimManager>()` 依赖 `CoreModule` 先注册 `NimManager` —— 顺序由 `ScreenModules.register` 保证（见 Step 4）。
 
-- [ ] **Step 4: 新增统一入口**
+- [x] **Step 4: 新增统一入口**
 
 Create `packages/pscreen_screen/lib/core/di/screen_modules.dart`:
 
@@ -953,12 +953,12 @@ class ScreenModules {
 
 > 各 Module 内部使用共享包的 `getIt`（= `GetIt.instance`），与传入的 `it` 是同一实例，因此 `register(GetIt it)` 的参数当前仅用于表达调用契约；若后续宿主改用非全局实例，需要把 Module 内的 `getIt` 改为参数。
 
-- [ ] **Step 5: 包内分析**
+- [x] **Step 5: 包内分析**
 
 Run: `cd packages/pscreen_screen && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add -A packages/pscreen_screen
@@ -978,7 +978,7 @@ git commit -m "feat(screen): 共享包新增 ScreenModules 依赖注册入口"
 - Modify: `pscreen/potatokid_screen/lib/app/app.dart`（若引用已迁走的类型）
 - Delete: `pscreen/potatokid_screen/assets/datas/`（改由共享包提供）
 
-- [ ] **Step 1: pubspec 增加 path 依赖与资产声明**
+- [x] **Step 1: pubspec 增加 path 依赖与资产声明**
 
 在 `pscreen/potatokid_screen/pubspec.yaml` 的 `dependencies:` 下追加：
 
@@ -1003,13 +1003,13 @@ git commit -m "feat(screen): 共享包新增 ScreenModules 依赖注册入口"
 > flutter_tools 会展开该目录并给资产键加上 `packages/pscreen_screen/` 前缀，
 > 宿主**不需要**再声明这份资产。
 
-- [ ] **Step 2: 删除宿主自己的 assets/datas**
+- [x] **Step 2: 删除宿主自己的 assets/datas**
 
 ```bash
 git rm -r pscreen/potatokid_screen/assets/datas
 ```
 
-- [ ] **Step 3: `Injection` 改为调用 `ScreenModules`**
+- [x] **Step 3: `Injection` 改为调用 `ScreenModules`**
 
 `pscreen/potatokid_screen/lib/core/di/injection.dart` 改为：
 
@@ -1045,7 +1045,7 @@ class Injection {
 }
 ```
 
-- [ ] **Step 4: 宿主 `main.dart` 注入 `ScreenAssets` 根路径**
+- [x] **Step 4: 宿主 `main.dart` 注入 `ScreenAssets` 根路径**
 
 在 `pscreen/potatokid_screen/lib/main.dart` 的 import 区加入：
 
@@ -1064,7 +1064,7 @@ import 'package:pscreen_screen/app/config/screen_assets.dart';
       ScreenAssets.requireHostConfigured();
 ```
 
-- [ ] **Step 5: 为电视端实现并注册 `CurrentSceneProvider`**
+- [x] **Step 5: 为电视端实现并注册 `CurrentSceneProvider`**
 
 Create `pscreen/potatokid_screen/lib/features/app/application/tv_scene_provider.dart`:
 
@@ -1154,12 +1154,12 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
   }
 ```
 
-- [ ] **Step 6: 宿主分析**
+- [x] **Step 6: 宿主分析**
 
 Run: `cd pscreen/potatokid_screen && flutter pub get && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 7: 宿主测试**
+- [x] **Step 7: 宿主测试**
 
 Run: `cd pscreen/potatokid_screen && flutter test`
 Expected: 全部通过。若 `reporting_service_test.dart` 因新增构造参数失败，按下述改测试：
@@ -1199,7 +1199,7 @@ class _FakeSceneProvider extends CurrentSceneProvider {
     });
 ```
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add -A pscreen/potatokid_screen packages/pscreen_screen
@@ -1214,7 +1214,7 @@ git commit -m "refactor(screen): potatokid_screen 接入 pscreen_screen 共享�
 - Create: `packages/pscreen_screen/test/**`（自 `pscreen/potatokid_screen/test/` 迁入）
 - Delete: `pscreen/potatokid_screen/test/` 中对应的测试
 
-- [ ] **Step 1: 确定要迁移的测试**
+- [x] **Step 1: 确定要迁移的测试**
 
 | 源测试 | 归属 |
 | --- | --- |
@@ -1230,7 +1230,7 @@ git commit -m "refactor(screen): potatokid_screen 接入 pscreen_screen 共享�
 | `test/channel_name_matcher_test.dart` | 共享包（`features/iptv/domain/`） |
 | `test/channel_name_normalizer_test.dart` | 共享包（`features/iptv/domain/`） |
 
-- [ ] **Step 2: 写迁移脚本**
+- [x] **Step 2: 写迁移脚本**
 
 Create `tool/migrate_shared_tests.mjs`:
 
@@ -1435,7 +1435,7 @@ for (const { src } of plan) {
 >
 > `--force` 只用来跳过上面这些「保护性中止」，正常流程不需要它。
 
-- [ ] **Step 3: 跑迁移脚本**
+- [x] **Step 3: 跑迁移脚本**
 
 Run: `node tool/migrate_shared_tests.mjs "E:/Code/potatokid_clipboard" --dry-run`
 Expected: 打印 11 行 `源 -> 目标` 计划，末尾提示 `试运行结束：没有写入、没有删除任何文件。`
@@ -1443,7 +1443,7 @@ Expected: 打印 11 行 `源 -> 目标` 计划，末尾提示 `试运行结束�
 Run: `node tool/migrate_shared_tests.mjs "E:/Code/potatokid_clipboard"`
 Expected: 11 行 `迁移：...`
 
-- [ ] **Step 4: 修 `reporting_service_test.dart`（构造参数 + 去掉宿主依赖）**
+- [x] **Step 4: 修 `reporting_service_test.dart`（构造参数 + 去掉宿主依赖）**
 
 该测试迁入共享包后会引用**留在电视端**的 `features/app/application/app_tab_controller.dart`
 （`package:potatokid_screen/...`）——共享包不能依赖宿主，必须处理掉：
@@ -1471,7 +1471,7 @@ Expected: 11 行 `迁移：...`
      });
    ```
 
-- [ ] **Step 4.1: 复查迁入测试里没有残留的宿主引用**
+- [x] **Step 4.1: 复查迁入测试里没有残留的宿主引用**
 
 Run: `grep -rn "package:potatokid_screen/" packages/pscreen_screen/test`
 Expected: 无输出（共享包的测试不能引用宿主）
@@ -1480,17 +1480,17 @@ Expected: 无输出（共享包的测试不能引用宿主）
 说明迁移脚本的 `PREFIXES` 缺了这条 —— 脚本里已有 `['core/di/get_it.dart', 'core/di/get_it.dart']`，
 它会被正确改写为 `package:pscreen_screen/core/di/get_it.dart`（包内副本与宿主逐字相同）。
 
-- [ ] **Step 5: 共享包测试全绿**
+- [x] **Step 5: 共享包测试全绿**
 
 Run: `cd packages/pscreen_screen && flutter test`
 Expected: 全部通过。若 `app_settings_test` / `wordpress_util_test` 依赖宿主 `.env` 而失败，在测试内显式设置需要的静态字段，而不是依赖 `.env`。
 
-- [ ] **Step 6: 宿主测试全绿**
+- [x] **Step 6: 宿主测试全绿**
 
 Run: `cd pscreen/potatokid_screen && flutter test`
 Expected: 全部通过（剩余 `widget_test.dart` 等）
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add -A packages/pscreen_screen pscreen/potatokid_screen tool/migrate_shared_tests.mjs
@@ -1504,37 +1504,37 @@ git commit -m "test(screen): 能力层测试迁移到 pscreen_screen 共享包"
 **Files:**
 - Modify: `packages/pscreen_screen/README.md`（新建）
 
-- [ ] **Step 1: 共享包分析零问题**
+- [x] **Step 1: 共享包分析零问题**
 
 Run: `cd packages/pscreen_screen && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 2: 共享包测试全绿**
+- [x] **Step 2: 共享包测试全绿**
 
 Run: `cd packages/pscreen_screen && flutter test`
 Expected: 全部通过
 
-- [ ] **Step 3: 宿主分析零问题**
+- [x] **Step 3: 宿主分析零问题**
 
 Run: `cd pscreen/potatokid_screen && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 4: 宿主测试全绿**
+- [x] **Step 4: 宿主测试全绿**
 
 Run: `cd pscreen/potatokid_screen && flutter test`
 Expected: 全部通过
 
-- [ ] **Step 5: 宿主 Windows 构建**
+- [x] **Step 5: 宿主 Windows 构建**
 
 Run: `cd pscreen/potatokid_screen && flutter build windows --debug`
 Expected: `Built build\windows\x64\runner\Debug\potatokid_screen.exe`
 
-- [ ] **Step 6: 宿主 Android 构建（验证 NIM 原生插件仍可编译）**
+- [x] **Step 6: 宿主 Android 构建（验证 NIM 原生插件仍可编译）**
 
 Run: `cd pscreen/potatokid_screen && flutter build apk --debug`
 Expected: `Built build\app\outputs\flutter-apk\app-debug.apk`
 
-- [ ] **Step 7: 写共享包 README**
+- [x] **Step 7: 写共享包 README**
 
 Create `packages/pscreen_screen/README.md`:
 
@@ -1601,21 +1601,74 @@ Create `packages/pscreen_screen/README.md`:
    ```
 ```
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add -A packages/pscreen_screen
 git commit -m "docs(screen): 补充共享包 README 与边界说明"
 ```
 
+### Task 8 验收记录（2026-10-21）
+
+| 门槛 | 命令 | 结果 |
+| --- | --- | --- |
+| G1 | `packages/pscreen_screen` → `flutter analyze` | PASS `No issues found! (ran in 6.6s)` |
+| G2 | `packages/pscreen_screen` → `flutter test` | PASS `00:18 +113: All tests passed!` |
+| G3 | `pscreen/potatokid_screen` → `flutter analyze` | PASS `No issues found! (ran in 12.3s)` |
+| G4 | `pscreen/potatokid_screen` → `flutter test` | PASS `00:00 +2: All tests passed!` |
+| G5a | `flutter build windows --debug` | PASS `Built build\windows\x64\runner\Debug\potatokid_screen.exe`（43.1s） |
+| G5b | `flutter build apk --debug` | PASS `Built build\app\outputs\flutter-apk\app-debug.apk`（273,596,743 字节） |
+
+**apk 构建的“Connection timed out”调查结论：环境网络问题，非重构缺陷。**
+
+- 失败点是第三方插件的**纯网络下载**：`media_kit_libs_android_video-1.3.8/android/build.gradle:83`
+  的 `os << new URL(fileInfo.url).openStream()`，下载
+  `https://github.com/media-kit/libmpv-android-video-build/releases/download/v1.1.7/default-{arm64-v8a,armeabi-v7a,x86_64,x86}.jar`。
+- S1 **没有改动任何 Android / Gradle 文件**：
+  `git diff 0a03e3f..HEAD -- pscreen/potatokid_screen/android` 为空；
+  宿主 `pubspec.yaml` 的 diff 只有 `+ pscreen_screen` path 依赖与 `- assets/datas/` 资产声明；
+  `media_kit*` 各版本在重构前后完全相同。
+- **重构前基线同样失败**：把重构前的提交 `0a03e3f` 检出到 `git worktree` 临时目录跑同一条
+  `flutter build apk --debug`，报同一个 `build.gradle line: 83`、同一句
+  `由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败`（`BUILD FAILED in 6m 3s`）。
+  证明该失败与 S1 无关。
+- 重跑当前树即通过，4 个 jar 全部下载完成。原因是本机到 GitHub release CDN 的链路很慢且不稳定：
+  `https://github.com` HEAD 耗时 15.6s，而 `https://pub.flutter-io.cn` 仅 0.4s；
+  release 下载直链曾以 `WebException: 无法连接到远程服务器` 失败。
+
+**其他验收项：**
+
+| # | 项 | 结果 |
+| --- | --- | --- |
+| 1 | 包内无 `package:potatokid_screen` 残留 | PASS 0 命中（106 个文件全量扫描） |
+| 2 | 包内无 `package:pscreen_home` 反向依赖 | PASS 0 命中 |
+| 3 | 资产键 | PASS `flutter_assets/packages/pscreen_screen/assets/datas` 10 个文件；`flutter_assets/assets/datas` 不存在 |
+| 4 | 测试确实迁移 | PASS 13 个测试文件（11 个迁移 + `screen_assets_test.dart` + `screen_modules_test.dart`） |
+| 5 | 包依赖自洽 | 见下方「已知冗余」 |
+| 6 | 两个 `pubspec.lock` 仍走镜像 | PASS `pub.dev` 0 处 / `pub.flutter-io.cn` 155+128 处 |
+| 7 | README 与本计划 Task 8 Step 7 片段一致 | PASS 逐字节相同（仅末尾换行差异） |
+
+**已知冗余（仅记录，不在 S1 改动）：** 共享包 `pubspec.yaml` 里
+`bloc_concurrency` / `freezed_annotation` / `json_annotation` / `intl` 四个依赖
+在包内 90 个 `.dart` 文件中无任何 import；dev 依赖 `build_runner` / `freezed` /
+`json_serializable` 也没有对应的 `.freezed.dart` / `.g.dart` 产物（这些产物仍留在宿主）。
+`flutter_lints` 是通过 `analysis_options.yaml` 的 `include: package:flutter_lints/flutter.yaml` 生效的，属于**在用**。
+
 ---
 
 ## S1 完成定义
 
-- [ ] G1 `packages/pscreen_screen` analyze 零问题
-- [ ] G2 `packages/pscreen_screen` test 全绿
-- [ ] G3 `potatokid_screen` analyze 零问题
-- [ ] G4 `potatokid_screen` test 全绿
-- [ ] G5 `potatokid_screen` windows + apk 构建成功
+- [x] G1 `packages/pscreen_screen` analyze 零问题 —— `No issues found! (ran in 6.6s)`
+- [x] G2 `packages/pscreen_screen` test 全绿 —— `00:18 +113: All tests passed!`（13 个测试文件）
+- [x] G3 `potatokid_screen` analyze 零问题 —— `No issues found! (ran in 12.3s)`
+- [x] G4 `potatokid_screen` test 全绿 —— `00:00 +2: All tests passed!`（仅剩 `widget_test.dart`）
+- [x] G5 `potatokid_screen` windows + apk 构建成功
+  - windows：`Built build\windows\x64\runner\Debug\potatokid_screen.exe`（43.1s）
+  - apk：`Built build\app\outputs\flutter-apk\app-debug.apk`（273,596,743 字节）
+  - 说明：apk 首次尝试曾在 `media_kit_libs_android_video-1.3.8/android/build.gradle:83`
+    下载 libmpv 原生 jar 时报 `Connection timed out`。该步骤是第三方插件的纯网络下载
+    （`github.com/media-kit/libmpv-android-video-build` release），S1 未改动任何
+    `android/` / Gradle 文件（`git diff 0a03e3f..HEAD -- pscreen/potatokid_screen/android`
+    为空），重跑后 4 个 jar 全部下载成功、构建通过 —— 判定为**环境网络抖动**，非重构缺陷。
 
 **下一步**：执行 `docs/superpowers/plans/2026-10-21-s2-host-wiring.md`（宿主接线）。
