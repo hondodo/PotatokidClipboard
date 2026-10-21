@@ -1,69 +1,17 @@
-import 'dart:io';
-
-import 'package:flutter/foundation.dart';
 import 'package:nim_core_v2/nim_core.dart';
 // ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart'
     hide Log;
-import 'package:path_provider/path_provider.dart';
 
-import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
 
-/// NIM 客户端薄封装（模式同 TV 端 NimManager；init/login 调用序列照抄）。
+/// NIM 客户端薄封装（模式同 TV 端 NimManager；login 调用序列照抄）。
+///
+/// SDK 初始化由宿主的 `NimManager.init(appKey: ...)` 统一触发，
+/// 本类只负责账号登录与消息收发。
 class NimClient {
-  /// SDK 初始化（幂等；失败记日志并返回 false，UI 层提示）。
-  Future<bool> init() async {
-    try {
-      final NIMSDKOptions options = await _buildOptions(ControlConfig.nimAppKey);
-      final NIMResult<void> value = await NimCore.instance.initialize(options);
-      ControlLog.i('[NimClient] initialize result: $value');
-      return value.isSuccess;
-    } catch (e) {
-      ControlLog.e('[NimClient] initialize 失败: $e');
-      return false;
-    }
-  }
-
-  /// 照抄 TV NimManager 的平台分支与选项构造。
-  Future<NIMSDKOptions> _buildOptions(String appKey) async {
-    if (kIsWeb) {
-      final NIMInitializeOptions base = NIMInitializeOptions(
-        appkey: appKey,
-        apiVersion: 'v2',
-        debugLevel: 'debug',
-      );
-      return NIMWebSDKOptions(appKey: appKey, initializeOptions: base);
-    } else if (Platform.isAndroid) {
-      final directory = await getExternalStorageDirectory();
-      return NIMAndroidSDKOptions(
-        appKey: appKey,
-        shouldSyncStickTopSessionInfos: true,
-        enableV2CloudConversation: true,
-        sdkRootDir:
-            directory != null ? '${directory.path}/NIMFlutter' : null,
-      );
-    } else if (Platform.isIOS) {
-      final directory = await getApplicationDocumentsDirectory();
-      return NIMIOSSDKOptions(
-        appKey: appKey,
-        shouldSyncStickTopSessionInfos: true,
-        enableV2CloudConversation: true,
-        sdkRootDir: '${directory.path}/NIMFlutter',
-        apnsCername: 'your apnsCername',
-        pkCername: 'your pkCername',
-      );
-    } else if (Platform.isMacOS || Platform.isWindows) {
-      return NIMPCSDKOptions(
-        basicOption: NIMBasicOption(),
-        appKey: appKey,
-      );
-    }
-    return NIMPCSDKOptions(basicOption: NIMBasicOption(), appKey: appKey);
-  }
-
   /// 自动登录：同账号已在线则跳过。
   Future<bool> autoLogin({required String account}) async {
     final NIMResult<NIMLoginStatus> status =

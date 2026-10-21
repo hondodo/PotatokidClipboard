@@ -12,7 +12,16 @@ class NimManager {
   late NIMSDKOptions options;
   final subsriptions = <StreamSubscription>[];
 
+  /// SDK 是否已初始化（`NimCore.instance` 是全局单例，不可重复 initialize）。
+  static bool _sdkInitialized = false;
+
   Future init({required String appKey}) async {
+    // NimCore.instance 是全局单例，重复 initialize 会失败。
+    // 同一进程内可能有多个封装（如宿主既当发送端又当接收端），因此幂等处理。
+    if (_sdkInitialized) {
+      Log.i('[NimManager] SDK 已初始化，跳过');
+      return;
+    }
     if (kIsWeb) {
       var base = NIMInitializeOptions(appkey: appKey, apiVersion: 'v2', debugLevel: 'debug');
       options = NIMWebSDKOptions(appKey: appKey, initializeOptions: base);
@@ -42,6 +51,7 @@ class NimManager {
     }
 
     var value = await NimCore.instance.initialize(options);
+    _sdkInitialized = true;
     Log.i('[NimManager] initialize result: $value');
   }
 
