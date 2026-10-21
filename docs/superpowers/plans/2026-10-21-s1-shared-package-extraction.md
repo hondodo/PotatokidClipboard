@@ -470,15 +470,21 @@ mkdir -p packages/pscreen_screen/assets
 cp -r pscreen/potatokid_screen/assets/datas packages/pscreen_screen/assets/
 ```
 
+> `cp -r` 会把源目录**合并**进已存在的 `packages/pscreen_screen/assets/datas/`（那里有 Task 1 放的 `.gitkeep`），所以复制后目录里是 11 个文件（10 真实 + `.gitkeep`），需要再删掉占位文件。
+
 Run: `ls packages/pscreen_screen/assets/datas`
-Expected: 列出 `tv_name_order.txt`、`tv_name_hide.txt`、`weather_cities.txt`、`collect.m3u`、`guovin-api.m3u`、`audio.m3u`、`remove_source.txt`、`remove_source_contains.txt`、`not_remove_source.txt`
+Expected: 列出 `tv_name_order.txt`、`tv_name_hide.txt`、`weather_cities.txt`、`collect.m3u`、`guovin-api.m3u`、`audio.m3u`、`remove_source.txt`、`remove_source_contains.txt`、`not_remove_source.txt`、`source.txt`
+
+> 共 **10** 个数据文件。`source.txt` 是 m3u 播放列表地址文件（102 B），运行时**未被引用**
+> （`AppConstants.iptvM3uUrl` 指向远端 `http://ptool.w1.luyouxia.net/api/screen/source.txt`，
+> 不是包内资产），保留它只是为了与源仓库保持一致，勿漏。
 
 ```bash
 rm -f packages/pscreen_screen/assets/datas/.gitkeep
 ```
 
 Run: `ls packages/pscreen_screen/assets/datas`
-Expected: 只列出 9 个真实数据文件，**没有** `.gitkeep`
+Expected: 只列出 10 个真实数据文件，**没有** `.gitkeep`
 （占位文件会跟着被打进两个宿主的 bundle，是多余的）
 
 - [ ] **Step 4: 核对 import 改写结果**
@@ -493,7 +499,7 @@ Expected: 有输出（电视端剩余文件引用共享包的新路径），且�
 
 ```bash
 git add packages/pscreen_screen tool/migrate_shared_package.mjs
-git add -A pscreen/potakid_screen/lib pscreen/potatokid_screen/lib
+git add -A pscreen/potatokid_screen/lib
 git commit -m "refactor(screen): 一次性搬迁 66 个能力层文件到 pscreen_screen 共享包"
 ```
 
@@ -515,7 +521,7 @@ git commit -m "refactor(screen): 一次性搬迁 66 个能力层文件到 pscree
 - [ ] **Step 1: 列出包内所有残留的宿主 DI 引用**
 
 Run: `grep -rn "Injection.get<" packages/pscreen_screen/lib`
-Expected: 列出全部命中（应为 7 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `weather_bloc`）
+Expected: 列出全部命中（应为 **8** 个文件：`sleep_timer_controller` / `app_log` / `data_files` / `iptv_bloc` / `channel_failure_guard` / `proxy_pool_service` / `remote_login_bloc` / `weather_bloc`）
 
 Run: `grep -rn "package:pscreen_screen/core/di/injection.dart" packages/pscreen_screen/lib`
 Expected: 无输出（脚本已把 import 路径改成了 `package:pscreen_screen/core/di/injection.dart`，但该文件**尚未存在于共享包**——这正是本任务要消除的依赖）
@@ -575,7 +581,9 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 - `packages/pscreen_screen/lib/features/iptv/application/channel_failure_guard.dart`
 - `packages/pscreen_screen/lib/features/iptv/data/datasources/remote/proxy_pool_service.dart`
 
-- [ ] **Step 5: 修 `weather_bloc`**
+- [ ] **Step 5: 修 `remote_login_bloc` 与 `weather_bloc`**
+
+`packages/pscreen_screen/lib/features/remote/application/bloc/remote_login_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<X>()` → `ScreenInjection.get<X>()`。
 
 `packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<LogService>()` → `ScreenInjection.get<LogService>()`。
 
@@ -1041,8 +1049,58 @@ const MAP = {
   'channel_name_normalizer_test.dart': 'features/iptv/domain/channel_name_normalizer_test.dart',
 };
 
+// 源前缀 -> 包内前缀。与 tool/migrate_shared_package.mjs 的 MOVES 保持一致，
+// 外加 core/di/get_it.dart（共享包 Task 1 已建了逐字相同的副本）。
+//
+// **不能用「把所有 package:potatokid_screen/ 前缀统统换成 package:pscreen_screen/」
+// 的粗暴做法**：仍有留在电视端的代码（如 features/app/application/app_tab_controller.dart），
+// 换过去就成了「共享包依赖宿主」，是本次重构要消灭的方向。
+const PREFIXES = [
+  ['core/di/get_it.dart', 'core/di/get_it.dart'],
+  ['features/app/application/sleep_timer_controller.dart', 'core/media/sleep_timer_controller.dart'],
+  ['features/app/application/video_aspect_mode.dart', 'core/media/video_aspect_mode.dart'],
+  ['app/app_log.dart', 'app/app_log.dart'],
+  ['app/config/', 'app/config/'],
+  ['app/hosts/', 'app/hosts/'],
+  ['core/logging/', 'core/logging/'],
+  ['core/network/', 'core/network/'],
+  ['core/utils/', 'core/utils/'],
+  ['features/iptv/application/', 'features/iptv/application/'],
+  ['features/iptv/data/', 'features/iptv/data/'],
+  ['features/iptv/domain/', 'features/iptv/domain/'],
+  ['features/msg/application/', 'features/msg/application/'],
+  ['features/msg/protocol/', 'features/msg/protocol/'],
+  ['features/remote/application/', 'features/remote/application/'],
+  ['features/remote/data/', 'features/remote/data/'],
+  ['features/remote/domain/', 'features/remote/domain/'],
+  ['features/time/application/', 'features/time/application/'],
+  ['features/time/domain/', 'features/time/domain/'],
+  ['features/weather/application/', 'features/weather/application/'],
+  ['features/weather/data/', 'features/weather/data/'],
+  ['features/weather/domain/', 'features/weather/domain/'],
+];
+
 function rewrite(text) {
-  return text.replaceAll('package:potatokid_screen/', 'package:pscreen_screen/');
+  let out = text;
+  for (const [from, to] of PREFIXES) {
+    const fromKey = from.endsWith('/')
+      ? from
+      : (from.endsWith('.dart') ? from : `${from}.dart`);
+    const toKey = to.endsWith('/')
+      ? to
+      : (to.endsWith('.dart') ? to : `${to}.dart`);
+    out = out.replaceAll(
+      `package:potatokid_screen/${fromKey}`,
+      `package:pscreen_screen/${toKey}`,
+    );
+    if (from.endsWith('/')) {
+      out = out.replaceAll(
+        `package:potatokid_screen/${from.slice(0, -1)}`,
+        `package:pscreen_screen/${to.slice(0, -1)}`,
+      );
+    }
+  }
+  return out;
 }
 
 for (const [from, to] of Object.entries(MAP)) {
@@ -1064,9 +1122,42 @@ for (const [from, to] of Object.entries(MAP)) {
 Run: `node tool/migrate_shared_tests.mjs "E:/Code/potatokid_clipboard"`
 Expected: 11 行 `迁移：...`
 
-- [ ] **Step 4: 修 `reporting_service_test.dart` 的新构造参数**
+- [ ] **Step 4: 修 `reporting_service_test.dart`（构造参数 + 去掉宿主依赖）**
 
-按 Task 6 Step 5 的说明给 `ReportingService(...)` 补 `sceneProvider:`，并补一条 `positionText()` 断言。
+该测试迁入共享包后会引用**留在电视端**的 `features/app/application/app_tab_controller.dart`
+（`package:potatokid_screen/...`）——共享包不能依赖宿主，必须处理掉：
+
+1. 删除 import `package:potatokid_screen/features/app/application/app_tab_controller.dart`。
+2. 按 Task 6 Step 5 的说明给 `ReportingService(...)` 补 `sceneProvider:`，用**测试内的假实现**：
+
+   ```dart
+   class _FakeSceneProvider extends CurrentSceneProvider {
+     const _FakeSceneProvider(this.text);
+
+     final String text;
+
+     @override
+     String describe() => text;
+   }
+   ```
+
+   并加 import `package:pscreen_screen/features/msg/application/current_scene_provider.dart`。
+3. 原来依赖 `AppTabController` 的断言改为断言注入的场景描述：
+
+   ```dart
+     test('非频道场景使用注入的场景描述', () {
+       expect(service.positionText(), '测试场景');
+     });
+   ```
+
+- [ ] **Step 4.1: 复查迁入测试里没有残留的宿主引用**
+
+Run: `grep -rn "package:potatokid_screen/" packages/pscreen_screen/test`
+Expected: 无输出（共享包的测试不能引用宿主）
+
+若 `remote_login_bloc_test.dart` 仍指向 `package:potatokid_screen/core/di/get_it.dart`，
+说明迁移脚本的 `PREFIXES` 缺了这条 —— 脚本里已有 `['core/di/get_it.dart', 'core/di/get_it.dart']`，
+它会被正确改写为 `package:pscreen_screen/core/di/get_it.dart`（包内副本与宿主逐字相同）。
 
 - [ ] **Step 5: 共享包测试全绿**
 
