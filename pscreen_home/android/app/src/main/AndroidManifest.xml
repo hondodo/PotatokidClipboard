@@ -2,6 +2,10 @@
     <!-- 网络访问（debug/profile 构建由 Flutter 模板额外注入，主构建必须自带，
          否则 release 包完全无法联网） -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 遥控端：扫码绑定目标电视 -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- 扫码需要前置摄像头 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="薯仔的中控台"
         android:name="${applicationName}"

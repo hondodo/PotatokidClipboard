@@ -1,9 +1,12 @@
 package potatokid.tools.homecontroller
 
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 /**
  * 中控屏宿主 Activity。
@@ -12,8 +15,49 @@ import io.flutter.embedding.android.FlutterActivity
  * 15 寸壁挂面板上系统栏会压住底部卡片，而且开机或弹窗后系统会把导航栏
  * 重新显示出来，所以除了 onCreate，还要在 onResume 和每次重新获得焦点时
  * 重新进入沉浸式（IMMERSIVE_STICKY：从边缘上滑可临时唤出，随后自动隐藏）。
+ *
+ * 同时实现共享包 `PlatformChannelService` 使用的
+ * `potatokid/volume` 通道：遥控端下发的 volume_up / volume_down / mute
+ * 命令经由该通道落到系统音量。
  */
 class MainActivity : FlutterActivity() {
+
+    private val CHANNEL = "potatokid/volume"
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+            .setMethodCallHandler { call, result ->
+                val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+                when (call.method) {
+                    "volumeUp" -> {
+                        audio.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_RAISE,
+                            AudioManager.FLAG_SHOW_UI
+                        )
+                        result.success(null)
+                    }
+                    "volumeDown" -> {
+                        audio.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            AudioManager.ADJUST_LOWER,
+                            AudioManager.FLAG_SHOW_UI
+                        )
+                        result.success(null)
+                    }
+                    "toggleMute" -> {
+                        val muted = audio.isStreamMute(AudioManager.STREAM_MUSIC)
+                        audio.setStreamMute(AudioManager.STREAM_MUSIC, !muted)
+                        result.success(null)
+                    }
+                    "getDeviceModel" -> {
+                        result.success(Build.MODEL ?: "Android TV")
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
