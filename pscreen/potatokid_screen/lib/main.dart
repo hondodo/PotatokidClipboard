@@ -11,6 +11,7 @@ import 'package:pscreen_screen/app/app_log.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
+import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
@@ -52,6 +53,13 @@ void main() {
 
       // 1.2 初始化媒体播放库（media_kit）
       MediaKit.ensureInitialized();
+
+      // 1.9 资产根路径：共享包的资产在宿主 bundle 内位于
+      //     packages/pscreen_screen/ 前缀下，读取前必须先告知共享包。
+      //     紧接一次接入自检：忘记配置就在启动期立刻失败，
+      //     而不是等第一次读资产时被 catch 吞成空串。
+      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      ScreenAssets.requireHostConfigured();
 
       // 2. 加载 .env 与环境配置
       await AppConfig.initialize();

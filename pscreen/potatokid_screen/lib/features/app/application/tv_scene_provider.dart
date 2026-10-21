@@ -1,0 +1,26 @@
+import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+
+/// 电视端场景描述。
+///
+/// 还原重构前的上报语义：**只有停在首页（正在看直播）时报频道名**，
+/// 其余 Tab（时间页 / 屏保 / 设置）报当前页名。
+///
+/// 注意：`MainApp` 用 `StatefulShellRoute.indexedStack`，离开首页时首页分支
+/// 仍然挂载、`ChannelInfoProvider.instance.channels` 不会清空——所以必须先判
+/// `branchIndex == 0`，否则会把「当前频道是设置」误报成「当前频道是CCTV-1」。
+class TvSceneProvider extends CurrentSceneProvider {
+  const TvSceneProvider();
+
+  @override
+  String describe() {
+    if (AppTabController.branchIndex == 0) {
+      final String? name = ChannelInfoProvider.instance
+          .nameAt(LiveChannelController.instance.index);
+      if (name != null) return name;
+    }
+    return AppTabController.pageName;
+  }
+}

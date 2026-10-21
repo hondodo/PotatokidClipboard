@@ -69,6 +69,10 @@ dependencies:
   # 二维码展示（消息浮层 Task 9：配对/分享）
   qr_flutter: ^4.1.0
 
+  # 屏幕能力共享包（IPTV / 天气 / 时钟 / 消息协议 / 网络基础设施）
+  pscreen_screen:
+    path: ../../packages/pscreen_screen
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -104,7 +108,7 @@ flutter:
     - assets/weather/black/
     # 频道列表资源：collect.m3u（自建精选，始终置顶）+
     # guovin-api.m3u（接口不可用时的默认快照）
-    - assets/datas/
+    - packages/pscreen_screen/assets/datas/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
