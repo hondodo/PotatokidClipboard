@@ -11,9 +11,15 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/features/remote_control/core/control_log.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/utils/nim_manager.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(
@@ -42,6 +48,14 @@ void main() {
       // 2. 依赖注入（含网络、本地持久化、路由、业务模块）
       await Injection.init();
 
+      // 2.1 遥控目标电视目录（assets/tvs.json）：启动时加载一次，
+      //      避免每次进入遥控页重复读资产。
+      try {
+        await Injection.get<TvDirectory>().loadFromAssets();
+      } catch (e) {
+        ControlLog.e('[遥控] 目标电视目录加载失败: $e');
+      }
+
       // 3. 应用上次手动设置的连接配置（持久化优先，空则回落 .env）
       HaConfig.applyOverrides(
         host: Injection.get<SettingsStore>().hostOverride,
@@ -50,6 +64,28 @@ void main() {
 
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();
+
+      // 4.5 NIM 初始化（DI 单例；不阻塞启动，失败仅记日志）。
+      //     SDK 初始化由共享包的 NimManager 统一负责（幂等）。
+      //     初始化完成后自动登录遥控端账号（账号 / token 来自本地持久化）。
+      unawaited(
+        Injection.get<NimManager>()
+            .init(appKey: ControlConfig.nimAppKey)
+            .then((_) {
+              Injection.get<NimManager>().startListen();
+            })
+            .whenComplete(() async {
+              final bool ok = await Injection.get<NimClient>().autoLogin(
+                account: ControlSettings.instance.nimAccount,
+              );
+              if (!ok) {
+                ControlLog.e('[NIM] 自动登录失败，请到设置页检查账号 / Token');
+              }
+            })
+            .catchError((Object e, StackTrace s) {
+              ControlLog.e('[NIM] initialize failed: $e');
+            }),
+      );
 
       // 5. 启动：连接状态机随应用启动发起连接，
       //    连接就绪后由页面触发 HomeBloc 加载实体
