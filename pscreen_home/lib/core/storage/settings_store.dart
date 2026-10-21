@@ -1,5 +1,5 @@
 import 'package:pscreen_home/core/di/injection.dart';
-import 'package:pscreen_home/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 连接配置的本地持久化存储。

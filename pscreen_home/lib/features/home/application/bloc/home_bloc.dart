@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/core/di/injection.dart';
-import 'package:pscreen_home/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
-import 'package:pscreen_home/core/utils/bloc_event.dart';
+import 'package:pscreen_screen/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/ha_error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';

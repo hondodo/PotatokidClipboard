@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:pscreen_home/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 

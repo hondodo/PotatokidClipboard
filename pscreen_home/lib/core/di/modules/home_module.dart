@@ -1,5 +1,5 @@
 import 'package:pscreen_home/core/di/get_it.dart';
-import 'package:pscreen_home/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
