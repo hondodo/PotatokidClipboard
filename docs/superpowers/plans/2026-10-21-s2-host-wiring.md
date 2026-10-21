@@ -64,6 +64,25 @@
   path_provider: ^2.1.6
 ```
 
+- [ ] **Step 2.1: 对齐 SDK 下限**
+
+共享包 `pscreen_screen` 要求 `environment.sdk: ^3.11.5`，宿主必须同步抬高，
+否则 `flutter pub get` 会因 SDK 约束冲突而失败。
+
+把 `pscreen_home/pubspec.yaml` 的
+
+```yaml
+environment:
+  sdk: ^3.11.0
+```
+
+改为
+
+```yaml
+environment:
+  sdk: ^3.11.5
+```
+
 - [ ] **Step 3: 声明共享包资产**
 
 把 `flutter:` 段的 `assets:` 改为：

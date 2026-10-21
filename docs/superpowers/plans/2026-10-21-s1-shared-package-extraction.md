@@ -43,7 +43,7 @@ G1–G4 全绿之前，不得开始 S2。
 - Create: `packages/pscreen_screen/lib/app/config/screen_assets.dart`
 - Create: `packages/pscreen_screen/test/app/config/screen_assets_test.dart`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 Create `packages/pscreen_screen/test/app/config/screen_assets_test.dart`:
 
@@ -54,7 +54,6 @@ import 'package:pscreen_screen/app/config/screen_assets.dart';
 void main() {
   group('ScreenAssets', () {
     setUp(() => ScreenAssets.configure(root: ''));
-    tearDown(() => ScreenAssets.configure(root: ''));
 
     test('默认根路径为空，path 直接拼接相对路径', () {
       expect(ScreenAssets.path('assets/datas/tv_name_order.txt'),
@@ -67,22 +66,58 @@ void main() {
           'packages/pscreen_screen/assets/datas/tv_name_order.txt');
     });
 
-    test('configure 归一化：去掉尾部斜杠、补上头部斜杠', () {
+    test('configure 归一化：去掉首尾斜杠并补上尾部斜杠', () {
       ScreenAssets.configure(root: 'packages/pscreen_screen');
       expect(ScreenAssets.root, 'packages/pscreen_screen/');
       ScreenAssets.configure(root: '/assets');
       expect(ScreenAssets.root, 'assets/');
     });
+
+    test('configure 归一化边界输入', () {
+      const Map<String, String> cases = <String, String>{
+        '': '',
+        '/': '',
+        '///': '',
+        '   ': '',
+        'packages/x': 'packages/x/',
+        'packages/x/': 'packages/x/',
+        'packages/x///': 'packages/x/',
+        '/packages/x/': 'packages/x/',
+        '  packages/x  ': 'packages/x/',
+      };
+      cases.forEach((String input, String expected) {
+        ScreenAssets.configure(root: input);
+        expect(ScreenAssets.root, expected, reason: 'input: "$input"');
+      });
+    });
+
+    test('path 去掉 relative 的前导斜杠，不产生双斜杠', () {
+      ScreenAssets.configure(root: 'packages/pscreen_screen');
+      expect(ScreenAssets.path('/assets/datas/x.txt'),
+          'packages/pscreen_screen/assets/datas/x.txt');
+    });
+
+    test('isConfigured 反映是否已配置', () {
+      expect(ScreenAssets.isConfigured, isFalse);
+      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      expect(ScreenAssets.isConfigured, isTrue);
+    });
+
+    test('requireConfigured 未配置时抛出 StateError', () {
+      expect(() => ScreenAssets.requireConfigured(), throwsStateError);
+      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      expect(() => ScreenAssets.requireConfigured(), returnsNormally);
+    });
   });
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd packages/pscreen_screen && flutter test test/app/config/screen_assets_test.dart`
 Expected: FAIL —— `Target of URI doesn't exist: 'package:pscreen_screen/app/config/screen_assets.dart'`
 
-- [ ] **Step 3: 建包骨架**
+- [x] **Step 3: 建包骨架**
 
 Create `packages/pscreen_screen/pubspec.yaml`:
 
@@ -99,7 +134,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   flutter_bloc: ^9.1.1
   bloc_concurrency: ^0.3.0
   get_it: ^9.3.0
@@ -129,8 +163,10 @@ dev_dependencies:
   fake_async: ^1.3.0
 
 flutter:
-  uses-material-design: true
-
+  # 共享包自己的资产（供本包的 `flutter test` 使用）。
+  # 注意：**宿主必须在自己的 pubspec.yaml 里另行声明**
+  # `packages/pscreen_screen/assets/datas/`——Flutter 不会把依赖包的资产
+  # 自动打进宿主 bundle，宿主不声明就会 404。
   assets:
     - assets/datas/
 ```
@@ -154,6 +190,10 @@ Create `packages/pscreen_screen/lib/core/di/get_it.dart`（与两个宿主的 `c
 import 'package:get_it/get_it.dart';
 
 /// 全局 get_it 实例
+///
+/// 注意：宿主**不要**与自己的 `core/di/get_it.dart` 同时 import 本文件
+/// —— 两边都有同名的 `getIt` / `GetItConfig`，同时 import 会产生歧义引用错误。
+/// 共享包内部只用本文件；宿主侧继续用自己的那份。
 final GetIt getIt = GetIt.instance;
 
 /// get_it 的底层封装（初始化 / 重置）
@@ -169,7 +209,7 @@ class GetItConfig {
 Create `packages/pscreen_screen/lib/core/di/screen_injection.dart`:
 
 ```dart
-import 'package:get_it/get_it.dart';
+import 'package:pscreen_screen/core/di/get_it.dart';
 
 /// 共享包的依赖解析门面。
 ///
@@ -179,7 +219,7 @@ import 'package:get_it/get_it.dart';
 class ScreenInjection {
   const ScreenInjection._();
 
-  static T get<T extends Object>() => GetIt.instance<T>();
+  static T get<T extends Object>() => getIt<T>();
 }
 ```
 
@@ -192,6 +232,9 @@ Create `packages/pscreen_screen/lib/app/config/screen_assets.dart`:
 /// 宿主以 `packages/<包名>/...` 形式声明，且包内代码要用同样的前缀读取。
 /// 因此这里把前缀做成可配置：包自身跑测试时为空，宿主接入时设为
 /// `packages/pscreen_screen/`。
+///
+/// **使用约定**：[path] 应在**读取资产的那一刻**调用，不要把结果缓存下来 ——
+/// 宿主可能在首次读取之后才调用 [configure]。
 class ScreenAssets {
   const ScreenAssets._();
 
@@ -200,6 +243,13 @@ class ScreenAssets {
 
   /// 当前根前缀。
   static String get root => _root;
+
+  /// 是否已配置根前缀。
+  ///
+  /// 宿主**必须**在读取任何共享包资产之前调用 [configure]：忘记配置会让所有
+  /// 资产读取 404 且被上层 `catch` 吞掉，表现为「频道规则为空、城市列表为空」
+  /// 这类静默故障。用 [requireConfigured] 把这种失败变成显式异常。
+  static bool get isConfigured => _root.isNotEmpty;
 
   /// 设置根前缀：自动补尾部 `/`、去掉头部 `/`。
   static void configure({required String root}) {
@@ -213,24 +263,46 @@ class ScreenAssets {
     _root = normalized.isEmpty ? '' : '$normalized/';
   }
 
+  /// 断言根前缀已配置；未配置时抛 [StateError]。
+  ///
+  /// 由共享包内**唯一的资产读取点**调用（`DataFiles._readAsset`），把
+  /// 「宿主忘记 configure」从静默降级变成显式失败。
+  static void requireConfigured() {
+    if (_root.isEmpty) {
+      throw StateError(
+        'ScreenAssets 未配置：宿主必须先调用 '
+        'ScreenAssets.configure(root: "packages/pscreen_screen/")，'
+        '否则依赖包的资产无法被读取。',
+      );
+    }
+  }
+
   /// 拼出最终可被 `rootBundle.load` 读取的路径。
-  static String path(String relative) => '$_root$relative';
+  ///
+  /// [relative] 里的前导斜杠会被去掉，避免与根前缀拼出双斜杠。
+  static String path(String relative) {
+    var rel = relative.trim();
+    while (rel.startsWith('/')) {
+      rel = rel.substring(1);
+    }
+    return '$_root$rel';
+  }
 }
 ```
 
-- [ ] **Step 4: 拉依赖**
+- [x] **Step 4: 拉依赖**
 
 Run: `cd packages/pscreen_screen; $env:PUB_HOSTED_URL="https://pub.flutter-io.cn"; flutter pub get`
 Expected: `Got dependencies!`
 
 > **全局约定**：本仓库的 `pubspec.lock` 使用 `https://pub.flutter-io.cn` 镜像源。执行 `flutter pub get` 前先设 `$env:PUB_HOSTED_URL="https://pub.flutter-io.cn"`，否则 lock 文件会被整体改写成 `https://pub.dev`，产生上百行无意义 diff。
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `cd packages/pscreen_screen && flutter test test/app/config/screen_assets_test.dart`
-Expected: PASS —— 3 tests passed
+Expected: PASS —— 7 tests passed
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add packages/pscreen_screen
@@ -387,6 +459,14 @@ cp -r pscreen/potatokid_screen/assets/datas packages/pscreen_screen/assets/
 Run: `ls packages/pscreen_screen/assets/datas`
 Expected: 列出 `tv_name_order.txt`、`tv_name_hide.txt`、`weather_cities.txt`、`collect.m3u`、`guovin-api.m3u`、`audio.m3u`、`remove_source.txt`、`remove_source_contains.txt`、`not_remove_source.txt`
 
+```bash
+rm -f packages/pscreen_screen/assets/datas/.gitkeep
+```
+
+Run: `ls packages/pscreen_screen/assets/datas`
+Expected: 只列出 9 个真实数据文件，**没有** `.gitkeep`
+（占位文件会跟着被打进两个宿主的 bundle，是多余的）
+
 - [ ] **Step 4: 核对 import 改写结果**
 
 Run: `grep -rn "package:potatokid_screen/core/\|package:potatokid_screen/app/\|package:potatokid_screen/features/iptv/\|package:potatokid_screen/features/msg/\|package:potatokid_screen/features/remote/\|package:potatokid_screen/features/time/\|package:potatokid_screen/features/weather/" packages/pscreen_screen/lib pscreen/potatokid_screen/lib`
@@ -485,25 +565,30 @@ import 'package:pscreen_screen/core/di/screen_injection.dart';
 
 `packages/pscreen_screen/lib/features/weather/application/bloc/weather_bloc.dart`：import 改为 `package:pscreen_screen/core/di/screen_injection.dart`，`Injection.get<LogService>()` → `ScreenInjection.get<LogService>()`。
 
-- [ ] **Step 6: 资产路径改用 `ScreenAssets`**
+- [ ] **Step 6: 资产路径改用 `ScreenAssets`（前缀只在读取点应用）**
 
-`packages/pscreen_screen/lib/app/config/data_files.dart` 中所有 `'assets/datas/xxx'` 字面量改为 `ScreenAssets.path('assets/datas/xxx')`。
+`packages/pscreen_screen/lib/app/config/data_files.dart`：
 
-具体替换（9 处）：
+**不要**把前缀写进 `DataFile` 模型（它是 `const` 构造 + `static const` 列表，
+写死前缀既破坏 const 又会在首次访问时快照下当时的根前缀）。
+
+只改**唯一的资产读取点**：找到读取包内资产的那个方法（形如 `_readAsset(DataFile file)`，
+内部用 `rootBundle.loadString(file.assetPath)`），把它改成：
 
 ```dart
-'assets/datas/tv_name_order.txt'
-'assets/datas/tv_name_hide.txt'
-'assets/datas/weather_cities.txt'
-'assets/datas/collect.m3u'
-'assets/datas/guovin-api.m3u'
-'assets/datas/audio.m3u'
-'assets/datas/remove_source.txt'
-'assets/datas/remove_source_contains.txt'
-'assets/datas/not_remove_source.txt'
+  Future<String> _readAsset(DataFile file) async {
+    try {
+      ScreenAssets.requireConfigured();
+      return await rootBundle.loadString(ScreenAssets.path(file.assetPath));
+    } catch (e) {
+      return '';
+    }
+  }
 ```
 
-→ 全部包成 `ScreenAssets.path('...')`，并加 import `package:pscreen_screen/app/config/screen_assets.dart`。
+`DataFile.assetPath` 保持**相对路径**（`'assets/datas/xxx.txt'`）不变，
+`DataFile` 类与 `_files` 列表一个字都不动。
+另加 import `package:pscreen_screen/app/config/screen_assets.dart`。
 
 - [ ] **Step 7: 复查零残留**
 
@@ -1043,12 +1128,44 @@ Create `packages/pscreen_screen/README.md`:
 
 宿主 App → `pscreen_screen`。共享包不依赖任何宿主。
 
-## 宿主接入三步
+## 宿主接入清单（漏任何一条都会静默出错）
 
-1. `pubspec.yaml` 加 `pscreen_screen: {path: ../../packages/pscreen_screen}`，
-   并在 `flutter: assets:` 声明 `packages/pscreen_screen/assets/datas/`。
-2. 启动时调用 `ScreenAssets.configure(root: 'packages/pscreen_screen/')`。
-3. DI 里调用 `await ScreenModules.register(getIt);`。
+1. **加 path 依赖**
+
+   ```yaml
+   dependencies:
+     pscreen_screen:
+       path: ../packages/pscreen_screen
+   ```
+
+2. **在宿主自己的 pubspec 里声明共享包的资产**
+   （Flutter **不会**把依赖包的资产自动打进宿主 bundle）
+
+   ```yaml
+   flutter:
+     assets:
+       - packages/pscreen_screen/assets/datas/
+   ```
+
+3. **在任何资产读取之前配置根前缀**
+
+   ```dart
+   ScreenAssets.configure(root: 'packages/pscreen_screen/');
+   ```
+
+   忘记这一步 → 资产读取 404 且被上层 `catch` 吞掉，表现为「频道规则为空、
+   城市列表为空」这类**静默故障**。共享包内的唯一资产读取点会调
+   `ScreenAssets.requireConfigured()` 把这种失败变成显式异常。
+
+4. **不要与宿主自己的 `core/di/get_it.dart` 同时 import 包的同名文件**
+   —— 两边都有 `getIt` / `GetItConfig`，同时 import 会产生歧义引用错误。
+   共享包内部只用包内那份；宿主侧继续用自己的那份。
+
+5. **注册依赖**
+
+   ```dart
+   await ScreenModules.register(getIt);
+   ```
 ```
 
 - [ ] **Step 8: 提交**
