@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pscreen_control/features/send/data/tv_directory.dart';
+import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 
 void main() {
   test('从 JSON 列表解析设备', () {

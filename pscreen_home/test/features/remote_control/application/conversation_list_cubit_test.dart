@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pscreen_control/features/admin/application/conversation_list_cubit.dart';
+import 'package:pscreen_home/features/remote_control/application/conversation_list_cubit.dart';
 
 class FakeSource implements ConversationSource {
   List<ConversationItem> data = <ConversationItem>[];

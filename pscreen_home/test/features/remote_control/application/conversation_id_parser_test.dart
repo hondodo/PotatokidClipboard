@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pscreen_control/features/admin/application/conversation_source.dart';
+import 'package:pscreen_home/features/remote_control/application/conversation_source.dart';
 
 void main() {
   test('裸账号原样返回', () {

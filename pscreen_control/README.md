@@ -1,17 +1,10 @@
-# pscreen_control
+# pscreen_control（已废弃）
 
-A new Flutter project.
+本项目的遥控端能力已并入 `pscreen_home`：
 
-## Getting Started
+- 遥控面板 / 会话列表 / 扫码 → `pscreen_home/lib/features/remote_control/`
+- 协议构造器 → `packages/pscreen_screen/lib/features/msg/protocol/envelope_builder.dart`
+- 目标电视列表资产 → `pscreen_home/assets/tvs.json`
+- 相关测试 → `pscreen_home/test/features/remote_control/`
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+本目录**不再维护、不再单独发布**，仅保留作为迁移参考与回退路径。

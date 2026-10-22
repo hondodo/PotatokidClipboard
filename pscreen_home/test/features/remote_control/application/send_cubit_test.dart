@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pscreen_control/app/storage/app_settings.dart';
-import 'package:pscreen_control/core/nim_client.dart';
-import 'package:pscreen_control/features/send/application/send_cubit.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_home/features/remote_control/application/send_cubit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Fake NimClient：记录 sendText 调用，可控失败。
@@ -23,8 +23,6 @@ class FakeNimClient implements NimClient {
     return true;
   }
 
-  @override
-  Future<bool> init() async => true;
   @override
   Future<bool> autoLogin({required String account}) async => true;
   @override
@@ -167,14 +165,14 @@ void main() {
     expect(cubit.state.isSending, isFalse);
   });
 
-  // 注意：此测试必须放在最后 —— 它会加载 AppSettings（单例，无法卸载）。
+  // 注意：此测试必须放在最后 —— 它会加载 ControlSettings（单例，无法卸载）。
   // 默认构造 persistTargets: false（家人角色）不恢复/不写回共享 key，
   // 仅管理员显式 persistTargets: true 才恢复。
   test('SendCubit persistTargets: true 从持久化恢复最近目标', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'selected_tv_accounts': <String>['TV_001', 'TV_002'],
     });
-    await AppSettings.instance.ensureLoaded();
+    await ControlSettings.instance.ensureLoaded();
     final SendCubit c = SendCubit(nim: FakeNimClient(), persistTargets: true);
     expect(c.state.targets, <String>['TV_001', 'TV_002']);
     await c.close();

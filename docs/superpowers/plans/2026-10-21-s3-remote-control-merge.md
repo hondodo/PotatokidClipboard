@@ -42,7 +42,7 @@
 - Delete: `pscreen_control/lib/features/protocol/envelope_builder.dart`
 - Delete: `pscreen_control/test/protocol/envelope_builder_test.dart`
 
-- [ ] **Step 1: 迁移文件**
+- [x] **Step 1: 迁移文件**
 
 ```bash
 mkdir -p packages/pscreen_screen/lib/features/msg/protocol packages/pscreen_screen/test/features/msg/protocol
@@ -50,7 +50,7 @@ git mv pscreen_control/lib/features/protocol/envelope_builder.dart packages/pscr
 git mv pscreen_control/test/protocol/envelope_builder_test.dart packages/pscreen_screen/test/features/msg/protocol/envelope_builder_test.dart
 ```
 
-- [ ] **Step 2: 改写测试里的 import**
+- [x] **Step 2: 改写测试里的 import**
 
 `packages/pscreen_screen/test/features/msg/protocol/envelope_builder_test.dart` 中：
 
@@ -64,7 +64,7 @@ import 'package:pscreen_control/features/protocol/envelope_builder.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 ```
 
-- [ ] **Step 3: 补一个「构造与解析闭环」测试**
+- [x] **Step 3: 补一个「构造与解析闭环」测试**
 
 在 `packages/pscreen_screen/test/features/msg/protocol/envelope_builder_test.dart` 末尾追加：
 
@@ -104,12 +104,12 @@ void main() {
 
 > 若文件已有 `main()`，把上面的 `group` 合并进既有的 `main()` 内，不要出现两个 `main()`。
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cd packages/pscreen_screen && flutter test test/features/msg/protocol/`
 Expected: 全部通过
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A packages/pscreen_screen pscreen_control
@@ -125,7 +125,7 @@ git commit -m "refactor(screen): 协议构造器 envelope_builder 迁入共享�
 - Delete: `pscreen_control/lib/**`（除 `main.dart` 外全部）
 - Create: `tool/migrate_control_into_home.mjs`
 
-- [ ] **Step 1: 写迁移脚本**
+- [x] **Step 1: 写迁移脚本**
 
 Create `tool/migrate_control_into_home.mjs`:
 
@@ -241,16 +241,16 @@ for (const rel of DROP) {
 }
 ```
 
-- [ ] **Step 2: 跑迁移脚本**
+- [x] **Step 2: 跑迁移脚本**
 
 Run: `node tool/migrate_control_into_home.mjs "E:/Code/potatokid_clipboard"`
 Expected: 16 行 `迁移：...` + 3 行 `删除：...`
 
-- [ ] **Step 3: 修正 `send_cubit.dart` 的 `part` 指令**
+- [x] **Step 3: 修正 `send_cubit.dart` 的 `part` 指令**
 
 `pscreen_home/lib/features/remote_control/application/send_cubit.dart` 里 `part 'send_state.dart';` 保持不变（两个文件同目录）✓。
 
-- [ ] **Step 4: 修正 `conversation_list_cubit.dart` 的 export**
+- [x] **Step 4: 修正 `conversation_list_cubit.dart` 的 export**
 
 该文件原有：
 
@@ -261,12 +261,12 @@ export 'conversation_source.dart'
 
 两个文件已同目录（`application/`），export 保持相对路径即可 ✓。
 
-- [ ] **Step 5: 分析**
+- [x] **Step 5: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: 剩余 error 集中在「`NimClient` 未注册」「`TvDirectory` 未注册」「`ControlSettings` 未加载」等 DI 相关，运行 Task 5 后清零。先记录当前 error 清单作为对照。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add -A pscreen_home pscreen_control tool/migrate_control_into_home.mjs
@@ -282,13 +282,13 @@ git commit -m "refactor(home): pscreen_control 遥控能力迁入 features/remot
 - Delete: `pscreen_control/assets/tvs.json`
 - Modify: `pscreen_home/pubspec.yaml`
 
-- [ ] **Step 1: 迁移资产**
+- [x] **Step 1: 迁移资产**
 
 ```bash
 git mv pscreen_control/assets/tvs.json pscreen_home/assets/tvs.json
 ```
 
-- [ ] **Step 2: pubspec 声明**
+- [x] **Step 2: pubspec 声明**
 
 `pscreen_home/pubspec.yaml` 的 `flutter: assets:` 段追加：
 
@@ -296,7 +296,7 @@ git mv pscreen_control/assets/tvs.json pscreen_home/assets/tvs.json
     - assets/tvs.json
 ```
 
-- [ ] **Step 3: 检查 `tv_directory.dart` 的资产路径**
+- [x] **Step 3: 检查 `tv_directory.dart` 的资产路径**
 
 `pscreen_home/lib/features/remote_control/data/tv_directory.dart` 中：
 
@@ -306,7 +306,7 @@ git mv pscreen_control/assets/tvs.json pscreen_home/assets/tvs.json
 
 路径正确（宿主自己的资产，无前缀问题）✓。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add -A pscreen_home/assets pscreen_control/assets pscreen_home/pubspec.yaml
@@ -321,7 +321,7 @@ git commit -m "chore(home): 遥控目标电视列表资产迁入宿主"
 - Modify: `packages/pscreen_screen/lib/core/utils/nim_manager.dart`
 - Modify: `pscreen_home/lib/features/remote_control/data/nim_client.dart`
 
-- [ ] **Step 1: `NimManager.init()` 改为幂等**
+- [x] **Step 1: `NimManager.init()` 改为幂等**
 
 `packages/pscreen_screen/lib/core/utils/nim_manager.dart`：
 
@@ -376,7 +376,7 @@ git commit -m "chore(home): 遥控目标电视列表资产迁入宿主"
   }
 ```
 
-- [ ] **Step 2: `NimClient` 删除自己的 SDK 初始化**
+- [x] **Step 2: `NimClient` 删除自己的 SDK 初始化**
 
 `pscreen_home/lib/features/remote_control/data/nim_client.dart`：
 
@@ -386,12 +386,12 @@ git commit -m "chore(home): 遥控目标电视列表资产迁入宿主"
   /// SDK 初始化（幂等；失败记日志并返回 false，UI 层提示）。
   Future<bool> init() async {
     try {
-      final NIMSDKOptions options = await _buildOptions(AppConfig.nimAppKey);
+      final NIMSDKOptions options = await _buildOptions(ControlConfig.nimAppKey);
       final NIMResult<void> value = await NimCore.instance.initialize(options);
-      AppLog.i('[NimClient] initialize result: $value');
+      ControlLog.i('[NimClient] initialize result: $value');
       return value.isSuccess;
     } catch (e) {
-      AppLog.e('[NimClient] initialize 失败: $e');
+      ControlLog.e('[NimClient] initialize 失败: $e');
       return false;
     }
   }
@@ -409,18 +409,26 @@ git commit -m "chore(home): 遥控目标电视列表资产迁入宿主"
 同时删除随之失效的 import：
 
 ```dart
-import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart'
-    hide Log;
+import 'package:pscreen_control/app/utils/app_log.dart';   // → 已改名，改用 control_log.dart
 ```
+
+> ⚠️ **`nim_core_v2_platform_interface` 的 import 不能删**：
+> `nim_core_v2/nim_core.dart` **没有**再导出 `NIMError`（它只再导出 `nim_base.dart`），
+> 而 `NIMError` 用在 `Stream<NIMError> get onLoginFailed` 上。删掉会报
+> `The name 'NIMError' isn't a type`。**保留它**（连同
+> `// ignore: depend_on_referenced_packages` 与 `hide Log`）。
+>
+> 删掉 `init`/`_buildOptions` 后确实失效、可以删的是：`dart:io`、
+> `flutter/foundation.dart`、`path_provider`、`control_config.dart`。
 
 > SDK 初始化统一由宿主的 `NimManager.init(appKey: ...)` 触发（见 Task 5）。`NimClient` 只负责账号登录与消息收发。
 
-- [ ] **Step 3: 检查 `NimClient` 里 `AppConfig.nimAppKey` 的残留引用**
+- [x] **Step 3: 检查 `NimClient` 里 `ControlConfig.nimAppKey` 的残留引用**
 
-Run: `grep -n "nimAppKey\|AppConfig" pscreen_home/lib/features/remote_control/data/nim_client.dart`
+Run: `grep -n "nimAppKey\|ControlConfig" pscreen_home/lib/features/remote_control/data/nim_client.dart`
 Expected: 无输出（`ControlConfig` 里虽然仍有 `nimAppKey` 常量，但本文件不再引用）
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add -A packages/pscreen_screen pscreen_home
@@ -435,7 +443,7 @@ git commit -m "fix(screen): NIM SDK 单一初始化，遥控端不再重复 init
 - Create: `pscreen_home/lib/core/di/modules/remote_control_module.dart`
 - Modify: `pscreen_home/lib/core/di/injection.dart`
 
-- [ ] **Step 1: 写 DI 模块**
+- [x] **Step 1: 写 DI 模块**
 
 Create `pscreen_home/lib/core/di/modules/remote_control_module.dart`:
 
@@ -468,7 +476,7 @@ class RemoteControlModule {
 }
 ```
 
-- [ ] **Step 2: `Injection.init()` 加入遥控模块**
+- [x] **Step 2: `Injection.init()` 加入遥控模块**
 
 `pscreen_home/lib/core/di/injection.dart`：
 
@@ -491,11 +499,11 @@ import 'package:pscreen_home/core/di/modules/remote_control_module.dart';
     await RemoteControlModule.unregister();
 ```
 
-- [ ] **Step 3: `ControlSettings` 改为可注入的实例**
+- [x] **Step 3: `ControlSettings` 改为可注入的实例**
 
 `pscreen_home/lib/features/remote_control/data/control_settings.dart` 保留 `static final ControlSettings instance = ControlSettings._();` 单例（与原 `AppSettings` 一致），无需改造。
 
-- [ ] **Step 4: `TvDirectory` 加载资产**
+- [x] **Step 4: `TvDirectory` 加载资产**
 
 `TvDirectory.loadFromAssets()` 需要在启动时调用一次。在 `pscreen_home/lib/main.dart` 的 `await Injection.init();` 之后加入：
 
@@ -510,12 +518,12 @@ import 'package:pscreen_home/core/di/modules/remote_control_module.dart';
 import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 ```
 
-- [ ] **Step 5: 分析**
+- [x] **Step 5: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add -A pscreen_home
@@ -531,7 +539,7 @@ git commit -m "feat(home): 注册遥控端依赖注入模块"
 - Modify: `pscreen_home/lib/core/router/route_names.dart`
 - Modify: `pscreen_home/lib/core/router/app_router.dart`
 
-- [ ] **Step 1: 写遥控页面**
+- [x] **Step 1: 写遥控页面**
 
 Create `pscreen_home/lib/features/remote_control/presentation/remote_control_page.dart`:
 
@@ -573,7 +581,7 @@ class RemoteControlPage extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 2: `_AdminSendShell` 剥离 Scaffold 与内层 TabBar**
+- [x] **Step 2: `_AdminSendShell` 剥离 Scaffold 与内层 TabBar**
 
 `pscreen_home/lib/features/remote_control/presentation/send_page.dart` 中，原 `_AdminSendShell.build` 自带 `Scaffold` + 内层 `TabBar`（群发 / 会话）。外层 `RemoteControlPage` 已提供 TabBar（遥控面板 / 会话），因此这里只保留「群发」内容。
 
@@ -592,7 +600,7 @@ class _AdminSendShell extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 3: `_FamilySendPage` 剥离 Scaffold**
+- [x] **Step 3: `_FamilySendPage` 剥离 Scaffold**
 
 同文件中 `_FamilySendPage.build` 原为：
 
@@ -618,11 +626,11 @@ class _AdminSendShell extends StatelessWidget {
 
 方法体其余部分（`child:` / `children:` / 结尾括号）保持原有，只删掉最外层的 `Scaffold(appBar: ..., body: ...)` 两层包裹。
 
-- [ ] **Step 4: `ConversationListPage` 无需改动**
+- [x] **Step 4: `ConversationListPage` 无需改动**
 
 `pscreen_home/lib/features/remote_control/presentation/conversation_list_page.dart` 的 `ConversationListPage.build` 返回的是 `BlocProvider` + `_ConversationListView`（**没有 Scaffold**），可直接作为 `TabBarView` 的子项。
 
-- [ ] **Step 5: 去掉重复的资产加载**
+- [x] **Step 5: 去掉重复的资产加载**
 
 同文件 `_BroadcastTabState.initState` 中原有：
 
@@ -640,7 +648,7 @@ class _AdminSendShell extends StatelessWidget {
 ```
 
 
-- [ ] **Step 6: 路由常量**
+- [x] **Step 6: 路由常量**
 
 `pscreen_home/lib/core/router/route_names.dart` 追加：
 
@@ -652,7 +660,7 @@ class _AdminSendShell extends StatelessWidget {
   static String get remoteControlPath => '/$remoteControl';
 ```
 
-- [ ] **Step 7: 路由注册**
+- [x] **Step 7: 路由注册**
 
 `pscreen_home/lib/core/router/app_router.dart`：import 区追加：
 
@@ -672,12 +680,12 @@ import 'package:pscreen_home/features/remote_control/presentation/remote_control
 
 > 注意：该路由挂在 `RouteNames.home` 的**子路由**列表里（`home` 的 `GoRoute` 内有 `routes:`），因此 `path` 用相对路径 `'remote'`，完整路径为 `/remote`。
 
-- [ ] **Step 8: 分析**
+- [x] **Step 8: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add -A pscreen_home
@@ -691,7 +699,7 @@ git commit -m "feat(home): 新增遥控页（遥控面板 + 会话列表两 tab�
 **Files:**
 - Modify: `pscreen_home/lib/features/home/presentation/pages/home_controll_board.dart`
 
-- [ ] **Step 1: 增加 action**
+- [x] **Step 1: 增加 action**
 
 `pscreen_home/lib/features/home/presentation/pages/home_controll_board.dart` 的 `AppBar.actions` 中，在「刷新」按钮之前插入：
 
@@ -704,7 +712,7 @@ git commit -m "feat(home): 新增遥控页（遥控面板 + 会话列表两 tab�
             ),
 ```
 
-- [ ] **Step 2: 分析 + 提交**
+- [x] **Step 2: 分析 + 提交**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
@@ -721,7 +729,7 @@ git commit -m "feat(home): 中控板 AppBar 增加遥控入口"
 **Files:**
 - Modify: `pscreen_home/lib/features/settings/presentation/pages/settings_page.dart`
 
-- [ ] **Step 1: 加 NIM 账号 / 令牌输入**
+- [x] **Step 1: 加 NIM 账号 / 令牌输入**
 
 在 `_SettingsPageState` 中新增两个控制器：
 
@@ -753,7 +761,7 @@ import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 ```
 
-- [ ] **Step 2: 加「遥控」分组 UI**
+- [x] **Step 2: 加「遥控」分组 UI**
 
 在 `build()` 的 `children` 列表中，`const SizedBox(height: 24),` + `const _ConnectionStatusLine(),` **之前**插入：
 
@@ -801,7 +809,7 @@ import 'package:pscreen_home/features/remote_control/data/control_settings.dart'
           ),
 ```
 
-- [ ] **Step 3: 加保存方法**
+- [x] **Step 3: 加保存方法**
 
 在 `_SettingsPageState` 中新增：
 
@@ -826,7 +834,7 @@ import 'package:pscreen_home/features/remote_control/data/control_settings.dart'
   }
 ```
 
-- [ ] **Step 4: 分析 + 提交**
+- [x] **Step 4: 分析 + 提交**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
@@ -847,7 +855,7 @@ git commit -m "feat(home): 设置页新增遥控（云信账号 / Token）配置
 - Create: `pscreen_home/test/features/remote_control/data/tv_directory_test.dart`
 - Delete: `pscreen_control/test/**`
 
-- [ ] **Step 1: 迁移测试**
+- [x] **Step 1: 迁移测试**
 
 ```bash
 mkdir -p pscreen_home/test/features/remote_control/application pscreen_home/test/features/remote_control/data
@@ -858,7 +866,7 @@ git mv pscreen_control/test/send/tv_directory_test.dart pscreen_home/test/featur
 git rm pscreen_control/test/widget_test.dart
 ```
 
-- [ ] **Step 2: 改写测试里的 import 与符号**
+- [x] **Step 2: 改写测试里的 import 与符号**
 
 在迁入的 4 个测试文件中，把
 
@@ -874,29 +882,29 @@ import 'package:pscreen_control/...';
 node -e "const fs=require('fs'),path=require('path');const H='pscreen_home/test/features/remote_control';const files=[];(function w(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);e.isDirectory()?w(p):(e.name.endsWith('.dart')&&files.push(p));}})(H);const M={'package:pscreen_control/app/config/app_config.dart':'package:pscreen_home/features/remote_control/core/control_config.dart','package:pscreen_control/app/storage/app_settings.dart':'package:pscreen_home/features/remote_control/data/control_settings.dart','package:pscreen_control/app/utils/app_log.dart':'package:pscreen_home/features/remote_control/core/control_log.dart','package:pscreen_control/core/nim_client.dart':'package:pscreen_home/features/remote_control/data/nim_client.dart','package:pscreen_control/features/send/application/send_cubit.dart':'package:pscreen_home/features/remote_control/application/send_cubit.dart','package:pscreen_control/features/send/data/tv_directory.dart':'package:pscreen_home/features/remote_control/data/tv_directory.dart','package:pscreen_control/features/protocol/envelope_builder.dart':'package:pscreen_screen/features/msg/protocol/envelope_builder.dart'};for(const f of files){let t=fs.readFileSync(f,'utf8');for(const [a,b] of Object.entries(M))t=t.replaceAll(a,b);t=t.replace(/\bAppSettings\b/g,'ControlSettings').replace(/\bAppConfig\b/g,'ControlConfig').replace(/\bAppLog\b/g,'ControlLog');fs.writeFileSync(f,t);console.log('  '+f);}"
 ```
 
-- [ ] **Step 3: 遥控测试全绿**
+- [x] **Step 3: 遥控测试全绿**
 
 Run: `cd pscreen_home && flutter test test/features/remote_control/`
 Expected: 全部通过
 
 若 `send_cubit_test` 因 `NimClient` 变化失败（`NimClient.init()` 已删除），把测试里的 `NimClient` 替身改为实现 `sendText` 的 Fake —— 原测试若已用 Fake 则无需改。
 
-- [ ] **Step 4: 宿主全量测试**
+- [x] **Step 4: 宿主全量测试**
 
 Run: `cd pscreen_home && flutter test`
 Expected: 全部通过
 
-- [ ] **Step 5: 共享包全量测试**
+- [x] **Step 5: 共享包全量测试**
 
 Run: `cd packages/pscreen_screen && flutter test && flutter analyze`
 Expected: 全部通过 + `No issues found!`
 
-- [ ] **Step 6: 构建**
+- [x] **Step 6: 构建**
 
 Run: `cd pscreen_home && flutter build windows --debug; if ($?) { flutter build apk --debug }`
 Expected: 两个都 `Built ...`
 
-- [ ] **Step 7: 标注 pscreen_control 已废弃**
+- [x] **Step 7: 标注 pscreen_control 已废弃**
 
 Create `pscreen_control/README.md`（覆盖原文件）：
 
@@ -912,7 +920,10 @@ Create `pscreen_control/README.md`（覆盖原文件）：
 本目录**不再维护、不再单独发布**，仅保留作为迁移参考与回退路径。
 ```
 
-- [ ] **Step 8: 端到端人工验证（G14）**
+- [x] **Step 8: 端到端人工验证（G14）—— 清单已产出（**待用户真机执行**）**
+
+> 本步骤的产出是**可执行清单**（见文末「S3 完成定义 → G14 端到端人工验证清单」）。
+> 清单本身需要两台真机（电视端 + 中控屏），自动化无法覆盖，故**执行结果待人工填写**。
 
 1. 启动电视端 `pscreen/potatokid_screen`（`flutter run -d windows`），确认已登录云信
 2. 启动中控屏 `pscreen_home`，进入「遥控」页
@@ -922,7 +933,7 @@ Create `pscreen_control/README.md`（覆盖原文件）：
 
 > 若电视端无反应：检查两端 `.env` 的 `NIM_PASSWORD` 与账号是否一致；检查 `ControlConfig.nimAppKey` 与共享包 `AppConstants.nimAppKey` 是否一致（均为 `8e3cb3b1cf5f8ae073c269ad461a69b5`）。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add -A pscreen_home pscreen_control packages/pscreen_screen
@@ -933,11 +944,59 @@ git commit -m "test(home): 遥控端测试迁入并标注 pscreen_control 废弃
 
 ## S3 完成定义
 
-- [ ] G10 `pscreen_home` analyze 零问题
-- [ ] G11 `pscreen_home` test 全绿
-- [ ] G12 共享包 analyze + test 全绿
-- [ ] G13 windows + apk 构建成功
-- [ ] G14 端到端遥控验证通过
-- [ ] `pscreen_control` 目录已标注废弃，代码已全部并入
+| # | 门槛 | 结果 | 证据（实际输出） |
+| --- | --- | --- | --- |
+| G10 | `pscreen_home` analyze 零问题 | ✅ PASS | `Analyzing pscreen_home...` → `No issues found! (ran in 7.7s)` |
+| G11 | `pscreen_home` test 全绿 | ✅ PASS | `00:20 +252: All tests passed!`（原 227 + 迁入 25 = 252） |
+| G12 | 共享包 analyze + test 全绿 | ✅ PASS | `No issues found! (ran in 4.0s)` + `00:18 +122: All tests passed!` |
+| G13 | windows + apk 构建成功 | ✅ PASS | `Built build\windows\x64\runner\Debug\pscreen_home.exe`；`Built build\app\outputs\flutter-apk\app-debug.apk` |
+| G14 | 端到端遥控验证 | ⏳ **待人工验证** | 需两台真机，可执行清单见下 |
+
+- [x] G10 `pscreen_home` analyze 零问题
+- [x] G11 `pscreen_home` test 全绿
+- [x] G12 共享包 analyze + test 全绿
+- [x] G13 windows + apk 构建成功
+- [ ] G14 端到端遥控验证通过 —— **待人工验证**（清单见下，执行结果待回填）
+- [x] `pscreen_control` 目录已标注废弃，代码已全部并入
+
+### 附加检查（实际输出）
+
+| 检查项 | 结果 |
+| --- | --- |
+| `pscreen/potatokid_screen` `flutter analyze --no-pub` | `No issues found! (ran in 5.2s)` —— 电视端未被 S3 破坏 |
+| `pscreen/potatokid_screen` `flutter test --no-pub` | `All tests passed!`（2 个用例） |
+| `pscreen_control` `flutter analyze --no-pub` | 1 个 warning：`The asset file 'assets/tvs.json' doesn't exist`（资产已迁至 `pscreen_home/assets/tvs.json`）。该目录已废弃，**不再修复** |
+| 扫描 `pscreen_home/lib` + `pscreen_home/test` 的 `package:pscreen_control` | **0 命中**（125 + 33 个 .dart 文件） |
+| 扫描 `packages/pscreen_screen/` 的 `package:pscreen_control` | **0 命中**（92 个 .dart 文件） |
+| `pscreen_home/pubspec.lock` / `pscreen/potatokid_screen/pubspec.lock` 的 `pub.dev` URL | 均为 **0**（仍指向 `https://pub.flutter-io.cn` 镜像） |
+| `pscreen_control/lib` / `pscreen_control/test` | 均为空（只剩空目录，git 不跟踪，无未跟踪噪声） |
+
+### G14 端到端人工验证清单（待用户在真机上执行）
+
+> **前置**：需要「电视端」与「中控屏」两台设备（或电视端 Windows + 中控屏 Android）。
+> 自动化无法覆盖 NIM 账号互通与真机权限，以下每条都给出**预期现象**与**若不满足，优先查这里**。
+> 执行完请在本小节下方回填「实测结果」一列。
+
+| # | 操作 | 预期现象 | 若不满足，优先查这里 |
+| --- | --- | --- | --- |
+| 1 | 启动电视端 `pscreen/potatokid_screen`，用管理员账号 `1000001` 登录云信 | 电视端进入主界面，无「登录失败」提示；日志可见 `NimManager` 登录成功 | ① 电视端 `.env` 的 `NIM_PASSWORD`（当前 `12345678`）与云信控制台该账号的口令是否一致；② 共享包 `AppConstants.nimAppKey`（`packages/pscreen_screen/lib/app/config/app_constants.dart`）是否为 `8e3cb3b1cf5f8ae073c269ad461a69b5`；③ SDK 是否被重复 `initialize`（`NimManager.init` 已幂等，日志应出现「SDK 已初始化，跳过」而非二次初始化报错） |
+| 2 | 启动中控屏 `pscreen_home` → 设置页「遥控（云信）」分组 → 填账号 `1000001` / Token → 点「保存遥控配置」 | 弹出「已保存遥控配置」；日志出现 NIM 登录成功；随后「遥控」页能正常发消息 | ① 中控屏 `.env` / 设置页 Token 是否与电视端 `NIM_PASSWORD` 一致；② `ControlConfig.nimAppKey`（`pscreen_home/lib/features/remote_control/core/control_config.dart`）是否与共享包 `AppConstants.nimAppKey` **都是** `8e3cb3b1cf5f8ae073c269ad461a69b5`；③ `ControlSettings.instance` 是否已被 `RemoteControlModule.register()` 加载（`ensureLoaded`） |
+| 3 | 中控屏中控板 AppBar → 点「遥控」图标 | 进入遥控页，底部出现**「遥控面板 / 会话」**两个 tab | ① 路由 `/remote` 是否注册（`pscreen_home/lib/core/router/app_router.dart`）；② `RemoteControlPage` 的 `DefaultTabController(length: 2)` |
+| 4 | 「遥控面板」tab → 勾选目标电视 → 点「音量+」 | **电视端系统音量上升**；电视端顶部浮层显示上报文本 | ① 电视端 Android 是否实现了 MethodChannel `potatokid/volume`（`pscreen/potatokid_screen/android/app/src/main/kotlin/screen/potatokid/tools/MainActivity.kt`）；② 共享包 `MessageCommandExecutor` 是否把 `volume_up` 路由到 `VolumeControl`（`packages/pscreen_screen/lib/features/msg/application/message_command_executor.dart`）；③ 中控屏发出的信封是否被电视端 `parseIncomingText` 识别为 command（`packages/pscreen_screen/lib/features/msg/protocol/`） |
+| 5 | 「遥控面板」tab → 输入框点「发送」（或「文本」） | 电视端浮层显示该文本 | ① 中控屏是否已登录（未登录时 `NimClient.sendText` 会返回 false，遥控面板显示「已发 0/N 台」）；② 双方账号是否在同一云信应用下 |
+| 6 | 切到「会话」tab | 能看到与电视端的会话记录（未聊过时需先执行第 4/5 步产生会话）；点进去能发消息并收到回复 | ① `NimConversationSource` 取的是**本地**会话服务（`nim.localConversationService`），来消息才会物化；② `ControlSettings.instance.nimAccount` 是否为当前登录账号（`peerAccountFromConversationId` 依赖它解析对方账号） |
+| 7 | Android 中控屏：「遥控面板」的扫码按钮（`Icons.qr_code_scanner` / tooltip「扫码添加」） | 弹出相机授权 → 扫描电视端二维码 → 目标被添加到目标列表 | ① Android 相机权限（`mobile_scanner` 6.x 需 `CAMERA`）；② 电视端二维码内容是否为对方 NIM 账号（`pscreen_home/lib/features/remote_control/presentation/qr_scan_page.dart`） |
+
+**实测结果**（待回填）：
+
+| # | 实测结果 | 备注 |
+| --- | --- | --- |
+| 1 | ⏳ 待执行 | |
+| 2 | ⏳ 待执行 | |
+| 3 | ⏳ 待执行 | |
+| 4 | ⏳ 待执行 | |
+| 5 | ⏳ 待执行 | |
+| 6 | ⏳ 待执行 | |
+| 7 | ⏳ 待执行 | |
 
 **下一步**：执行 `docs/superpowers/plans/2026-10-21-s4-screen-pages.md`（屏幕页面）。
