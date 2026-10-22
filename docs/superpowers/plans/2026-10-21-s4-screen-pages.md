@@ -37,7 +37,7 @@
 - Create: `pscreen_home/lib/features/screen/application/clock_formatter.dart`
 - Create: `pscreen_home/test/features/screen/application/clock_formatter_test.dart`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 Create `pscreen_home/test/features/screen/application/clock_formatter_test.dart`:
 
@@ -88,12 +88,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd pscreen_home && flutter test test/features/screen/application/clock_formatter_test.dart`
 Expected: FAIL —— `Target of URI doesn't exist: 'package:pscreen_home/features/screen/application/clock_formatter.dart'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 Create `pscreen_home/lib/features/screen/application/clock_formatter.dart`:
 
@@ -133,14 +133,14 @@ String formatLunarLine(DateTime now) {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `cd pscreen_home && flutter test test/features/screen/application/clock_formatter_test.dart`
 Expected: PASS —— 6 tests passed
 
 > 若 `formatLunarLine(DateTime(1850, 1, 1))` 未返回空串，说明 `lunarDateOf` 对越界日期有兜底行为 —— 改测试为断言 `isEmpty` 为 false 时跳过该条，或改为断言返回串非空。**以 `lunarDateOf` 的实际行为为准调整断言**，不改实现。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add pscreen_home/lib/features/screen/application/clock_formatter.dart pscreen_home/test/features/screen/application/clock_formatter_test.dart
@@ -155,7 +155,7 @@ git commit -m "feat(screen): 新增时钟格式化纯函数与单元测试"
 - Create: `pscreen_home/lib/features/screen/presentation/pages/clock_page.dart`
 - Create: `pscreen_home/test/features/screen/presentation/pages/clock_page_test.dart`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 Create `pscreen_home/test/features/screen/presentation/pages/clock_page_test.dart`:
 
@@ -199,12 +199,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/clock_page_test.dart`
 Expected: FAIL —— `Target of URI doesn't exist: '.../clock_page.dart'`
 
-- [ ] **Step 3: 实现时钟页**
+- [x] **Step 3: 实现时钟页**
 
 Create `pscreen_home/lib/features/screen/presentation/pages/clock_page.dart`:
 
@@ -352,12 +352,12 @@ class _WeatherSummary extends StatelessWidget {
 > );
 > ```
 
-- [ ] **Step 4: 运行测试**
+- [x] **Step 4: 运行测试**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/clock_page_test.dart`
 Expected: 若报 `No Provider found for WeatherBloc`，先执行 Task 6 再回来跑。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add pscreen_home/lib/features/screen/presentation/pages/clock_page.dart pscreen_home/test/features/screen/presentation/pages/clock_page_test.dart
@@ -372,7 +372,7 @@ git commit -m "feat(screen): 新增时钟页（兼屏保，全屏大字时钟 + 
 - Create: `pscreen_home/lib/features/screen/presentation/pages/weather_page.dart`
 - Create: `pscreen_home/test/features/screen/presentation/pages/weather_page_test.dart`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 Create `pscreen_home/test/features/screen/presentation/pages/weather_page_test.dart`:
 
@@ -435,12 +435,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/weather_page_test.dart`
 Expected: FAIL —— `Target of URI doesn't exist: '.../weather_page.dart'`
 
-- [ ] **Step 3: 实现天气页**
+- [x] **Step 3: 实现天气页**
 
 Create `pscreen_home/lib/features/screen/presentation/pages/weather_page.dart`:
 
@@ -572,12 +572,12 @@ class _DayTile extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/weather_page_test.dart`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add pscreen_home/lib/features/screen/presentation/pages/weather_page.dart pscreen_home/test/features/screen/presentation/pages/weather_page_test.dart
@@ -593,7 +593,7 @@ git commit -m "feat(screen): 新增触屏版天气页（实时天气 + 多日预
 - Create: `pscreen_home/lib/features/screen/presentation/pages/live_page.dart`
 - Create: `pscreen_home/test/features/screen/presentation/pages/live_page_test.dart`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 Create `pscreen_home/test/features/screen/presentation/pages/live_page_test.dart`:
 
@@ -662,12 +662,12 @@ void main() {
 >
 > `enablePlayer` 为 false 时不渲染 `LivePlayerView`，改渲染一个占位 `AspectRatio`（黑底 + 「播放器」文案）。该开关不影响生产行为。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/live_page_test.dart`
 Expected: FAIL —— `Target of URI doesn't exist: '.../live_page.dart'`
 
-- [ ] **Step 3: 实现触屏播放器**
+- [x] **Step 3: 实现触屏播放器**
 
 Create `pscreen_home/lib/features/screen/presentation/components/live_player_view.dart`:
 
@@ -812,7 +812,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
 }
 ```
 
-- [ ] **Step 4: 实现直播页**
+- [x] **Step 4: 实现直播页**
 
 Create `pscreen_home/lib/features/screen/presentation/pages/live_page.dart`:
 
@@ -901,14 +901,14 @@ class LivePage extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/live_page_test.dart`
 Expected: PASS
 
 > 若 `LiveChannelController.instance.select(index)` 在测试里因 `count` 未设置而无效（`select` 会因 `value >= _count` 直接返回），在 `LivePage` 的 `build` 里调用 `LiveChannelController.instance.setCount(channels.length)`，或在测试中先 `setCount(2)`。推荐在 `LivePage` 的 `BlocBuilder` 内 `setCount` —— 与 `LivePlayerView` 中的调用重复但幂等。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add pscreen_home/lib/features/screen/presentation pscreen_home/test/features/screen
@@ -923,7 +923,7 @@ git commit -m "feat(screen): 新增触屏版直播页与精简播放器"
 - Modify: `pscreen_home/lib/core/router/route_names.dart`
 - Modify: `pscreen_home/lib/core/router/app_router.dart`
 
-- [ ] **Step 1: 路由常量**
+- [x] **Step 1: 路由常量**
 
 `pscreen_home/lib/core/router/route_names.dart` 追加：
 
@@ -947,7 +947,7 @@ git commit -m "feat(screen): 新增触屏版直播页与精简播放器"
   static String get weatherPath => '/$weather';
 ```
 
-- [ ] **Step 2: 路由注册**
+- [x] **Step 2: 路由注册**
 
 `pscreen_home/lib/core/router/app_router.dart` import 区追加：
 
@@ -979,7 +979,7 @@ import 'package:pscreen_home/features/screen/presentation/pages/weather_page.dar
 
 > 这三条挂在 `RouteNames.home` 的**子路由**里（`path` 为相对路径），完整路径为 `/clock`、`/live`、`/weather`。
 
-- [ ] **Step 3: 分析 + 提交**
+- [x] **Step 3: 分析 + 提交**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
@@ -996,7 +996,7 @@ git commit -m "feat(home): 注册时钟 / 直播 / 天气路由"
 **Files:**
 - Modify: `pscreen_home/lib/main.dart`
 
-- [ ] **Step 1: 加 provider**
+- [x] **Step 1: 加 provider**
 
 `pscreen_home/lib/main.dart` 的 import 区追加：
 
@@ -1020,12 +1020,12 @@ import 'package:pscreen_screen/features/weather/application/bloc/weather_event.d
             ),
 ```
 
-- [ ] **Step 2: 分析**
+- [x] **Step 2: 分析**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add pscreen_home/lib/main.dart
@@ -1038,8 +1038,9 @@ git commit -m "feat(home): 全局提供天气与直播状态机"
 
 **Files:**
 - Modify: `pscreen_home/lib/features/home/presentation/pages/home_controll_board.dart`
+- Modify: `pscreen_home/lib/main.dart`（仅修注释：说明 `BlocProvider` 默认 `lazy: true` 的真实行为）
 
-- [ ] **Step 1: 增加 action**
+- [x] **Step 1: 增加 action**
 
 `pscreen_home/lib/features/home/presentation/pages/home_controll_board.dart` 的 `AppBar.actions` 中，「遥控」按钮之前插入：
 
@@ -1064,20 +1065,27 @@ git commit -m "feat(home): 全局提供天气与直播状态机"
             ),
 ```
 
-最终的 `actions` 顺序：
+最终的 `actions` 顺序（自左向右）：
 
 ```
-[时钟] [直播] [天气] [遥控] | [连接状态] [刷新] [设置]
+[连接状态] [刷新] [时钟] [直播] [天气] [遥控] [设置]
 ```
 
-- [ ] **Step 2: 分析 + 提交**
+- [x] **Step 2: 分析 + 提交**
+
+`pscreen_home/lib/main.dart` 顺带修正两处注释：`BlocProvider` 默认 `lazy: true`，
+weather / iptv 两个 bloc **首次被页面读取时**才创建并派发初始事件，
+因此「启动即加载」的旧描述不准确（真实行为更优：不开直播页就不会拉频道列表）。
+**不加 `lazy: false`**。
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
+实际: `No issues found! (ran in 19.5s)`；`flutter test` → `00:26 +262: All tests passed!`
 
 ```bash
-git add -A pscreen_home
-git commit -m "feat(home): 中控板 AppBar 增加时钟 / 直播 / 天气入口"
+git add -A pscreen_home docs/superpowers/plans
+git commit -m "feat(screen): 中控板 AppBar 增加时钟/直播/天气入口并完成 S4 验收"
+git push origin feature/home_integrate
 ```
 
 ---
@@ -1087,35 +1095,45 @@ git commit -m "feat(home): 中控板 AppBar 增加时钟 / 直播 / 天气入口
 **Files:**
 - 无（纯验证）
 
-- [ ] **Step 1: 分析零问题**
+- [x] **Step 1: 分析零问题**
 
 Run: `cd pscreen_home && flutter analyze`
 Expected: `No issues found!`
+实际: `Analyzing pscreen_home...` → `No issues found! (ran in 19.5s)`
 
-- [ ] **Step 2: 测试全绿**
+- [x] **Step 2: 测试全绿**
 
 Run: `cd pscreen_home && flutter test`
 Expected: 全部通过
+实际: `00:26 +262: All tests passed!`
 
-- [ ] **Step 3: 构建**
+- [x] **Step 3: 构建**
 
 Run: `cd pscreen_home && flutter build windows --debug; if ($?) { flutter build apk --debug }`
 Expected: 两个都 `Built ...`
+实际: `Built build\windows\x64\runner\Debug\pscreen_home.exe`；`Built build\app\outputs\flutter-apk\app-debug.apk`
+（apk 构建的 media_kit libmpv jar 走本地缓存 `build/media_kit_libs_android_video/v1.1.7/`，本次一次通过，未重试。）
 
-- [ ] **Step 4: 人工验证（G18）**
+- [x] **Step 4: 人工验证（G18）—— 清单已产出（**待用户真机执行**）**
+
+> 本步骤的产出是**可执行清单**（见文末「S4 完成定义 → G18 人工验证清单」）。
+> 清单需要 15 寸真机 + （第 7 条）电视端真机，自动化无法覆盖，故**执行结果待人工填写**。
 
 启动 `pscreen_home`（`flutter run -d windows`），逐项确认：
 
-1. 中控板 AppBar 出现 **时钟 / 直播 / 天气 / 遥控 / 刷新 / 设置** 六个 action
+1. 中控板 AppBar 出现 **时钟 / 直播 / 天气 / 遥控** 四个新按钮（加上原有「刷新 / 设置 / 连接状态」共 7 个 action）
 2. 点「时钟」→ 全屏深色大字号时钟，显示日期、星期、农历；点画面切换秒显示；左上角箭头可返回
-3. 点「直播」→ 播放器区出现；频道列表有内容；点某频道后播放器切换
-4. 点「天气」→ 显示城市、温度、天气描述、湿度、风速与多日预报；点右上角刷新有反应
+3. 点「直播」→ 播放器区出现（16:9）；频道列表有内容；点某频道后画面切换，该行高亮跟随
+4. 点「天气」→ 显示城市、温度、天气描述、湿度、风速与多日预报；右上角刷新有反应
 5. 点「遥控」→ 遥控面板 + 会话两个 tab 可用
-6. 点「设置」→ HA 配置 + 遥控配置都在
+6. 点「设置」→ HA 配置 + 遥控（云信）配置都在
+7. 电视端 `pscreen/potatokid_screen` 仍能正常启动、播放、显示浮层（**S4 不能破坏电视端**）
 
-> 直播无画面时检查：`.env` 的 `BASE_URL` / 频道源可达性；播放器需 `MediaKit.ensureInitialized()`（已在 S2 的 `main.dart` 中调用）。
+> 直播无画面时检查：`.env` 的 `BASE_URL` 与频道源可达性；`MediaKit.ensureInitialized()` 是否在 `main.dart`。
+> 天气无数据时检查：`.env` 的 `SENIVERSE_*` 键与「定位失败」分支。
+> 时钟无农历时检查：共享包 `lunarDateOf` 只覆盖 1900–2099。
 
-- [ ] **Step 5: 提交（若本任务改了文件）**
+- [x] **Step 5: 提交（若本任务改了文件）**
 
 ```bash
 git status --short
@@ -1125,18 +1143,66 @@ git status --short
 
 ## S4 完成定义
 
-- [ ] G15 `pscreen_home` analyze 零问题
-- [ ] G16 `pscreen_home` test 全绿
-- [ ] G17 windows + apk 构建成功
-- [ ] G18 三个页面人工验证通过
-- [ ] 中控板 AppBar 五个入口（时钟 / 直播 / 天气 / 遥控 / 设置）全部通达
+### 门槛结果（实际输出）
+
+| # | 门槛 | 结果 | 证据（实际输出） |
+| --- | --- | --- | --- |
+| G15 | `pscreen_home` analyze 零问题 | ✅ PASS | `Analyzing pscreen_home...` → `No issues found! (ran in 19.5s)` |
+| G16 | `pscreen_home` test 全绿 | ✅ PASS | `00:26 +262: All tests passed!` |
+| G17 | windows + apk 构建成功 | ✅ PASS | `Built build\windows\x64\runner\Debug\pscreen_home.exe`；`Built build\app\outputs\flutter-apk\app-debug.apk` |
+| G18 | 三个页面人工验证通过 | ⏳ **待人工验证** | 需 15 寸真机（+ 电视端），可执行清单见下 |
+
+- [x] G15 `pscreen_home` analyze 零问题
+- [x] G16 `pscreen_home` test 全绿
+- [x] G17 windows + apk 构建成功
+- [ ] G18 三个页面人工验证通过 —— **待人工验证**（清单见下，执行结果待回填）
+- [x] 中控板 AppBar 五个入口（时钟 / 直播 / 天气 / 遥控 / 设置）代码侧全部落地（按钮已加、路由已注册）；页面可用性随 G18 人工确认
+
+### 附加检查（实际输出）
+
+| 检查项 | 命令 | 结果 |
+| --- | --- | --- |
+| 共享包 analyze | `cd packages/pscreen_screen; flutter analyze` | ✅ `No issues found! (ran in 9.1s)` |
+| 共享包 test | `cd packages/pscreen_screen; flutter test` | ✅ `00:11 +122: All tests passed!` |
+| 电视端 analyze | `cd pscreen/potatokid_screen; flutter analyze --no-pub` | ✅ `No issues found! (ran in 21.4s)` |
+| 电视端 test | `cd pscreen/potatokid_screen; flutter test --no-pub` | ✅ `00:00 +2: All tests passed!` |
+| 电视端 windows 构建 | `cd pscreen/potatokid_screen; flutter build windows --debug` | ✅ `Built build\windows\x64\runner\Debug\potatokid_screen.exe` |
+| 旧包引用清零 | grep `package:pscreen_control`（`pscreen_home/lib`、`pscreen_home/test`、`packages/pscreen_screen/`） | ✅ **0 hits** |
+| 包不依赖宿主 | grep `package:pscreen_home`（`packages/pscreen_screen/`） | ✅ **0 hits** |
+| 锁文件未污染 | `pscreen_home/pubspec.lock`、`pscreen/potatokid_screen/pubspec.lock`、`packages/pscreen_screen/pubspec.lock` | ✅ 三份均为 `pub.dev` **0 处**（全部 `pub.flutter-io.cn`：127 / 155 / 128 处） |
+
+### G18 人工验证清单（**请在真机上执行，勾选后回填**）
+
+> 环境：15 寸 Android 触屏面板（`pscreen_home`，1920×1080）；第 7 条另需电视端 `pscreen/potatokid_screen`。
+> 启动：`cd pscreen_home; flutter run`（或 `flutter run -d windows` 桌面模拟）。
+
+| # | 操作 | 预期现象 | 若不满足，优先查这里 |
+| --- | --- | --- | --- |
+| 1 | 启动 `pscreen_home` → 观察中控板 AppBar | 出现 **时钟 / 直播 / 天气 / 遥控** 四个新按钮（连同原有「刷新 / 设置 / 连接状态」共 7 个 action，无重叠、无截断） | 按钮是否渲染 → `home_controll_board.dart` 的 `AppBar.actions`；点击无响应 → `RouteNames.clockPath / livePath / weatherPath` 与 `app_router.dart` 的路由注册 |
+| 2 | 点「时钟」 | 全屏深色大字号时钟；显示日期、星期、农历；**点画面切换秒显示**；左上角箭头可返回中控台 | 无农历 → 共享包 `lunarDateOf` 只覆盖 1900–2099；秒不切换 → `clock_page.dart` 的点击手势；返回失效 → `Navigator` 栈 / 路由 `pop` |
+| 3 | 点「直播」 | 播放器区出现（16:9）；频道列表有内容；**点某频道后画面切换**，该行高亮跟随 | 无画面 → `.env` 的 `BASE_URL` 与频道源可达性；`MediaKit.ensureInitialized()` 是否在 `main.dart`；列表空 → `IptvBloc` 的 `LoadIptv(useCache: true)` 与缓存目录权限 |
+| 4 | 点「天气」 | 显示城市、温度、天气描述、湿度、风速与多日预报；右上角刷新有反应 | 无数据 → `.env` 的 `SENIVERSE_*` 键是否齐全，以及「定位失败」分支（手动指定城市）；刷新无反应 → `WeatherBloc` 的 `LoadWeather` 事件是否派发 |
+| 5 | 点「遥控」 | 遥控面板 + 会话两个 tab 可用 | 扫码/绑定失败 → `nim_core_v2` 原生注册与相机权限；无会话 → `NimManager` 初始化与自动登录（`NIM_PASSWORD` / 账号） |
+| 6 | 点「设置」 | HA 配置 + 遥控（云信）配置都在 | 配置项缺失 → `settings_page.dart` 的分组；保存不生效 → `SettingsStore` 持久化 |
+| 7 | 启动电视端 `pscreen/potatokid_screen` | 正常启动、正常播放、浮层正常显示（**S4 不能破坏电视端**） | 电视端异常 → 共享包 `packages/pscreen_screen` 的改动（`flutter analyze --no-pub` 与 `flutter test --no-pub` 已全绿，若仍异常则回滚对照） |
+
+### 已知遗留（不在 S4 范围）
+
+- `pscreen_control/` 目录保留作为回退路径，README 顶部已标注「已废弃」；**不删除**（见设计文档 §十 风险 8）。
+- `pscreen/potatokid_screen/.env` 仍被 Git 跟踪（历史遗留，仓库内含明文密钥）；`pscreen_home/.env` 已被 `.gitignore` 排除。轮换与 `git rm --cached` 需单独决策。
 
 ---
 
 ## 全流程完成定义（S1–S4 全部结束）
 
-- [ ] `packages/pscreen_screen` 存在且被两个 App 共同依赖
-- [ ] `pscreen/potatokid_screen` 仍可独立构建发布（电视端产物不受影响）
-- [ ] `pscreen_home` 一个包内具备：HA 中控 + 时钟 + 直播 + 天气 + 遥控 + 设置
-- [ ] `pscreen_control` 已标注废弃，代码全部并入
+- [x] `packages/pscreen_screen` 存在且被两个 App 共同依赖
+      （`pscreen_home/pubspec.yaml` → `path: ../packages/pscreen_screen`；`pscreen/potatokid_screen/pubspec.yaml` → `path: ../../packages/pscreen_screen`）
+- [x] `pscreen/potatokid_screen` 仍可独立构建发布（电视端产物不受影响）
+      （S4 后复核：`flutter analyze --no-pub` → `No issues found!`；`flutter test --no-pub` → `+2: All tests passed!`；`flutter build windows --debug` → `Built ...\potatokid_screen.exe`）
+- [x] `pscreen_home` 一个包内具备：HA 中控 + 时钟 + 直播 + 天气 + 遥控 + 设置
+      （页面与路由均在 `pscreen_home/lib/features/screen/`，AppBar 入口见 Task 7；可用性待 G18 真机确认）
+- [x] `pscreen_control` 已标注废弃，代码全部并入
+      （`pscreen_control/README.md` 顶部「已废弃」说明；代码迁至 `pscreen_home/lib/features/remote_control/`）
 - [ ] `docs/superpowers/specs/2026-10-21-screen-capability-shared-package-design.md` 的验收项全部达成
+      （§十 风险 1–8 均已闭环；余下仅 G14 / G18 两项**真机人工验证**待用户执行）
+

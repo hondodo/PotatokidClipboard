@@ -307,16 +307,22 @@ abstract class CurrentSceneProvider {
 
 ## 十、风险与验证点
 
-| # | 风险 | 验证方式 |
-| --- | --- | --- |
-| 1 | path 依赖的原生插件（`media_kit` / `nim_core_v2` / `mobile_scanner` / `media_kit_libs_video`）在 `pscreen_home` 中未注册 | **S2 末尾**立即 `flutter build windows` 与 `flutter build apk --debug` 验证 |
-| 2 | 依赖方的 `flutter: assets:` 不生效，翻译 / 数据文件 404 | `flutter build` 后检查 `build/flutter_assets/packages/pscreen_screen/` |
-| 3 | `mobile_scanner` 需要相机权限：`AndroidManifest.xml` 加 `CAMERA`，iOS 加 `NSCameraUsageDescription` | 真机扫码验证（S3） |
-| 4 | `media_kit` 在 `pscreen_home` 的 linux 平台无原生支持（`potatokid_screen` 无 linux 工程） | 明确 `pscreen_home` 的 linux 构建是否需要支持 media_kit；若需要则该平台排除直播页 |
-| 5 | 共享包内 `freezed` 生成产物（`weather_models` / `home_model` 的 `.freezed.dart` / `.g.dart`）需随包提交 | 生成产物提交入库；注意 `pscreen_home/AGENT.md` §1 记载 freezed 3.2.5 在 Dart 3.13 上对含集合字段的模型生成非法的 `final` 构造参数（`extraneous_modifier`），沿用该规避方式 |
-| 6 | `pscreen_home` 的 `mapErrorToMessage` / `NetErrorType` 重命名波及面 | 全仓 grep 校验，见 §四 |
-| 7 | `pscreen_control` 的 `easy_localization` 依赖实为未使用 | 已实测 `.tr()` = 0，移除依赖后需 `flutter analyze` 复核 |
-| 8 | `pscreen_control` 废弃后其 `main.dart` / 平台工程残留 | 保留目录作为回退路径，README 顶部标注「已废弃，代码已并入 pscreen_home」；**不删除**（删除无收益且失去回退路径） |
+| # | 风险 | 验证方式 | 结论（S4 收尾，2026-10-22） |
+| --- | --- | --- | --- |
+| 1 | path 依赖的原生插件（`media_kit` / `nim_core_v2` / `mobile_scanner` / `media_kit_libs_video`）在 `pscreen_home` 中未注册 | **S2 末尾**立即 `flutter build windows` 与 `flutter build apk --debug` 验证 | ✅ **已闭环** —— S4 复核：`pscreen_home` 的 windows / apk 均 `Built ...` |
+| 2 | 依赖方的 `flutter: assets:` 不生效，翻译 / 数据文件 404 | `flutter build` 后检查 `build/flutter_assets/packages/pscreen_screen/` | ✅ **已闭环** —— 实测存在 10 个资产文件（`source.txt` / `remove_source.txt` / `guovin-api.m3u` 等） |
+| 3 | `mobile_scanner` 需要相机权限：`AndroidManifest.xml` 加 `CAMERA`，iOS 加 `NSCameraUsageDescription` | 真机扫码验证（S3） | ⏳ **权限已就位**（`pscreen_home/android/app/src/main/AndroidManifest.xml` 含 `CAMERA` + `uses-feature camera required=false`），**扫码效果待真机确认**（并入 G14） |
+| 4 | `media_kit` 在 `pscreen_home` 的 linux 平台无原生支持（`potatokid_screen` 无 linux 工程） | 明确 `pscreen_home` 的 linux 构建是否需要支持 media_kit；若需要则该平台排除直播页 | ⚠️ **未验证** —— `pscreen_home/linux/` 工程仍在，但 Windows 上无法产出 linux 包；需在 Linux 机器上验证，或确认不需要 Linux 端后删除该工程 |
+| 5 | 共享包内 `freezed` 生成产物（`weather_models` / `home_model` 的 `.freezed.dart` / `.g.dart`）需随包提交 | 生成产物提交入库；注意 `pscreen_home/AGENT.md` §1 记载 freezed 3.2.5 在 Dart 3.13 上对含集合字段的模型生成非法的 `final` 构造参数（`extraneous_modifier`），沿用该规避方式 | ✅ **不适用** —— 共享包已改为**手写模型**（`features/weather/domain/models/weather_models.dart` 256 行，无 freezed / json_serializable 标注），包内 `.freezed.dart` / `.g.dart` 均为 0，无生成产物需提交 |
+| 6 | `pscreen_home` 的 `mapErrorToMessage` / `NetErrorType` 重命名波及面 | 全仓 grep 校验，见 §四 | ✅ **已闭环** —— `pscreen_home` 侧为 `HaErrorType` / `HaExceptionX` / `mapHaErrorToMessage`（`ha_net_exceptions.dart`、`ha_error_message.dart`）；共享包与电视端保留原名，两套共存无冲突（三个包 analyze 全绿） |
+| 7 | `pscreen_control` 的 `easy_localization` 依赖实为未使用 | 已实测 `.tr()` = 0，移除依赖后需 `flutter analyze` 复核 | ✅ **已闭环** —— `pscreen_home` 与 `packages/pscreen_screen` 均无 `easy_localization`；仅废弃目录 `pscreen_control/pubspec.yaml` 仍保留（该目录不再构建） |
+| 8 | `pscreen_control` 废弃后其 `main.dart` / 平台工程残留 | 保留目录作为回退路径，README 顶部标注「已废弃，代码已并入 pscreen_home」；**不删除**（删除无收益且失去回退路径） | ✅ **已闭环** —— `pscreen_control/README.md` 顶部已标注「已废弃」并列出迁移映射表；目录按决策保留 |
+
+### 收尾状态
+
+- 四个阶段的自动化门槛全部通过：`pscreen_home`（analyze 0 问题 / 262 测试全绿 / windows + apk 构建成功）、`packages/pscreen_screen`（analyze 0 问题 / 122 测试全绿）、`pscreen/potatokid_screen`（analyze 0 问题 / 测试全绿 / windows 构建成功）。
+- 剩余 **2 项真机人工验证** 待用户执行：G14（遥控端到端，见 `2026-10-21-s3-remote-control-merge.md`）与 G18（时钟 / 直播 / 天气三页，见 `2026-10-21-s4-screen-pages.md`）。
+- 遗留待决（不在本次范围）：`pscreen/potatokid_screen/.env` 仍被 Git 跟踪（仓库内含明文密钥），`pscreen_home/.env` 已由 `.gitignore` 排除；密钥轮换与 `git rm --cached` 需单独决策。
 
 ## 十一、不做的事（YAGNI）
 

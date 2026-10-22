@@ -100,6 +100,24 @@ class HomeControllBoard extends StatelessWidget {
                   context.read<HomeBloc>().add(const LoadHome()),
             ),
             IconButton(
+              tooltip: '时钟',
+              icon: const Icon(Icons.schedule_rounded),
+              onPressed: () =>
+                  Injection.get<AppRouter>().push(RouteNames.clockPath),
+            ),
+            IconButton(
+              tooltip: '直播',
+              icon: const Icon(Icons.live_tv_rounded),
+              onPressed: () =>
+                  Injection.get<AppRouter>().push(RouteNames.livePath),
+            ),
+            IconButton(
+              tooltip: '天气',
+              icon: const Icon(Icons.cloud_outlined),
+              onPressed: () =>
+                  Injection.get<AppRouter>().push(RouteNames.weatherPath),
+            ),
+            IconButton(
               tooltip: '遥控',
               icon: const Icon(Icons.cast_rounded),
               onPressed: () =>
