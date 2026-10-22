@@ -23,4 +23,22 @@ class RouteNames {
 
   /// 遥控页完整路径
   static String get remoteControlPath => '/$remoteControl';
+
+  // 时钟页（兼屏保）
+  static const String clock = 'clock';
+
+  /// 时钟页完整路径
+  static String get clockPath => '/$clock';
+
+  // 直播页
+  static const String live = 'live';
+
+  /// 直播页完整路径
+  static String get livePath => '/$live';
+
+  // 天气页
+  static const String weather = 'weather';
+
+  /// 天气页完整路径
+  static String get weatherPath => '/$weather';
 }
