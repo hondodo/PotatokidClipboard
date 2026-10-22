@@ -9,6 +9,10 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_blo
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/features/remote_control/core/control_log.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
 
 /// 设置页：Home Assistant 连接配置（地址 + 长期访问令牌）。
 ///
@@ -27,6 +31,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _hostController;
   late final TextEditingController _tokenController;
+  late final TextEditingController _nimAccountController;
+  late final TextEditingController _nimTokenController;
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
@@ -40,12 +46,18 @@ class _SettingsPageState extends State<SettingsPage> {
     _tokenController = TextEditingController(text: HaConfig.haToken);
     _sampleSeconds = store.powerSampleSeconds;
     _uiScale = store.uiScale;
+    _nimAccountController =
+        TextEditingController(text: ControlSettings.instance.nimAccount);
+    _nimTokenController =
+        TextEditingController(text: ControlSettings.instance.nimToken);
   }
 
   @override
   void dispose() {
     _hostController.dispose();
     _tokenController.dispose();
+    _nimAccountController.dispose();
+    _nimTokenController.dispose();
     super.dispose();
   }
 
@@ -89,6 +101,35 @@ class _SettingsPageState extends State<SettingsPage> {
       ..showSnackBar(
         SnackBar(
           content: Text(changed ? '已保存，正在用新配置重新连接…' : '已保存'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// 保存云信账号 / Token，并立即尝试登录（失败仅提示，不阻断中控台）。
+  Future<void> _saveNimCredentials() async {
+    final String account = _nimAccountController.text.trim();
+    final String token = _nimTokenController.text.trim().isEmpty
+        ? ControlConfig.defaultNimToken
+        : _nimTokenController.text.trim();
+    await ControlSettings.instance.setNimAccount(account);
+    await ControlSettings.instance.setNimToken(token);
+
+    // 立即用新凭据重登，让当前会话生效（失败只提示，不阻断中控台）。
+    // 兜底超时：云信原生通道无响应时不能让保存流程一直挂着（否则没有任何反馈）。
+    final bool ok = await Injection.get<NimClient>()
+        .login(account: account, token: token)
+        .timeout(const Duration(seconds: 10), onTimeout: () => false);
+    if (!ok) {
+      ControlLog.e('[NIM] 重新登录失败');
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('已保存遥控配置'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -230,6 +271,47 @@ class _SettingsPageState extends State<SettingsPage> {
                   )
                 : const Icon(Icons.save_rounded),
             label: const Text('保存'),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '遥控（云信）',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '用于向电视端下发音量 / 切台 / 文本指令。账号与 Token 与电视端共用同一套云信应用。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _nimAccountController,
+            decoration: const InputDecoration(
+              labelText: '云信账号',
+              helperText: '管理员账号见遥控面板（默认 1000001）',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 1,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nimTokenController,
+            decoration: InputDecoration(
+              labelText: '云信 Token',
+              helperText: '默认 ${ControlConfig.defaultNimToken}',
+              border: const OutlineInputBorder(),
+            ),
+            maxLines: 1,
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: _saveNimCredentials,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('保存遥控配置'),
           ),
           const SizedBox(height: 24),
           const _ConnectionStatusLine(),
