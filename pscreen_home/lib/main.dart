@@ -20,6 +20,10 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
 void main() {
   runZonedGuarded<Future<void>>(
@@ -94,6 +98,15 @@ void main() {
           providers: <BlocProvider<dynamic>>[
             BlocProvider<ConnectionBloc>(create: (_) => Injection.get<ConnectionBloc>()..add(const StartConnection())),
             BlocProvider<HomeBloc>(create: (_) => Injection.get<HomeBloc>()),
+            // 天气状态机：全局共享，时钟页与天气页消费；启动即加载
+            // （WeatherBloc 构造时不会自动派发 LoadWeather，必须显式触发）。
+            BlocProvider<WeatherBloc>(
+              create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather()),
+            ),
+            // 直播频道状态机：全局共享，直播页消费；启动即用缓存优先加载。
+            BlocProvider<IptvBloc>(
+              create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true)),
+            ),
           ],
           child: const App(),
         ),
