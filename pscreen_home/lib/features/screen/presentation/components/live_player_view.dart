@@ -5,12 +5,15 @@ import 'package:pscreen_screen/features/iptv/application/channel_info_provider.d
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
-/// 触屏版直播播放器。
+/// 触屏版直播播放器：只负责「打开当前频道 + 视频铺满」。
 ///
 /// 与电视端 `LivePlayerWidget` 的差异：不做遥控焦点 / 频道条 / 看门狗 /
-/// 代理池等 TV 专属逻辑，只保留「打开当前频道 + 上下台 + 播放暂停」。
-/// 频道切换统一走共享包的 [LiveChannelController]（触屏点选走 `select`，
-/// 立即提交播放，不延迟）。
+/// 代理池等 TV 专属逻辑。频道切换统一走共享包的 [LiveChannelController]
+/// （触屏点选走 `select`，立即提交播放，不延迟）。
+///
+/// 播放器**铺满父级**（由外层 [Stack] 的 `Positioned.fill` 约束），视频用
+/// [BoxFit.contain] 自适应留边；频道名 / 切台按钮 / 频道列表等浮层一律由外层
+/// 页面的 [Stack] 负责，本控件不内置任何 controls。
 class LivePlayerView extends StatefulWidget {
   const LivePlayerView({super.key, required this.channels});
 
@@ -24,7 +27,6 @@ class LivePlayerView extends StatefulWidget {
 class _LivePlayerViewState extends State<LivePlayerView> {
   late final Player _player;
   late final VideoController _videoController;
-  bool _playing = true;
 
   @override
   void initState() {
@@ -62,77 +64,15 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     _player.open(Media(url));
   }
 
-  void _togglePlay() {
-    setState(() => _playing = !_playing);
-    if (_playing) {
-      _player.play();
-    } else {
-      _player.pause();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final int index = LiveChannelController.instance.index;
-    final String name = index >= 0 && index < widget.channels.length
-        ? widget.channels[index].name
-        : '';
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Video(controller: _videoController, controls: NoVideoControls),
-          Positioned(
-            left: 12,
-            bottom: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                name,
-                style: const TextStyle(color: Colors.white, fontSize: 20),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 12,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                IconButton(
-                  tooltip: '上一台',
-                  iconSize: 36,
-                  color: Colors.white,
-                  icon: const Icon(Icons.skip_previous_rounded),
-                  onPressed: () => LiveChannelController.instance.previous(),
-                ),
-                IconButton(
-                  tooltip: _playing ? '暂停' : '播放',
-                  iconSize: 36,
-                  color: Colors.white,
-                  icon: Icon(
-                    _playing
-                        ? Icons.pause_circle_filled_rounded
-                        : Icons.play_circle_fill_rounded,
-                  ),
-                  onPressed: _togglePlay,
-                ),
-                IconButton(
-                  tooltip: '下一台',
-                  iconSize: 36,
-                  color: Colors.white,
-                  icon: const Icon(Icons.skip_next_rounded),
-                  onPressed: () => LiveChannelController.instance.next(),
-                ),
-              ],
-            ),
-          ),
-        ],
+    // 黑底铺满父级，视频按 contain 自适应（不同画幅的流都完整显示、留边）。
+    return ColoredBox(
+      color: Colors.black,
+      child: Video(
+        controller: _videoController,
+        controls: NoVideoControls,
+        fit: BoxFit.contain,
       ),
     );
   }
