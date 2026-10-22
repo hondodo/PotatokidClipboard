@@ -1,4 +1,3 @@
-// ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 
 /// 远程登录数据访问接口：账号持久化 + 云信 SDK 登录/登出 + 事件流。

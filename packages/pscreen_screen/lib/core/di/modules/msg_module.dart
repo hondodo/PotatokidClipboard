@@ -1,7 +1,7 @@
 import 'dart:async';
 
+import 'package:get_it/get_it.dart';
 import 'package:nim_core_v2/nim_core.dart';
-import 'package:pscreen_screen/core/di/get_it.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
@@ -37,7 +37,7 @@ class MsgModule {
   static StreamSubscription<RemoteLoginState>? _stateSub;
   static String _lastStartedAccount = '';
 
-  static Future<void> register() async {
+  static Future<void> register(GetIt it) async {
     await _sub?.cancel();
     _sub = null;
     await _stateSub?.cancel();
@@ -52,19 +52,19 @@ class MsgModule {
       ),
     );
     final ReportingService reporting = ReportingService(
-      sender: NimMessageSender(getIt<NimManager>()),
+      sender: NimMessageSender(it<NimManager>()),
       deviceModel: () => PlatformChannelService.instance.deviceModel(),
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
-      sceneProvider: getIt<CurrentSceneProvider>(),
+      sceneProvider: it<CurrentSceneProvider>(),
     );
-    getIt.registerLazySingleton<ReportingService>(
+    it.registerLazySingleton<ReportingService>(
       () => reporting,
       dispose: (_) async => reporting.dispose(),
     );
 
     // 收消息：仅文本进路由；未登录静默丢弃由 SDK 侧保证（未登录收不到）。
-    _sub = getIt<NimManager>().onReceiveMessages.listen((messages) {
+    _sub = it<NimManager>().onReceiveMessages.listen((messages) {
       for (final NIMMessage message in messages) {
         final String? text = _textOf(message);
         if (text != null && text.isNotEmpty) {
@@ -74,7 +74,7 @@ class MsgModule {
     });
 
     // 登录态边沿驱动上报启停。
-    _stateSub = getIt<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
+    _stateSub = it<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
       if (state.status == RemoteLoginStatus.loggedIn) {
         if (_lastStartedAccount != state.account) {
           reporting.stop();
@@ -96,14 +96,14 @@ class MsgModule {
     return message.text;
   }
 
-  static Future<void> unregister() async {
+  static Future<void> unregister(GetIt it) async {
     await _sub?.cancel();
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
     _lastStartedAccount = '';
-    if (getIt.isRegistered<ReportingService>()) {
-      await getIt.unregister<ReportingService>();
+    if (it.isRegistered<ReportingService>()) {
+      await it.unregister<ReportingService>();
     }
   }
 }

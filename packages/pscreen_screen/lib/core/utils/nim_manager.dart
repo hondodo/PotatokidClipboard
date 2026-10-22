@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:nim_core_v2/nim_core.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pscreen_screen/app/app_log.dart';
-// ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 
 class NimManager {

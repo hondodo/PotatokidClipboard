@@ -1,4 +1,4 @@
-import 'package:pscreen_screen/core/di/get_it.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/data/repositories/iptv_repository_impl.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';
@@ -7,17 +7,17 @@ import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository
 class IptvModule {
   const IptvModule._();
 
-  static Future<void> register() async {
-    getIt.registerLazySingleton<IptvRepository>(() => IptvRepositoryImpl());
+  static Future<void> register(GetIt it) async {
+    it.registerLazySingleton<IptvRepository>(() => IptvRepositoryImpl());
     // IptvBloc 用单例，使「我的」页与首页共享同一个状态机，
     // 修改/刷新频道列表后首页能跟随更新。
-    getIt.registerLazySingleton<IptvBloc>(
-      () => IptvBloc(repository: getIt<IptvRepository>()),
+    it.registerLazySingleton<IptvBloc>(
+      () => IptvBloc(repository: it<IptvRepository>()),
     );
   }
 
-  static Future<void> unregister() async {
-    await getIt.unregister<IptvBloc>();
-    await getIt.unregister<IptvRepository>();
+  static Future<void> unregister(GetIt it) async {
+    await it.unregister<IptvBloc>();
+    await it.unregister<IptvRepository>();
   }
 }

@@ -1,4 +1,4 @@
-import 'package:pscreen_screen/core/di/get_it.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/data/repositories/weather_repository_impl.dart';
 import 'package:pscreen_screen/features/weather/domain/repositories/weather_repository.dart';
@@ -7,16 +7,16 @@ import 'package:pscreen_screen/features/weather/domain/repositories/weather_repo
 class WeatherModule {
   const WeatherModule._();
 
-  static Future<void> register() async {
-    getIt.registerLazySingleton<WeatherRepository>(() => WeatherRepositoryImpl());
+  static Future<void> register(GetIt it) async {
+    it.registerLazySingleton<WeatherRepository>(() => WeatherRepositoryImpl());
     // WeatherBloc 用单例：时间页/屏保页/主页共享同一个天气状态机。
-    getIt.registerLazySingleton<WeatherBloc>(
-      () => WeatherBloc(repository: getIt<WeatherRepository>()),
+    it.registerLazySingleton<WeatherBloc>(
+      () => WeatherBloc(repository: it<WeatherRepository>()),
     );
   }
 
-  static Future<void> unregister() async {
-    await getIt.unregister<WeatherBloc>();
-    await getIt.unregister<WeatherRepository>();
+  static Future<void> unregister(GetIt it) async {
+    await it.unregister<WeatherBloc>();
+    await it.unregister<WeatherRepository>();
   }
 }

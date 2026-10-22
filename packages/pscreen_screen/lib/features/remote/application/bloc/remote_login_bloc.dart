@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-// ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-// ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';

@@ -1,4 +1,4 @@
-import 'package:pscreen_screen/core/di/get_it.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 
@@ -6,13 +6,13 @@ import 'package:pscreen_screen/core/network/dio_manager.dart';
 class NetworkModule {
   const NetworkModule._();
 
-  static Future<void> register() async {
-    getIt.registerLazySingleton<LogService>(() => const LogService());
-    getIt.registerLazySingleton<DioManager>(() => DioManager());
+  static Future<void> register(GetIt it) async {
+    it.registerLazySingleton<LogService>(() => const LogService());
+    it.registerLazySingleton<DioManager>(() => DioManager());
   }
 
-  static Future<void> unregister() async {
-    await getIt.unregister<DioManager>();
-    await getIt.unregister<LogService>();
+  static Future<void> unregister(GetIt it) async {
+    await it.unregister<DioManager>();
+    await it.unregister<LogService>();
   }
 }

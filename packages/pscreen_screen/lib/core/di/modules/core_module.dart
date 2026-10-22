@@ -1,4 +1,4 @@
-import 'package:pscreen_screen/core/di/get_it.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/nim_manager.dart';
 
@@ -9,14 +9,14 @@ import 'package:pscreen_screen/core/utils/nim_manager.dart';
 class CoreModule {
   const CoreModule._();
 
-  static Future<void> register() async {
-    getIt.registerSingleton<AppVersion>(await AppVersion.load());
+  static Future<void> register(GetIt it) async {
+    it.registerSingleton<AppVersion>(await AppVersion.load());
     // 网易云信 NIM：只注册单例，不在注册阶段初始化（初始化在 main 中非阻塞触发）。
-    getIt.registerSingleton<NimManager>(NimManager());
+    it.registerSingleton<NimManager>(NimManager());
   }
 
-  static Future<void> unregister() async {
-    await getIt.unregister<NimManager>();
-    await getIt.unregister<AppVersion>();
+  static Future<void> unregister(GetIt it) async {
+    await it.unregister<NimManager>();
+    await it.unregister<AppVersion>();
   }
 }
