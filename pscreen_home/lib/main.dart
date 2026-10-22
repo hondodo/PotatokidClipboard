@@ -71,14 +71,18 @@ void main() {
 
       // 4.5 NIM 初始化（DI 单例；不阻塞启动，失败仅记日志）。
       //     SDK 初始化由共享包的 NimManager 统一负责（幂等）。
-      //     初始化完成后自动登录遥控端账号（账号 / token 来自本地持久化）。
+      //     当前平台无 NIM 实现（如 Linux，缺 nim_core_v2_linux）时 init 返回
+      //     false：跳过监听与自动登录，避免后续 MissingPluginException。
+      //     成功后自动登录遥控端账号（账号 / token 来自本地持久化）。
       unawaited(
         Injection.get<NimManager>()
             .init(appKey: ControlConfig.nimAppKey)
-            .then((_) {
+            .then((bool inited) async {
+              if (!inited) {
+                ControlLog.i('[NIM] 当前平台无 NIM 实现，跳过监听与自动登录');
+                return;
+              }
               Injection.get<NimManager>().startListen();
-            })
-            .whenComplete(() async {
               final bool ok = await Injection.get<NimClient>().autoLogin(
                 account: ControlSettings.instance.nimAccount,
               );

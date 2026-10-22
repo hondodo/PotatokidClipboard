@@ -14,12 +14,30 @@ class NimManager {
   /// SDK 是否已初始化（`NimCore.instance` 是全局单例，不可重复 initialize）。
   static bool _sdkInitialized = false;
 
-  Future init({required String appKey}) async {
+  /// 当前平台是否有 nim_core_v2 实现：仅 Android/iOS/macOS/Windows/Web，
+  /// **无 Linux 实现**（nim_core_v2 未提供 nim_core_v2_linux 包）。
+  static bool get _platformSupported =>
+      kIsWeb ||
+      Platform.isAndroid ||
+      Platform.isIOS ||
+      Platform.isMacOS ||
+      Platform.isWindows;
+
+  /// 初始化 NIM SDK（幂等）。返回是否**真正完成初始化**。
+  ///
+  /// 支持的平台返回 true；不支持的平台（如 Linux 桌面）在读取 [options] 之前
+  /// 就返回 false——[options] 是 `late` 字段，未赋值即读会抛
+  /// `LateInitializationError`。调用方据返回值跳过 startListen / 自动登录。
+  Future<bool> init({required String appKey}) async {
     // NimCore.instance 是全局单例，重复 initialize 会失败。
     // 同一进程内可能有多个封装（如宿主既当发送端又当接收端），因此幂等处理。
     if (_sdkInitialized) {
       Log.i('[NimManager] SDK 已初始化，跳过');
-      return;
+      return true;
+    }
+    if (!_platformSupported) {
+      Log.warn('[NimManager] 当前平台（${Platform.operatingSystem}）无 NIM 实现，跳过初始化');
+      return false;
     }
     if (kIsWeb) {
       var base = NIMInitializeOptions(appkey: appKey, apiVersion: 'v2', debugLevel: 'debug');
@@ -44,7 +62,8 @@ class NimManager {
         apnsCername: 'your apnsCername',
         pkCername: 'your pkCername',
       );
-    } else if (Platform.isMacOS || Platform.isWindows) {
+    } else {
+      // _platformSupported 已收敛：非 Web/Android/iOS 即 macOS / Windows。
       NIMBasicOption basicOption = NIMBasicOption();
       options = NIMPCSDKOptions(basicOption: basicOption, appKey: appKey);
     }
@@ -52,6 +71,7 @@ class NimManager {
     var value = await NimCore.instance.initialize(options);
     _sdkInitialized = true;
     Log.i('[NimManager] initialize result: $value');
+    return true;
   }
 
   Future startListen() async {
