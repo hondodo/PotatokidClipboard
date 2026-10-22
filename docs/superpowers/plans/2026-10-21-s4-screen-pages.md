@@ -161,13 +161,45 @@ Create `pscreen_home/test/features/screen/presentation/pages/clock_page_test.dar
 
 ```dart
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/clock_page.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
+import 'package:pscreen_screen/features/weather/domain/repositories/weather_repository.dart';
+
+class _FakeWeatherRepository implements WeatherRepository {
+  @override
+  Future<String?> resolveLocation() async => '测试市';
+
+  @override
+  Future<WeatherData> fetchWeather(String location) async =>
+      const WeatherData(now: WeatherNow(temperature: 21, text: '晴', city: '测试市'));
+}
 
 void main() {
+  // WeatherBloc 内部有一个 5 分钟的定时刷新 Timer。若在 widget 测试的
+  // fake-async 区间内创建，测试体结束时 flutter_test 会抛 pending timer
+  // 断言（addTearDown 晚于该断言）。故在 setUp（真实事件循环）中创建，
+  // 在 tearDown 中关闭。
+  late WeatherBloc bloc;
+
+  setUp(() {
+    bloc = WeatherBloc(repository: _FakeWeatherRepository());
+  });
+
+  tearDown(() async {
+    await bloc.close();
+  });
+
   testWidgets('时钟页渲染时间、日期与农历行', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: ClockPage()),
+      MaterialApp(
+        home: BlocProvider<WeatherBloc>.value(
+          value: bloc,
+          child: const ClockPage(),
+        ),
+      ),
     );
     await tester.pump();
 
@@ -184,7 +216,12 @@ void main() {
 
   testWidgets('点击画面切换秒显示', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: ClockPage()),
+      MaterialApp(
+        home: BlocProvider<WeatherBloc>.value(
+          value: bloc,
+          child: const ClockPage(),
+        ),
+      ),
     );
     await tester.pump();
 
@@ -216,6 +253,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_state.dart';
+import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
 
 /// 时钟页（兼屏保）。
 ///
@@ -323,7 +361,7 @@ class _WeatherSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<WeatherBloc, WeatherState>(
       builder: (BuildContext context, WeatherState state) {
-        final dynamic now = state.data?.now;
+        final WeatherNow? now = state.data?.now;
         if (now == null) return const SizedBox.shrink();
         final String text = '${now.city.isEmpty ? '' : '${now.city} · '}'
             '${now.text} ${now.temperature?.round() ?? ''}°';
@@ -377,11 +415,14 @@ git commit -m "feat(screen): 新增时钟页（兼屏保，全屏大字时钟 + 
 Create `pscreen_home/test/features/screen/presentation/pages/weather_page_test.dart`:
 
 ```dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/weather_page.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
 import 'package:pscreen_screen/features/weather/domain/repositories/weather_repository.dart';
 
@@ -398,8 +439,14 @@ class _FakeWeatherRepository implements WeatherRepository {
 }
 
 void main() {
-  testWidgets('天气页展示实时天气与多日预报', (WidgetTester tester) async {
-    final WeatherBloc bloc = WeatherBloc(
+  // WeatherBloc 内部有一个 5 分钟的定时刷新 Timer。若在 widget 测试的
+  // fake-async 区间内创建，测试体结束时 flutter_test 会抛 pending timer
+  // 断言（addTearDown 晚于该断言）。故在 setUp（真实事件循环）中创建，
+  // 在 tearDown 中关闭。
+  late WeatherBloc bloc;
+
+  setUp(() async {
+    bloc = WeatherBloc(
       repository: _FakeWeatherRepository(
         const WeatherData(
           now: WeatherNow(
@@ -409,14 +456,35 @@ void main() {
             city: '测试市',
           ),
           daily: <WeatherDay>[
-            WeatherDay(date: '2026-10-22', text: '晴', tempMax: 26, tempMin: 15),
-            WeatherDay(date: '2026-10-23', text: '雨', tempMax: 23, tempMin: 14),
+            WeatherDay(
+              date: '2026-10-22',
+              text: '晴',
+              tempMax: 26,
+              tempMin: 15,
+            ),
+            WeatherDay(
+              date: '2026-10-23',
+              text: '雨',
+              tempMax: 23,
+              tempMin: 14,
+            ),
           ],
         ),
       ),
     );
-    addTearDown(bloc.close);
+    // WeatherBloc 构造时**不会**自动派发 LoadWeather，首次加载必须显式触发。
+    // 放在 setUp（真实事件循环）里派发并 await 完成：bloc 的事件处理器运行在
+    // 真实 zone，若在 widget 测试的 fake-async 区间内 await 其结果会一直等不到。
+    final Completer<bool> done = Completer<bool>();
+    bloc.add(LoadWeather(completer: done));
+    await done.future;
+  });
 
+  tearDown(() async {
+    await bloc.close();
+  });
+
+  testWidgets('天气页展示实时天气与多日预报', (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: BlocProvider<WeatherBloc>.value(
@@ -604,16 +672,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/live_page.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
-import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
+import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeIptvRepository implements IptvRepository {
   @override
   Future<List<IptvChannel>> fetchRemoteChannels() async =>
       const <IptvChannel>[
-        IptvChannel(name: 'CCTV-1', sources: <String>['http://example.com/1.m3u8']),
-        IptvChannel(name: 'CCTV-5', sources: <String>['http://example.com/5.m3u8']),
+        IptvChannel(
+          name: 'CCTV-1',
+          sources: <String>['http://example.com/1.m3u8'],
+        ),
+        IptvChannel(
+          name: 'CCTV-5',
+          sources: <String>['http://example.com/5.m3u8'],
+        ),
       ];
 
   @override
@@ -627,14 +702,25 @@ class _FakeIptvRepository implements IptvRepository {
 
 void main() {
   testWidgets('直播页展示频道列表并可点击切台', (WidgetTester tester) async {
+    // IptvBloc 落缓存要读写 SharedPreferences：flutter test 里平台通道不会
+    // 回调，必须用内存实现替身，否则频道加载会卡在 await 上。
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    // 放大测试画布：播放器占 16:9，默认 800x600 画布下频道列表会被挤到屏外。
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     final IptvBloc bloc = IptvBloc(repository: _FakeIptvRepository());
+    // widget 测试体内是 fake-async 区间，await bloc.close() 会死锁
+    // （事件控制器的 close 只能被 pump 推进），故放到 teardown（真实事件循环）。
     addTearDown(bloc.close);
 
     await tester.pumpWidget(
       MaterialApp(
         home: BlocProvider<IptvBloc>.value(
           value: bloc,
-          child: const LivePage(),
+          child: const LivePage(enablePlayer: false),
         ),
       ),
     );
@@ -644,6 +730,11 @@ void main() {
 
     expect(find.text('CCTV-1'), findsOneWidget);
     expect(find.text('CCTV-5'), findsOneWidget);
+
+    // 触屏点选切台：立即提交播放（走共享包的 LiveChannelController）。
+    await tester.tap(find.text('CCTV-5'));
+    await tester.pump();
+    expect(LiveChannelController.instance.index, 1);
   });
 }
 ```
@@ -847,7 +938,14 @@ class LivePage extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocBuilder<IptvBloc, IptvState>(
+      body: BlocConsumer<IptvBloc, IptvState>(
+        listener: (BuildContext context, IptvState state) {
+          // 共享包的频道控制器按「频道总数」判断 select/next 是否有效，
+          // 这里同步一次，触屏点选才能立即切台。
+          // 放在 listener（状态变化时）而不是 build：build 阶段的副作用会
+          // 在重建中触发 notifyListeners，导致不必要的重绘。
+          LiveChannelController.instance.setCount(state.channels.length);
+        },
         builder: (BuildContext context, IptvState state) {
           if (state.isLoading && state.channels.isEmpty) {
             return const Center(child: CircularProgressIndicator());
@@ -876,18 +974,23 @@ class LivePage extends StatelessWidget {
                   ),
                 ),
               Expanded(
-                child: ListView.builder(
-                  itemCount: channels.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final IptvChannel channel = channels[index];
-                    return ListTile(
-                      title: Text(channel.name),
-                      subtitle: channel.group == null || channel.group!.isEmpty
-                          ? null
-                          : Text(channel.group!),
-                      selected:
-                          index == LiveChannelController.instance.index,
-                      onTap: () => LiveChannelController.instance.select(index),
+                child: ListenableBuilder(
+                  listenable: LiveChannelController.instance,
+                  builder: (BuildContext context, Widget? child) {
+                    final int current = LiveChannelController.instance.index;
+                    return ListView.builder(
+                      itemCount: channels.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        final IptvChannel channel = channels[index];
+                        return ListTile(
+                          title: Text(channel.name),
+                          subtitle: channel.group == null || channel.group!.isEmpty
+                              ? null
+                              : Text(channel.group!),
+                          selected: index == current,
+                          onTap: () => LiveChannelController.instance.select(index),
+                        );
+                      },
                     );
                   },
                 ),
@@ -906,7 +1009,7 @@ class LivePage extends StatelessWidget {
 Run: `cd pscreen_home && flutter test test/features/screen/presentation/pages/live_page_test.dart`
 Expected: PASS
 
-> 若 `LiveChannelController.instance.select(index)` 在测试里因 `count` 未设置而无效（`select` 会因 `value >= _count` 直接返回），在 `LivePage` 的 `build` 里调用 `LiveChannelController.instance.setCount(channels.length)`，或在测试中先 `setCount(2)`。推荐在 `LivePage` 的 `BlocBuilder` 内 `setCount` —— 与 `LivePlayerView` 中的调用重复但幂等。
+> 若 `LiveChannelController.instance.select(index)` 在测试里因 `count` 未设置而无效（`select` 会因 `value >= _count` 直接返回），在 `LivePage` 的 `BlocConsumer` 的 **listener** 里调用 `LiveChannelController.instance.setCount(channels.length)`（**已按此实现**——放在 listener 而不是 `build`，避免 build 阶段的副作用触发 `notifyListeners` 造成多余重绘）。频道列表外面再包一层 `ListenableBuilder`，让「当前选中」高亮随控制器变化实时刷新。
 
 - [x] **Step 6: 提交**
 

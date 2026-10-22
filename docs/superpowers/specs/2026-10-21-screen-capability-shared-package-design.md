@@ -89,7 +89,7 @@ potatokid_clipboard/
 
 ## 二、共享包边界
 
-### 2.1 移入 `packages/pscreen_screen`（66 个文件）
+### 2.1 移入 `packages/pscreen_screen`（S1 脚本搬迁 66 个文件；S1 收尾时包内共 77 个 lib `.dart`，S3 把协议构造器 `envelope_builder` 迁入后为 78 个）
 
 | 分组 | 文件 |
 | --- | --- |
@@ -118,7 +118,7 @@ potatokid_clipboard/
 
 - `core/network/ha_ws_client.dart` —— HA 唯一网络入口
 - `core/network/ha_net_exceptions.dart`（由现有 `net_exceptions.dart` 重命名而来，见 §四）
-- `app/config/app_config.dart`（`AS_HOST` / `AS_KEY` / `haWsUrl`）
+- `app/config/ha_config.dart`（`HaConfig` —— 宿主原本的 `AppConfig` 已改名，见 §四；`AS_HOST` / `AS_KEY` / `haWsUrl`）
 - `core/storage/settings_store.dart`
 - `features/connection/`、`features/home/`、`features/settings/`
 
@@ -155,7 +155,7 @@ potatokid_clipboard/
 
 | 冲突名 | 现状 | 处理 |
 | --- | --- | --- |
-| `AppConfig` | 共享包 / pscreen_control / pscreen_home **三处** | 共享包保持 `AppConfig`；pscreen_control 侧改名 `ControlConfig`；pscreen_home 保持 `AppConfig`（HA） |
+| `AppConfig` | 共享包 / pscreen_control / pscreen_home **三处** | 共享包保持 `AppConfig`（`app/config/app_config.dart`）；pscreen_control 侧改名 `ControlConfig`（`features/remote_control/core/control_config.dart`）；pscreen_home 侧改名 `HaConfig`（`app/config/ha_config.dart`） |
 | `AppSettings` | 共享包 `core/utils/app_settings.dart` vs pscreen_control `app/storage/app_settings.dart` | pscreen_control 侧改名 `ControlSettings` |
 | `Injection` | pscreen_control `app/di/injection.dart` vs pscreen_home `core/di/injection.dart` | 删除 pscreen_control 的，注册项并入宿主 `remote_control_module.dart` |
 | `LogService` | 共享包 vs pscreen_home | 内容一致（仅行尾差异）→ pscreen_home 删除本地副本，改用共享包 |
@@ -173,7 +173,12 @@ potatokid_clipboard/
 | --- | --- |
 | **共享包** | `pscreen_screen: {path: ../packages/pscreen_screen}` |
 | **并入 pscreen_control 所需**（直接依赖） | `nim_core_v2: ^10.9.91`、`mobile_scanner: ^6.0.0`、`equatable: ^2.0.7`、`path_provider: ^2.1.6` |
-| **随共享包传递**（无需重复声明，但需验证原生插件注册） | `media_kit` / `media_kit_video` / `media_kit_libs_video`、`dio` / `dio_cookie_manager` / `pretty_dio_logger` / `cookie_jar`、`connectivity_plus`、`crypto`、`intl`、`freezed_annotation` / `json_annotation`、`package_info_plus` |
+| **随共享包传递**（无需重复声明，但需验证原生插件注册） | `dio` / `dio_cookie_manager` / `pretty_dio_logger` / `cookie_jar`、`connectivity_plus`、`crypto`、`package_info_plus` |
+| **宿主直接声明**（共享包不提供） | `media_kit` / `media_kit_video` / `media_kit_libs_video` |
+
+> 收尾清理：`intl` / `freezed_annotation` / `json_annotation`（以及 dev 依赖
+> `build_runner` / `freezed` / `json_serializable`）在共享包内**零 import**，
+> 已从 `packages/pscreen_screen/pubspec.yaml` 移除。
 
 **不引入**：
 
@@ -221,12 +226,32 @@ SENIVERSE_IP_GEO_HOST  SENIVERSE_IP_GEO_HOST_B  WEATHER_CITIES  NIM_PASSWORD
 // packages/pscreen_screen/lib/core/di/screen_modules.dart
 class ScreenModules {
   const ScreenModules._();
+
   static Future<void> register(GetIt it) async {
-    it.registerLazySingleton<LogService>(LogService.new);
-    // ... 屏幕侧各 feature 的 repository / bloc / controller
+    await CoreModule.register(it);
+    await NetworkModule.register(it);
+    await RemoteModule.register(it);
+    await MsgModule.register(it);
+    await IptvModule.register(it);
+    await WeatherModule.register(it);
   }
+  // unregister 为上述 6 个 Module 的逆序注销，同样透传 it
 }
 ```
+
+`it` 就是**真正被写入的容器**——6 个 Module 各自接收 `GetIt it` 并用它做
+`it.register*` / `it<T>()` / `it.unregister<T>()`，不再隐式依赖包内全局 `getIt`。
+
+共享包内部的注册顺序（不可调换）：
+
+| # | Module | 注册内容 |
+| --- | --- | --- |
+| 1 | `CoreModule` | `AppVersion` / `NimManager` |
+| 2 | `NetworkModule` | `LogService` / `DioManager` |
+| 3 | `RemoteModule` | `RemoteLoginRepository` / `RemoteLoginBloc` |
+| 4 | `MsgModule` | `ReportingService` + 收消息订阅（读 `CurrentSceneProvider`） |
+| 5 | `IptvModule` | `IptvRepository` / `IptvBloc` |
+| 6 | `WeatherModule` | `WeatherRepository` / `WeatherBloc` |
 
 宿主 `Injection.init()` 中新增一步：
 
@@ -234,7 +259,22 @@ class ScreenModules {
 await ScreenModules.register(getIt);
 ```
 
-顺序：宿主网络模块 → 存储模块 → `ScreenModules.register` → 宿主路由模块 → 宿主业务模块。
+`pscreen_home` 的实际顺序（`pscreen_home/lib/core/di/injection.dart`）：
+
+```
+GetItConfig.init()
+  → ScreenModule.register()          // 宿主场景描述器（MsgModule 立即读，必须最先）
+  → ScreenModules.register(getIt)    // 共享包能力层
+  → RemoteControlModule.register()   // S3 遥控端：依赖共享包注册的 NimManager
+  → StorageModule.register()
+  → NetworkModule.register()         // 宿主网络模块：依赖共享包注册的 LogService
+  → RouterModule.register()
+  → ConnectionModule.register()
+  → HomeModule.register()
+```
+
+> 注意：`LogService` 由**共享包的** `NetworkModule` 注册，宿主不再有本地副本；
+> `ScreenModules.register` 必须排在宿主 `StorageModule` / `NetworkModule` 之前。
 
 ## 六、`pscreen_home` 路由与页面
 
@@ -248,10 +288,10 @@ await ScreenModules.register(getIt);
 | `/remote` | `RemoteControlPage` | **遥控面板 + 会话列表** 两 tab | 触屏按钮 / 扫码 / 聊天输入 |
 | `/settings` | `SettingsPage`（扩展） | 现有 HA 设置 + 新增「遥控」分组（NIM 账号 / 令牌 / 目标电视） | 触屏 |
 
-中控板 AppBar actions 调整为：
+中控板 AppBar actions 实际顺序（`pscreen_home/lib/features/home/presentation/pages/home_controll_board.dart`）：
 
 ```
-[时钟] [直播] [天气] [遥控] | [连接状态] [刷新] [设置]
+[连接状态] [刷新] [时钟] [直播] [天气] [遥控] [设置]
 ```
 
 页面 UI 为触屏自研，**不复用** `potatokid_screen` 的 TV 版页面；但直播/天气的数据与状态直接来自共享包的 bloc / repository。
@@ -311,9 +351,9 @@ abstract class CurrentSceneProvider {
 | --- | --- | --- | --- |
 | 1 | path 依赖的原生插件（`media_kit` / `nim_core_v2` / `mobile_scanner` / `media_kit_libs_video`）在 `pscreen_home` 中未注册 | **S2 末尾**立即 `flutter build windows` 与 `flutter build apk --debug` 验证 | ✅ **已闭环** —— S4 复核：`pscreen_home` 的 windows / apk 均 `Built ...` |
 | 2 | 依赖方的 `flutter: assets:` 不生效，翻译 / 数据文件 404 | `flutter build` 后检查 `build/flutter_assets/packages/pscreen_screen/` | ✅ **已闭环** —— 实测存在 10 个资产文件（`source.txt` / `remove_source.txt` / `guovin-api.m3u` 等） |
-| 3 | `mobile_scanner` 需要相机权限：`AndroidManifest.xml` 加 `CAMERA`，iOS 加 `NSCameraUsageDescription` | 真机扫码验证（S3） | ⏳ **权限已就位**（`pscreen_home/android/app/src/main/AndroidManifest.xml` 含 `CAMERA` + `uses-feature camera required=false`），**扫码效果待真机确认**（并入 G14） |
+| 3 | `mobile_scanner` 需要相机权限：`AndroidManifest.xml` 加 `CAMERA`，iOS 加 `NSCameraUsageDescription` | 真机扫码验证（S3） | ✅ **权限已就位** —— Android：`pscreen_home/android/app/src/main/AndroidManifest.xml` 含 `CAMERA` + `uses-feature camera required=false`；iOS：`pscreen_home/ios/Runner/Info.plist` 已补 `NSCameraUsageDescription`（**此前缺失**，iOS 访问相机时会直接终止 App；取值与已废弃的 `pscreen_control` 一致）。**扫码效果待真机确认**（并入 G14） |
 | 4 | `media_kit` 在 `pscreen_home` 的 linux 平台无原生支持（`potatokid_screen` 无 linux 工程） | 明确 `pscreen_home` 的 linux 构建是否需要支持 media_kit；若需要则该平台排除直播页 | ⚠️ **未验证** —— `pscreen_home/linux/` 工程仍在，但 Windows 上无法产出 linux 包；需在 Linux 机器上验证，或确认不需要 Linux 端后删除该工程 |
-| 5 | 共享包内 `freezed` 生成产物（`weather_models` / `home_model` 的 `.freezed.dart` / `.g.dart`）需随包提交 | 生成产物提交入库；注意 `pscreen_home/AGENT.md` §1 记载 freezed 3.2.5 在 Dart 3.13 上对含集合字段的模型生成非法的 `final` 构造参数（`extraneous_modifier`），沿用该规避方式 | ✅ **不适用** —— 共享包已改为**手写模型**（`features/weather/domain/models/weather_models.dart` 256 行，无 freezed / json_serializable 标注），包内 `.freezed.dart` / `.g.dart` 均为 0，无生成产物需提交 |
+| 5 | 共享包内 `freezed` 生成产物（`weather_models` / `home_model` 的 `.freezed.dart` / `.g.dart`）需随包提交 | 生成产物提交入库；注意 `pscreen_home/AGENT.md` §1 记载 freezed 3.2.5 在 Dart 3.13 上对含集合字段的模型生成非法的 `final` 构造参数（`extraneous_modifier`），沿用该规避方式 | ✅ **已闭环** —— 共享包已改为**手写模型**（`features/weather/domain/models/weather_models.dart` 256 行，无 freezed / json_serializable 标注），包内 `.freezed.dart` / `.g.dart` 均为 0，无生成产物需提交；收尾清理进一步把零引用的 `freezed` / `freezed_annotation` / `json_serializable` / `json_annotation` / `build_runner` 从 `packages/pscreen_screen/pubspec.yaml` 移除，包内不再声明任何代码生成依赖 |
 | 6 | `pscreen_home` 的 `mapErrorToMessage` / `NetErrorType` 重命名波及面 | 全仓 grep 校验，见 §四 | ✅ **已闭环** —— `pscreen_home` 侧为 `HaErrorType` / `HaExceptionX` / `mapHaErrorToMessage`（`ha_net_exceptions.dart`、`ha_error_message.dart`）；共享包与电视端保留原名，两套共存无冲突（三个包 analyze 全绿） |
 | 7 | `pscreen_control` 的 `easy_localization` 依赖实为未使用 | 已实测 `.tr()` = 0，移除依赖后需 `flutter analyze` 复核 | ✅ **已闭环** —— `pscreen_home` 与 `packages/pscreen_screen` 均无 `easy_localization`；仅废弃目录 `pscreen_control/pubspec.yaml` 仍保留（该目录不再构建） |
 | 8 | `pscreen_control` 废弃后其 `main.dart` / 平台工程残留 | 保留目录作为回退路径，README 顶部标注「已废弃，代码已并入 pscreen_home」；**不删除**（删除无收益且失去回退路径） | ✅ **已闭环** —— `pscreen_control/README.md` 顶部已标注「已废弃」并列出迁移映射表；目录按决策保留 |

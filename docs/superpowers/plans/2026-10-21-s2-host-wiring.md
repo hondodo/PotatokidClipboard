@@ -90,7 +90,7 @@ environment:
 ```yaml
   assets:
     - .env
-    - assets/icon/
+    - assets/tvs.json
 ```
 
 > **不要**为共享包的 `assets/datas/` 加任何条目。共享包自己的 `pubspec.yaml` 已声明
@@ -102,13 +102,9 @@ environment:
 > `<宿主目录>/packages/pscreen_screen/assets/datas/`，构建时报
 > `Error: unable to find directory entry in pubspec.yaml`。
 
-> `assets/icon/` 为 pscreen_home 原有目录，实施前先确认实际目录名：
->
-> ```bash
-> ls pscreen_home/assets
-> ```
->
-> Expected: `icon`（若为其它名字，按实际填）。
+> `pscreen_home/assets/` 下实际有两个目录项：`icon/icon.png` 与 `tvs.json`。
+> **只有 `tvs.json` 被声明为运行时资产**；`icon/` 是启动图标源文件，由
+> `flutter_launcher_icons` 使用，**不需要**（也从未）写进 `assets:`。
 
 - [x] **Step 4: 拉依赖**
 
@@ -153,20 +149,28 @@ SENIVERSE_IP_GEO_HOST  SENIVERSE_IP_GEO_HOST_B  WEATHER_CITIES  NIM_PASSWORD
 Run: `grep -n "\- \.env" pscreen_home/pubspec.yaml`
 Expected: 有 `- .env` 一行
 
-- [x] **Step 4: 提交**
+- [x] **Step 4: 提交（本步实际无提交——`.env` 不入库）**
 
-```bash
-git add pscreen_home/.env
-git commit -m "chore(home): 合并屏幕侧环境变量到 .env"
-```
-
-> `.env` 含密钥，**确认仓库的 `.gitignore` 未忽略该文件且历史上已跟踪**：
+> **实际做法（与本步骤最初设想不同，勿照抄）**
 >
+> `.env` 的合并是**纯本地操作**，**不产生任何提交**：
+>
+> - 文件名**保持 `.env`**——共享包的 `dot_env_util` 与宿主的 `flutter_dotenv`
+>   都写死了 `dotenv.load(fileName: '.env')`；改名成 `.env.local` 会让两处
+>   同时失效，且 `pubspec.yaml` 的 `assets:` 条目也要跟着改。
+> - `pscreen_home/.env` **被 git 忽略**（`pscreen_home/.gitignore` 第 2 行
+>   `.env`），**任何时候都不提交**——它含 HA 长期访问令牌与云信密钥。
+> - 因此本步骤**没有** `git add pscreen_home/.env`，也**没有**对应 commit。
+>   合并结果只存在于每台开发机的本地 `.env` 里。
+>
+> 校验方式（应输出空 → 文件未被跟踪）：
+
 > ```bash
 > git ls-files pscreen_home/.env
 > ```
->
-> Expected: 输出该路径（已被跟踪）。若为空，说明密钥从未入库，改为写入 `pscreen_home/.env.local` 并在 `pubspec.yaml` 里改为 `- .env.local`，同时更新 `.gitignore`。
+
+> 若输出里出现了该路径，说明它被误提交过，需 `git rm --cached pscreen_home/.env`
+> 并轮换其中的密钥。
 
 ---
 
@@ -428,6 +432,7 @@ import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/core/di/modules/connection_module.dart';
 import 'package:pscreen_home/core/di/modules/home_module.dart';
 import 'package:pscreen_home/core/di/modules/network_module.dart';
+import 'package:pscreen_home/core/di/modules/remote_control_module.dart';
 import 'package:pscreen_home/core/di/modules/router_module.dart';
 import 'package:pscreen_home/core/di/modules/screen_module.dart';
 import 'package:pscreen_home/core/di/modules/storage_module.dart';
@@ -445,6 +450,8 @@ class Injection {
     // 2. 共享包能力层（内含 LogService / DioManager / NimManager /
     //    IptvBloc / WeatherBloc / RemoteLoginBloc 等）
     await ScreenModules.register(getIt);
+    // 2.1 遥控模块（NimClient 依赖共享包注册的 NimManager）—— S3 新增
+    await RemoteControlModule.register();
     // 3. 宿主模块（NetworkModule 依赖共享包注册的 LogService）
     await StorageModule.register();
     await NetworkModule.register();
@@ -459,6 +466,7 @@ class Injection {
     await RouterModule.unregister();
     await NetworkModule.unregister();
     await StorageModule.unregister();
+    await RemoteControlModule.unregister();
     await ScreenModules.unregister(getIt);
     await ScreenModule.unregister();
     await GetItConfig.reset();
@@ -468,9 +476,14 @@ class Injection {
 }
 ```
 
-> **顺序契约**：`ScreenModule`（场景描述器）→ `ScreenModules`（共享包，内部读场景描述器）→ 宿主其余模块（依赖共享包注册的 `LogService`）。
+> **顺序契约**：`ScreenModule`（场景描述器）→ `ScreenModules`（共享包，内部读场景描述器）
+> → `RemoteControlModule`（遥控端，依赖共享包注册的 `NimManager`）→ 宿主其余模块
+> （依赖共享包注册的 `LogService`）。
 >
 > `StorageModule` 依赖 `LogService`，故必须排在 `ScreenModules.register` 之后。
+>
+> 本段代码已按 **S3 落地后的真实状态**更新：`RemoteControlModule` 是 S3 遥控端
+> 并入时新增的宿主模块，漏掉它会让遥控面板拿不到 `NimClient`。
 
 - [x] **Step 4: 分析**
 

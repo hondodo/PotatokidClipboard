@@ -619,7 +619,13 @@ Expected: 输出 `搬迁完成：66 个文件 -> packages\pscreen_screen\lib`
 node -e "const fs=require('fs');const p='packages/pscreen_screen/lib';let n=0;(function w(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){const q=d+'/'+e.name;e.isDirectory()?w(q):(e.name.endsWith('.dart')&&n++)}})(p);console.log('包内 dart 文件数:',n)"
 ```
 
-Expected: `包内 dart 文件数: 66`（不含 Task 1 建的 4 个 → 实际应为 70；用 `>= 66` 判定）
+Expected: `包内 dart 文件数: 69` —— 本任务脚本搬迁 **66** 个 + Task 1 建的 **3** 个
+（`core/di/get_it.dart` / `core/di/screen_injection.dart` / `app/config/screen_assets.dart`）；
+用 `>= 66` 判定。
+
+> **最终计数（供后续阶段核对）**：S1 全部任务完成后包内共 **77** 个 lib `.dart`
+> （Task 4 `CurrentSceneProvider` +1、Task 5 的 6 个 Module + `screen_modules.dart` +7）；
+> S3 把协议构造器 `features/msg/protocol/envelope_builder.dart` 迁入共享包后为 **78** 个。
 
 - [x] **Step 3: 把包内资产复制进共享包**
 
@@ -897,18 +903,33 @@ git commit -m "refactor(screen): 抽出 CurrentSceneProvider 解除 ReportingSer
 
 逐个改写：
 
-- `import 'package:potatokid_screen/core/di/get_it.dart';` → `import 'package:pscreen_screen/core/di/get_it.dart';`
+- `import 'package:potatokid_screen/core/di/get_it.dart';` → `import 'package:get_it/get_it.dart';`
+  （收尾清理后各 Module 改用传入的 `it`，已不再 import 包内的 `core/di/get_it.dart`）
 - 其余 `package:potatokid_screen/...` → `package:pscreen_screen/...`（脚本已处理大部分）
 
 - [x] **Step 2: 把 `getIt` 全局引用改为参数传入**
 
-共享包不持有 DI 根，但 `getIt` 是 `GetIt.instance` 全局单例，**直接沿用**即可，无需改写 —— 共享包的 `core/di/get_it.dart` 已定义同名全局变量 `getIt`，各 Module 内的 `getIt<...>()` 引用会自动指向共享包那份（同一实例）。
-
-确认：共享包 `lib/core/di/get_it.dart` 内容为 `final GetIt getIt = GetIt.instance;`，与宿主同实例。
+> **⚠️ 本步骤的原始结论已被推翻（2026-10-22 收尾清理）。**
+>
+> **原始设计**：共享包不持有 DI 根，但 `getIt` 是 `GetIt.instance` 全局单例，**直接沿用**即可，无需改写 —— 共享包的 `core/di/get_it.dart` 已定义同名全局变量 `getIt`，各 Module 内的 `getIt<...>()` 引用会自动指向共享包那份（同一实例）。
+>
+> 原始确认：共享包 `lib/core/di/get_it.dart` 内容为 `final GetIt getIt = GetIt.instance;`，与宿主同实例。
+>
+> **问题**：「直接沿用全局 `getIt`」虽然行为正确，但把容器选择权**藏**在包里：
+> `ScreenModules.register(GetIt it)` 的 `it` 参数形同虚设——6 个 Module 全部写进
+> 包内的全局 `getIt`，调用方传入什么容器都无效。这层隐藏耦合已经造成过一次
+> 实际故障（`LogService` 重复注册）。
+>
+> **现状（现在的实现）**：6 个 Module 一律 `static Future<void> register(GetIt it)`，
+> 内部用 `it.register*` / `it<T>()` / `it.unregister<T>()`；
+> `ScreenModules.register(it)` 把自己的 `it` 逐层下传。
+> 包内的 `core/di/get_it.dart` **保留**（仅 `core/di/screen_injection.dart` 仍用它
+> 做解析门面），各 Module 已不再 import 它。
+> 详见 Step 4 的最新代码形态。
 
 - [x] **Step 3: `MsgModule` 里 `NimMessageSender` 的 `NimManager` 解析**
 
-`msg_module.dart` 中 `getIt<NimManager>()` 依赖 `CoreModule` 先注册 `NimManager` —— 顺序由 `ScreenModules.register` 保证（见 Step 4）。
+`msg_module.dart` 中 `it<NimManager>()` 依赖 `CoreModule` 先注册 `NimManager` —— 顺序由 `ScreenModules.register` 保证（见 Step 4）。
 
 - [x] **Step 4: 新增统一入口**
 
@@ -932,26 +953,28 @@ class ScreenModules {
   const ScreenModules._();
 
   static Future<void> register(GetIt it) async {
-    await CoreModule.register();
-    await NetworkModule.register();
-    await RemoteModule.register();
-    await MsgModule.register();
-    await IptvModule.register();
-    await WeatherModule.register();
+    await CoreModule.register(it);
+    await NetworkModule.register(it);
+    await RemoteModule.register(it);
+    await MsgModule.register(it);
+    await IptvModule.register(it);
+    await WeatherModule.register(it);
   }
 
   static Future<void> unregister(GetIt it) async {
-    await WeatherModule.unregister();
-    await IptvModule.unregister();
-    await MsgModule.unregister();
-    await RemoteModule.unregister();
-    await NetworkModule.unregister();
-    await CoreModule.unregister();
+    await WeatherModule.unregister(it);
+    await IptvModule.unregister(it);
+    await MsgModule.unregister(it);
+    await RemoteModule.unregister(it);
+    await NetworkModule.unregister(it);
+    await CoreModule.unregister(it);
   }
 }
 ```
 
-> 各 Module 内部使用共享包的 `getIt`（= `GetIt.instance`），与传入的 `it` 是同一实例，因此 `register(GetIt it)` 的参数当前仅用于表达调用契约；若后续宿主改用非全局实例，需要把 Module 内的 `getIt` 改为参数。
+> 各 Module 把传入的 `it` **原样**用于注册与解析，因此 `register(GetIt it)` 的参数
+> 就是真正被写入的容器（宿主传自己的 `getIt`）。宿主若改用非全局实例，
+> 无需再改共享包。
 
 - [x] **Step 5: 包内分析**
 
