@@ -1,5 +1,4 @@
 import 'package:nim_core_v2/nim_core.dart';
-// ignore: depend_on_referenced_packages
 import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart'
     hide Log;
 

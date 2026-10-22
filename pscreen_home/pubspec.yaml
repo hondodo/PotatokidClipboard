@@ -51,6 +51,7 @@ dependencies:
     path: ../packages/pscreen_screen
   # 遥控端（并入自 pscreen_control）：NIM 收发、扫码、目录
   nim_core_v2: ^10.9.91
+  nim_core_v2_platform_interface: ^10.9.91
   mobile_scanner: ^6.0.0
   equatable: ^2.0.7
   path_provider: ^2.1.6
