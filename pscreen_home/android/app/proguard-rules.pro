@@ -8,3 +8,17 @@
 -keep class kotlin.coroutines.** { *; }
 -keep class kotlin.Result* { *; }
 -keep class kotlin.Unit { *; }
+
+# nim_core_v2（网易云信 IM）引用了一批可选依赖的可选类，R8 在 release 下会因找不到
+# 这些类而直接判定构建失败（Missing class ...）：
+#   - net.zetetic.database.sqlcipher.*  加密版 SQLite（商业版才有）
+#   - org.conscrypt.* / org.openjsse.*    可选的 JSSE provider
+#   - org.bouncycastle.jsse.*             可选的 BouncyCastle provider
+#   - com.netease.nimlib.aop/apt.*        注解处理器生成的可选注解
+# 这些运行时不会被调用（未启用加密 DB / 未指定 TLS provider），仅需压制警告。
+-dontwarn com.netease.nimlib.aop.annotation.CostTime
+-dontwarn com.netease.nimlib.apt.annotation.NIMService
+-dontwarn net.zetetic.database.**
+-dontwarn org.bouncycastle.jsse.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
