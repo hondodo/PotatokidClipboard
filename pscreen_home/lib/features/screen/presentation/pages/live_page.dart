@@ -28,7 +28,14 @@ class LivePage extends StatelessWidget {
           ),
         ],
       ),
-      body: BlocBuilder<IptvBloc, IptvState>(
+      body: BlocConsumer<IptvBloc, IptvState>(
+        listener: (BuildContext context, IptvState state) {
+          // 共享包的频道控制器按「频道总数」判断 select/next 是否有效，
+          // 这里同步一次，触屏点选才能立即切台。
+          // 放在 listener（状态变化时）而不是 build：build 阶段的副作用会
+          // 在重建中触发 notifyListeners，导致不必要的重绘。
+          LiveChannelController.instance.setCount(state.channels.length);
+        },
         builder: (BuildContext context, IptvState state) {
           if (state.isLoading && state.channels.isEmpty) {
             return const Center(child: CircularProgressIndicator());
@@ -42,9 +49,6 @@ class LivePage extends StatelessWidget {
             );
           }
           final List<IptvChannel> channels = state.channels;
-          // 共享包的频道控制器按「频道总数」判断 select/next 是否有效，
-          // 这里同步一次，触屏点选才能立即切台。
-          LiveChannelController.instance.setCount(channels.length);
           return Column(
             children: <Widget>[
               if (enablePlayer && channels.isNotEmpty)
@@ -60,17 +64,23 @@ class LivePage extends StatelessWidget {
                   ),
                 ),
               Expanded(
-                child: ListView.builder(
-                  itemCount: channels.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final IptvChannel channel = channels[index];
-                    return ListTile(
-                      title: Text(channel.name),
-                      subtitle: channel.group == null || channel.group!.isEmpty
-                          ? null
-                          : Text(channel.group!),
-                      selected: index == LiveChannelController.instance.index,
-                      onTap: () => LiveChannelController.instance.select(index),
+                child: ListenableBuilder(
+                  listenable: LiveChannelController.instance,
+                  builder: (BuildContext context, Widget? child) {
+                    final int current = LiveChannelController.instance.index;
+                    return ListView.builder(
+                      itemCount: channels.length,
+                      itemBuilder: (BuildContext context, int index) {
+                        final IptvChannel channel = channels[index];
+                        return ListTile(
+                          title: Text(channel.name),
+                          subtitle: channel.group == null || channel.group!.isEmpty
+                              ? null
+                              : Text(channel.group!),
+                          selected: index == current,
+                          onTap: () => LiveChannelController.instance.select(index),
+                        );
+                      },
                     );
                   },
                 ),
