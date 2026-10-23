@@ -35,6 +35,7 @@ void main() {
               name: '自动保温'),
           _e('notify.chunmi_start_cook_a_2_1', 'unknown', name: '开始'),
           _e('button.chunmi_cancel_cooking_a_2_2', 'unknown', name: '停止'),
+          _e('event.chunmi_cooking_finished_e_2_1', 'unknown', name: '烹饪完成'),
         ],
       );
 
@@ -48,6 +49,46 @@ void main() {
       expect(summary.startMessage, '[1]');
       expect(summary.startEntityId, 'notify.chunmi_start_cook_a_2_1');
       expect(summary.stopEntityId, 'button.chunmi_cancel_cooking_a_2_2');
+    });
+
+    test('电热水瓶实体不会被误判为电饭煲', () {
+      final RiceCookerSummary? summary = RiceCookerSummary.tryBuild(
+        deviceId: 'dev_kettle',
+        name: '米家智能电热水瓶 5L',
+        entities: <HaEntityStateModel>[
+          _e('sensor.mek01_status_p_2_1', '待机中', name: '热水瓶 工作状态'),
+          _e('sensor.mek01_temperature_p_2_6', '51', name: '热水瓶 温度'),
+          _e('sensor.mek01_fault_p_2_4', '无故障', name: '热水瓶 故障'),
+          _e(
+            'select.mek01_mode_p_2_3',
+            '自来水',
+            name: '热水瓶 模式',
+            attributes: const <String, dynamic>{
+              'options': <String>['自来水', '纯净水', '凉白开'],
+            },
+          ),
+          _e('notify.mek01_start_cook_a_2_1', 'unknown', name: '热水瓶 开始加热'),
+          _e('button.mek01_cancel_cooking_a_2_2', 'unknown', name: '热水瓶 停止'),
+        ],
+      );
+
+      expect(summary, isNull);
+    });
+
+    test('仅暴露状态/开始/停止的旧电饭煲仍可识别', () {
+      final RiceCookerSummary? summary = RiceCookerSummary.tryBuild(
+        deviceId: 'dev_old_rice',
+        name: '电饭煲',
+        entities: <HaEntityStateModel>[
+          _e('sensor.old_status_p_2_1', '待机中', name: '电饭煲 工作状态'),
+          _e('notify.old_start_cook_a_2_1', 'unknown', name: '电饭煲 开始烹饪'),
+          _e('button.old_cancel_cooking_a_2_2', 'unknown', name: '电饭煲 停止烹饪'),
+          _e('event.old_cooking_finished_e_2_1', 'unknown', name: '电饭煲 烹饪完成'),
+        ],
+      );
+
+      expect(summary, isNotNull);
+      expect(summary!.status, '待机中');
     });
   });
 

@@ -74,26 +74,22 @@ void main() {
       //     当前平台无 NIM 实现（如 Linux，缺 nim_core_v2_linux）时 init 返回
       //     false：跳过监听与自动登录，避免后续 MissingPluginException。
       //     成功后自动登录遥控端账号（账号 / token 来自本地持久化）。
-      unawaited(
-        Injection.get<NimManager>()
-            .init(appKey: ControlConfig.nimAppKey)
-            .then((bool inited) async {
-              if (!inited) {
-                ControlLog.i('[NIM] 当前平台无 NIM 实现，跳过监听与自动登录');
-                return;
-              }
-              Injection.get<NimManager>().startListen();
-              final bool ok = await Injection.get<NimClient>().autoLogin(
-                account: ControlSettings.instance.nimAccount,
-              );
-              if (!ok) {
-                ControlLog.e('[NIM] 自动登录失败，请到设置页检查账号 / Token');
-              }
-            })
-            .catchError((Object e, StackTrace s) {
-              ControlLog.e('[NIM] initialize failed: $e');
-            }),
-      );
+      unawaited(() async {
+        try {
+          final bool inited = await Injection.get<NimManager>().init(appKey: ControlConfig.nimAppKey);
+          if (!inited) {
+            ControlLog.i('[NIM] 当前平台无 NIM 实现，跳过监听与自动登录');
+            return;
+          }
+          Injection.get<NimManager>().startListen();
+          final bool ok = await Injection.get<NimClient>().autoLogin(account: ControlSettings.instance.nimAccount);
+          if (!ok) {
+            ControlLog.e('[NIM] 自动登录失败，请到设置页检查账号 / Token');
+          }
+        } catch (e) {
+          ControlLog.e('[NIM] initialize failed: $e');
+        }
+      }());
 
       // 5. 启动：连接状态机随应用启动发起连接，
       //    连接就绪后由页面触发 HomeBloc 加载实体
@@ -105,14 +101,10 @@ void main() {
             // 天气状态机：全局共享，时钟页与天气页消费。
             // BlocProvider 默认 lazy：首次被页面读取时才创建并派发 LoadWeather，
             // 因此天气请求只在真正打开时钟页 / 天气页时发生。
-            BlocProvider<WeatherBloc>(
-              create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather()),
-            ),
+            BlocProvider<WeatherBloc>(create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather())),
             // 直播频道状态机：全局共享，直播页消费。
             // 同上：只有真正打开直播页时才会拉取频道列表（缓存优先）。
-            BlocProvider<IptvBloc>(
-              create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true)),
-            ),
+            BlocProvider<IptvBloc>(create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true))),
           ],
           child: const App(),
         ),

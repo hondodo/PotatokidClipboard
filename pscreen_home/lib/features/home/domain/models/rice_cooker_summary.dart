@@ -28,7 +28,11 @@ class RiceCookerSummary {
         _byId(entities, '_status_p_2_1', domain: 'sensor');
     final HaEntityStateModel? start =
         _byId(entities, '_start_cook_a_2_1', domain: 'notify');
-    if (status == null || start == null) return null;
+    // 电热水瓶也共用 `status_p_2_1` / `start_cook_a_2_1`，必须再用电饭煲
+    // 独有事件 `cooking_finished_e_2_1` 兜底，避免把热水瓶当成电饭煲。
+    final HaEntityStateModel? finished =
+        _byId(entities, '_cooking_finished_e_2_1', domain: 'event');
+    if (status == null || start == null || finished == null) return null;
 
     final HaEntityStateModel? stop =
         _byId(entities, '_cancel_cooking_a_2_2', domain: 'button');
