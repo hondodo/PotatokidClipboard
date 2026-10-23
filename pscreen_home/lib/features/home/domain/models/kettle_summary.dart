@@ -35,6 +35,8 @@ class KettleSummary {
     this.startEntityId,
     this.stopEntityId,
     this.lockMode,
+    this.isOffline = false,
+    this.offlineSince,
   });
 
   static KettleSummary? tryBuild({
@@ -78,12 +80,27 @@ class KettleSummary {
     final HaEntityStateModel? lockMode =
         _find(entities, _idHas('_mode_p_4_3'));
 
+    final bool isOffline = !status.isAvailable;
+    DateTime? offlineSince;
+    if (isOffline) {
+      for (final HaEntityStateModel entity in entities) {
+        final DateTime? changed = entity.lastChanged;
+        if (entity.state != 'unavailable' || changed == null) continue;
+        if (offlineSince == null || changed.isBefore(offlineSince)) {
+          offlineSince = changed;
+        }
+      }
+      offlineSince ??= status.lastChanged;
+    }
+
     return KettleSummary(
       deviceId: deviceId,
       name: name,
       status: status.state,
       temperature: double.tryParse(temperature.state) ?? 0,
       fault: _find(entities, _idHas('_fault_p_2_4'))?.state,
+      isOffline: isOffline,
+      offlineSince: offlineSince,
       modes: modeEntity.options,
       mode: modeEntity.state,
       targetTemperature: double.tryParse(target?.state ?? '') ?? 100,
@@ -134,6 +151,12 @@ class KettleSummary {
   final bool dechlorinationOn;
   final bool rapidCoolingOn;
   final bool childLocked;
+
+  /// 是否离线（HA 工作状态实体为 unavailable / unknown）
+  final bool isOffline;
+
+  /// 进入离线的时间（组内不可用实体最早的 last_changed）
+  final DateTime? offlineSince;
 
   /// 模式 id（text.*_mode_id，当前设备为 M0）
   final String? modeId;
@@ -212,10 +235,50 @@ class KettleSummary {
           ? pureWaterTempEntityId
           : (isTapWater ? tapWaterTempEntityId : null);
 
-  bool get hasFault {
-    final String? value = fault;
-    return value != null && value != '无故障' && value.isNotEmpty;
+  bool get hasFault => !isOffline && _isFaultValue(fault);
+
+  /// 详情页 / 卡片状态文案：离线优先，其次故障
+  String get statusLabel {
+    if (isOffline) return '离线';
+    return hasFault ? '故障' : status;
   }
+
+  /// 当前水温文案；离线时显示 --
+  String get temperatureLabel => isOffline ? '--' : _formatNumber(temperature);
+
+  /// 模式文案；离线时显示 --
+  String get modeLabel => isOffline ? '--' : mode;
+
+  /// 已离线时长；在线或缺少 last_changed 时为 null
+  Duration? offlineDuration(DateTime now) {
+    if (!isOffline) return null;
+    final DateTime? since = offlineSince;
+    if (since == null) return null;
+    final Duration duration = now.difference(since);
+    return duration.isNegative ? null : duration;
+  }
+
+  /// 离线时长文案，如「已离线 4 天」；在线时返回状态文案
+  String offlineLabel({DateTime? now}) {
+    if (!isOffline) return statusLabel;
+    final Duration? duration = offlineDuration(now ?? DateTime.now());
+    if (duration == null) return '离线';
+    if (duration.inDays > 0) return '已离线 ${duration.inDays} 天';
+    if (duration.inHours > 0) return '已离线 ${duration.inHours} 小时';
+    if (duration.inMinutes > 0) return '已离线 ${duration.inMinutes} 分钟';
+    return '刚刚离线';
+  }
+
+  static bool _isFaultValue(String? value) =>
+      value != null &&
+      value.isNotEmpty &&
+      value != '无故障' &&
+      value != 'unavailable' &&
+      value != 'unknown';
+
+  static String _formatNumber(double value) => value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(1);
 
   double get minTargetTemperature => 40;
   double get maxTargetTemperature => 100;

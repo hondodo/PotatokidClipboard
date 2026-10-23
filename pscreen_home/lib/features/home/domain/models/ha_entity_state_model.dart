@@ -12,6 +12,8 @@ class HaEntityStateModel {
     required this.entityId,
     required this.state,
     required this.attributes,
+    this.lastChanged,
+    this.lastUpdated,
   });
 
   factory HaEntityStateModel.fromJson(Map<String, dynamic> json) {
@@ -27,6 +29,8 @@ class HaEntityStateModel {
       attributes: rawAttributes is Map
           ? Map<String, dynamic>.from(rawAttributes)
           : const <String, dynamic>{},
+      lastChanged: _parseTime(json['last_changed']),
+      lastUpdated: _parseTime(json['last_updated']),
     );
   }
 
@@ -62,6 +66,12 @@ class HaEntityStateModel {
 
   /// 实体属性（含 friendly_name、brightness 等）
   final Map<String, dynamic> attributes;
+
+  /// 状态最后变更时间（进入 unavailable 的时刻）
+  final DateTime? lastChanged;
+
+  /// 状态最后更新时间（含属性变化，不能用来算离线时长）
+  final DateTime? lastUpdated;
 
   /// 实体域（entity_id 的前缀，如 light）
   String get domain => entityId.split('.').first;
@@ -110,6 +120,14 @@ class HaEntityStateModel {
 
   /// 是否不可用（unavailable / unknown）
   bool get isUnavailable => !isAvailable;
+
+  /// 已不可用多久；在线、无时间戳或时间在未来时为 null
+  Duration? unavailableFor(DateTime now) {
+    final DateTime? since = lastChanged;
+    if (!isUnavailable || since == null) return null;
+    final Duration duration = now.difference(since);
+    return duration.isNegative ? null : duration;
+  }
 
   /// 是否为动作类实体（无开关态，仅展示不交互）
   bool get isAction => actionDomains.contains(domain);
@@ -275,11 +293,15 @@ class HaEntityStateModel {
     String? entityId,
     String? state,
     Map<String, dynamic>? attributes,
+    DateTime? lastChanged,
+    DateTime? lastUpdated,
   }) {
     return HaEntityStateModel(
       entityId: entityId ?? this.entityId,
       state: state ?? this.state,
       attributes: attributes ?? this.attributes,
+      lastChanged: lastChanged ?? this.lastChanged,
+      lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }
 
@@ -295,6 +317,11 @@ class HaEntityStateModel {
 
   @override
   String toString() => 'HaEntityStateModel($entityId, $state)';
+
+  static DateTime? _parseTime(Object? value) {
+    if (value is! String || value.isEmpty) return null;
+    return DateTime.tryParse(value);
+  }
 
   static int? _asInt(Object? value) {
     if (value is int) return value;

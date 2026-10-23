@@ -38,6 +38,7 @@ class KettleControlPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool active = summary.isActive;
+    final bool offline = summary.isOffline;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -77,7 +78,9 @@ class KettleControlPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${summary.status} · ${summary.mode}',
+                        offline
+                            ? summary.offlineLabel()
+                            : '${summary.status} · ${summary.mode}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -90,7 +93,7 @@ class KettleControlPanel extends StatelessWidget {
                   ),
                 ),
                 FilledButton.icon(
-                  onPressed: isBusy
+                  onPressed: (isBusy || offline)
                       ? null
                       : (active ? onStop : onStart),
                   icon: Icon(
@@ -99,7 +102,11 @@ class KettleControlPanel extends StatelessWidget {
                         : Icons.play_arrow_rounded,
                     size: 18,
                   ),
-                  label: Text(active ? summary.stopLabel : '开始加热'),
+                  label: Text(
+                    offline
+                        ? '离线'
+                        : (active ? summary.stopLabel : '开始加热'),
+                  ),
                 ),
               ],
             ),
@@ -120,18 +127,19 @@ class KettleControlPanel extends StatelessWidget {
                     TextSpan(
                       children: <InlineSpan>[
                         TextSpan(
-                          text: _format(summary.temperature),
+                          text: summary.temperatureLabel,
                           style: theme.textTheme.displayMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                             height: 1,
                           ),
                         ),
-                        TextSpan(
-                          text: '°C',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: theme.colorScheme.outline,
+                        if (!offline)
+                          TextSpan(
+                            text: '°C',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -162,7 +170,9 @@ class KettleControlPanel extends StatelessWidget {
                           label: Text(mode),
                           selected: summary.mode == mode,
                           showCheckmark: false,
-                          onSelected: (bool _) => onModeSelected?.call(mode),
+                          onSelected: offline
+                              ? null
+                              : (bool _) => onModeSelected?.call(mode),
                         ))
                     .toList(growable: false),
               ),
@@ -171,18 +181,21 @@ class KettleControlPanel extends StatelessWidget {
             if (!summary.isPureWater)
               _InfoRow(
                 label: '加热温度',
-                value:
-                    '${_format(summary.effectiveTargetTemperature)}°C',
+                value: offline
+                    ? '--'
+                    : '${_format(summary.effectiveTargetTemperature)}°C',
               )
             else
               _LabeledSlider(
                 label: '保温温度',
-                value:
-                    '${_format(summary.effectiveKeepWarmTemperature)}°C',
+                value: offline
+                    ? '--'
+                    : '${_format(summary.effectiveKeepWarmTemperature)}°C',
                 slider: GradientSlider(
                   value: summary.effectiveKeepWarmTemperature,
                   min: summary.minKeepWarmTemperature,
                   max: summary.maxKeepWarmTemperature,
+                  enabled: !offline,
                   colors: const <Color>[
                     Color(0xFFFFB74D),
                     Color(0xFFFF8A65),
@@ -198,17 +211,19 @@ class KettleControlPanel extends StatelessWidget {
                 icon: Icons.thermostat_rounded,
                 label: '保温',
                 value: summary.keepWarmOn,
-                onChanged: onToggleKeepWarm,
+                onChanged: offline ? null : onToggleKeepWarm,
               ),
             if (summary.showKeepWarmTemperature && !summary.isPureWater)
               _LabeledSlider(
                 label: '保温温度',
-                value:
-                    '${_format(summary.effectiveKeepWarmTemperature)}°C',
+                value: offline
+                    ? '--'
+                    : '${_format(summary.effectiveKeepWarmTemperature)}°C',
                 slider: GradientSlider(
                   value: summary.effectiveKeepWarmTemperature,
                   min: summary.minKeepWarmTemperature,
                   max: summary.maxKeepWarmTemperature,
+                  enabled: !offline,
                   colors: const <Color>[
                     Color(0xFFFFB74D),
                     Color(0xFFFF8A65),
@@ -224,13 +239,13 @@ class KettleControlPanel extends StatelessWidget {
                 icon: Icons.bubble_chart_rounded,
                 label: '除氯',
                 value: summary.dechlorinationOn,
-                onChanged: onToggleDechlorination,
+                onChanged: offline ? null : onToggleDechlorination,
               ),
             _SwitchRow(
               icon: Icons.air_rounded,
               label: '风冷',
               value: summary.rapidCoolingOn,
-              onChanged: onToggleRapidCooling,
+              onChanged: offline ? null : onToggleRapidCooling,
             ),
             if (summary.lockMode != null) ...<Widget>[
               const SizedBox(height: 9),

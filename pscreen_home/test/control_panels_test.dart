@@ -17,6 +17,7 @@ import 'package:pscreen_home/features/home/presentation/components/fridge_widget
 import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
 import 'package:pscreen_home/features/home/presentation/components/light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
@@ -126,12 +127,18 @@ WaterHeaterSummary _waterHeater() => WaterHeaterSummary(
       timerPreheatOn: true,
     );
 
-KettleSummary _kettle() => const KettleSummary(
+KettleSummary _kettle({
+  bool isOffline = false,
+  DateTime? offlineSince,
+}) =>
+    KettleSummary(
       deviceId: 'dev_k',
       name: '米家智能电热水瓶 5L',
       status: '待机中',
       temperature: 51,
       fault: '无故障',
+      isOffline: isOffline,
+      offlineSince: offlineSince,
       modes: <String>['自来水', '纯净水', '凉白开'],
       mode: '自来水',
       targetTemperature: 100,
@@ -654,6 +661,97 @@ void main() {
     expect(find.text('除氯'), findsOneWidget);
     expect(find.text('风冷'), findsOneWidget);
     expect(find.text('开始加热'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('热水瓶卡片离线：温度 -- / 显示离线时长 / 动作禁用',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 168,
+            height: 112,
+            child: KettleWidget(
+              summary: _kettle(
+                isOffline: true,
+                offlineSince: DateTime.now().subtract(
+                  const Duration(days: 4, hours: 1),
+                ),
+              ),
+              onStart: () {},
+              onStop: () {},
+              onOpenDetail: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.textContaining('--', findRichText: true), findsWidgets);
+    expect(find.textContaining('已离线 4 天'), findsOneWidget);
+    expect(find.text('目标 --'), findsOneWidget);
+    expect(
+      tester.widget<TextButton>(find.byType(TextButton)).onPressed,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('热水瓶面板离线：温度 -- / 显示离线时长 / 控制全部禁用',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(420, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_host(KettleControlPanel(
+      summary: _kettle(
+        isOffline: true,
+        offlineSince: DateTime.now().subtract(
+          const Duration(days: 4, hours: 1),
+        ),
+      ),
+      isBusy: false,
+      onStart: () {},
+      onStop: () {},
+      onModeSelected: (_) {},
+      onTargetTemperatureChanged: (_) {},
+      onKeepWarmTemperatureChanged: (_) {},
+      onToggleKeepWarm: () {},
+      onToggleDechlorination: () {},
+      onToggleRapidCooling: () {},
+    )));
+
+    expect(find.textContaining('已离线 4 天'), findsOneWidget);
+    expect(find.textContaining('--', findRichText: true), findsWidgets);
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+          .every((ChoiceChip chip) => chip.onSelected == null),
+      isTrue,
+    );
+    expect(
+      tester
+          .widgetList<Switch>(find.byType(Switch))
+          .every((Switch control) => control.onChanged == null),
+      isTrue,
+    );
+    expect(
+      tester
+          .widgetList<GradientSlider>(find.byType(GradientSlider))
+          .every((GradientSlider slider) => !slider.enabled),
+      isTrue,
+    );
     expect(tester.takeException(), isNull);
   });
 

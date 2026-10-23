@@ -47,6 +47,48 @@ void main() {
       );
     });
 
+    test('fromJson 解析 last_changed / last_updated 并可由 copyWith 保留', () {
+      final HaEntityStateModel entity = HaEntityStateModel.fromJson(
+        <String, dynamic>{
+          'entity_id': 'sensor.kettle_status',
+          'state': 'unavailable',
+          'attributes': <String, dynamic>{},
+          'last_changed': '2026-10-22T13:31:31.183751+00:00',
+          'last_updated': '2026-10-22T14:36:22.777253+00:00',
+        },
+      );
+
+      expect(
+        entity.lastChanged,
+        DateTime.parse('2026-10-22T13:31:31.183751+00:00'),
+      );
+      expect(
+        entity.lastUpdated,
+        DateTime.parse('2026-10-22T14:36:22.777253+00:00'),
+      );
+      expect(entity.unavailableFor(DateTime.parse(
+        '2026-10-23T13:31:31.183751+00:00',
+      )), const Duration(days: 1));
+
+      final HaEntityStateModel updated = entity.copyWith(state: 'off');
+      expect(updated.lastChanged, entity.lastChanged);
+      expect(updated.lastUpdated, entity.lastUpdated);
+    });
+
+    test('last_changed / last_updated 缺失或非法时为 null', () {
+      final HaEntityStateModel entity = HaEntityStateModel.fromJson(
+        <String, dynamic>{
+          'entity_id': 'sensor.kettle_status',
+          'state': 'off',
+          'last_changed': 'not-a-date',
+          'last_updated': null,
+        },
+      );
+      expect(entity.lastChanged, isNull);
+      expect(entity.lastUpdated, isNull);
+      expect(entity.unavailableFor(DateTime.now()), isNull);
+    });
+
     test('displayName 回退：无 friendly_name 时用 entity_id 去域前缀', () {
       final HaEntityStateModel entity = buildEntity(
         attributes: const <String, dynamic>{},

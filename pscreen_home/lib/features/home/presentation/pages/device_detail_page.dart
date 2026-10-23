@@ -291,7 +291,7 @@ class DeviceDetailPage extends StatelessWidget {
             headerStatus =
                 waterHeater.hasFault ? '故障' : waterHeater.statusLabel;
           } else if (kettle != null) {
-            headerStatus = kettle.hasFault ? '故障' : kettle.status;
+            headerStatus = kettle.statusLabel;
           } else if (showFanPanel) {
             headerStatus = fan.statusLabel;
           } else if (showProjectorPanel) {

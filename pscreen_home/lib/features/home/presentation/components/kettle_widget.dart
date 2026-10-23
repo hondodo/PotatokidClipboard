@@ -27,6 +27,7 @@ class KettleWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final bool active = summary.isActive;
+    final bool offline = summary.isOffline;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -71,7 +72,10 @@ class KettleWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${areaLabel ?? '未分配房间'} · ${summary.status} · ${summary.mode}',
+                          offline
+                              ? summary.offlineLabel()
+                              : '${areaLabel ?? '未分配房间'} · '
+                                  '${summary.status} · ${summary.mode}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -93,24 +97,27 @@ class KettleWidget extends StatelessWidget {
                     TextSpan(
                       children: <InlineSpan>[
                         TextSpan(
-                          text: _format(summary.temperature),
+                          text: summary.temperatureLabel,
                           style: theme.textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        TextSpan(
-                          text: '°C',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
+                        if (!offline)
+                          TextSpan(
+                            text: '°C',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      '目标 ${_format(summary.effectiveTargetTemperature)}°C',
+                      offline
+                          ? '目标 --'
+                          : '目标 ${_format(summary.effectiveTargetTemperature)}°C',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.right,
@@ -127,9 +134,9 @@ class KettleWidget extends StatelessWidget {
                       minimumSize: const Size(0, 28),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    onPressed: active ? onStop : onStart,
+                    onPressed: offline ? null : (active ? onStop : onStart),
                     child: Text(
-                      summary.cardActionLabel,
+                      offline ? '离线' : summary.cardActionLabel,
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,

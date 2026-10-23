@@ -7,6 +7,7 @@ HaEntityStateModel _e(
   String state, {
   String? name,
   Map<String, dynamic> attributes = const <String, dynamic>{},
+  DateTime? lastChanged,
 }) =>
     HaEntityStateModel(
       entityId: entityId,
@@ -15,6 +16,7 @@ HaEntityStateModel _e(
         'friendly_name': ?name,
         ...attributes,
       },
+      lastChanged: lastChanged,
     );
 
 List<HaEntityStateModel> _entities({
@@ -160,6 +162,74 @@ void main() {
       expect(summary.showDechlorination, isTrue);
       expect(summary.showKeepWarmSwitch, isFalse);
       expect(summary.showKeepWarmTemperature, isFalse);
+    });
+
+    test('离线：状态显示离线、温度 --、不误报故障、时长取最早 last_changed', () {
+      final DateTime now = DateTime.utc(2026, 10, 23, 12);
+      final DateTime since = now.subtract(const Duration(days: 4, hours: 1));
+      final KettleSummary summary = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: <HaEntityStateModel>[
+          _e('sensor.k_status_p_2_1', 'unavailable', lastChanged: since),
+          _e(
+            'sensor.k_temperature_p_2_6',
+            'unavailable',
+            lastChanged: since.add(const Duration(minutes: 2)),
+          ),
+          _e(
+            'select.k_mode_p_2_3',
+            'unavailable',
+            attributes: <String, dynamic>{
+              'options': <String>['自来水', '纯净水', '凉白开'],
+            },
+            lastChanged: since.add(const Duration(minutes: 5)),
+          ),
+          _e('sensor.k_fault_p_2_4', 'unavailable', lastChanged: since),
+          // notify / button 正常态就是 unknown，不能把它们的旧时间当成离线起点
+          _e(
+            'notify.k_start_cook_a_2_1',
+            'unknown',
+            lastChanged: since.subtract(const Duration(days: 30)),
+          ),
+        ],
+      )!;
+
+      expect(summary.isOffline, isTrue);
+      expect(summary.statusLabel, '离线');
+      expect(summary.temperatureLabel, '--');
+      expect(summary.modeLabel, '--');
+      expect(summary.hasFault, isFalse);
+      expect(summary.isActive, isFalse);
+      expect(summary.offlineDuration(now), const Duration(days: 4, hours: 1));
+      expect(summary.offlineLabel(now: now), '已离线 4 天');
+    });
+
+    test('故障实体为 unavailable / unknown 时不算故障', () {
+      final KettleSummary unavailable = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities().map((HaEntityStateModel entity) {
+          if (entity.entityId.contains('_fault_')) {
+            return _e(entity.entityId, 'unavailable');
+          }
+          return entity;
+        }).toList(growable: false),
+      )!;
+      expect(unavailable.isOffline, isFalse);
+      expect(unavailable.hasFault, isFalse);
+
+      final KettleSummary unknown = KettleSummary.tryBuild(
+        deviceId: 'dev_k',
+        name: '热水瓶',
+        entities: _entities().map((HaEntityStateModel entity) {
+          if (entity.entityId.contains('_fault_')) {
+            return _e(entity.entityId, 'unknown');
+          }
+          return entity;
+        }).toList(growable: false),
+      )!;
+      expect(unknown.hasFault, isFalse);
     });
 
     test('缺少模式实体时不会误判成热水瓶', () {
