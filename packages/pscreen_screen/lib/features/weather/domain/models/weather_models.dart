@@ -156,7 +156,7 @@ WeatherNow? parseWeatherNowV3(Map<String, dynamic> root) {
   return WeatherNow(
     temperature: _num(now['temperature'])?.toDouble(),
     skycon: skycon,
-    text: text.isEmpty ? skyconToText(skycon) : text,
+    text: text.isEmpty ? skyconToTextV3(skycon) : text,
     humidity: _num(now['humidity'])?.toDouble(),
     city: _locationName(r),
   );
@@ -174,10 +174,11 @@ List<WeatherDay> parseWeatherDailyV3(Map<String, dynamic> root) {
     final Map<String, dynamic>? d = _asMap(item);
     if (d == null) continue;
     final String skycon = _str(d['code_day']);
+    final String textDay = _str(d['text_day']);
     days.add(WeatherDay(
       date: _str(d['date']),
       skycon: skycon,
-      text: skyconToText(skycon),
+      text: textDay.isNotEmpty ? textDay : skyconToTextV3(skycon),
       tempMax: _num(d['high'])?.toDouble(),
       tempMin: _num(d['low'])?.toDouble(),
     ));
@@ -250,6 +251,99 @@ String skyconToText(String code) {
       return '浮尘';
     case 'SAND':
       return '沙尘';
+    default:
+      return code;
+  }
+}
+
+/// 心知 V3 数字天气代码 → 中文。
+///
+/// V3 的 `code` / `code_day` 为数字字符串（如 `4` 表示雷阵雨），
+/// 与 V4 网格字符串码不同，需单独映射。
+String skyconToTextV3(String code) {
+  switch (code) {
+    case '0':
+      return '晴';
+    case '1':
+      return '多云';
+    case '2':
+      return '阴';
+    case '3':
+      return '阵雨';
+    case '4':
+      return '雷阵雨';
+    case '5':
+      return '冰雹';
+    case '6':
+      return '雨夹雪';
+    case '7':
+      return '小雨';
+    case '8':
+      return '中雨';
+    case '9':
+      return '大雨';
+    case '10':
+      return '暴雨';
+    case '11':
+      return '大暴雨';
+    case '12':
+      return '特大暴雨';
+    case '13':
+      return '阵雪';
+    case '14':
+      return '小雪';
+    case '15':
+      return '中雪';
+    case '16':
+      return '大雪';
+    case '17':
+      return '暴雪';
+    case '18':
+      return '雾';
+    case '19':
+      return '冻雨';
+    case '20':
+      return '沙尘暴';
+    case '21':
+      return '小到中雨';
+    case '22':
+      return '中到大雨';
+    case '23':
+      return '大到暴雨';
+    case '24':
+      return '暴雨到大暴雨';
+    case '25':
+      return '大暴雨到特大暴雨';
+    case '26':
+      return '小到中雪';
+    case '27':
+      return '中到大雪';
+    case '28':
+      return '大到暴雪';
+    case '29':
+      return '浮尘';
+    case '30':
+      return '扬沙';
+    case '31':
+      return '强沙尘暴';
+    case '32':
+      return '浓雾';
+    case '33':
+      return '强浓雾';
+    case '34':
+      return '霾';
+    case '35':
+      return '中度霾';
+    case '36':
+      return '重度霾';
+    case '37':
+      return '严重霾';
+    case '38':
+      return '大雾';
+    case '39':
+      return '特强浓雾';
+    case '99':
+      return '';
     default:
       return code;
   }

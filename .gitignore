@@ -5,3 +5,5 @@ build/
 
 # Windows 文件权限诊断的备份 / 回滚产物
 acl-recovery/
+
+*/*/pubspec.lock
