@@ -10,12 +10,14 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_sta
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/home_climate_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
@@ -645,6 +647,8 @@ class _ControlGrid extends StatelessWidget {
             final SocketSummary? socket =
                 group.deviceId == null ? null : sockets[group.deviceId];
             if (socket != null) {
+              final String? powerEntityId =
+                  socket.stats.acPowerEntityId ?? socket.stats.currentEntityId;
               return SocketWidget(
                 summary: socket,
                 areaLabel: areaLabel,
@@ -654,6 +658,11 @@ class _ControlGrid extends StatelessWidget {
                   socket.deviceId,
                   Metric.power,
                 ),
+                historyService: Injection.get<HistoryService>(),
+                deviceId: socket.deviceId,
+                powerSource: powerEntityId == null
+                    ? null
+                    : MetricSource(powerEntityId),
                 onToggle: () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: socket.powerEntityId),
                     ),

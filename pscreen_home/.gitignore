@@ -37,6 +37,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+pubspec.lock
 
 # Flutter 自动生成的插件注册文件（flutter pub get / build 会重建）
 **/flutter/generated_plugin_registrant.cc
