@@ -31,6 +31,9 @@ class SettingsStore {
   /// 全局界面缩放倍数（1.0 = 原始尺寸，仅作用于本应用）。
   static const String uiScaleKey = 'ui_scale';
 
+  /// 上次观看的直播频道名（下次进入直播页时恢复）。
+  static const String lastLiveChannelKey = 'live_last_channel_v1';
+
   /// 15 寸 1920x1080 大屏的默认缩放：卡片/字号整体放大 1.5 倍。
   static const double defaultUiScale = 1.5;
   static const double minUiScale = 1.0;
@@ -74,6 +77,9 @@ class SettingsStore {
     return normalizeUiScale(value);
   }
 
+  /// 上次观看的直播频道名（空串 = 未记录）。
+  String get lastLiveChannel => _prefs?.getString(lastLiveChannelKey) ?? '';
+
   /// 持久化界面缩放；等于默认值时移除键（回落默认）。
   Future<void> saveUiScale(double value) async {
     final SharedPreferences? prefs = _prefs;
@@ -107,6 +113,21 @@ class SettingsStore {
       }
     } catch (e) {
       Injection.get<LogService>().warn('写入本地配置失败：$e');
+    }
+  }
+
+  /// 持久化上次观看的直播频道名；空串表示清除。
+  Future<void> saveLastLiveChannel(String name) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      if (name.isEmpty) {
+        await prefs.remove(lastLiveChannelKey);
+      } else {
+        await prefs.setString(lastLiveChannelKey, name);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入上次直播频道失败：$e');
     }
   }
 

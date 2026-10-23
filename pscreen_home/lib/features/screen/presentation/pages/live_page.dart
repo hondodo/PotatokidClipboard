@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/core/di/get_it.dart';
+import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_player_view.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
@@ -41,17 +43,58 @@ class _LivePageState extends State<LivePage> {
   /// 自动隐藏计时器。
   Timer? _hideTimer;
 
+  /// 当前频道列表（保存 / 恢复上次频道时按序号取频道名）。
+  List<IptvChannel> _channels = const <IptvChannel>[];
+
+  /// 是否已尝试恢复上次频道；恢复完成前不写盘，
+  /// 避免频道列表刚加载时的默认第 0 台覆盖已保存的记录。
+  bool _restored = false;
+
+  /// 已写入的频道名（去重，避免未切台时重复写盘）。
+  String _savedChannelName = '';
+
   @override
   void initState() {
     super.initState();
     // 进入页面：浮层自动显示并开始倒计时。
     _scheduleHide();
+    LiveChannelController.instance.addListener(_onChannelChanged);
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    LiveChannelController.instance.removeListener(_onChannelChanged);
     super.dispose();
+  }
+
+  /// 设置存储；widget 测试未初始化 DI 时为 null（跳过持久化，不影响播放）。
+  SettingsStore? get _settingsStore => getIt.isRegistered<SettingsStore>() ? getIt<SettingsStore>() : null;
+
+  /// 选中频道变化（上/下台、列表点选）→ 立即持久化频道名。
+  void _onChannelChanged() {
+    if (!_restored) return;
+    final int index = LiveChannelController.instance.index;
+    if (index < 0 || index >= _channels.length) return;
+    final String name = _channels[index].name;
+    if (name.isEmpty || name == _savedChannelName) return;
+    _savedChannelName = name;
+    final SettingsStore? store = _settingsStore;
+    if (store == null) return;
+    unawaited(store.saveLastLiveChannel(name));
+  }
+
+  /// 频道列表就绪后恢复上次观看的频道（按频道名匹配，找不到则保持第 0 台）。
+  void _restoreLastChannel() {
+    if (_restored || _channels.isEmpty) return;
+    _restored = true;
+    final String saved = _settingsStore?.lastLiveChannel ?? '';
+    if (saved.isEmpty) return;
+    final int index = _channels.indexWhere((IptvChannel c) => c.name == saved);
+    if (index < 0) return;
+    _savedChannelName = saved;
+    // select 会立即提交播放，正符合「恢复上次频道」的语义。
+    LiveChannelController.instance.select(index);
   }
 
   /// 重新开始「无操作 N 秒后隐藏」的倒计时。
@@ -82,8 +125,7 @@ class _LivePageState extends State<LivePage> {
           IconButton(
             tooltip: '刷新',
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: () =>
-                context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
+            onPressed: () => context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
           ),
         ],
       ),
@@ -93,7 +135,10 @@ class _LivePageState extends State<LivePage> {
           // 这里同步一次，触屏点选才能立即切台。
           // 放在 listener（状态变化时）而不是 build：build 阶段的副作用会
           // 在重建中触发 notifyListeners，导致不必要的重绘。
+          _channels = state.channels;
           LiveChannelController.instance.setCount(state.channels.length);
+          // 首次拿到频道列表时恢复上次观看的频道。
+          _restoreLastChannel();
         },
         builder: (BuildContext context, IptvState state) {
           if (state.isLoading && state.channels.isEmpty) {
@@ -101,10 +146,7 @@ class _LivePageState extends State<LivePage> {
           }
           if (state.errorMessage != null && state.channels.isEmpty) {
             return Center(
-              child: Text(
-                state.errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              child: Text(state.errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             );
           }
           final List<IptvChannel> channels = state.channels;
@@ -123,29 +165,19 @@ class _LivePageState extends State<LivePage> {
                       : const ColoredBox(
                           color: Colors.black,
                           child: Center(
-                            child: Text(
-                              '播放器',
-                              style: TextStyle(color: Colors.white38),
-                            ),
+                            child: Text('播放器', style: TextStyle(color: Colors.white38)),
                           ),
                         ),
                 ),
                 // 左下角当前频道名（始终显示，便于关掉浮层后仍知道在看什么）。
-                if (channels.isNotEmpty)
-                  Positioned(
-                    left: 12,
-                    bottom: 12,
-                    child: _ChannelNameBadge(channels: channels),
-                  ),
+                if (channels.isNotEmpty) Positioned(left: 12, bottom: 12, child: _ChannelNameBadge(channels: channels)),
                 // 底部居中「上一台 / 下一台」，与列表同层，跟随显隐。
                 if (_overlayVisible && channels.isNotEmpty)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 12,
-                    child: Center(
-                      child: _ChannelSwitchControls(onInteract: _scheduleHide),
-                    ),
+                    child: Center(child: _ChannelSwitchControls(onInteract: _scheduleHide)),
                   ),
                 // 右侧频道列表浮层，跟随显隐。
                 if (_overlayVisible && channels.isNotEmpty)
@@ -154,10 +186,7 @@ class _LivePageState extends State<LivePage> {
                     bottom: 12,
                     right: 12,
                     width: _listWidth,
-                    child: _ChannelListPanel(
-                      channels: channels,
-                      onSelect: _scheduleHide,
-                    ),
+                    child: _ChannelListPanel(channels: channels, onSelect: _scheduleHide),
                   ),
               ],
             ),
@@ -185,14 +214,8 @@ class _ChannelNameBadge extends StatelessWidget {
         }
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            channels[index].name,
-            style: const TextStyle(color: Colors.white, fontSize: 20),
-          ),
+          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+          child: Text(channels[index].name, style: const TextStyle(color: Colors.white, fontSize: 20)),
         );
       },
     );
@@ -240,8 +263,12 @@ class _ChannelSwitchControls extends StatelessWidget {
   }
 }
 
-/// 右侧频道列表浮层：点选切台，点选后保持显示并重置计时。
-class _ChannelListPanel extends StatelessWidget {
+/// 右侧频道列表浮层：点选切台，选中项高亮并自动滚动到可视区中部。
+///
+/// 上/下台或点选改变的是共享的 [LiveChannelController.index]，这里监听它：
+/// - 列表随之滚动，保证当前频道始终可见（恢复上次频道时也会定位）；
+/// - 高亮当前频道（白字加粗 + 播放标记 + 底色）。
+class _ChannelListPanel extends StatefulWidget {
   const _ChannelListPanel({required this.channels, required this.onSelect});
 
   final List<IptvChannel> channels;
@@ -250,39 +277,95 @@ class _ChannelListPanel extends StatelessWidget {
   final VoidCallback onSelect;
 
   @override
+  State<_ChannelListPanel> createState() => _ChannelListPanelState();
+}
+
+class _ChannelListPanelState extends State<_ChannelListPanel> {
+  /// 单行固定高度：滚动定位按「序号 × 高度」计算，避免动态测量。
+  static const double _itemExtent = 64;
+
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    LiveChannelController.instance.addListener(_onSelectionChanged);
+    // 首次布局后先定位到当前频道（恢复上次频道时列表不会停在顶部）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelected(animate: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    LiveChannelController.instance.removeListener(_onSelectionChanged);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onSelectionChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _scrollToSelected(animate: true);
+  }
+
+  /// 把选中项滚动到可视区中部（首尾自动夹紧，不越界）。
+  void _scrollToSelected({required bool animate}) {
+    if (!mounted || !_scroll.hasClients) return;
+    final int index = LiveChannelController.instance.index;
+    if (index < 0 || index >= widget.channels.length) return;
+    final ScrollPosition position = _scroll.position;
+    final double target = (index * _itemExtent - (position.viewportDimension - _itemExtent) / 2).clamp(
+      0.0,
+      position.maxScrollExtent,
+    );
+    if (animate) {
+      _scroll.animateTo(target, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+    } else {
+      _scroll.jumpTo(target);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final int current = LiveChannelController.instance.index;
     return Material(
       color: Colors.black.withValues(alpha: 0.6),
       borderRadius: BorderRadius.circular(12),
       clipBehavior: Clip.antiAlias,
-      child: ListenableBuilder(
-        listenable: LiveChannelController.instance,
-        builder: (BuildContext context, Widget? child) {
-          final int current = LiveChannelController.instance.index;
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: channels.length,
-            itemBuilder: (BuildContext context, int index) {
-              final IptvChannel channel = channels[index];
-              return ListTile(
-                dense: true,
-                title: Text(
-                  channel.name,
-                  style: const TextStyle(color: Colors.white),
-                ),
-                subtitle: channel.group == null || channel.group!.isEmpty
-                    ? null
-                    : Text(
-                        channel.group!,
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                selected: index == current,
-                selectedTileColor: Colors.white24,
-                onTap: () {
-                  LiveChannelController.instance.select(index);
-                  onSelect();
-                },
-              );
+      child: ListView.builder(
+        controller: _scroll,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemExtent: _itemExtent,
+        itemCount: widget.channels.length,
+        itemBuilder: (BuildContext context, int index) {
+          final IptvChannel channel = widget.channels[index];
+          final bool selected = index == current;
+          return ListTile(
+            dense: true,
+            title: Text(
+              channel.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+            subtitle: channel.group == null || channel.group!.isEmpty
+                ? null
+                : Text(
+                    channel.group!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: selected ? Colors.white70 : Colors.white38),
+                  ),
+            trailing: selected ? const Icon(Icons.play_arrow_rounded, size: 20, color: Colors.white) : null,
+            selected: selected,
+            selectedTileColor: Colors.white24,
+            onTap: () {
+              LiveChannelController.instance.select(index);
+              widget.onSelect();
             },
           );
         },

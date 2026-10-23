@@ -13,6 +13,10 @@ import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
 /// 设置页：Home Assistant 连接配置（地址 + 长期访问令牌）。
 ///
@@ -38,6 +42,9 @@ class _SettingsPageState extends State<SettingsPage> {
   late int _sampleSeconds;
   late double _uiScale;
 
+  /// 天气城市（空串 = 自动，按出口 IP 定位）。
+  String _weatherCity = AppSettings.instance.weatherCity;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +57,11 @@ class _SettingsPageState extends State<SettingsPage> {
         TextEditingController(text: ControlSettings.instance.nimAccount);
     _nimTokenController =
         TextEditingController(text: ControlSettings.instance.nimToken);
+    // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
+    AppSettings.instance.ensureLoaded().then((_) {
+      if (!mounted) return;
+      setState(() => _weatherCity = AppSettings.instance.weatherCity);
+    });
   }
 
   @override
@@ -143,6 +155,18 @@ class _SettingsPageState extends State<SettingsPage> {
     Injection.get<MetricSampler>().setInterval(Duration(seconds: seconds));
   }
 
+  /// 切换天气城市：持久化并立即重新拉取；「自动」传空串（按出口 IP 定位）。
+  ///
+  /// 数据写入共享包的 [AppSettings]，天气页与中控台标题读的是同一个
+  /// [WeatherBloc]，所以切换后两处同时更新。
+  Future<void> _applyWeatherCity(String city) async {
+    if (city == _weatherCity) return;
+    setState(() => _weatherCity = city);
+    await AppSettings.instance.setWeatherCity(city);
+    if (!mounted) return;
+    context.read<WeatherBloc>().add(const LoadWeather());
+  }
+
   /// 界面缩放：松手后应用（拖动过程中实时改倍数会让滑块在手指下变大变小，
   /// 手感会飘），数值持久化，重启后保持。
   void _applyUiScale(double value) {
@@ -190,6 +214,38 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             maxLines: 1,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '天气城市',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '中控台标题与天气页共用的查询位置；「自动」每次按出口 IP 定位。可选城市来自 WEATHER_CITIES 配置。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              ChoiceChip(
+                label: const Text('自动'),
+                selected: _weatherCity.isEmpty,
+                onSelected: (_) => _applyWeatherCity(''),
+              ),
+              for (final String city in AppConfig.weatherCities)
+                ChoiceChip(
+                  label: Text(city),
+                  selected: _weatherCity == city,
+                  onSelected: (_) => _applyWeatherCity(city),
+                ),
+            ],
           ),
           const SizedBox(height: 24),
           Text(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/core/di/injection.dart';
@@ -12,6 +14,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -51,6 +54,10 @@ import 'package:pscreen_home/features/home/presentation/components/value_widget.
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_purifier_widget.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_state.dart';
+import 'package:pscreen_screen/features/weather/data/weather_data_convert.dart';
+import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
 
 /// 主页面：中控台。
 ///
@@ -68,10 +75,8 @@ class HomeControllBoard extends StatelessWidget {
       listeners: <BlocListener<dynamic, dynamic>>[
         // 连接就绪（含重连成功）时加载数据
         BlocListener<ConnectionBloc, ConnectionState>(
-          listenWhen: (ConnectionState prev, ConnectionState cur) =>
-              !prev.isReady && cur.isReady,
-          listener: (BuildContext context, ConnectionState state) =>
-              context.read<HomeBloc>().add(const LoadHome()),
+          listenWhen: (ConnectionState prev, ConnectionState cur) => !prev.isReady && cur.isReady,
+          listener: (BuildContext context, ConnectionState state) => context.read<HomeBloc>().add(const LoadHome()),
         ),
         // 控制失败提示，展示后立即清除错误避免重复弹出
         BlocListener<HomeBloc, HomeState>(
@@ -80,61 +85,165 @@ class HomeControllBoard extends StatelessWidget {
           listener: (BuildContext context, HomeState state) {
             ScaffoldMessenger.of(context)
               ..hideCurrentSnackBar()
-              ..showSnackBar(
-                SnackBar(
-                  content: Text(state.errorMessage ?? ''),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              ..showSnackBar(SnackBar(content: Text(state.errorMessage ?? ''), behavior: SnackBarBehavior.floating));
             context.read<HomeBloc>().add(const ClearHomeError());
           },
         ),
       ],
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('中控台'),
+          // 标题含两行（时钟 + 日期），比默认单行 toolbar 略高。
+          toolbarHeight: 64,
+          title: const _HomeTitle(),
           actions: <Widget>[
             const _ConnectionStatus(),
             IconButton(
               tooltip: '刷新',
               icon: const Icon(Icons.refresh_rounded),
-              onPressed: () =>
-                  context.read<HomeBloc>().add(const LoadHome()),
+              onPressed: () => context.read<HomeBloc>().add(const LoadHome()),
             ),
             IconButton(
               tooltip: '时钟',
               icon: const Icon(Icons.schedule_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.clockPath),
+              onPressed: () => Injection.get<AppRouter>().push(RouteNames.clockPath),
             ),
             IconButton(
               tooltip: '直播',
               icon: const Icon(Icons.live_tv_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.livePath),
+              onPressed: () => Injection.get<AppRouter>().push(RouteNames.livePath),
             ),
             IconButton(
               tooltip: '天气',
               icon: const Icon(Icons.cloud_outlined),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.weatherPath),
+              onPressed: () => Injection.get<AppRouter>().push(RouteNames.weatherPath),
             ),
             IconButton(
               tooltip: '遥控',
               icon: const Icon(Icons.cast_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.remoteControlPath),
+              onPressed: () => Injection.get<AppRouter>().push(RouteNames.remoteControlPath),
             ),
             IconButton(
               tooltip: '设置',
               icon: const Icon(Icons.settings_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.settingsPath),
+              onPressed: () => Injection.get<AppRouter>().push(RouteNames.settingsPath),
             ),
           ],
         ),
         body: const _Body(),
       ),
+    );
+  }
+}
+
+/// AppBar 标题：时钟（数字等宽）+ 日期 / 农历 / 星期 + 当前天气。
+///
+/// 天气取自全局 [WeatherBloc]，与天气页共享同一份数据；自动刷新由该状态机
+/// 内置的 5 分钟定时器驱动。时间每秒刷新。
+class _HomeTitle extends StatefulWidget {
+  const _HomeTitle();
+
+  @override
+  State<_HomeTitle> createState() => _HomeTitleState();
+}
+
+class _HomeTitleState extends State<_HomeTitle> {
+  DateTime _now = DateTime.now();
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: <Widget>[
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              formatClockTime(_now),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                height: 1.05,
+                // 数字等宽：秒数跳动时标题宽度不抖动。
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+              ),
+            ),
+            Text(
+              formatDate(_now),
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.2),
+            ),
+          ],
+        ),
+        const SizedBox(width: 8),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: <Widget>[
+            Text(
+              formatLunarLine(_now),
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.2),
+            ),
+            Text(
+              formatWeekLine(_now),
+              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.2),
+            ),
+          ],
+        ),
+        const SizedBox(width: 16),
+        const _NowWeather(),
+      ],
+    );
+  }
+}
+
+/// 当前天气：图标 + 气温，无数据时静默隐藏。
+class _NowWeather extends StatelessWidget {
+  const _NowWeather();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<WeatherBloc, WeatherState>(
+      builder: (BuildContext context, WeatherState state) {
+        final WeatherNow? now = state.data?.now;
+        final ThemeData theme = Theme.of(context);
+        if (now == null) return const SizedBox.shrink();
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            WeatherDataConvert.weatherIcon(context, now.skycon, size: 28),
+            const SizedBox(width: 8),
+            Column(
+              children: [
+                Text(
+                  '${now.temperature?.round() ?? '--'}°',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  now.city,
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.2),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -151,10 +260,8 @@ class _ConnectionStatus extends StatelessWidget {
           HaConnectionPhase.ready => ('已连接', Colors.greenAccent),
           HaConnectionPhase.connecting => ('连接中', Colors.orangeAccent),
           HaConnectionPhase.authenticating => ('认证中', Colors.orangeAccent),
-          HaConnectionPhase.authFailed =>
-            (state.message ?? '认证失败', Colors.redAccent),
-          HaConnectionPhase.disconnected =>
-            (state.isRetrying ? '重连中…' : '未连接', Colors.redAccent),
+          HaConnectionPhase.authFailed => (state.message ?? '认证失败', Colors.redAccent),
+          HaConnectionPhase.disconnected => (state.isRetrying ? '重连中…' : '未连接', Colors.redAccent),
         };
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -178,9 +285,7 @@ class _ConnectionStatus extends StatelessWidget {
               IconButton(
                 tooltip: '重试',
                 icon: const Icon(Icons.refresh_rounded),
-                onPressed: () => context
-                    .read<ConnectionBloc>()
-                    .add(const RetryConnection()),
+                onPressed: () => context.read<ConnectionBloc>().add(const RetryConnection()),
               ),
           ],
         );
@@ -226,8 +331,7 @@ class _HomeOverviewBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
-        final List<HomeClimateSummary> summaries =
-            state.homeClimateSummaries;
+        final List<HomeClimateSummary> summaries = state.homeClimateSummaries;
         if (summaries.isEmpty) return const SizedBox.shrink();
 
         final String selected = state.effectiveHomeName;
@@ -242,9 +346,7 @@ class _HomeOverviewBar extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: _SelectedHomeSummary(
                 summary: summary,
-                onShowAll: () => context
-                    .read<HomeBloc>()
-                    .add(const HomeSelected('')),
+                onShowAll: () => context.read<HomeBloc>().add(const HomeSelected('')),
               ),
             ),
           );
@@ -256,15 +358,12 @@ class _HomeOverviewBar extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             itemCount: summaries.length,
-            separatorBuilder: (BuildContext context, int index) =>
-                const SizedBox(width: 8),
+            separatorBuilder: (BuildContext context, int index) => const SizedBox(width: 8),
             itemBuilder: (BuildContext context, int index) {
               final HomeClimateSummary summary = summaries[index];
               return _HomeSummaryCard(
                 summary: summary,
-                onTap: () => context
-                    .read<HomeBloc>()
-                    .add(HomeSelected(summary.homeName)),
+                onTap: () => context.read<HomeBloc>().add(HomeSelected(summary.homeName)),
               );
             },
           ),
@@ -301,28 +400,19 @@ class _HomeSummaryCard extends StatelessWidget {
               children: <Widget>[
                 Row(
                   children: <Widget>[
-                    Icon(
-                      Icons.home_rounded,
-                      size: 15,
-                      color: theme.colorScheme.outline,
-                    ),
+                    Icon(Icons.home_rounded, size: 15, color: theme.colorScheme.outline),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         summary.homeName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
                   ],
                 ),
-                if (summary.hasData) ...<Widget>[
-                  const SizedBox(height: 4),
-                  _ClimateValues(summary: summary),
-                ],
+                if (summary.hasData) ...<Widget>[const SizedBox(height: 4), _ClimateValues(summary: summary)],
               ],
             ),
           ),
@@ -334,10 +424,7 @@ class _HomeSummaryCard extends StatelessWidget {
 
 /// 已选家庭的摘要（更宽，右侧「全部」返回）。
 class _SelectedHomeSummary extends StatelessWidget {
-  const _SelectedHomeSummary({
-    required this.summary,
-    required this.onShowAll,
-  });
+  const _SelectedHomeSummary({required this.summary, required this.onShowAll});
 
   final HomeClimateSummary summary;
   final VoidCallback onShowAll;
@@ -353,11 +440,7 @@ class _SelectedHomeSummary extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
-            Icons.home_rounded,
-            size: 20,
-            color: _HomeOverviewBar._accent,
-          ),
+          const Icon(Icons.home_rounded, size: 20, color: _HomeOverviewBar._accent),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -368,14 +451,9 @@ class _SelectedHomeSummary extends StatelessWidget {
                   summary.homeName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
-                if (summary.hasData) ...<Widget>[
-                  const SizedBox(height: 2),
-                  _ClimateValues(summary: summary),
-                ],
+                if (summary.hasData) ...<Widget>[const SizedBox(height: 2), _ClimateValues(summary: summary)],
               ],
             ),
           ),
@@ -409,28 +487,19 @@ class _ClimateValues extends StatelessWidget {
         if (summary.temperature != null)
           Text(
             '${formatTemperature(summary.temperature)}°C',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: _HomeOverviewBar._accent,
-            ),
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: _HomeOverviewBar._accent),
           ),
-        if (summary.temperature != null && summary.humidity != null)
-          const SizedBox(width: 8),
+        if (summary.temperature != null && summary.humidity != null) const SizedBox(width: 8),
         if (summary.humidity != null)
           Text(
             '${summary.humidity}%',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),
       ],
     );
     final String? source = summary.sourceName;
     if (source == null) return values;
-    return Tooltip(
-      message: '数据来源：$source',
-      child: values,
-    );
+    return Tooltip(message: '数据来源：$source', child: values);
   }
 }
 
@@ -453,28 +522,22 @@ class _AreaBar extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             itemCount: areas.length + 1,
-            separatorBuilder: (BuildContext context, int index) =>
-                const SizedBox(width: 8),
+            separatorBuilder: (BuildContext context, int index) => const SizedBox(width: 8),
             itemBuilder: (BuildContext context, int index) {
               if (index == 0) {
                 return ChoiceChip(
                   label: const Text('全部'),
                   selected: current.isEmpty,
-                  onSelected: (_) => context
-                      .read<HomeBloc>()
-                      .add(const AreaSelected('')),
+                  onSelected: (_) => context.read<HomeBloc>().add(const AreaSelected('')),
                 );
               }
               final HaArea area = areas[index - 1];
               // 已选家庭时房间名天然不重复，用短名；否则用完整区域名区分
-              final String label =
-                  scopedByHome ? area.roomName : area.name;
+              final String label = scopedByHome ? area.roomName : area.name;
               return ChoiceChip(
                 label: Text('$label ${state.areaCount(area.areaId)}'),
                 selected: current == area.areaId,
-                onSelected: (_) => context
-                    .read<HomeBloc>()
-                    .add(AreaSelected(area.areaId)),
+                onSelected: (_) => context.read<HomeBloc>().add(AreaSelected(area.areaId)),
               );
             },
           ),
@@ -493,8 +556,8 @@ class _ConnectionPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final bool connecting = state.phase == HaConnectionPhase.connecting ||
-        state.phase == HaConnectionPhase.authenticating;
+    final bool connecting =
+        state.phase == HaConnectionPhase.connecting || state.phase == HaConnectionPhase.authenticating;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -507,25 +570,20 @@ class _ConnectionPlaceholder extends StatelessWidget {
               Text('正在连接 Home Assistant…', style: theme.textTheme.bodyMedium),
             ] else ...<Widget>[
               Icon(
-                state.phase == HaConnectionPhase.authFailed
-                    ? Icons.lock_rounded
-                    : Icons.cloud_off_rounded,
+                state.phase == HaConnectionPhase.authFailed ? Icons.lock_rounded : Icons.cloud_off_rounded,
                 size: 48,
                 color: theme.colorScheme.outline,
               ),
               const SizedBox(height: 16),
               Text(
-                state.message ??
-                    (state.isRetrying ? '连接中断，正在自动重试…' : '未连接到 Home Assistant'),
+                state.message ?? (state.isRetrying ? '连接中断，正在自动重试…' : '未连接到 Home Assistant'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium,
               ),
               if (state.canRetry) ...<Widget>[
                 const SizedBox(height: 16),
                 FilledButton.tonal(
-                  onPressed: () => context
-                      .read<ConnectionBloc>()
-                      .add(const RetryConnection()),
+                  onPressed: () => context.read<ConnectionBloc>().add(const RetryConnection()),
                   child: const Text('立即重试'),
                 ),
               ],
@@ -553,11 +611,7 @@ class _ControlGrid extends StatelessWidget {
           return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('正在加载设备…'),
-              ],
+              children: <Widget>[CircularProgressIndicator(), SizedBox(height: 16), Text('正在加载设备…')],
             ),
           );
         }
@@ -568,8 +622,7 @@ class _ControlGrid extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(Icons.lightbulb_outline_rounded,
-                    size: 48, color: Colors.grey),
+                Icon(Icons.lightbulb_outline_rounded, size: 48, color: Colors.grey),
                 SizedBox(height: 16),
                 Text('没有找到实体'),
               ],
@@ -579,26 +632,18 @@ class _ControlGrid extends StatelessWidget {
 
         final Map<String, LockSummary> locks = state.lockSummaries;
         final Map<String, WasherSummary> washers = state.washerSummaries;
-        final Map<String, WaterHeaterSummary> waterHeaters =
-            state.waterHeaterSummaries;
+        final Map<String, WaterHeaterSummary> waterHeaters = state.waterHeaterSummaries;
         final Map<String, KettleSummary> kettles = state.kettleSummaries;
         final Map<String, FanSummary> fans = state.fanSummaries;
-        final Map<String, ProjectorSummary> projectors =
-            state.projectorSummaries;
+        final Map<String, ProjectorSummary> projectors = state.projectorSummaries;
         final Map<String, FridgeSummary> fridges = state.fridgeSummaries;
         final Map<String, SocketSummary> sockets = state.socketSummaries;
-        final Map<String, MultiSwitchSummary> multiSwitches =
-            state.multiSwitchSummaries;
-        final Map<String, RiceCookerSummary> riceCookers =
-            state.riceCookerSummaries;
-        final Map<String, AirFryerSummary> airFryers =
-            state.airFryerSummaries;
-        final Map<String, WaterPurifierSummary> purifiers =
-            state.waterPurifierSummaries;
-        final Map<String, RangeHoodSummary> hoods =
-            state.rangeHoodSummaries;
-        final MetricHistoryStore historyStore =
-            Injection.get<MetricHistoryStore>();
+        final Map<String, MultiSwitchSummary> multiSwitches = state.multiSwitchSummaries;
+        final Map<String, RiceCookerSummary> riceCookers = state.riceCookerSummaries;
+        final Map<String, AirFryerSummary> airFryers = state.airFryerSummaries;
+        final Map<String, WaterPurifierSummary> purifiers = state.waterPurifierSummaries;
+        final Map<String, RangeHoodSummary> hoods = state.rangeHoodSummaries;
+        final MetricHistoryStore historyStore = Injection.get<MetricHistoryStore>();
         return GridView.builder(
           padding: const EdgeInsets.all(16),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -610,109 +655,78 @@ class _ControlGrid extends StatelessWidget {
           itemCount: groups.length,
           itemBuilder: (BuildContext context, int index) {
             final HaDeviceGroup group = groups[index];
-            final String areaLabel = state.areaLabelFor(
-              group.primary?.entityId ?? group.entities.first.entityId,
-            );
+            final String areaLabel = state.areaLabelFor(group.primary?.entityId ?? group.entities.first.entityId);
 
             // 门锁：上锁状态 + 电池电量 + 电量更新时间（无快捷开关按钮）
-            final LockSummary? lock =
-                group.deviceId == null ? null : locks[group.deviceId];
+            final LockSummary? lock = group.deviceId == null ? null : locks[group.deviceId];
             if (lock != null) {
               return LockWidget(
                 summary: lock,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 双开开关：两路按键状态
-            final MultiSwitchSummary? multiSwitch = group.deviceId == null
-                ? null
-                : multiSwitches[group.deviceId];
+            final MultiSwitchSummary? multiSwitch = group.deviceId == null ? null : multiSwitches[group.deviceId];
             if (multiSwitch != null) {
               return MultiSwitchWidget(
                 summary: multiSwitch,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 togglingIds: state.togglingIds,
-                onToggleGang: (String entityId) => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: entityId)),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onToggleGang: (String entityId) => context.read<HomeBloc>().add(ToggleEntity(entityId: entityId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 智能插座：开关 + 当前功率 + 累计电量
-            final SocketSummary? socket =
-                group.deviceId == null ? null : sockets[group.deviceId];
+            final SocketSummary? socket = group.deviceId == null ? null : sockets[group.deviceId];
             if (socket != null) {
-              final String? powerEntityId =
-                  socket.stats.acPowerEntityId ?? socket.stats.currentEntityId;
+              final String? powerEntityId = socket.stats.acPowerEntityId ?? socket.stats.currentEntityId;
               return SocketWidget(
                 summary: socket,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                isToggling:
-                    state.togglingIds.contains(socket.powerEntityId),
-                history: historyStore.watch(
-                  socket.deviceId,
-                  Metric.power,
-                ),
+                isToggling: state.togglingIds.contains(socket.powerEntityId),
+                history: historyStore.watch(socket.deviceId, Metric.power),
                 historyService: Injection.get<HistoryService>(),
                 deviceId: socket.deviceId,
-                powerSource: powerEntityId == null
-                    ? null
-                    : MetricSource(powerEntityId),
-                onToggle: () => context.read<HomeBloc>().add(
-                      ToggleEntity(entityId: socket.powerEntityId),
-                    ),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                powerSource: powerEntityId == null ? null : MetricSource(powerEntityId),
+                onToggle: () => context.read<HomeBloc>().add(ToggleEntity(entityId: socket.powerEntityId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 油烟机：电源 / 风量 / 灯光 / 延时
-            final RangeHoodSummary? hood = group.deviceId == null
-                ? null
-                : hoods[group.deviceId];
+            final RangeHoodSummary? hood = group.deviceId == null ? null : hoods[group.deviceId];
             if (hood != null) {
               return RangeHoodWidget(
                 summary: hood,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                isToggling:
-                    state.togglingIds.contains(hood.powerEntityId),
+                isToggling: state.togglingIds.contains(hood.powerEntityId),
                 onToggle: hood.powerEntityId == null
                     ? () {}
-                    : () => context.read<HomeBloc>().add(
-                          ToggleEntity(entityId: hood.powerEntityId!),
-                        ),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => context.read<HomeBloc>().add(ToggleEntity(entityId: hood.powerEntityId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 净水器：TDS / 水温 / 滤芯
-            final WaterPurifierSummary? purifier = group.deviceId == null
-                ? null
-                : purifiers[group.deviceId];
+            final WaterPurifierSummary? purifier = group.deviceId == null ? null : purifiers[group.deviceId];
             if (purifier != null) {
               return WaterPurifierWidget(
                 summary: purifier,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 电饭煲：状态 / 剩余时长 + 开始/停止
-            final RiceCookerSummary? riceCooker = group.deviceId == null
-                ? null
-                : riceCookers[group.deviceId];
+            final RiceCookerSummary? riceCooker = group.deviceId == null ? null : riceCookers[group.deviceId];
             if (riceCooker != null) {
               return RiceCookerWidget(
                 summary: riceCooker,
@@ -721,27 +735,17 @@ class _ControlGrid extends StatelessWidget {
                 onStart: riceCooker.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
-                          PressNotifyAction(
-                            entityId: riceCooker.startEntityId!,
-                            message: riceCooker.startMessage,
-                          ),
-                        ),
+                        PressNotifyAction(entityId: riceCooker.startEntityId!, message: riceCooker.startMessage),
+                      ),
                 onStop: riceCooker.stopEntityId == null
                     ? null
-                    : () => context.read<HomeBloc>().add(
-                          PressEntityButton(
-                            entityId: riceCooker.stopEntityId!,
-                          ),
-                        ),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => context.read<HomeBloc>().add(PressEntityButton(entityId: riceCooker.stopEntityId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 空气炸锅：模式 / 温度 / 时间 + 开始/停止
-            final AirFryerSummary? airFryer = group.deviceId == null
-                ? null
-                : airFryers[group.deviceId];
+            final AirFryerSummary? airFryer = group.deviceId == null ? null : airFryers[group.deviceId];
             if (airFryer != null) {
               return AirFryerWidget(
                 summary: airFryer,
@@ -749,105 +753,73 @@ class _ControlGrid extends StatelessWidget {
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 onStart: airFryer.startEntityId == null
                     ? null
-                    : () => context.read<HomeBloc>().add(
-                          PressEntityButton(
-                            entityId: airFryer.startEntityId!,
-                          ),
-                        ),
+                    : () => context.read<HomeBloc>().add(PressEntityButton(entityId: airFryer.startEntityId!)),
                 onStop: airFryer.stopEntityId == null
                     ? null
-                    : () => context.read<HomeBloc>().add(
-                          PressEntityButton(
-                            entityId: airFryer.stopEntityId!,
-                          ),
-                        ),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => context.read<HomeBloc>().add(PressEntityButton(entityId: airFryer.stopEntityId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 冰箱：三舱温度 + 模式
-            final FridgeSummary? fridge =
-                group.deviceId == null ? null : fridges[group.deviceId];
+            final FridgeSummary? fridge = group.deviceId == null ? null : fridges[group.deviceId];
             if (fridge != null) {
               return FridgeWidget(
                 summary: fridge,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 风扇：模式 / 档位 / 摆风 + 电源
-            final FanSummary? fan =
-                group.deviceId == null ? null : fans[group.deviceId];
+            final FanSummary? fan = group.deviceId == null ? null : fans[group.deviceId];
             if (fan != null && group.primary?.isFan == true) {
               return FanWidget(
                 summary: fan,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                isToggling:
-                    state.togglingIds.contains(fan.entity.entityId),
-                onToggle: () => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: fan.entity.entityId)),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                isToggling: state.togglingIds.contains(fan.entity.entityId),
+                onToggle: () => context.read<HomeBloc>().add(ToggleEntity(entityId: fan.entity.entityId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 风扇灯组合：同一设备同时有灯 + 风扇
             final HaEntityStateModel? comboPrimary = group.primary;
-            if (fan != null &&
-                comboPrimary != null &&
-                comboPrimary.isLight) {
-              final String toggleId =
-                  fan.masterSwitchEntityId ?? comboPrimary.entityId;
+            if (fan != null && comboPrimary != null && comboPrimary.isLight) {
+              final String toggleId = fan.masterSwitchEntityId ?? comboPrimary.entityId;
               return FanLightWidget(
                 light: comboPrimary,
                 fan: fan,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(toggleId),
-                onToggleMaster: () => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: toggleId)),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onToggleMaster: () => context.read<HomeBloc>().add(ToggleEntity(entityId: toggleId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 投影仪：开关机 / 当前应用 / 音量和亮度
-            final ProjectorSummary? projector = group.deviceId == null
-                ? null
-                : projectors[group.deviceId];
+            final ProjectorSummary? projector = group.deviceId == null ? null : projectors[group.deviceId];
             if (projector != null) {
-              final String? powerId = projector.isOn
-                  ? projector.powerOffEntityId
-                  : projector.powerOnEntityId;
-              final bool powerAvailable = projector.isOn
-                  ? projector.powerOffAvailable
-                  : projector.powerOnAvailable;
+              final String? powerId = projector.isOn ? projector.powerOffEntityId : projector.powerOnEntityId;
+              final bool powerAvailable = projector.isOn ? projector.powerOffAvailable : projector.powerOnAvailable;
               return ProjectorWidget(
                 summary: projector,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                isBusy: powerId != null &&
-                    state.togglingIds.contains(powerId),
+                isBusy: powerId != null && state.togglingIds.contains(powerId),
                 onPower: powerId == null || !powerAvailable
                     ? () {}
-                    : () => context
-                        .read<HomeBloc>()
-                        .add(PressEntityButton(entityId: powerId)),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => context.read<HomeBloc>().add(PressEntityButton(entityId: powerId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 电热水瓶：当前水温 + 状态 + 模式 + 开始/停止
-            final KettleSummary? kettle =
-                group.deviceId == null ? null : kettles[group.deviceId];            if (kettle != null) {
+            final KettleSummary? kettle = group.deviceId == null ? null : kettles[group.deviceId];
+            if (kettle != null) {
               return KettleWidget(
                 summary: kettle,
                 areaLabel: areaLabel,
@@ -855,35 +827,24 @@ class _ControlGrid extends StatelessWidget {
                 onStart: kettle.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
-                          PressNotifyAction(
-                            entityId: kettle.startEntityId!,
-                            message: kettle.startMessage,
-                          ),
-                        ),
+                        PressNotifyAction(entityId: kettle.startEntityId!, message: kettle.startMessage),
+                      ),
                 onStop: kettle.stopEntityId == null
                     ? null
-                    : () => context.read<HomeBloc>().add(
-                          PressEntityButton(
-                            entityId: kettle.stopEntityId!,
-                          ),
-                        ),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => context.read<HomeBloc>().add(PressEntityButton(entityId: kettle.stopEntityId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
             // 热水器：状态 / 当前水温 + 目标温度加减
-            final WaterHeaterSummary? waterHeater =
-                group.deviceId == null ? null : waterHeaters[group.deviceId];
+            final WaterHeaterSummary? waterHeater = group.deviceId == null ? null : waterHeaters[group.deviceId];
             if (waterHeater != null) {
               final String entityId = waterHeater.entity.entityId;
               final double step = waterHeater.targetStep;
               void adjust(int direction) {
-                final double base = waterHeater.targetTemperature ??
-                    waterHeater.minTemperature;
-                context.read<HomeBloc>().add(SetWaterHeaterTemperature(
-                      entityId: entityId,
-                      temperature: base + direction * step,
-                    ));
+                final double base = waterHeater.targetTemperature ?? waterHeater.minTemperature;
+                context.read<HomeBloc>().add(
+                  SetWaterHeaterTemperature(entityId: entityId, temperature: base + direction * step),
+                );
               }
 
               return WaterHeaterWidget(
@@ -892,49 +853,37 @@ class _ControlGrid extends StatelessWidget {
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(entityId),
-                onToggle: () => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: entityId)),
+                onToggle: () => context.read<HomeBloc>().add(ToggleEntity(entityId: entityId)),
                 onIncrease: () => adjust(1),
                 onDecrease: () => adjust(-1),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 洗衣机：状态 / 剩余时间 / 累计统计 + 真正的电源开关
-            final WasherSummary? washer =
-                group.deviceId == null ? null : washers[group.deviceId];
+            final WasherSummary? washer = group.deviceId == null ? null : washers[group.deviceId];
             if (washer != null) {
-              final String powerId = washer.powerEntityId ??
-                  group.primary?.entityId ??
-                  group.entities.first.entityId;
+              final String powerId = washer.powerEntityId ?? group.primary?.entityId ?? group.entities.first.entityId;
               return WasherWidget(
                 summary: washer,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(powerId),
-                onToggle: () => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: powerId)),
-                onOpenDetail: () => Injection.get<AppRouter>()
-                    .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                onToggle: () => context.read<HomeBloc>().add(ToggleEntity(entityId: powerId)),
+                onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 含空调的设备：直接用温度卡（可进详情控制其余实体）
             final HaEntityStateModel? climate = group.climate;
             if (climate != null) {
-              final bool toggling =
-                  state.togglingIds.contains(climate.entityId);
+              final bool toggling = state.togglingIds.contains(climate.entityId);
               final double step = climate.targetTempStep;
               void adjust(int direction) {
-                final double base =
-                    climate.targetTemperature ?? climate.minTargetTemperature;
-                context.read<HomeBloc>().add(SetClimateTemperature(
-                      entityId: climate.entityId,
-                      temperature: base + direction * step,
-                    ));
+                final double base = climate.targetTemperature ?? climate.minTargetTemperature;
+                context.read<HomeBloc>().add(
+                  SetClimateTemperature(entityId: climate.entityId, temperature: base + direction * step),
+                );
               }
 
               return ClimateWidget(
@@ -945,48 +894,33 @@ class _ControlGrid extends StatelessWidget {
                 powerWatts: group.deviceId == null
                     ? null
                     : (state.powerStats[group.deviceId]?.acPowerWatts ??
-                        state.powerStats[group.deviceId]?.currentWatts),
-                onToggle: () => context
-                    .read<HomeBloc>()
-                    .add(ToggleEntity(entityId: climate.entityId)),
+                          state.powerStats[group.deviceId]?.currentWatts),
+                onToggle: () => context.read<HomeBloc>().add(ToggleEntity(entityId: climate.entityId)),
                 onIncrease: () => adjust(1),
                 onDecrease: () => adjust(-1),
                 onOpenDetail: group.deviceId == null
                     ? null
-                    : () => Injection.get<AppRouter>()
-                        .push(RouteNames.deviceDetailPath(group.deviceId!)),
+                    : () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
             }
 
             // 单实体设备：可开关 → 点击即开关；数据 / 动作 / 不可用 → 静态展示
             if (!group.isMerged) {
-              final HaEntityStateModel entity =
-                  group.primary ?? group.entities.first;
+              final HaEntityStateModel entity = group.primary ?? group.entities.first;
               if (!entity.isSwitchable) {
-                return ValueWidget(
-                  entity: entity,
-                  areaLabel: areaLabel,
-                  showAreaInTitle: state.selectedAreaId.isEmpty,
-                );
+                return ValueWidget(entity: entity, areaLabel: areaLabel, showAreaInTitle: state.selectedAreaId.isEmpty);
               }
-              final bool toggling =
-                  state.togglingIds.contains(entity.entityId);
-              void onTap() => context
-                  .read<HomeBloc>()
-                  .add(ToggleEntity(entityId: entity.entityId));
+              final bool toggling = state.togglingIds.contains(entity.entityId);
+              void onTap() => context.read<HomeBloc>().add(ToggleEntity(entityId: entity.entityId));
               if (entity.domain == 'light') {
                 return LightWidget(
                   entity: entity,
                   isToggling: toggling,
                   onToggle: onTap,
                   areaLabel: areaLabel,
-                showAreaInTitle: state.selectedAreaId.isEmpty,
-                  onBrightnessChanged: (int percent) => context
-                      .read<HomeBloc>()
-                      .add(SetLightBrightness(
-                        entityId: entity.entityId,
-                        percent: percent,
-                      )),
+                  showAreaInTitle: state.selectedAreaId.isEmpty,
+                  onBrightnessChanged: (int percent) =>
+                      context.read<HomeBloc>().add(SetLightBrightness(entityId: entity.entityId, percent: percent)),
                 );
               }
               return ButtonWidget(
@@ -1002,28 +936,19 @@ class _ControlGrid extends StatelessWidget {
             final HaEntityStateModel? primary = group.primary;
             return DeviceWidget(
               group: group,
-              isToggling: primary != null &&
-                  group.isTogglingIn(state.togglingIds),
+              isToggling: primary != null && group.isTogglingIn(state.togglingIds),
               areaLabel: areaLabel,
               showAreaInTitle: state.selectedAreaId.isEmpty,
               onTogglePrimary: () {
                 if (primary != null) {
-                  context
-                      .read<HomeBloc>()
-                      .add(ToggleEntity(entityId: primary.entityId));
+                  context.read<HomeBloc>().add(ToggleEntity(entityId: primary.entityId));
                 }
               },
-              onOpenDetail: () => Injection.get<AppRouter>()
-                  .push(RouteNames.deviceDetailPath(group.deviceId!)),
-              onBrightnessChanged:
-                  primary != null && primary.isLight && primary.supportsBrightness
-                      ? (int percent) => context.read<HomeBloc>().add(
-                            SetLightBrightness(
-                              entityId: primary.entityId,
-                              percent: percent,
-                            ),
-                          )
-                      : null,
+              onOpenDetail: () => Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(group.deviceId!)),
+              onBrightnessChanged: primary != null && primary.isLight && primary.supportsBrightness
+                  ? (int percent) =>
+                        context.read<HomeBloc>().add(SetLightBrightness(entityId: primary.entityId, percent: percent))
+                  : null,
             );
           },
         );
