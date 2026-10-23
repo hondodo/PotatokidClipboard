@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 风扇快捷卡片：模式 + 档位 + 摆风，卡片右上角电源。
 ///
@@ -11,6 +12,7 @@ class FanWidget extends StatelessWidget {
     required this.isToggling,
     required this.onToggle,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -18,6 +20,7 @@ class FanWidget extends StatelessWidget {
   final bool isToggling;
   final VoidCallback onToggle;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF4DD0C4);
@@ -68,7 +71,11 @@ class FanWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

@@ -107,4 +107,28 @@ void main() {
     expect(sparkline.samples.last.value, 42);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('插座卡片：全部房间时标题前置房间名', (WidgetTester tester) async {
+    await tester.pumpWidget(_host(SocketWidget(
+      summary: _socket(),
+      isToggling: false,
+      onToggle: () {},
+      areaLabel: '客厅',
+      showAreaInTitle: true,
+    )));
+
+    expect(find.text('客厅 米家智能插座3'), findsOneWidget);
+  });
+
+  testWidgets('插座卡片：选中房间时标题不重复房间名', (WidgetTester tester) async {
+    await tester.pumpWidget(_host(SocketWidget(
+      summary: _socket(),
+      isToggling: false,
+      onToggle: () {},
+      areaLabel: '客厅',
+    )));
+
+    expect(find.text('米家智能插座3'), findsOneWidget);
+    expect(find.text('客厅 米家智能插座3'), findsNothing);
+  });
 }

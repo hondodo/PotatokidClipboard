@@ -621,6 +621,7 @@ class _ControlGrid extends StatelessWidget {
               return LockWidget(
                 summary: lock,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
@@ -634,6 +635,7 @@ class _ControlGrid extends StatelessWidget {
               return MultiSwitchWidget(
                 summary: multiSwitch,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 togglingIds: state.togglingIds,
                 onToggleGang: (String entityId) => context
                     .read<HomeBloc>()
@@ -652,6 +654,7 @@ class _ControlGrid extends StatelessWidget {
               return SocketWidget(
                 summary: socket,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling:
                     state.togglingIds.contains(socket.powerEntityId),
                 history: historyStore.watch(
@@ -679,6 +682,7 @@ class _ControlGrid extends StatelessWidget {
               return RangeHoodWidget(
                 summary: hood,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling:
                     state.togglingIds.contains(hood.powerEntityId),
                 onToggle: hood.powerEntityId == null
@@ -699,6 +703,7 @@ class _ControlGrid extends StatelessWidget {
               return WaterPurifierWidget(
                 summary: purifier,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
@@ -712,6 +717,7 @@ class _ControlGrid extends StatelessWidget {
               return RiceCookerWidget(
                 summary: riceCooker,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onStart: riceCooker.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
@@ -740,6 +746,7 @@ class _ControlGrid extends StatelessWidget {
               return AirFryerWidget(
                 summary: airFryer,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onStart: airFryer.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
@@ -766,6 +773,7 @@ class _ControlGrid extends StatelessWidget {
               return FridgeWidget(
                 summary: fridge,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onOpenDetail: () => Injection.get<AppRouter>()
                     .push(RouteNames.deviceDetailPath(group.deviceId!)),
               );
@@ -778,6 +786,7 @@ class _ControlGrid extends StatelessWidget {
               return FanWidget(
                 summary: fan,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling:
                     state.togglingIds.contains(fan.entity.entityId),
                 onToggle: () => context
@@ -799,6 +808,7 @@ class _ControlGrid extends StatelessWidget {
                 light: comboPrimary,
                 fan: fan,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(toggleId),
                 onToggleMaster: () => context
                     .read<HomeBloc>()
@@ -822,6 +832,7 @@ class _ControlGrid extends StatelessWidget {
               return ProjectorWidget(
                 summary: projector,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isBusy: powerId != null &&
                     state.togglingIds.contains(powerId),
                 onPower: powerId == null || !powerAvailable
@@ -840,6 +851,7 @@ class _ControlGrid extends StatelessWidget {
               return KettleWidget(
                 summary: kettle,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 onStart: kettle.startEntityId == null
                     ? null
                     : () => context.read<HomeBloc>().add(
@@ -878,6 +890,7 @@ class _ControlGrid extends StatelessWidget {
                 entity: waterHeater.entity,
                 statusLabel: waterHeater.statusLabel,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(entityId),
                 onToggle: () => context
                     .read<HomeBloc>()
@@ -899,6 +912,7 @@ class _ControlGrid extends StatelessWidget {
               return WasherWidget(
                 summary: washer,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 isToggling: state.togglingIds.contains(powerId),
                 onToggle: () => context
                     .read<HomeBloc>()
@@ -927,6 +941,7 @@ class _ControlGrid extends StatelessWidget {
                 entity: climate,
                 isToggling: toggling,
                 areaLabel: state.areaLabelFor(climate.entityId),
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                 powerWatts: group.deviceId == null
                     ? null
                     : (state.powerStats[group.deviceId]?.acPowerWatts ??
@@ -948,7 +963,11 @@ class _ControlGrid extends StatelessWidget {
               final HaEntityStateModel entity =
                   group.primary ?? group.entities.first;
               if (!entity.isSwitchable) {
-                return ValueWidget(entity: entity, areaLabel: areaLabel);
+                return ValueWidget(
+                  entity: entity,
+                  areaLabel: areaLabel,
+                  showAreaInTitle: state.selectedAreaId.isEmpty,
+                );
               }
               final bool toggling =
                   state.togglingIds.contains(entity.entityId);
@@ -961,6 +980,7 @@ class _ControlGrid extends StatelessWidget {
                   isToggling: toggling,
                   onToggle: onTap,
                   areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
                   onBrightnessChanged: (int percent) => context
                       .read<HomeBloc>()
                       .add(SetLightBrightness(
@@ -974,6 +994,7 @@ class _ControlGrid extends StatelessWidget {
                 isToggling: toggling,
                 onToggle: onTap,
                 areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
               );
             }
 
@@ -984,6 +1005,7 @@ class _ControlGrid extends StatelessWidget {
               isToggling: primary != null &&
                   group.isTogglingIn(state.togglingIds),
               areaLabel: areaLabel,
+              showAreaInTitle: state.selectedAreaId.isEmpty,
               onTogglePrimary: () {
                 if (primary != null) {
                   context

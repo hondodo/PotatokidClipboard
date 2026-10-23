@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
 
 /// 按钮类开关控件卡片（switch 等可开关域）。
@@ -14,6 +15,7 @@ class ButtonWidget extends StatelessWidget {
     required this.isToggling,
     required this.onToggle,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.icon,
     this.activeColor,
     this.blockedReason,
@@ -32,6 +34,9 @@ class ButtonWidget extends StatelessWidget {
 
   /// 所属房间展示名（未分配时由页面兜底为「未分配房间」）
   final String? areaLabel;
+
+  /// 显示全部房间时，标题前置房间名。
+  final bool showAreaInTitle;
 
   /// 自定义图标（子类如 LightWidget 覆盖）
   final IconData? icon;
@@ -95,7 +100,11 @@ class ButtonWidget extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
                     Text(
-                      entity.displayName,
+                      cardTitle(
+                        title: entity.displayName,
+                        areaLabel: areaLabel,
+                        showArea: showAreaInTitle,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(

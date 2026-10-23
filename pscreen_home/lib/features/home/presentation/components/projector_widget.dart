@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 投影仪快捷卡片：开关机 / 当前应用 / 输入源 / 音量 / 亮度。
 class ProjectorWidget extends StatelessWidget {
@@ -9,6 +10,7 @@ class ProjectorWidget extends StatelessWidget {
     required this.isBusy,
     required this.onPower,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -16,6 +18,7 @@ class ProjectorWidget extends StatelessWidget {
   final bool isBusy;
   final VoidCallback onPower;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF8E9BFF);
@@ -63,7 +66,11 @@ class ProjectorWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

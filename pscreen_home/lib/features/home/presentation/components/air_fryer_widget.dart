@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 空气炸锅卡片：模式 / 温度 / 时间 + 开始/停止。
 class AirFryerWidget extends StatelessWidget {
@@ -7,6 +8,7 @@ class AirFryerWidget extends StatelessWidget {
     super.key,
     required this.summary,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onStart,
     this.onStop,
     this.onOpenDetail,
@@ -14,6 +16,7 @@ class AirFryerWidget extends StatelessWidget {
 
   final AirFryerSummary summary;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onStart;
   final VoidCallback? onStop;
   final VoidCallback? onOpenDetail;
@@ -61,7 +64,11 @@ class AirFryerWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

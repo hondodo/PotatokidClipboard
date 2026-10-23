@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 油烟机卡片：电源 / 风量 / 灯光 / 延时。
 class RangeHoodWidget extends StatelessWidget {
@@ -9,6 +10,7 @@ class RangeHoodWidget extends StatelessWidget {
     required this.isToggling,
     required this.onToggle,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -16,6 +18,7 @@ class RangeHoodWidget extends StatelessWidget {
   final bool isToggling;
   final VoidCallback onToggle;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF64B5F6);
@@ -58,7 +61,11 @@ class RangeHoodWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

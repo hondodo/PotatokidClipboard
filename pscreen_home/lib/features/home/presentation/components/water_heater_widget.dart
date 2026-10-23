@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 
 /// 热水器快捷卡片：状态 / 当前水温 + 目标温度加减 + 电源键。
@@ -15,6 +16,7 @@ class WaterHeaterWidget extends StatelessWidget {
     required this.onIncrease,
     required this.onDecrease,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -25,6 +27,7 @@ class WaterHeaterWidget extends StatelessWidget {
   final VoidCallback onIncrease;
   final VoidCallback onDecrease;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFFFF8A65);
@@ -75,7 +78,11 @@ class WaterHeaterWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          entity.displayName,
+                          cardTitle(
+                            title: entity.displayName,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 风扇灯总开关行：双图标 + 总开关，放在详情页第一行。
 class FanLightMasterRow extends StatelessWidget {
@@ -107,6 +108,7 @@ class FanLightWidget extends StatelessWidget {
     required this.isToggling,
     required this.onToggleMaster,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -115,6 +117,7 @@ class FanLightWidget extends StatelessWidget {
   final bool isToggling;
   final VoidCallback onToggleMaster;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _lightAccent = Color(0xFFFFB74D);
@@ -168,7 +171,11 @@ class FanLightWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          fan.name,
+                          cardTitle(
+                            title: fan.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

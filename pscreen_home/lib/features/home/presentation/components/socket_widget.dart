@@ -6,6 +6,7 @@ import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 智能插座卡片：开关 + 当前功率 + 功率趋势 + 累计电量。
@@ -16,6 +17,7 @@ class SocketWidget extends StatefulWidget {
     required this.isToggling,
     required this.onToggle,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
     this.history,
     this.historyService,
@@ -27,6 +29,7 @@ class SocketWidget extends StatefulWidget {
   final bool isToggling;
   final VoidCallback onToggle;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   /// 内存功率采样订阅；null 则仅使用 [historyService] 或隐藏趋势图。
@@ -125,6 +128,7 @@ class _SocketWidgetState extends State<SocketWidget> {
     final bool isToggling = widget.isToggling;
     final VoidCallback onToggle = widget.onToggle;
     final String? areaLabel = widget.areaLabel;
+    final bool showAreaInTitle = widget.showAreaInTitle;
     final VoidCallback? onOpenDetail = widget.onOpenDetail;
     final ThemeData theme = Theme.of(context);
     final bool on = summary.isOn;
@@ -167,7 +171,11 @@ class _SocketWidgetState extends State<SocketWidget> {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/lock_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/lock_status_icons.dart';
 
 /// 门锁设备卡：是否已上锁 + 各电池剩余电量 + 电量更新时间。
@@ -10,11 +11,13 @@ class LockWidget extends StatelessWidget {
     super.key,
     required this.summary,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
   final LockSummary summary;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   @override
@@ -54,7 +57,11 @@ class LockWidget extends StatelessWidget {
                   const SizedBox(width: 9),
                   Expanded(
                     child: Text(
-                      summary.name,
+                      cardTitle(
+                        title: summary.name,
+                        areaLabel: areaLabel,
+                        showArea: showAreaInTitle,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(

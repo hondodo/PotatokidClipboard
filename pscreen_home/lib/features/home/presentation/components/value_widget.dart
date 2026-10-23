@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
 
 /// 数据 / 动作 / 不可用实体卡片：展示值 label，**不做交互**。
@@ -15,6 +16,7 @@ class ValueWidget extends StatelessWidget {
     super.key,
     required this.entity,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.blockedReason,
     this.onBlockedTap,
   });
@@ -23,6 +25,9 @@ class ValueWidget extends StatelessWidget {
 
   /// 所属房间展示名（未分配时由页面兜底为「未分配房间」）
   final String? areaLabel;
+
+  /// 显示全部房间时，标题前置房间名。
+  final bool showAreaInTitle;
 
   /// 非空表示安全锁定：整体置灰，点击只提示 [blockedReason]。
   final String? blockedReason;
@@ -67,7 +72,11 @@ class ValueWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Text(
-                  entity.displayName,
+                  cardTitle(
+                    title: entity.displayName,
+                    areaLabel: areaLabel,
+                    showArea: showAreaInTitle,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 
 /// 灯光快捷卡片：开关 + 亮度滑条。
@@ -13,6 +14,7 @@ class LightWidget extends StatelessWidget {
     required this.isToggling,
     required this.onToggle,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onBrightnessChanged,
   });
 
@@ -20,6 +22,7 @@ class LightWidget extends StatelessWidget {
   final bool isToggling;
   final VoidCallback onToggle;
   final String? areaLabel;
+  final bool showAreaInTitle;
 
   /// 亮度调整完成（0-100）
   final ValueChanged<int>? onBrightnessChanged;
@@ -80,7 +83,11 @@ class LightWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          entity.displayName,
+                          cardTitle(
+                            title: entity.displayName,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

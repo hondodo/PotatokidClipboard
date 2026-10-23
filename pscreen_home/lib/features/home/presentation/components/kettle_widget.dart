@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 电热水瓶快捷卡片：当前水温 + 状态 + 模式 + 目标温度。
 ///
@@ -10,6 +11,7 @@ class KettleWidget extends StatelessWidget {
     super.key,
     required this.summary,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onStart,
     this.onStop,
     this.onOpenDetail,
@@ -17,6 +19,7 @@ class KettleWidget extends StatelessWidget {
 
   final KettleSummary summary;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onStart;
   final VoidCallback? onStop;
   final VoidCallback? onOpenDetail;
@@ -63,7 +66,11 @@ class KettleWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

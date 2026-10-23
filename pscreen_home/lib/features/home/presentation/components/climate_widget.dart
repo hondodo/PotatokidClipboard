@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 
 /// 空调快捷卡片：当前温度 + 目标温度加减。
@@ -15,6 +16,7 @@ class ClimateWidget extends StatelessWidget {
     required this.onIncrease,
     required this.onDecrease,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
     this.powerWatts,
   });
@@ -25,6 +27,7 @@ class ClimateWidget extends StatelessWidget {
   final VoidCallback onIncrease;
   final VoidCallback onDecrease;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   /// 实时功率（W），来自同设备电量传感器（如空调插座）；null 则不显示。
@@ -86,7 +89,11 @@ class ClimateWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          entity.displayName,
+                          cardTitle(
+                            title: entity.displayName,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

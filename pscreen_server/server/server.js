@@ -1587,9 +1587,9 @@ app.post('/api/clipboard', (req, res) => {
 
         console.log(`剪贴板已创建: ${username}/${filename}`);
 
-        // 按时间排序，最新的放在最前面，每个用户最多只能有20条，旧的则删除文件
+        // 按时间排序，最新的放在最前面，每个用户最多只能有1000条，旧的则删除文件
         const files = fs.readdirSync(saveDir).filter(file => file.endsWith('.txt'));
-        while (files.length > 20) {
+        while (files.length > 1000) {
             const oldestFile = files.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0];
             const filePath = path.join(saveDir, oldestFile);
             if (fs.existsSync(filePath)) {
@@ -1665,6 +1665,9 @@ app.get('/api/clipboards', (req, res) => {
         if (fromId > 0) {
             clipboards = clipboards.filter(clipboard => clipboard.id > fromId);
         }
+
+        // 最多返回20条
+        clipboards = clipboards.slice(0, 20);
 
         res.json({
             [definds.txt.CODE]: definds.code.SUCCESS,

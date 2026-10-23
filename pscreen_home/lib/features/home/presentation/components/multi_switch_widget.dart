@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 
 /// 双开开关卡片：两路按键状态。
 class MultiSwitchWidget extends StatelessWidget {
@@ -9,6 +10,7 @@ class MultiSwitchWidget extends StatelessWidget {
     required this.onToggleGang,
     this.togglingIds = const <String>{},
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onOpenDetail,
   });
 
@@ -16,6 +18,7 @@ class MultiSwitchWidget extends StatelessWidget {
   final ValueChanged<String> onToggleGang;
   final Set<String> togglingIds;
   final String? areaLabel;
+  final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
 
   static const Color _accent = Color(0xFF64B5F6);
@@ -57,7 +60,11 @@ class MultiSwitchWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          summary.name,
+                          cardTitle(
+                            title: summary.name,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

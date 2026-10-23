@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
+import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
@@ -20,6 +21,7 @@ class DeviceWidget extends StatelessWidget {
     required this.onTogglePrimary,
     required this.onOpenDetail,
     this.areaLabel,
+    this.showAreaInTitle = false,
     this.onBrightnessChanged,
   });
 
@@ -36,6 +38,9 @@ class DeviceWidget extends StatelessWidget {
 
   /// 所属房间展示名
   final String? areaLabel;
+
+  /// 显示全部房间时，标题前置房间名。
+  final bool showAreaInTitle;
 
   /// 主实体亮度调整完成（0-100），主实体不支持调光时为 null
   final ValueChanged<int>? onBrightnessChanged;
@@ -105,7 +110,11 @@ class DeviceWidget extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         Text(
-                          group.title,
+                          cardTitle(
+                            title: group.title,
+                            areaLabel: areaLabel,
+                            showArea: showAreaInTitle,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

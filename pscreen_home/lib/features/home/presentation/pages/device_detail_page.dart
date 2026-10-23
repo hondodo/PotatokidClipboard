@@ -128,6 +128,9 @@ class DeviceDetailPage extends StatelessWidget {
           final bool showHoodPanel = hood != null;
           final bool showFanPanel = fan != null;
           final bool showLockPanel = lock != null;
+          final String deviceAreaLabel = state.areaLabelFor(
+            group.primary?.entityId ?? group.entities.first.entityId,
+          );
           // 功率曲线与当前功率共用同一实体，避免数字与曲线数据源不一致。
           final String? powerEntityId =
               devicePower?.acPowerEntityId ?? devicePower?.currentEntityId;
@@ -316,7 +319,11 @@ class DeviceDetailPage extends StatelessWidget {
 
           return Scaffold(
             appBar: AppBar(
-              title: Text(group.title),
+              title: Text(
+                '$deviceAreaLabel ${group.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               actions: <Widget>[
                 Padding(
                   padding: const EdgeInsets.only(right: 16),
