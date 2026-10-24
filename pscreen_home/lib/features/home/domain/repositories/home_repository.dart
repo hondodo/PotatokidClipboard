@@ -9,7 +9,8 @@ abstract class HomeRepository {
   Future<List<HaEntityStateModel>> fetchStates();
 
   /// 拉取注册表快照（房间 / 设备 / 实体归属），用于按房间分组展示。
-  /// 实现侧失败时降级为空注册表，不阻断主页加载。
+  /// 实现侧成功时刷新本地缓存；失败时优先返回缓存，无缓存才降级为空注册表，
+  /// 不阻断主页加载。
   Future<HaRegistry> fetchRegistry();
 
   /// 实时实体状态变更流（state_changed 事件的 new_state）
@@ -17,10 +18,7 @@ abstract class HomeRepository {
 
   /// 控制实体开关（light/switch 域的 turn_on / turn_off；
   /// climate 域同样走 turn_on / turn_off，保留空调上次模式）
-  Future<void> setEntityPower({
-    required String entityId,
-    required bool turnOn,
-  });
+  Future<void> setEntityPower({required String entityId, required bool turnOn});
 
   /// 设置灯光亮度（percent：0-100，实现侧换算为 HA 的 0-255）
   Future<void> setLightBrightness({
@@ -86,10 +84,7 @@ abstract class HomeRepository {
   Future<void> pressButton({required String entityId});
 
   /// 选择 select 实体的选项（洗衣机模式、水温、转速等）
-  Future<void> selectOption({
-    required String entityId,
-    required String option,
-  });
+  Future<void> selectOption({required String entityId, required String option});
 
   /// 设置热水器目标温度
   Future<void> setWaterHeaterTemperature({
@@ -111,10 +106,7 @@ abstract class HomeRepository {
   });
 
   /// 写入 text 实体（热水器定时预热编码串）
-  Future<void> setTextValue({
-    required String entityId,
-    required String value,
-  });
+  Future<void> setTextValue({required String entityId, required String value});
 
   /// 设置 number 实体的数值（热水瓶目标温度 / 保温温度）
   Future<void> setNumberValue({

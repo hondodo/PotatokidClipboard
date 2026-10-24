@@ -11,8 +11,9 @@ class _FakeWeatherRepository implements WeatherRepository {
   Future<String?> resolveLocation() async => '测试市';
 
   @override
-  Future<WeatherData> fetchWeather(String location) async =>
-      const WeatherData(now: WeatherNow(temperature: 21, text: '晴', city: '测试市'));
+  Future<WeatherData> fetchWeather(String location) async => const WeatherData(
+    now: WeatherNow(temperature: 21, text: '晴', city: '测试市'),
+  );
 }
 
 void main() {
@@ -42,14 +43,31 @@ void main() {
     await tester.pump();
 
     // 时间主显示（正则匹配当前小时，避免跨秒导致的偶发失败）
-    expect(
-      find.textContaining(RegExp(r'^\d{2}:\d{2}')),
-      findsOneWidget,
-    );
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}')), findsOneWidget);
     // 日期行
     expect(find.textContaining('年'), findsWidgets);
     // 农历行
     expect(find.textContaining('月'), findsWidgets);
+  });
+
+  testWidgets('时间数字使用等宽字形', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BlocProvider<WeatherBloc>.value(
+          value: bloc,
+          child: const ClockPage(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final Text clock = tester.widget<Text>(
+      find.textContaining(RegExp(r'^\d{2}:\d{2}:\d{2}$')),
+    );
+    expect(
+      clock.style?.fontFeatures,
+      contains(const FontFeature.tabularFigures()),
+    );
   });
 
   testWidgets('点击画面切换秒显示', (WidgetTester tester) async {

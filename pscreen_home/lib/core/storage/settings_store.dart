@@ -44,6 +44,11 @@ class SettingsStore {
   /// 房间不单独存：房间视图直接过滤所属家庭的顺序。
   static const String cardOrderByHomeKey = 'home_card_order_by_home_v1';
 
+  /// HA 注册表快照（房间 / 设备 / 实体归属），用于拉取失败时兜底。
+  ///
+  /// 值由 data 层编码为 JSON；这里只负责原样存取，避免存储层依赖领域模型。
+  static const String registryCacheKey = 'ha_registry_cache_v1';
+
   /// 15 寸 1920x1080 大屏的默认缩放：卡片/字号整体放大 1.5 倍。
   static const double defaultUiScale = 1.5;
   static const double minUiScale = 1.0;
@@ -93,6 +98,9 @@ class SettingsStore {
   /// 「全部」视图的卡片顺序（未设置时为空，界面回落默认排序）。
   List<String> get cardOrderAll =>
       _prefs?.getStringList(cardOrderAllKey) ?? const <String>[];
+
+  /// 注册表缓存的原始 JSON（空串 = 尚未缓存）。
+  String get registryCacheRaw => _prefs?.getString(registryCacheKey) ?? '';
 
   /// 每个家庭各自的卡片顺序（未设置/损坏时为空）。
   Map<String, List<String>> get cardOrderByHome {
@@ -179,6 +187,21 @@ class SettingsStore {
       await prefs.setString(cardOrderByHomeKey, jsonEncode(byHome));
     } catch (e) {
       Injection.get<LogService>().warn('写入卡片顺序失败：$e');
+    }
+  }
+
+  /// 持久化注册表缓存；空串表示清除。
+  Future<void> saveRegistryCacheRaw(String raw) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      if (raw.isEmpty) {
+        await prefs.remove(registryCacheKey);
+      } else {
+        await prefs.setString(registryCacheKey, raw);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入注册表缓存失败：$e');
     }
   }
 

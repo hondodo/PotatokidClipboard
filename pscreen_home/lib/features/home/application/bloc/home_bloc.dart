@@ -110,7 +110,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   Future<void> _onLoadHome(LoadHome event, Emitter<HomeState> emit) async {
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
-      // 状态与注册表并行拉取；注册表失败由 Repository 降级为空，不阻断加载
+      // 状态与注册表并行拉取；注册表失败由 Repository 回退本地缓存 / 空，
+      // 不阻断加载。
       final List<Object> results = await Future.wait(<Future<Object>>[
         repository.fetchStates(),
         repository.fetchRegistry(),

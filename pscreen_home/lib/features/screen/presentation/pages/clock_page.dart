@@ -64,15 +64,16 @@ class _ClockPageState extends State<ClockPage> {
                       fontWeight: FontWeight.w300,
                       color: Colors.white,
                       height: 1.0,
+                      // 数字等宽：1 / 8 等字形宽度一致，秒数跳动时不抖动。
+                      fontFeatures: <FontFeature>[
+                        FontFeature.tabularFigures(),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 24),
                   Text(
                     formatClockDate(_now),
-                    style: const TextStyle(
-                      fontSize: 40,
-                      color: Colors.white70,
-                    ),
+                    style: const TextStyle(fontSize: 40, color: Colors.white70),
                   ),
                   if (lunar.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 12),
@@ -94,7 +95,10 @@ class _ClockPageState extends State<ClockPage> {
               left: 24,
               child: IconButton(
                 tooltip: '返回',
-                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: Colors.white70,
+                ),
                 onPressed: () => Navigator.of(context).maybePop(),
               ),
             ),
@@ -115,7 +119,8 @@ class _WeatherSummary extends StatelessWidget {
       builder: (BuildContext context, WeatherState state) {
         final WeatherNow? now = state.data?.now;
         if (now == null) return const SizedBox.shrink();
-        final String text = '${now.city.isEmpty ? '' : '${now.city} · '}'
+        final String text =
+            '${now.city.isEmpty ? '' : '${now.city} · '}'
             '${now.text} ${now.temperature?.round() ?? ''}°';
         return Text(
           text,

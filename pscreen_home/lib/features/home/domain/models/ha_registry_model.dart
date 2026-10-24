@@ -5,11 +5,7 @@
 /// HA 注册表本身没有独立的「家庭」层级（floor / label 均为空表），
 /// 家庭信息只能从命名解析，因此**家庭名不能包含空格**。
 class HaArea {
-  const HaArea({
-    required this.areaId,
-    required this.name,
-    this.position = 0,
-  });
+  const HaArea({required this.areaId, required this.name, this.position = 0});
 
   final String areaId;
   final String name;
@@ -32,11 +28,7 @@ class HaArea {
 
 /// Home Assistant 设备：实体未直接指定房间时，回退到设备所属房间。
 class HaDevice {
-  const HaDevice({
-    required this.id,
-    required this.name,
-    this.areaId,
-  });
+  const HaDevice({required this.id, required this.name, this.areaId});
 
   final String id;
 
@@ -60,7 +52,7 @@ class HaRegistry {
     this.deviceIdByEntity = const <String, String>{},
   });
 
-  /// 空注册表（注册表拉取失败时降级使用，主页功能不受影响）
+  /// 空注册表（注册表拉取失败且无本地缓存时降级使用，主页功能不受影响）
   static const HaRegistry empty = HaRegistry();
 
   /// 房间列表（已按 HA 的 position 排好序）
