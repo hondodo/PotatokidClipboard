@@ -150,6 +150,29 @@ void main() {
     expect(find.byType(ListView), findsNothing);
   });
 
+  testWidgets('点全屏隐藏 AppBar 并在左上角保留返回按钮，点恢复重新显示 AppBar', (WidgetTester tester) async {
+    await _pumpLivePage(tester, size: const Size(1200, 900));
+
+    // 初始：AppBar 在，底部有「全屏」，没有额外的返回按钮（AppBar 自带）。
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.byTooltip('全屏'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsNothing);
+
+    // 点全屏 → 隐藏 AppBar，视频区域变大；左上角出现返回按钮。
+    await tester.tap(find.byTooltip('全屏'));
+    await tester.pump();
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byTooltip('恢复'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
+
+    // 点恢复 → 重新显示 AppBar，返回按钮交还给 AppBar。
+    await tester.tap(find.byTooltip('恢复'));
+    await tester.pump();
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.byTooltip('全屏'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsNothing);
+  });
+
   testWidgets('16:9 面板上右侧频道列表浮层完整可见（回归：列表不再被播放器挤成 0 高度）',
       (WidgetTester tester) async {
     // 15 寸触屏面板的 1920x1080（16:9）逻辑分辨率。

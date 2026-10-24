@@ -18,8 +18,11 @@ import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 /// - 倒计时内无操作 → 列表自动隐藏；
 /// - 显示期间任何操作（点频道 / 点上一台 / 点下一台）→ 重新计时；
 /// - 点「列表与底部按钮之外」的播放器空白处 → 显示 ⇄ 隐藏 切换；
-/// - 底部「上一台 / 下一台」按钮居中，与列表同层，一起跟随显隐，
-///   列表停靠右边不会遮住它们。
+/// - 底部「全屏 / 恢复」「上一台 / 下一台」按钮居中，与列表同层，一起跟随显隐，
+///   列表停靠右边不会遮住它们；
+/// - 点「全屏」→ 隐藏 AppBar，让播放器铺满整个页面；左上角保留一个
+///   [Stack] 内的返回按钮，仍可退出直播页回主控页；
+/// - 点「恢复」→ 重新显示 AppBar。
 class LivePage extends StatefulWidget {
   const LivePage({super.key, this.enablePlayer = true});
 
@@ -39,6 +42,9 @@ class _LivePageState extends State<LivePage> {
 
   /// 浮层（右侧列表 + 底部切台按钮）是否显示。
   bool _overlayVisible = true;
+
+  /// 是否处于「隐藏 AppBar」的全屏模式（播放器占满整个页面）。
+  bool _fullscreen = false;
 
   /// 自动隐藏计时器。
   Timer? _hideTimer;
@@ -116,19 +122,29 @@ class _LivePageState extends State<LivePage> {
     }
   }
 
+  /// 切换「全屏 / 恢复」：全屏时隐藏 AppBar，播放器向上铺满；
+  /// 恢复时重新显示 AppBar。
+  void _toggleFullscreen() {
+    setState(() => _fullscreen = !_fullscreen);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('直播'),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '刷新',
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: () => context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
-          ),
-        ],
-      ),
+      // 全屏模式下不传 appBar：body 直接铺到页面顶部，视频画面更大。
+      // 左上角的返回按钮由 body 内的 [Stack] 提供，仍可退出直播页。
+      appBar: _fullscreen
+          ? null
+          : AppBar(
+              title: const Text('直播'),
+              actions: <Widget>[
+                IconButton(
+                  tooltip: '刷新',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: () => context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
+                ),
+              ],
+            ),
       body: BlocConsumer<IptvBloc, IptvState>(
         listener: (BuildContext context, IptvState state) {
           // 共享包的频道控制器按「频道总数」判断 select/next 是否有效，
@@ -169,15 +185,39 @@ class _LivePageState extends State<LivePage> {
                           ),
                         ),
                 ),
+                // 全屏模式左上角返回按钮：AppBar 已隐藏，仍可退出直播页回主控页。
+                if (_fullscreen)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Material(
+                      color: Colors.black54,
+                      shape: const CircleBorder(),
+                      clipBehavior: Clip.antiAlias,
+                      child: IconButton(
+                        tooltip: '返回',
+                        iconSize: 32,
+                        color: Colors.white,
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  ),
                 // 左下角当前频道名（始终显示，便于关掉浮层后仍知道在看什么）。
                 if (channels.isNotEmpty) Positioned(left: 12, bottom: 12, child: _ChannelNameBadge(channels: channels)),
-                // 底部居中「上一台 / 下一台」，与列表同层，跟随显隐。
+                // 底部居中「全屏 / 恢复」「上一台 / 下一台」，与列表同层，跟随显隐。
                 if (_overlayVisible && channels.isNotEmpty)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 12,
-                    child: Center(child: _ChannelSwitchControls(onInteract: _scheduleHide)),
+                    child: Center(
+                      child: _ChannelSwitchControls(
+                        onInteract: _scheduleHide,
+                        fullscreen: _fullscreen,
+                        onToggleFullscreen: _toggleFullscreen,
+                      ),
+                    ),
                   ),
                 // 右侧频道列表浮层，跟随显隐。
                 if (_overlayVisible && channels.isNotEmpty)
@@ -222,12 +262,22 @@ class _ChannelNameBadge extends StatelessWidget {
   }
 }
 
-/// 底部居中「上一台 / 下一台」：点击除了切台，还重置自动隐藏计时。
+/// 底部居中「全屏 / 恢复」「上一台 / 下一台」：点击除了执行操作，还重置自动隐藏计时。
 class _ChannelSwitchControls extends StatelessWidget {
-  const _ChannelSwitchControls({required this.onInteract});
+  const _ChannelSwitchControls({
+    required this.onInteract,
+    required this.fullscreen,
+    required this.onToggleFullscreen,
+  });
 
   /// 有操作时回调（用于重置自动隐藏计时）。
   final VoidCallback onInteract;
+
+  /// 当前是否为「隐藏 AppBar」的全屏模式。
+  final bool fullscreen;
+
+  /// 切换全屏 / 恢复。
+  final VoidCallback onToggleFullscreen;
 
   @override
   Widget build(BuildContext context) {
@@ -237,6 +287,16 @@ class _ChannelSwitchControls extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          IconButton(
+            tooltip: fullscreen ? '恢复' : '全屏',
+            iconSize: 36,
+            color: Colors.white,
+            icon: Icon(fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded),
+            onPressed: () {
+              onToggleFullscreen();
+              onInteract();
+            },
+          ),
           IconButton(
             tooltip: '上一台',
             iconSize: 36,
