@@ -24,6 +24,7 @@ import 'package:pscreen_home/features/home/domain/models/water_heater_summary.da
 class HomeState {
   const HomeState._({
     required this.isLoading,
+    required this.hasLoaded,
     required this.entities,
     required this.togglingIds,
     required this.registry,
@@ -38,6 +39,7 @@ class HomeState {
   /// 初始状态。
   factory HomeState.initial() => const HomeState._(
     isLoading: false,
+    hasLoaded: false,
     entities: <String, HaEntityStateModel>{},
     togglingIds: <String>{},
     registry: HaRegistry.empty,
@@ -50,6 +52,12 @@ class HomeState {
   );
 
   final bool isLoading;
+
+  /// 是否至少成功完成过一次全量加载。
+  ///
+  /// 用来区分「还没加载 / 加载失败」和「成功加载后确实没有设备」：
+  /// 只有 [hasLoaded] 为 true 且分组为空时才显示「没有找到实体」。
+  final bool hasLoaded;
 
   /// 全部实体状态，key 为 entity_id
   final Map<String, HaEntityStateModel> entities;
@@ -655,6 +663,7 @@ class HomeState {
 
   HomeState copyWith({
     bool? isLoading,
+    bool? hasLoaded,
     Map<String, HaEntityStateModel>? entities,
     Set<String>? togglingIds,
     HaRegistry? registry,
@@ -668,6 +677,7 @@ class HomeState {
   }) {
     return HomeState._(
       isLoading: isLoading ?? this.isLoading,
+      hasLoaded: hasLoaded ?? this.hasLoaded,
       entities: entities ?? this.entities,
       togglingIds: togglingIds ?? this.togglingIds,
       registry: registry ?? this.registry,

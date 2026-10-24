@@ -25,7 +25,11 @@ enum HaConnectionPhase {
 
 /// 连接信息：阶段 + 失败原因 + 自动重试次数
 class HaConnectionInfo {
-  const HaConnectionInfo({required this.phase, this.message, this.retryCount = 0});
+  const HaConnectionInfo({
+    required this.phase,
+    this.message,
+    this.retryCount = 0,
+  });
 
   final HaConnectionPhase phase;
   final String? message;
@@ -37,21 +41,35 @@ class HaConnectionInfo {
   bool get isRetrying => retryCount > 0;
 
   /// 是否允许手动重试
-  bool get canRetry => phase == HaConnectionPhase.disconnected || phase == HaConnectionPhase.authFailed;
+  bool get canRetry =>
+      phase == HaConnectionPhase.disconnected ||
+      phase == HaConnectionPhase.authFailed;
 
-  HaConnectionInfo copyWith({HaConnectionPhase? phase, String? message, int? retryCount}) {
-    return HaConnectionInfo(phase: phase ?? this.phase, message: message, retryCount: retryCount ?? this.retryCount);
+  HaConnectionInfo copyWith({
+    HaConnectionPhase? phase,
+    String? message,
+    int? retryCount,
+  }) {
+    return HaConnectionInfo(
+      phase: phase ?? this.phase,
+      message: message,
+      retryCount: retryCount ?? this.retryCount,
+    );
   }
 
   @override
   bool operator ==(Object other) =>
-      other is HaConnectionInfo && other.phase == phase && other.message == message && other.retryCount == retryCount;
+      other is HaConnectionInfo &&
+      other.phase == phase &&
+      other.message == message &&
+      other.retryCount == retryCount;
 
   @override
   int get hashCode => Object.hash(phase, message, retryCount);
 
   @override
-  String toString() => 'HaConnectionInfo($phase, retry=$retryCount, message=$message)';
+  String toString() =>
+      'HaConnectionInfo($phase, retry=$retryCount, message=$message)';
 }
 
 /// Home Assistant WebSocket 客户端（协议层，整个应用唯一的网络入口）。
@@ -65,18 +83,29 @@ class HaConnectionInfo {
 ///    认证失败（authFailed）不重试；
 /// 5. 连接状态以 [HaConnectionInfo] 广播，供 ConnectionBloc 消费。
 class HaWsClient {
-  HaWsClient({required this.log});
+  HaWsClient({
+    required this.log,
+    Duration requestTimeout = const Duration(seconds: 15),
+    Duration heartbeatInterval = const Duration(seconds: 30),
+    Duration pongTimeout = const Duration(seconds: 10),
+  }) : _requestTimeout = requestTimeout,
+       _heartbeatInterval = heartbeatInterval,
+       _pongTimeout = pongTimeout;
 
   static const Duration _connectTimeout = Duration(seconds: 10);
-  static const Duration _requestTimeout = Duration(seconds: 15);
   static const Duration _maxRetryDelay = Duration(seconds: 30);
 
   final LogService log;
+  final Duration _requestTimeout;
+  final Duration _heartbeatInterval;
+  final Duration _pongTimeout;
 
-  final StreamController<HaConnectionInfo> _infoController = StreamController<HaConnectionInfo>.broadcast();
+  final StreamController<HaConnectionInfo> _infoController =
+      StreamController<HaConnectionInfo>.broadcast();
   final StreamController<Map<String, dynamic>> _stateChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
-  final Map<int, Completer<Map<String, dynamic>>> _pending = <int, Completer<Map<String, dynamic>>>{};
+  final Map<int, Completer<Map<String, dynamic>>> _pending =
+      <int, Completer<Map<String, dynamic>>>{};
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _channelSub;
@@ -84,6 +113,17 @@ class HaWsClient {
   String _token = '';
   int _requestId = 0;
   int _retryCount = 0;
+
+  /// 连续请求超时次数：达到阈值后主动重建 WebSocket。
+  ///
+  /// 仅靠 `onDone/onError` 无法发现半开连接（网络切换、Tailscale 断线后
+  /// TCP 未及时关闭），此时状态仍是 ready，但所有请求都会超时。
+  int _consecutiveRequestTimeouts = 0;
+
+  /// 心跳：定期发 ping，超时未收到 pong 就强制重连。
+  Timer? _heartbeatTimer;
+  Timer? _pongTimer;
+  int? _pingId;
 
   /// 连接代次：每次重建/销毁连接自增，旧连接的回调据此失效
   int _generation = 0;
@@ -93,7 +133,9 @@ class HaWsClient {
   bool _authSent = false;
   Completer<void>? _authCompleter;
   Timer? _retryTimer;
-  HaConnectionInfo _info = const HaConnectionInfo(phase: HaConnectionPhase.disconnected);
+  HaConnectionInfo _info = const HaConnectionInfo(
+    phase: HaConnectionPhase.disconnected,
+  );
 
   /// 连接状态流
   Stream<HaConnectionInfo> watchConnection() => _infoController.stream;
@@ -102,7 +144,8 @@ class HaWsClient {
   HaConnectionInfo get connection => _info;
 
   /// 实体状态变化流（`state_changed` 事件的 `new_state` 原始 JSON）
-  Stream<Map<String, dynamic>> get stateChanged => _stateChangedController.stream;
+  Stream<Map<String, dynamic>> get stateChanged =>
+      _stateChangedController.stream;
 
   bool get isReady => _info.isReady;
 
@@ -140,22 +183,41 @@ class HaWsClient {
   }
 
   /// 发送请求，返回完整结果消息（含 success / result / error）
-  Future<Map<String, dynamic>> request(String type, [Map<String, dynamic> params = const <String, dynamic>{}]) {
+  Future<Map<String, dynamic>> request(
+    String type, [
+    Map<String, dynamic> params = const <String, dynamic>{},
+  ]) {
     final channel = _channel;
     if (!_info.isReady || channel == null) {
-      return Future<Map<String, dynamic>>.error(const HaDisconnectException('连接未就绪'));
+      return Future<Map<String, dynamic>>.error(
+        const HaDisconnectException('连接未就绪'),
+      );
     }
     final id = ++_requestId;
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
-    channel.sink.add(jsonEncode(<String, dynamic>{'id': id, 'type': type, ...params}));
+    channel.sink.add(
+      jsonEncode(<String, dynamic>{'id': id, 'type': type, ...params}),
+    );
     return completer.future.timeout(
       _requestTimeout,
       onTimeout: () {
         _pending.remove(id);
+        _onRequestTimeout();
         throw HaRequestException(null, '请求超时：$type');
       },
     );
+  }
+
+  /// 请求超时累计：连续两次超时说明连接大概率已半开，主动重建。
+  ///
+  /// 单次超时可能是 HA 端慢查询（历史/统计），不立即断开；心跳会继续
+  /// 兜底检测。成功响应会清零计数。
+  void _onRequestTimeout() {
+    _consecutiveRequestTimeouts++;
+    if (_consecutiveRequestTimeouts < 2 || !_info.isReady) return;
+    log.warn('HA 请求连续超时，强制重建 WebSocket');
+    _handleChannelGone(_generation, const HaDisconnectException('请求连续超时'));
   }
 
   /// 调用 HA 服务（如 light.turn_on / switch.turn_off）
@@ -169,7 +231,8 @@ class HaWsClient {
       'domain': domain,
       'service': service,
       if (serviceData.isNotEmpty) 'service_data': serviceData,
-      if (entityId != null && entityId.isNotEmpty) 'target': <String, dynamic>{'entity_id': entityId},
+      if (entityId != null && entityId.isNotEmpty)
+        'target': <String, dynamic>{'entity_id': entityId},
     });
   }
 
@@ -183,14 +246,14 @@ class HaWsClient {
   }) async {
     final Map<String, dynamic> msg =
         await request('history/history_during_period', <String, dynamic>{
-      'start_time': start.toUtc().toIso8601String(),
-      'end_time': end.toUtc().toIso8601String(),
-      'entity_ids': entityIds,
-      'include_start_time_state': true,
-      'significant_changes_only': true,
-      'minimal_response': true,
-      'no_attributes': true,
-    });
+          'start_time': start.toUtc().toIso8601String(),
+          'end_time': end.toUtc().toIso8601String(),
+          'entity_ids': entityIds,
+          'include_start_time_state': true,
+          'significant_changes_only': true,
+          'minimal_response': true,
+          'no_attributes': true,
+        });
     return msg['result'];
   }
 
@@ -203,14 +266,16 @@ class HaWsClient {
     required DateTime end,
     required String period,
   }) async {
-    final Map<String, dynamic> msg =
-        await request('recorder/statistics_during_period', <String, dynamic>{
-      'start_time': start.toUtc().toIso8601String(),
-      'end_time': end.toUtc().toIso8601String(),
-      'statistic_ids': statisticIds,
-      'period': period,
-      'types': <String>['mean', 'min', 'max'],
-    });
+    final Map<String, dynamic> msg = await request(
+      'recorder/statistics_during_period',
+      <String, dynamic>{
+        'start_time': start.toUtc().toIso8601String(),
+        'end_time': end.toUtc().toIso8601String(),
+        'statistic_ids': statisticIds,
+        'period': period,
+        'types': <String>['mean', 'min', 'max'],
+      },
+    );
     return msg['result'];
   }
 
@@ -219,16 +284,28 @@ class HaWsClient {
   Future<void> _attempt() async {
     if (_disposed || _manualClose) return;
     if (_wsUrl.isEmpty || _token.isEmpty) {
-      _emit(const HaConnectionInfo(phase: HaConnectionPhase.authFailed, message: '未配置 AS_HOST / AS_KEY'));
+      _emit(
+        const HaConnectionInfo(
+          phase: HaConnectionPhase.authFailed,
+          message: '未配置 AS_HOST / AS_KEY',
+        ),
+      );
       return;
     }
 
-    _emit(HaConnectionInfo(phase: HaConnectionPhase.connecting, retryCount: _retryCount));
+    _emit(
+      HaConnectionInfo(
+        phase: HaConnectionPhase.connecting,
+        retryCount: _retryCount,
+      ),
+    );
 
     try {
       await _teardownChannel();
       final int gen = _generation;
-      final WebSocketChannel channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+      final WebSocketChannel channel = WebSocketChannel.connect(
+        Uri.parse(_wsUrl),
+      );
       await channel.ready.timeout(_connectTimeout);
       if (gen != _generation || _manualClose || _disposed) {
         await channel.sink.close();
@@ -246,12 +323,19 @@ class HaWsClient {
         cancelOnError: false,
       );
 
-      _emit(HaConnectionInfo(phase: HaConnectionPhase.authenticating, retryCount: _retryCount));
+      _emit(
+        HaConnectionInfo(
+          phase: HaConnectionPhase.authenticating,
+          retryCount: _retryCount,
+        ),
+      );
       await authCompleter.future.timeout(_connectTimeout);
 
       if (gen != _generation || _manualClose || _disposed) return;
       _retryCount = 0;
+      _consecutiveRequestTimeouts = 0;
       _emit(const HaConnectionInfo(phase: HaConnectionPhase.ready));
+      _startHeartbeat(gen);
       unawaited(_subscribeStateChanges(gen));
     } catch (e) {
       if (_manualClose || _disposed) return;
@@ -259,7 +343,12 @@ class HaWsClient {
       await _teardownChannel();
       _retryCount += 1;
       log.warn('HA 连接失败（第 $_retryCount 次重试待启动）：$e');
-      _emit(HaConnectionInfo(phase: HaConnectionPhase.disconnected, retryCount: _retryCount));
+      _emit(
+        HaConnectionInfo(
+          phase: HaConnectionPhase.disconnected,
+          retryCount: _retryCount,
+        ),
+      );
       _scheduleRetry();
     }
   }
@@ -274,6 +363,7 @@ class HaWsClient {
   }
 
   Future<void> _teardownChannel() async {
+    _stopHeartbeat();
     _generation += 1;
     final StreamSubscription<dynamic>? sub = _channelSub;
     final WebSocketChannel? channel = _channel;
@@ -287,9 +377,60 @@ class HaWsClient {
     } catch (_) {}
   }
 
+  // ------------------------------------------------------------ 心跳
+
+  /// 连接就绪后启动心跳；上一轮心跳先取消，避免重复计时。
+  void _startHeartbeat(int gen) {
+    _stopHeartbeat();
+    if (_heartbeatInterval <= Duration.zero) return;
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _sendPing(gen));
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _pongTimer?.cancel();
+    _pongTimer = null;
+    _pingId = null;
+  }
+
+  /// 发送一次 ping；上一次 pong 还没回来时不叠加新的 ping。
+  void _sendPing(int gen) {
+    if (gen != _generation || !_info.isReady) return;
+    if (_pongTimer?.isActive ?? false) return;
+    final WebSocketChannel? channel = _channel;
+    if (channel == null) return;
+
+    final int id = ++_requestId;
+    _pingId = id;
+    try {
+      channel.sink.add(jsonEncode(<String, dynamic>{'id': id, 'type': 'ping'}));
+    } catch (e) {
+      log.warn('HA 心跳发送失败：$e');
+      _handleChannelGone(gen, HaDisconnectException('心跳发送失败：$e'));
+      return;
+    }
+    _pongTimer = Timer(_pongTimeout, () {
+      if (gen != _generation || _pingId != id) return;
+      log.warn('HA 心跳超时，强制重连');
+      _pingId = null;
+      _pongTimer = null;
+      _handleChannelGone(gen, const HaDisconnectException('心跳超时'));
+    });
+  }
+
+  void _onPong(int? id) {
+    if (_pingId == null || (id != null && id != _pingId)) return;
+    _pongTimer?.cancel();
+    _pongTimer = null;
+    _pingId = null;
+  }
+
   Future<void> _subscribeStateChanges(int gen) async {
     try {
-      await request('subscribe_events', <String, dynamic>{'event_type': 'state_changed'});
+      await request('subscribe_events', <String, dynamic>{
+        'event_type': 'state_changed',
+      });
       if (gen == _generation) log.info('已订阅 state_changed 事件');
     } catch (e) {
       log.warn('订阅 state_changed 失败：$e');
@@ -312,7 +453,12 @@ class HaWsClient {
       case 'auth_required':
         if (!_authSent) {
           _authSent = true;
-          _channel?.sink.add(jsonEncode(<String, dynamic>{'type': 'auth', 'access_token': _token}));
+          _channel?.sink.add(
+            jsonEncode(<String, dynamic>{
+              'type': 'auth',
+              'access_token': _token,
+            }),
+          );
         }
         break;
       case 'auth_ok':
@@ -322,13 +468,22 @@ class HaWsClient {
         break;
       case 'auth_invalid':
         final String message = msg['message'] as String? ?? '访问令牌无效';
-        _emit(HaConnectionInfo(phase: HaConnectionPhase.authFailed, message: message));
+        _stopHeartbeat();
+        _emit(
+          HaConnectionInfo(
+            phase: HaConnectionPhase.authFailed,
+            message: message,
+          ),
+        );
         if (_authCompleter != null && !_authCompleter!.isCompleted) {
           _authCompleter!.completeError(HaAuthException(message));
         }
         break;
       case 'result':
         _resolveRequest(msg);
+        break;
+      case 'pong':
+        _onPong(_asInt(msg['id']));
         break;
       case 'event':
         _handleEvent(msg);
@@ -343,12 +498,17 @@ class HaWsClient {
     if (id == null) return;
     final Completer<Map<String, dynamic>>? completer = _pending.remove(id);
     if (completer == null || completer.isCompleted) return;
+    _consecutiveRequestTimeouts = 0;
     if (msg['success'] == true) {
       completer.complete(msg);
     } else {
       final Object? rawError = msg['error'];
-      final Map<Object?, Object?> error = rawError is Map ? rawError : const <Object?, Object?>{};
-      completer.completeError(HaRequestException(_asInt(error['code']), error['message']?.toString()));
+      final Map<Object?, Object?> error = rawError is Map
+          ? rawError
+          : const <Object?, Object?>{};
+      completer.completeError(
+        HaRequestException(_asInt(error['code']), error['message']?.toString()),
+      );
     }
   }
 
@@ -383,16 +543,27 @@ class HaWsClient {
 
   void _handleChannelGone(int gen, HaDisconnectException error) {
     if (gen != _generation || _manualClose || _disposed) return;
-    if (_info.phase == HaConnectionPhase.authFailed) return;
+    if (_info.phase == HaConnectionPhase.authFailed ||
+        _info.phase == HaConnectionPhase.disconnected) {
+      return;
+    }
+    _stopHeartbeat();
+    _consecutiveRequestTimeouts = 0;
     log.warn('与 Home Assistant 断开：${error.message ?? ''}');
     _failPending(error);
     _retryCount += 1;
-    _emit(HaConnectionInfo(phase: HaConnectionPhase.disconnected, retryCount: _retryCount));
+    _emit(
+      HaConnectionInfo(
+        phase: HaConnectionPhase.disconnected,
+        retryCount: _retryCount,
+      ),
+    );
     _scheduleRetry();
   }
 
   void _failPending(Object error) {
-    final List<Completer<Map<String, dynamic>>> all = List<Completer<Map<String, dynamic>>>.from(_pending.values);
+    final List<Completer<Map<String, dynamic>>> all =
+        List<Completer<Map<String, dynamic>>>.from(_pending.values);
     _pending.clear();
     for (final completer in all) {
       if (!completer.isCompleted) completer.completeError(error);

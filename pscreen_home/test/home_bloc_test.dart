@@ -377,6 +377,7 @@ void main() {
         'switch.plug',
       ]);
       expect(bloc.state.isLoading, isFalse);
+      expect(bloc.state.hasLoaded, isTrue);
       expect(bloc.state.errorMessage, isNull);
 
       // 全实体分组：sensor 也会成组，但没有可开关主实体
@@ -401,6 +402,32 @@ void main() {
       expect(await _load(bloc), isFalse);
       expect(bloc.state.errorMessage, '与 Home Assistant 的连接已断开');
       expect(bloc.state.errorType, HaErrorType.disconnect);
+      expect(bloc.state.hasLoaded, isFalse);
+    });
+
+    test('首次加载失败后自动重试，成功后 hasLoaded=true', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('light.bedroom', 'on')],
+      )..fetchError = const HaDisconnectException();
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+        loadRetryDelays: const <Duration>[Duration(milliseconds: 20)],
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isFalse);
+      expect(bloc.state.hasLoaded, isFalse);
+
+      final Future<HomeState> loaded = bloc.stream.firstWhere(
+        (HomeState state) => state.hasLoaded,
+      );
+      repo.fetchError = null;
+      final HomeState state = await loaded.timeout(const Duration(seconds: 2));
+
+      expect(state.entities.length, 1);
+      expect(state.isLoading, isFalse);
+      expect(state.errorMessage, isNull);
     });
   });
 

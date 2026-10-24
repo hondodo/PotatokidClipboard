@@ -68,8 +68,28 @@ import 'package:pscreen_screen/features/weather/domain/models/weather_models.dar
 /// - 第二行：**房间**标签（✅ 基于 area 注册表，受家庭筛选，后缀为可控实体数）
 /// - 下方网格：按 家庭 ▸ 房间 两级过滤，卡片标注实体所属房间
 /// - 待实现：常用设备横向列表（M3，设置页勾选常用实体）
-class HomeControllBoard extends StatelessWidget {
+class HomeControllBoard extends StatefulWidget {
   const HomeControllBoard({super.key});
+
+  @override
+  State<HomeControllBoard> createState() => _HomeControllBoardState();
+}
+
+class _HomeControllBoardState extends State<HomeControllBoard> {
+  @override
+  void initState() {
+    super.initState();
+    // 连接可能在页面挂载前就已就绪（例如从其他页面返回 / 热重启），
+    // BlocListener 只监听后续状态变化，这里补一次初始检查。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ConnectionState connection = context.read<ConnectionBloc>().state;
+      final HomeState home = context.read<HomeBloc>().state;
+      if (connection.isReady && !home.hasLoaded && !home.isLoading) {
+        context.read<HomeBloc>().add(const LoadHome());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,20 +102,22 @@ class HomeControllBoard extends StatelessWidget {
           listener: (BuildContext context, ConnectionState state) =>
               context.read<HomeBloc>().add(const LoadHome()),
         ),
-        // 控制失败提示，展示后立即清除错误避免重复弹出
+        // 控制失败提示；空数据时的加载错误保留在页面上，供重试。
         BlocListener<HomeBloc, HomeState>(
           listenWhen: (HomeState prev, HomeState cur) =>
               cur.errorMessage != null && cur.errorMessage != prev.errorMessage,
           listener: (BuildContext context, HomeState state) {
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(
-                SnackBar(
-                  content: Text(state.errorMessage ?? ''),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            context.read<HomeBloc>().add(const ClearHomeError());
+            if (state.entities.isNotEmpty) {
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text(state.errorMessage ?? ''),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              context.read<HomeBloc>().add(const ClearHomeError());
+            }
           },
         ),
       ],
@@ -167,9 +189,13 @@ class _HomeTitleState extends State<_HomeTitle> {
   @override
   void initState() {
     super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!mounted) return;
-      setState(() => _now = DateTime.now());
+      final DateTime now = DateTime.now();
+      // 200ms 轮询、秒数变化才 setState：避免 1s 周期计时器漂移
+      // 导致显示 18 后直接跳到 20，同时不会增加每秒重建次数。
+      if (now.second == _now.second) return;
+      setState(() => _now = now);
     });
   }
 
@@ -796,11 +822,46 @@ class _ControlGridState extends State<_ControlGrid> {
     super.dispose();
   }
 
+  /// 手动重试：连接看似在线但请求超时时，先强制重建 WebSocket；
+  /// 重建成功后由页面监听自动 LoadHome。非 ready 状态按连接页逻辑重试。
+  void _retryLoad(BuildContext context) {
+    final ConnectionState connection = context.read<ConnectionBloc>().state;
+    if (connection.isReady) {
+      context.read<ConnectionBloc>().add(const Reconnect());
+    } else if (connection.canRetry) {
+      context.read<ConnectionBloc>().add(const RetryConnection());
+    } else {
+      context.read<HomeBloc>().add(const LoadHome());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
         if (state.isLoading && state.entities.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('正在加载设备…'),
+              ],
+            ),
+          );
+        }
+
+        // 首次加载失败：保留错误页，等待自动重试或用户手动重连。
+        if (state.entities.isEmpty && state.errorMessage != null) {
+          return _HomeLoadError(
+            message: state.errorMessage!,
+            onRetry: () => _retryLoad(context),
+          );
+        }
+
+        // 还没成功加载过：不要提前显示「没有找到实体」。
+        if (!state.hasLoaded && state.entities.isEmpty) {
           return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1330,6 +1391,58 @@ class _ControlGridState extends State<_ControlGrid> {
           },
         );
       },
+    );
+  }
+}
+
+/// 设备加载失败页：保留错误原因，并提供立即重试入口。
+class _HomeLoadError extends StatelessWidget {
+  const _HomeLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 48,
+              color: theme.colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text('设备加载失败', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              key: const Key('home_retry_load'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '会自动重试，也可以立即重连',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

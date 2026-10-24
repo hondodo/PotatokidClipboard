@@ -38,9 +38,13 @@ class _ClockPageState extends State<ClockPage> {
   @override
   void initState() {
     super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (!mounted) return;
-      setState(() => _now = DateTime.now());
+      final DateTime now = DateTime.now();
+      // 200ms 轮询、秒数变化才 setState：避免 1s 周期计时器漂移
+      // 导致跳过某一秒；实际重建频率仍是每秒一次。
+      if (now.second == _now.second) return;
+      setState(() => _now = now);
     });
     _wallpaper =
         widget.wallpaperController ??

@@ -30,8 +30,16 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     required this.repository,
     required MetricSampler sampler,
     SettingsStore? settingsStore,
+    List<Duration>? loadRetryDelays,
   }) : _sampler = sampler,
        _settingsStore = settingsStore,
+       _loadRetryDelays =
+           loadRetryDelays ??
+           const <Duration>[
+             Duration(seconds: 5),
+             Duration(seconds: 10),
+             Duration(seconds: 30),
+           ],
        // .env 指定了固定家庭时，进入主页即选中它（只显示该家庭的数据）。
        super(
          HomeState.initial().copyWith(
@@ -76,7 +84,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   final HomeRepository repository;
   final MetricSampler _sampler;
   final SettingsStore? _settingsStore;
+  final List<Duration> _loadRetryDelays;
   StreamSubscription<HaEntityStateModel>? _subscription;
+  Timer? _loadRetryTimer;
+  int _loadRetryAttempt = 0;
 
   /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
   ///
@@ -108,6 +119,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   Future<void> _onLoadHome(LoadHome event, Emitter<HomeState> emit) async {
+    _loadRetryTimer?.cancel();
+    _loadRetryTimer = null;
     emit(state.copyWith(isLoading: true, clearError: true));
     try {
       // 状态与注册表并行拉取；注册表失败由 Repository 回退本地缓存 / 空，
@@ -135,9 +148,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           !registry.areas.any((HaArea a) => a.areaId == selectedArea)) {
         selectedArea = '';
       }
+      _loadRetryAttempt = 0;
       emit(
         state.copyWith(
           isLoading: false,
+          hasLoaded: true,
           entities: <String, HaEntityStateModel>{
             for (final HaEntityStateModel s in states) s.entityId: s,
           },
@@ -149,15 +164,39 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('加载实体状态失败', error: e, stackTrace: s);
+      final HaErrorType errorType = e.toNetErrorType();
+      final bool shouldRetry =
+          !state.hasLoaded &&
+          state.entities.isEmpty &&
+          errorType != HaErrorType.authError &&
+          errorType != HaErrorType.dataError;
       emit(
         state.copyWith(
           isLoading: false,
           errorMessage: mapHaErrorToMessage(e),
-          errorType: e.toNetErrorType(),
+          errorType: errorType,
         ),
       );
+      if (shouldRetry) _scheduleLoadRetry();
       completeBlocEvent(event.completer, success: false);
     }
+  }
+
+  /// 首次全量加载失败后的自动重试（5s / 10s / 30s，之后维持 30s）。
+  ///
+  /// 只有「从未成功加载过且当前没有任何实体」时才重试；已有卡片时
+  /// 保留旧数据，避免刷新失败把界面清空。连接恢复后页面的 LoadHome
+  /// 会取消这里的计时器。
+  void _scheduleLoadRetry() {
+    _loadRetryTimer?.cancel();
+    if (_loadRetryDelays.isEmpty) return;
+    final int index = _loadRetryAttempt.clamp(0, _loadRetryDelays.length - 1);
+    final Duration delay = _loadRetryDelays[index];
+    _loadRetryAttempt++;
+    _loadRetryTimer = Timer(delay, () {
+      if (isClosed) return;
+      add(const LoadHome());
+    });
   }
 
   void _onEntityStateChanged(
@@ -786,6 +825,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   @override
   Future<void> close() {
+    _loadRetryTimer?.cancel();
     _sampler.stop();
     _subscription?.cancel();
     return super.close();
