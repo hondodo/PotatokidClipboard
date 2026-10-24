@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
@@ -91,13 +90,6 @@ class DioManager {
     Duration? sendTimeout,
   }) async {
     await _initCompleter.future;
-    final connected = await _checkConnectivity();
-    if (!connected) {
-      if (!notTipNetError) {
-        const LogService().warn('网络未连接: $url');
-      }
-      throw const NetDisconnectException();
-    }
 
     try {
       final response = await _dio.request<dynamic>(
@@ -141,6 +133,15 @@ class DioManager {
           sendTimeout: sendTimeout,
         );
       }
+      // 不用 connectivity_plus 预判网络状态：部分 Android 设备（如 API 25 +
+      // VPN / 有线网络）会误报 none，把明明能上网的请求直接拦掉。这里以实际
+      // 请求结果为准，连接建立失败通常就是断网 / 路由不可达。
+      if (e.type == DioExceptionType.connectionError) {
+        if (!notTipNetError) {
+          const LogService().warn('网络不可达: $url | ${e.message}');
+        }
+        throw const NetDisconnectException();
+      }
       const LogService().error('请求异常: $url', error: e, stackTrace: s);
       throw HttpCodeException(e.response?.statusCode, e.message, e.response?.data);
     }
@@ -151,13 +152,4 @@ class DioManager {
       e.type == DioExceptionType.receiveTimeout ||
       e.type == DioExceptionType.sendTimeout ||
       e.type == DioExceptionType.connectionError;
-
-  Future<bool> _checkConnectivity() async {
-    try {
-      final results = await Connectivity().checkConnectivity();
-      return results.any((r) => r != ConnectivityResult.none);
-    } catch (_) {
-      return true;
-    }
-  }
 }

@@ -14,13 +14,14 @@ import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 /// 直播页：播放器铺满整个 body，频道列表是 [Stack] 上层的右侧浮层。
 ///
 /// 交互：
-/// - 进入页面 → 右侧列表自动显示，并开始 [LivePage._hideDelay] 倒计时；
+/// - 进入页面 → 默认全屏（隐藏 AppBar），右侧列表自动显示，
+///   并开始 [LivePage._hideDelay] 倒计时；
 /// - 倒计时内无操作 → 列表自动隐藏；
-/// - 显示期间任何操作（点频道 / 点上一台 / 点下一台）→ 重新计时；
+/// - 显示期间任何操作（点频道 / 点全屏或恢复 / 点上一台 / 点下一台）→ 重新计时；
 /// - 点「列表与底部按钮之外」的播放器空白处 → 显示 ⇄ 隐藏 切换；
 /// - 底部「全屏 / 恢复」「上一台 / 下一台」按钮居中，与列表同层，一起跟随显隐，
 ///   列表停靠右边不会遮住它们；
-/// - 点「全屏」→ 隐藏 AppBar，让播放器铺满整个页面；左上角保留一个
+/// - 全屏时隐藏 AppBar，让播放器铺满整个页面；左上角保留一个
 ///   [Stack] 内的返回按钮，仍可退出直播页回主控页；
 /// - 点「恢复」→ 重新显示 AppBar。
 class LivePage extends StatefulWidget {
@@ -44,7 +45,8 @@ class _LivePageState extends State<LivePage> {
   bool _overlayVisible = true;
 
   /// 是否处于「隐藏 AppBar」的全屏模式（播放器占满整个页面）。
-  bool _fullscreen = false;
+  /// 进入直播页默认全屏，让视频画面最大化。
+  bool _fullscreen = true;
 
   /// 自动隐藏计时器。
   Timer? _hideTimer;

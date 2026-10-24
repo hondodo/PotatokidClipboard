@@ -150,17 +150,10 @@ void main() {
     expect(find.byType(ListView), findsNothing);
   });
 
-  testWidgets('点全屏隐藏 AppBar 并在左上角保留返回按钮，点恢复重新显示 AppBar', (WidgetTester tester) async {
+  testWidgets('默认全屏隐藏 AppBar 并显示左上角返回按钮，点恢复/全屏可切换', (WidgetTester tester) async {
     await _pumpLivePage(tester, size: const Size(1200, 900));
 
-    // 初始：AppBar 在，底部有「全屏」，没有额外的返回按钮（AppBar 自带）。
-    expect(find.byType(AppBar), findsOneWidget);
-    expect(find.byTooltip('全屏'), findsOneWidget);
-    expect(find.byTooltip('返回'), findsNothing);
-
-    // 点全屏 → 隐藏 AppBar，视频区域变大；左上角出现返回按钮。
-    await tester.tap(find.byTooltip('全屏'));
-    await tester.pump();
+    // 进入直播页默认全屏：没有 AppBar，底部是「恢复」，左上角有返回按钮。
     expect(find.byType(AppBar), findsNothing);
     expect(find.byTooltip('恢复'), findsOneWidget);
     expect(find.byTooltip('返回'), findsOneWidget);
@@ -171,6 +164,13 @@ void main() {
     expect(find.byType(AppBar), findsOneWidget);
     expect(find.byTooltip('全屏'), findsOneWidget);
     expect(find.byTooltip('返回'), findsNothing);
+
+    // 再点全屏 → 隐藏 AppBar，左上角返回按钮重新出现。
+    await tester.tap(find.byTooltip('全屏'));
+    await tester.pump();
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byTooltip('恢复'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
   });
 
   testWidgets('16:9 面板上右侧频道列表浮层完整可见（回归：列表不再被播放器挤成 0 高度）',
