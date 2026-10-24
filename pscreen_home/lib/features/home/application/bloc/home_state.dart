@@ -29,21 +29,25 @@ class HomeState {
     required this.registry,
     required this.selectedHomeName,
     required this.selectedAreaId,
+    required this.cardOrderAll,
+    required this.cardOrderByHome,
     this.errorMessage,
     this.errorType,
   });
 
   /// 初始状态。
   factory HomeState.initial() => const HomeState._(
-        isLoading: false,
-        entities: <String, HaEntityStateModel>{},
-        togglingIds: <String>{},
-        registry: HaRegistry.empty,
-        selectedHomeName: '',
-        selectedAreaId: '',
-        errorMessage: null,
-        errorType: null,
-      );
+    isLoading: false,
+    entities: <String, HaEntityStateModel>{},
+    togglingIds: <String>{},
+    registry: HaRegistry.empty,
+    selectedHomeName: '',
+    selectedAreaId: '',
+    cardOrderAll: <String>[],
+    cardOrderByHome: <String, List<String>>{},
+    errorMessage: null,
+    errorType: null,
+  );
 
   final bool isLoading;
 
@@ -61,6 +65,12 @@ class HomeState {
 
   /// 当前选中的房间 id，`''` 表示「全部」
   final String selectedAreaId;
+
+  /// 「全部」视图的卡片顺序（`HaDeviceGroup.orderKey`）。
+  final List<String> cardOrderAll;
+
+  /// 每个家庭各自的卡片顺序；房间不单独存，直接过滤家庭顺序。
+  final Map<String, List<String>> cardOrderByHome;
 
   final String? errorMessage;
   final HaErrorType? errorType;
@@ -95,7 +105,8 @@ class HomeState {
       final String? areaId = registry.areaIdOf(entity.entityId);
       final String? home = areaId == null ? null : homeByArea[areaId];
       if (home == null || home.isEmpty) continue;
-      final int score = (entity.currentTemperature != null ? 2 : 0) +
+      final int score =
+          (entity.currentTemperature != null ? 2 : 0) +
           (entity.currentHumidity != null ? 1 : 0);
       if (score == 0) continue;
       if (score > (scoreByHome[home] ?? 0)) {
@@ -116,7 +127,8 @@ class HomeState {
   }
 
   /// 当前应展示的房间列表（受家庭筛选）。
-  List<HaArea> get visibleAreas {    final String home = effectiveHomeName;
+  List<HaArea> get visibleAreas {
+    final String home = effectiveHomeName;
     if (home.isEmpty) return availableAreas;
     return availableAreas
         .where((HaArea area) => area.homeName == home)
@@ -196,14 +208,26 @@ class HomeState {
     return '未分配房间';
   }
 
+  /// 实体所属家庭名（未分配房间/家庭时为空串）。
+  String homeNameForEntity(String entityId) {
+    final String? areaId = registry.areaIdOf(entityId);
+    if (areaId == null) return '';
+    for (final HaArea area in registry.areas) {
+      if (area.areaId == areaId) return area.homeName;
+    }
+    return '';
+  }
+
   /// 快捷控件列表：按家庭 + 房间两级筛选，light 在前、switch 在后，
   /// 按显示名排序。
   List<HaEntityStateModel> get quickControls {
-    final List<HaEntityStateModel> list =
-        _filteredSwitchable.values.toList(growable: false);
+    final List<HaEntityStateModel> list = _filteredSwitchable.values.toList(
+      growable: false,
+    );
     list.sort((HaEntityStateModel a, HaEntityStateModel b) {
-      final int byDomain =
-          _domainWeight(a.domain).compareTo(_domainWeight(b.domain));
+      final int byDomain = _domainWeight(
+        a.domain,
+      ).compareTo(_domainWeight(b.domain));
       if (byDomain != 0) return byDomain;
       return a.displayName.compareTo(b.displayName);
     });
@@ -212,20 +236,57 @@ class HomeState {
 
   /// 快捷列表域顺序：灯 → 空调 → 热水器 → 开关
   static int _domainWeight(String domain) => switch (domain) {
-        'light' => 0,
-        'climate' => 1,
-        'water_heater' => 2,
-        'switch' => 3,
-        _ => 4,
-      };
+    'light' => 0,
+    'climate' => 1,
+    'water_heater' => 2,
+    'switch' => 3,
+    _ => 4,
+  };
 
   /// 设备分组列表：同一物理设备的全部实体合并为一张卡片，供网格展示
   /// （家庭 ▸ 房间筛选；不过滤 domain，数据/动作类也显示）。
-  List<HaDeviceGroup> get deviceGroups => HaDeviceGroup.group(
-        entities: _filteredEntities,
-        deviceIdOf: registry.deviceIdOf,
-        deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
-      );
+  ///
+  /// 排序优先使用持久化的拖拽顺序：
+  /// - 选中家庭：该家庭的顺序，未保存过则回落到全局顺序；
+  /// - 「全部」：全局顺序；
+  /// - 房间视图：在家庭顺序基础上按当前房间过滤；
+  /// - 保存列表里没有的新卡片按默认排序追加到末尾。
+  List<HaDeviceGroup> get deviceGroups {
+    final List<HaDeviceGroup> groups = HaDeviceGroup.group(
+      entities: _filteredEntities,
+      deviceIdOf: registry.deviceIdOf,
+      deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
+    );
+    final String home = effectiveHomeName;
+    final List<String> base = home.isEmpty
+        ? cardOrderAll
+        : (cardOrderByHome[home]?.isNotEmpty == true
+              ? cardOrderByHome[home]!
+              : cardOrderAll);
+    if (base.isEmpty) return groups;
+
+    final Map<String, HaDeviceGroup> byKey = <String, HaDeviceGroup>{
+      for (final HaDeviceGroup group in groups) group.orderKey: group,
+    };
+    final List<HaDeviceGroup> ordered = <HaDeviceGroup>[];
+    for (final String key in base) {
+      final HaDeviceGroup? group = byKey.remove(key);
+      if (group != null) ordered.add(group);
+    }
+    // 保存顺序里不存在的新卡片：保持默认排序追加到末尾。
+    for (final HaDeviceGroup group in groups) {
+      if (byKey.containsKey(group.orderKey)) ordered.add(group);
+    }
+    return ordered;
+  }
+
+  /// 当前全部设备分组（不做家庭/房间过滤），用于重排时取稳定 key
+  /// 与卡片 → 家庭映射。
+  List<HaDeviceGroup> get allDeviceGroups => HaDeviceGroup.group(
+    entities: entities,
+    deviceIdOf: registry.deviceIdOf,
+    deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
+  );
 
   /// 洗衣机设备摘要：device_id → 摘要（非洗衣机设备不出现）。
   ///
@@ -237,9 +298,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, WasherSummary> result = <String, WasherSummary>{};
@@ -261,9 +320,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, WaterHeaterSummary> result =
@@ -286,9 +343,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, KettleSummary> result = <String, KettleSummary>{};
@@ -304,14 +359,13 @@ class HomeState {
   }
 
   /// 风扇摘要：device_id → 摘要（非风扇设备不出现）。
-  Map<String, FanSummary> get fanSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, FanSummary> get fanSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, FanSummary> result = <String, FanSummary>{};
@@ -333,9 +387,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, LockSummary> result = <String, LockSummary>{};
@@ -357,9 +409,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, PowerStats> result = <String, PowerStats>{};
@@ -377,13 +427,10 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
-    final Map<String, RangeHoodSummary> result =
-        <String, RangeHoodSummary>{};
+    final Map<String, RangeHoodSummary> result = <String, RangeHoodSummary>{};
     byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
       final RangeHoodSummary? summary = RangeHoodSummary.tryBuild(
         deviceId: deviceId,
@@ -396,14 +443,13 @@ class HomeState {
   }
 
   /// 净水器摘要：device_id → 摘要（非净水器不出现）。
-  Map<String, WaterPurifierSummary> get waterPurifierSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, WaterPurifierSummary> get waterPurifierSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, WaterPurifierSummary> result =
@@ -420,18 +466,16 @@ class HomeState {
   }
 
   /// 电饭煲摘要：device_id → 摘要（非电饭煲不出现）。
-  Map<String, RiceCookerSummary> get riceCookerSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, RiceCookerSummary> get riceCookerSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
-    final Map<String, RiceCookerSummary> result =
-        <String, RiceCookerSummary>{};
+    final Map<String, RiceCookerSummary> result = <String, RiceCookerSummary>{};
     byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
       final RiceCookerSummary? summary = RiceCookerSummary.tryBuild(
         deviceId: deviceId,
@@ -450,9 +494,7 @@ class HomeState {
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, AirFryerSummary> result = <String, AirFryerSummary>{};
@@ -469,14 +511,13 @@ class HomeState {
 
   /// 双开开关摘要：device_id → 摘要（没有两路 `_on_p_2_1` / `_on_p_3_1`
   /// 的设备不出现）。
-  Map<String, MultiSwitchSummary> get multiSwitchSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, MultiSwitchSummary> get multiSwitchSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, MultiSwitchSummary> result =
@@ -493,14 +534,13 @@ class HomeState {
   }
 
   /// 智能插座摘要：device_id → 摘要（非智能插座不出现）。
-  Map<String, SocketSummary> get socketSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, SocketSummary> get socketSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, SocketSummary> result = <String, SocketSummary>{};
@@ -516,14 +556,13 @@ class HomeState {
   }
 
   /// 冰箱摘要：device_id → 摘要（非冰箱设备不出现）。
-  Map<String, FridgeSummary> get fridgeSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, FridgeSummary> get fridgeSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
     final Map<String, FridgeSummary> result = <String, FridgeSummary>{};
@@ -539,18 +578,16 @@ class HomeState {
   }
 
   /// 投影仪摘要：device_id → 摘要（非投影仪设备不出现）。
-  Map<String, ProjectorSummary> get projectorSummaries {    final Map<String, List<HaEntityStateModel>> byDevice =
+  Map<String, ProjectorSummary> get projectorSummaries {
+    final Map<String, List<HaEntityStateModel>> byDevice =
         <String, List<HaEntityStateModel>>{};
     for (final HaEntityStateModel entity in entities.values) {
       final String? deviceId = registry.deviceIdOf(entity.entityId);
       if (deviceId == null) continue;
-      byDevice
-          .putIfAbsent(deviceId, () => <HaEntityStateModel>[])
-          .add(entity);
+      byDevice.putIfAbsent(deviceId, () => <HaEntityStateModel>[]).add(entity);
     }
 
-    final Map<String, ProjectorSummary> result =
-        <String, ProjectorSummary>{};
+    final Map<String, ProjectorSummary> result = <String, ProjectorSummary>{};
     byDevice.forEach((String deviceId, List<HaEntityStateModel> list) {
       final ProjectorSummary? summary = ProjectorSummary.tryBuild(
         deviceId: deviceId,
@@ -591,7 +628,7 @@ class HomeState {
       for (final HaEntityStateModel e in entities.values)
         if (e.isSwitchable &&
             (allowedAreaIds.isEmpty ||
-            allowedAreaIds.contains(registry.areaIdOf(e.entityId))))
+                allowedAreaIds.contains(registry.areaIdOf(e.entityId))))
           e.entityId: e,
     };
   }
@@ -623,6 +660,8 @@ class HomeState {
     HaRegistry? registry,
     String? selectedHomeName,
     String? selectedAreaId,
+    List<String>? cardOrderAll,
+    Map<String, List<String>>? cardOrderByHome,
     String? errorMessage,
     HaErrorType? errorType,
     bool clearError = false,
@@ -634,6 +673,8 @@ class HomeState {
       registry: registry ?? this.registry,
       selectedHomeName: selectedHomeName ?? this.selectedHomeName,
       selectedAreaId: selectedAreaId ?? this.selectedAreaId,
+      cardOrderAll: cardOrderAll ?? this.cardOrderAll,
+      cardOrderByHome: cardOrderByHome ?? this.cardOrderByHome,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       errorType: clearError ? null : (errorType ?? this.errorType),
     );

@@ -20,6 +20,21 @@ class HaConfig {
   /// .env 默认令牌（AS_KEY），无覆盖时的生效值
   static String envToken = '';
 
+  /// .env 指定只显示的家庭名（HONE_MANE，兼容 HOME_NAME）。
+  /// 留空或「全部」表示不限制，由用户在主页选择家庭。
+  static String envHomeName = '';
+
+  /// 生效的固定家庭名：空串表示「全部」（不锁定）。
+  ///
+  /// 指定后主页只显示该家庭的数据，并隐藏家庭概览条
+  /// （概览条里的「全部」按钮会解除筛选，与固定家庭冲突）。
+  static String get pinnedHomeName {
+    final String name = envHomeName.trim();
+    if (name.isEmpty) return '';
+    if (name == '全部' || name.toLowerCase() == 'all') return '';
+    return name;
+  }
+
   /// 持久化覆盖：非空时优先生效（启动时由 applyOverrides 注入）
   static String _hostOverride = '';
   static String _tokenOverride = '';
@@ -51,6 +66,9 @@ class HaConfig {
     }
     envHost = _readString('AS_HOST', envHost).trim();
     envToken = _readString('AS_KEY', envToken).trim();
+    // 历史键名 HONE_MANE（.env_example 一直这么写）优先；
+    // 同时兼容拼写正确的 HOME_NAME。
+    envHomeName = _readString('HONE_MANE', _readString('HOME_NAME', '')).trim();
   }
 
   /// 是否已配置可用的连接信息

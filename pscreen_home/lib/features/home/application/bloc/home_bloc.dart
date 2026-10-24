@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
+import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_screen/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/ha_error_message.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/card_order_planner.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
@@ -22,9 +26,21 @@ import 'package:pscreen_home/features/home/domain/repositories/home_repository.d
 /// - [EntityStateChanged]：WS 推送的单实体状态更新；
 /// - [ToggleEntity]：乐观更新 + 失败回滚。
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
-  HomeBloc({required this.repository, required MetricSampler sampler})
-      : _sampler = sampler,
-        super(HomeState.initial()) {
+  HomeBloc({
+    required this.repository,
+    required MetricSampler sampler,
+    SettingsStore? settingsStore,
+  }) : _sampler = sampler,
+       _settingsStore = settingsStore,
+       // .env 指定了固定家庭时，进入主页即选中它（只显示该家庭的数据）。
+       super(
+         HomeState.initial().copyWith(
+           selectedHomeName: HaConfig.pinnedHomeName,
+           cardOrderAll: settingsStore?.cardOrderAll ?? const <String>[],
+           cardOrderByHome:
+               settingsStore?.cardOrderByHome ?? const <String, List<String>>{},
+         ),
+       ) {
     // 绑定指标采样源并启动：按配置间隔记录各设备最近 24 小时的曲线。
     _sampler.bind(_readMetricValues);
     on<LoadHome>(_onLoadHome);
@@ -32,6 +48,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<ToggleEntity>(_onToggleEntity);
     on<HomeSelected>(_onHomeSelected);
     on<AreaSelected>(_onAreaSelected);
+    on<ReorderCards>(_onReorderCards);
     on<SetLightBrightness>(_onSetLightBrightness);
     on<SetLightColorTemperature>(_onSetLightColorTemperature);
     on<SetLightEffect>(_onSetLightEffect);
@@ -58,6 +75,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   final HomeRepository repository;
   final MetricSampler _sampler;
+  final SettingsStore? _settingsStore;
   StreamSubscription<HaEntityStateModel>? _subscription;
 
   /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
@@ -97,22 +115,31 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         repository.fetchStates(),
         repository.fetchRegistry(),
       ]);
-      final List<HaEntityStateModel> states = results[0] as List<HaEntityStateModel>;
+      final List<HaEntityStateModel> states =
+          results[0] as List<HaEntityStateModel>;
       final HaRegistry registry = results[1] as HaRegistry;
+      // .env 固定家庭优先于用户选择；未配置时沿用当前选择。
+      final String pinnedHome = HaConfig.pinnedHomeName;
       // 所选家庭/房间若已不存在（改归属 / 消失），回退「全部」
-      String selectedHome = state.selectedHomeName;
+      String selectedHome = pinnedHome.isNotEmpty
+          ? pinnedHome
+          : state.selectedHomeName;
       String selectedArea = state.selectedAreaId;
-      if (selectedHome.isNotEmpty && !registry.areas.any((HaArea a) => a.homeName == selectedHome)) {
+      if (selectedHome.isNotEmpty &&
+          !registry.areas.any((HaArea a) => a.homeName == selectedHome)) {
         selectedHome = '';
         selectedArea = '';
       }
-      if (selectedArea.isNotEmpty && !registry.areas.any((HaArea a) => a.areaId == selectedArea)) {
+      if (selectedArea.isNotEmpty &&
+          !registry.areas.any((HaArea a) => a.areaId == selectedArea)) {
         selectedArea = '';
       }
       emit(
         state.copyWith(
           isLoading: false,
-          entities: <String, HaEntityStateModel>{for (final HaEntityStateModel s in states) s.entityId: s},
+          entities: <String, HaEntityStateModel>{
+            for (final HaEntityStateModel s in states) s.entityId: s,
+          },
           registry: registry,
           selectedHomeName: selectedHome,
           selectedAreaId: selectedArea,
@@ -121,20 +148,37 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('加载实体状态失败', error: e, stackTrace: s);
-      emit(state.copyWith(isLoading: false, errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
+      emit(
+        state.copyWith(
+          isLoading: false,
+          errorMessage: mapHaErrorToMessage(e),
+          errorType: e.toNetErrorType(),
+        ),
+      );
       completeBlocEvent(event.completer, success: false);
     }
   }
 
-  void _onEntityStateChanged(EntityStateChanged event, Emitter<HomeState> emit) {
+  void _onEntityStateChanged(
+    EntityStateChanged event,
+    Emitter<HomeState> emit,
+  ) {
     // 仅更新已加载过的实体，避免加载前的推送把列表"打脏"
     if (!state.entities.containsKey(event.entity.entityId)) return;
     emit(
-      state.copyWith(entities: <String, HaEntityStateModel>{...state.entities, event.entity.entityId: event.entity}),
+      state.copyWith(
+        entities: <String, HaEntityStateModel>{
+          ...state.entities,
+          event.entity.entityId: event.entity,
+        },
+      ),
     );
   }
 
-  Future<void> _onToggleEntity(ToggleEntity event, Emitter<HomeState> emit) async {
+  Future<void> _onToggleEntity(
+    ToggleEntity event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isSwitchable) {
       completeBlocEvent(event.completer, success: false);
@@ -155,7 +199,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         if (current.isWaterHeater && modes.contains('自定义')) {
           optimisticState = '自定义';
         } else {
-          optimisticState = modes.contains('auto') ? 'auto' : (modes.isNotEmpty ? modes.first : 'cool');
+          optimisticState = modes.contains('auto')
+              ? 'auto'
+              : (modes.isNotEmpty ? modes.first : 'cool');
         }
       }
     } else {
@@ -174,14 +220,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
     try {
       await repository.setEntityPower(entityId: event.entityId, turnOn: turnOn);
-      emit(state.copyWith(togglingIds: <String>{...state.togglingIds}..remove(event.entityId)));
+      emit(
+        state.copyWith(
+          togglingIds: <String>{...state.togglingIds}..remove(event.entityId),
+        ),
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
-      Injection.get<LogService>().error('开关控制失败：${event.entityId}', error: e, stackTrace: s);
+      Injection.get<LogService>().error(
+        '开关控制失败：${event.entityId}',
+        error: e,
+        stackTrace: s,
+      );
       // 失败回滚到切换前的状态
       emit(
         state.copyWith(
-          entities: <String, HaEntityStateModel>{...state.entities, event.entityId: current},
+          entities: <String, HaEntityStateModel>{
+            ...state.entities,
+            event.entityId: current,
+          },
           togglingIds: <String>{...state.togglingIds}..remove(event.entityId),
           errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
@@ -192,12 +249,57 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   void _onHomeSelected(HomeSelected event, Emitter<HomeState> emit) {
+    // .env 固定家庭时忽略切换（概览条已隐藏，这里防御其他入口）。
+    final String pinnedHome = HaConfig.pinnedHomeName;
     // 切换家庭后房间行会重新计算，清空已选房间避免无效筛选
-    emit(state.copyWith(selectedHomeName: event.homeName, selectedAreaId: ''));
+    emit(
+      state.copyWith(
+        selectedHomeName: pinnedHome.isNotEmpty ? pinnedHome : event.homeName,
+        selectedAreaId: '',
+      ),
+    );
   }
 
   void _onAreaSelected(AreaSelected event, Emitter<HomeState> emit) {
     emit(state.copyWith(selectedAreaId: event.areaId));
+  }
+
+  Future<void> _onReorderCards(
+    ReorderCards event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (event.visibleKeys.isEmpty) return;
+
+    final List<HaDeviceGroup> allGroups = state.allDeviceGroups;
+    final List<String> allKeys = allGroups
+        .map((HaDeviceGroup group) => group.orderKey)
+        .toList(growable: false);
+    final Map<String, String> homeByKey = <String, String>{
+      for (final HaDeviceGroup group in allGroups)
+        group.orderKey: state.homeNameForEntity(
+          (group.primary ?? group.entities.first).entityId,
+        ),
+    };
+
+    final CardOrderPlan plan = CardOrderPlanner.apply(
+      allOrder: state.cardOrderAll,
+      homeOrders: state.cardOrderByHome,
+      allCurrentKeys: allKeys,
+      homeByKey: homeByKey,
+      viewHome: event.homeName,
+      visibleNewOrder: event.visibleKeys,
+    );
+
+    emit(
+      state.copyWith(
+        cardOrderAll: plan.allOrder,
+        cardOrderByHome: plan.homeOrders,
+      ),
+    );
+    await _settingsStore?.saveCardOrders(
+      all: plan.allOrder,
+      byHome: plan.homeOrders,
+    );
   }
 
   void _onClearHomeError(ClearHomeError event, Emitter<HomeState> emit) {
@@ -206,7 +308,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   // ------------------------------------------------------------ 参数控制
 
-  Future<void> _onSetLightBrightness(SetLightBrightness event, Emitter<HomeState> emit) async {
+  Future<void> _onSetLightBrightness(
+    SetLightBrightness event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isLight || !current.supportsBrightness) {
       completeBlocEvent(event.completer, success: false);
@@ -217,45 +322,75 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current
-          .mergeAttributes(<String, dynamic>{'brightness': (percent * 255 / 100).round()})
+          .mergeAttributes(<String, dynamic>{
+            'brightness': (percent * 255 / 100).round(),
+          })
           .copyWith(state: 'on'),
-      action: () => repository.setLightBrightness(entityId: current.entityId, percent: percent),
+      action: () => repository.setLightBrightness(
+        entityId: current.entityId,
+        percent: percent,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetLightColorTemperature(SetLightColorTemperature event, Emitter<HomeState> emit) async {
+  Future<void> _onSetLightColorTemperature(
+    SetLightColorTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isLight || !current.supportsColorTemperature) {
+    if (current == null ||
+        !current.isLight ||
+        !current.supportsColorTemperature) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
-    final int kelvin = event.kelvin.clamp(current.minColorTempKelvin!, current.maxColorTempKelvin!).toInt();
+    final int kelvin = event.kelvin
+        .clamp(current.minColorTempKelvin!, current.maxColorTempKelvin!)
+        .toInt();
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'color_temp_kelvin': kelvin}).copyWith(state: 'on'),
-      action: () => repository.setLightColorTemperature(entityId: current.entityId, kelvin: kelvin),
+      patched: current
+          .mergeAttributes(<String, dynamic>{'color_temp_kelvin': kelvin})
+          .copyWith(state: 'on'),
+      action: () => repository.setLightColorTemperature(
+        entityId: current.entityId,
+        kelvin: kelvin,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetLightEffect(SetLightEffect event, Emitter<HomeState> emit) async {
+  Future<void> _onSetLightEffect(
+    SetLightEffect event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isLight || !current.effectList.contains(event.effect)) {
+    if (current == null ||
+        !current.isLight ||
+        !current.effectList.contains(event.effect)) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'effect': event.effect}).copyWith(state: 'on'),
-      action: () => repository.setLightEffect(entityId: current.entityId, effect: event.effect),
+      patched: current
+          .mergeAttributes(<String, dynamic>{'effect': event.effect})
+          .copyWith(state: 'on'),
+      action: () => repository.setLightEffect(
+        entityId: current.entityId,
+        effect: event.effect,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetClimateTemperature(SetClimateTemperature event, Emitter<HomeState> emit) async {
+  Future<void> _onSetClimateTemperature(
+    SetClimateTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isClimate) {
       completeBlocEvent(event.completer, success: false);
@@ -269,15 +404,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'temperature': temperature}),
-      action: () => repository.setClimateTemperature(entityId: current.entityId, temperature: temperature),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'temperature': temperature,
+      }),
+      action: () => repository.setClimateTemperature(
+        entityId: current.entityId,
+        temperature: temperature,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetClimateHvacMode(SetClimateHvacMode event, Emitter<HomeState> emit) async {
+  Future<void> _onSetClimateHvacMode(
+    SetClimateHvacMode event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isClimate || (event.mode != 'off' && !current.hvacModes.contains(event.mode))) {
+    if (current == null ||
+        !current.isClimate ||
+        (event.mode != 'off' && !current.hvacModes.contains(event.mode))) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
@@ -285,57 +430,93 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current.copyWith(state: event.mode),
-      action: () => repository.setClimateHvacMode(entityId: current.entityId, mode: event.mode),
+      action: () => repository.setClimateHvacMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetClimateFanMode(SetClimateFanMode event, Emitter<HomeState> emit) async {
+  Future<void> _onSetClimateFanMode(
+    SetClimateFanMode event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isClimate || !current.fanModes.contains(event.mode)) {
+    if (current == null ||
+        !current.isClimate ||
+        !current.fanModes.contains(event.mode)) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'fan_mode': event.mode}),
-      action: () => repository.setClimateFanMode(entityId: current.entityId, mode: event.mode),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'fan_mode': event.mode,
+      }),
+      action: () => repository.setClimateFanMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetClimateSwingMode(SetClimateSwingMode event, Emitter<HomeState> emit) async {
+  Future<void> _onSetClimateSwingMode(
+    SetClimateSwingMode event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isClimate || !current.swingModes.contains(event.mode)) {
+    if (current == null ||
+        !current.isClimate ||
+        !current.swingModes.contains(event.mode)) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'swing_mode': event.mode}),
-      action: () => repository.setClimateSwingMode(entityId: current.entityId, mode: event.mode),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'swing_mode': event.mode,
+      }),
+      action: () => repository.setClimateSwingMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetFanPresetMode(SetFanPresetMode event, Emitter<HomeState> emit) async {
+  Future<void> _onSetFanPresetMode(
+    SetFanPresetMode event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || !current.isFan || !current.presetModes.contains(event.mode)) {
+    if (current == null ||
+        !current.isFan ||
+        !current.presetModes.contains(event.mode)) {
       completeBlocEvent(event.completer, success: false);
       return;
     }
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'preset_mode': event.mode}),
-      action: () => repository.setFanPresetMode(entityId: current.entityId, mode: event.mode),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'preset_mode': event.mode,
+      }),
+      action: () => repository.setFanPresetMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetFanPercentage(SetFanPercentage event, Emitter<HomeState> emit) async {
+  Future<void> _onSetFanPercentage(
+    SetFanPercentage event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isFan) {
       completeBlocEvent(event.completer, success: false);
@@ -345,13 +526,21 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'percentage': percentage}),
-      action: () => repository.setFanPercentage(entityId: current.entityId, percentage: percentage),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'percentage': percentage,
+      }),
+      action: () => repository.setFanPercentage(
+        entityId: current.entityId,
+        percentage: percentage,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetFanOscillating(SetFanOscillating event, Emitter<HomeState> emit) async {
+  Future<void> _onSetFanOscillating(
+    SetFanOscillating event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isFan) {
       completeBlocEvent(event.completer, success: false);
@@ -360,15 +549,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'oscillating': event.oscillating}),
-      action: () => repository.setFanOscillating(entityId: current.entityId, oscillating: event.oscillating),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'oscillating': event.oscillating,
+      }),
+      action: () => repository.setFanOscillating(
+        entityId: current.entityId,
+        oscillating: event.oscillating,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onPressEntityButton(PressEntityButton event, Emitter<HomeState> emit) async {
+  Future<void> _onPressEntityButton(
+    PressEntityButton event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || current.domain != 'button' || current.state == 'unavailable') {
+    if (current == null ||
+        current.domain != 'button' ||
+        current.state == 'unavailable') {
       completeBlocEvent(event.completer, success: false);
       return;
     }
@@ -376,13 +575,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       await repository.pressButton(entityId: current.entityId);
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
-      Injection.get<LogService>().error('按钮操作失败：${current.entityId}', error: e, stackTrace: s);
-      emit(state.copyWith(errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
+      Injection.get<LogService>().error(
+        '按钮操作失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
+      emit(
+        state.copyWith(
+          errorMessage: mapHaErrorToMessage(e),
+          errorType: e.toNetErrorType(),
+        ),
+      );
       completeBlocEvent(event.completer, success: false);
     }
   }
 
-  Future<void> _onSelectEntityOption(SelectEntityOption event, Emitter<HomeState> emit) async {
+  Future<void> _onSelectEntityOption(
+    SelectEntityOption event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         current.domain != 'select' ||
@@ -395,12 +606,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current.copyWith(state: event.option),
-      action: () => repository.selectOption(entityId: current.entityId, option: event.option),
+      action: () => repository.selectOption(
+        entityId: current.entityId,
+        option: event.option,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetWaterHeaterTemperature(SetWaterHeaterTemperature event, Emitter<HomeState> emit) async {
+  Future<void> _onSetWaterHeaterTemperature(
+    SetWaterHeaterTemperature event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isWaterHeater) {
       completeBlocEvent(event.completer, success: false);
@@ -414,13 +631,21 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await _applyEntityPatch(
       emit: emit,
       current: current,
-      patched: current.mergeAttributes(<String, dynamic>{'temperature': temperature}),
-      action: () => repository.setWaterHeaterTemperature(entityId: current.entityId, temperature: temperature),
+      patched: current.mergeAttributes(<String, dynamic>{
+        'temperature': temperature,
+      }),
+      action: () => repository.setWaterHeaterTemperature(
+        entityId: current.entityId,
+        temperature: temperature,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetWaterHeaterOperationMode(SetWaterHeaterOperationMode event, Emitter<HomeState> emit) async {
+  Future<void> _onSetWaterHeaterOperationMode(
+    SetWaterHeaterOperationMode event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isWaterHeater ||
@@ -432,12 +657,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current.copyWith(state: event.mode),
-      action: () => repository.setWaterHeaterOperationMode(entityId: current.entityId, mode: event.mode),
+      action: () => repository.setWaterHeaterOperationMode(
+        entityId: current.entityId,
+        mode: event.mode,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetTextEntityValue(SetTextEntityValue event, Emitter<HomeState> emit) async {
+  Future<void> _onSetTextEntityValue(
+    SetTextEntityValue event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || current.domain != 'text' || !current.isAvailable) {
       completeBlocEvent(event.completer, success: false);
@@ -447,12 +678,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current.copyWith(state: event.value),
-      action: () => repository.setTextValue(entityId: current.entityId, value: event.value),
+      action: () => repository.setTextValue(
+        entityId: current.entityId,
+        value: event.value,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onSetNumberEntityValue(SetNumberEntityValue event, Emitter<HomeState> emit) async {
+  Future<void> _onSetNumberEntityValue(
+    SetNumberEntityValue event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || current.domain != 'number' || !current.isAvailable) {
       completeBlocEvent(event.completer, success: false);
@@ -465,23 +702,43 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit: emit,
       current: current,
       patched: current.copyWith(state: text),
-      action: () => repository.setNumberValue(entityId: current.entityId, value: event.value),
+      action: () => repository.setNumberValue(
+        entityId: current.entityId,
+        value: event.value,
+      ),
       completer: event.completer,
     );
   }
 
-  Future<void> _onPressNotifyAction(PressNotifyAction event, Emitter<HomeState> emit) async {
+  Future<void> _onPressNotifyAction(
+    PressNotifyAction event,
+    Emitter<HomeState> emit,
+  ) async {
     final HaEntityStateModel? current = state.entities[event.entityId];
-    if (current == null || current.domain != 'notify' || current.state == 'unavailable') {
+    if (current == null ||
+        current.domain != 'notify' ||
+        current.state == 'unavailable') {
       completeBlocEvent(event.completer, success: false);
       return;
     }
     try {
-      await repository.pressNotifyAction(entityId: current.entityId, message: event.message);
+      await repository.pressNotifyAction(
+        entityId: current.entityId,
+        message: event.message,
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
-      Injection.get<LogService>().error('notify 动作执行失败：${current.entityId}', error: e, stackTrace: s);
-      emit(state.copyWith(errorMessage: mapHaErrorToMessage(e), errorType: e.toNetErrorType()));
+      Injection.get<LogService>().error(
+        'notify 动作执行失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
+      emit(
+        state.copyWith(
+          errorMessage: mapHaErrorToMessage(e),
+          errorType: e.toNetErrorType(),
+        ),
+      );
       completeBlocEvent(event.completer, success: false);
     }
   }
@@ -496,7 +753,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }) async {
     emit(
       state.copyWith(
-        entities: <String, HaEntityStateModel>{...state.entities, current.entityId: patched},
+        entities: <String, HaEntityStateModel>{
+          ...state.entities,
+          current.entityId: patched,
+        },
         clearError: true,
       ),
     );
@@ -504,10 +764,17 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       await action();
       completeBlocEvent(completer, success: true);
     } catch (e, s) {
-      Injection.get<LogService>().error('设备参数控制失败：${current.entityId}', error: e, stackTrace: s);
+      Injection.get<LogService>().error(
+        '设备参数控制失败：${current.entityId}',
+        error: e,
+        stackTrace: s,
+      );
       emit(
         state.copyWith(
-          entities: <String, HaEntityStateModel>{...state.entities, current.entityId: current},
+          entities: <String, HaEntityStateModel>{
+            ...state.entities,
+            current.entityId: current,
+          },
           errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),

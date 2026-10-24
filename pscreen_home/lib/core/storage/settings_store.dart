@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,6 +35,14 @@ class SettingsStore {
 
   /// 上次观看的直播频道名（下次进入直播页时恢复）。
   static const String lastLiveChannelKey = 'live_last_channel_v1';
+
+  /// 主页卡片在「全部」视图下的拖拽顺序（设备/实体稳定 key）。
+  static const String cardOrderAllKey = 'home_card_order_all_v1';
+
+  /// 主页卡片在每个家庭下的拖拽顺序，JSON：`{ "金科1204": ["device:..."] }`。
+  ///
+  /// 房间不单独存：房间视图直接过滤所属家庭的顺序。
+  static const String cardOrderByHomeKey = 'home_card_order_by_home_v1';
 
   /// 15 寸 1920x1080 大屏的默认缩放：卡片/字号整体放大 1.5 倍。
   static const double defaultUiScale = 1.5;
@@ -79,6 +89,30 @@ class SettingsStore {
 
   /// 上次观看的直播频道名（空串 = 未记录）。
   String get lastLiveChannel => _prefs?.getString(lastLiveChannelKey) ?? '';
+
+  /// 「全部」视图的卡片顺序（未设置时为空，界面回落默认排序）。
+  List<String> get cardOrderAll =>
+      _prefs?.getStringList(cardOrderAllKey) ?? const <String>[];
+
+  /// 每个家庭各自的卡片顺序（未设置/损坏时为空）。
+  Map<String, List<String>> get cardOrderByHome {
+    final String? raw = _prefs?.getString(cardOrderByHomeKey);
+    if (raw == null || raw.isEmpty) return const <String, List<String>>{};
+    try {
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map) return const <String, List<String>>{};
+      final Map<String, List<String>> result = <String, List<String>>{};
+      decoded.forEach((Object? key, Object? value) {
+        if (key is String && value is List) {
+          result[key] = value.whereType<String>().toList(growable: false);
+        }
+      });
+      return result;
+    } catch (e) {
+      Injection.get<LogService>().warn('读取卡片顺序失败，回落默认排序：$e');
+      return const <String, List<String>>{};
+    }
+  }
 
   /// 持久化界面缩放；等于默认值时移除键（回落默认）。
   Future<void> saveUiScale(double value) async {
@@ -128,6 +162,23 @@ class SettingsStore {
       }
     } catch (e) {
       Injection.get<LogService>().warn('写入上次直播频道失败：$e');
+    }
+  }
+
+  /// 持久化主页卡片顺序（「全部」+ 每个家庭）。
+  ///
+  /// 空列表写为空数组；下次读取时界面会按默认排序补齐。
+  Future<void> saveCardOrders({
+    required List<String> all,
+    required Map<String, List<String>> byHome,
+  }) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      await prefs.setStringList(cardOrderAllKey, all);
+      await prefs.setString(cardOrderByHomeKey, jsonEncode(byHome));
+    } catch (e) {
+      Injection.get<LogService>().warn('写入卡片顺序失败：$e');
     }
   }
 

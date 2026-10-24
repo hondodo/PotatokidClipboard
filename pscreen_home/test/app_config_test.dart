@@ -6,6 +6,7 @@ void main() {
     // 模拟 .env 默认值（测试环境不加载 dotenv）
     HaConfig.envHost = 'http://localhost:8123';
     HaConfig.envToken = 'env_token';
+    HaConfig.envHomeName = '';
     HaConfig.applyOverrides();
   });
 
@@ -13,6 +14,7 @@ void main() {
     HaConfig.applyOverrides();
     HaConfig.envHost = 'http://localhost:8123';
     HaConfig.envToken = '';
+    HaConfig.envHomeName = '';
   });
 
   group('HaConfig 生效值优先级', () {
@@ -50,6 +52,26 @@ void main() {
       HaConfig.applyOverrides(host: '  10.0.0.2:8123  ', token: ' tok ');
       expect(HaConfig.haHost, '10.0.0.2:8123');
       expect(HaConfig.haToken, 'tok');
+    });
+  });
+
+  group('HaConfig.pinnedHomeName', () {
+    test('留空表示不限制（显示全部家庭）', () {
+      HaConfig.envHomeName = '';
+      expect(HaConfig.pinnedHomeName, '');
+    });
+
+    test('「全部」表示不限制', () {
+      HaConfig.envHomeName = '全部';
+      expect(HaConfig.pinnedHomeName, '');
+
+      HaConfig.envHomeName = 'ALL';
+      expect(HaConfig.pinnedHomeName, '');
+    });
+
+    test('指定家庭名时锁定该家庭，并裁剪两端空白', () {
+      HaConfig.envHomeName = '  金科1204  ';
+      expect(HaConfig.pinnedHomeName, '金科1204');
     });
   });
 

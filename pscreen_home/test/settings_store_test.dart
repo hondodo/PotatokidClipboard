@@ -67,8 +67,7 @@ void main() {
     test('功率采样间隔默认 5 秒，保存后跨实例生效', () async {
       final SettingsStore store = SettingsStore();
       await store.init();
-      expect(store.powerSampleSeconds,
-          SettingsStore.defaultPowerSampleSeconds);
+      expect(store.powerSampleSeconds, SettingsStore.defaultPowerSampleSeconds);
 
       await store.savePowerSampleSeconds(10);
       expect(store.powerSampleSeconds, 10);
@@ -85,16 +84,42 @@ void main() {
       expect(store.powerSampleSeconds, 30);
 
       await store.savePowerSampleSeconds(
-          SettingsStore.defaultPowerSampleSeconds);
-      expect(store.powerSampleSeconds,
-          SettingsStore.defaultPowerSampleSeconds);
+        SettingsStore.defaultPowerSampleSeconds,
+      );
+      expect(store.powerSampleSeconds, SettingsStore.defaultPowerSampleSeconds);
 
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       expect(prefs.containsKey(SettingsStore.powerSampleSecondsKey), isFalse);
 
       await store.savePowerSampleSeconds(7);
-      expect(store.powerSampleSeconds,
-          SettingsStore.defaultPowerSampleSeconds);
+      expect(store.powerSampleSeconds, SettingsStore.defaultPowerSampleSeconds);
+    });
+
+    test('卡片顺序跨实例持久化（全部 + 每个家庭）', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      await store.saveCardOrders(
+        all: <String>['device:a', 'device:b'],
+        byHome: <String, List<String>>{
+          '金科1204': <String>['device:a'],
+          '棠德304': <String>['device:b'],
+        },
+      );
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.cardOrderAll, <String>['device:a', 'device:b']);
+      expect(next.cardOrderByHome['金科1204'], <String>['device:a']);
+      expect(next.cardOrderByHome['棠德304'], <String>['device:b']);
+    });
+
+    test('家庭顺序 JSON 损坏时回退空 Map', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        SettingsStore.cardOrderByHomeKey: '{not-json',
+      });
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      expect(store.cardOrderByHome, isEmpty);
     });
   });
 }

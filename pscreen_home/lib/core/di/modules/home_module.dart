@@ -25,9 +25,7 @@ class HomeModule {
       () => MetricSampler(
         store: getIt<MetricHistoryStore>(),
         log: getIt<LogService>(),
-        interval: Duration(
-          seconds: getIt<SettingsStore>().powerSampleSeconds,
-        ),
+        interval: Duration(seconds: getIt<SettingsStore>().powerSampleSeconds),
       ),
     );
     getIt.registerLazySingleton<HistoryService>(
@@ -41,6 +39,7 @@ class HomeModule {
       () => HomeBloc(
         repository: getIt<HomeRepository>(),
         sampler: getIt<MetricSampler>(),
+        settingsStore: getIt<SettingsStore>(),
       ),
     );
   }

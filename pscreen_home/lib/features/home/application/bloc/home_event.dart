@@ -46,6 +46,20 @@ class AreaSelected extends HomeEvent {
   final String areaId;
 }
 
+/// 拖拽后提交当前视图的卡片顺序。
+///
+/// [visibleKeys]：当前视图（全部 / 家庭 / 房间）拖动后的可见卡片 key；
+/// [homeName]：`''` 表示「全部」，否则为当前家庭名。
+///
+/// 家庭/房间拖动会同步更新全局顺序中该家庭的槽位；
+/// 「全部」拖动只改全局顺序，不反写家庭顺序。
+class ReorderCards extends HomeEvent {
+  const ReorderCards({required this.visibleKeys, required this.homeName});
+
+  final List<String> visibleKeys;
+  final String homeName;
+}
+
 /// 调整灯光亮度（percent：0-100）。
 class SetLightBrightness extends HomeEvent {
   const SetLightBrightness({
@@ -178,10 +192,7 @@ class SetFanOscillating extends HomeEvent {
 
 /// 按下 button 实体（洗衣机启动 / 暂停 / 停止等）。
 class PressEntityButton extends HomeEvent {
-  const PressEntityButton({
-    required this.entityId,
-    this.completer,
-  });
+  const PressEntityButton({required this.entityId, this.completer});
 
   final String entityId;
   final Completer<bool>? completer;

@@ -45,13 +45,12 @@ class HaDeviceGroup {
     final List<HaDeviceGroup> groups = <HaDeviceGroup>[];
     byDevice.forEach((String key, List<HaEntityStateModel> list) {
       final String? deviceId = key.startsWith('entity:') ? null : key;
-      final String title = (deviceId != null ? deviceNameOf(deviceId) : null) ??
+      final String title =
+          (deviceId != null ? deviceNameOf(deviceId) : null) ??
           list.first.displayName;
-      groups.add(HaDeviceGroup(
-        deviceId: deviceId,
-        title: title,
-        entities: list,
-      ));
+      groups.add(
+        HaDeviceGroup(deviceId: deviceId, title: title, entities: list),
+      );
     });
 
     groups.sort(_compareGroups);
@@ -63,6 +62,15 @@ class HaDeviceGroup {
 
   /// 设备名（无设备归属时为实体显示名）
   final String title;
+
+  /// 卡片稳定标识：用于持久化拖拽顺序。
+  ///
+  /// 有设备归属用 `device:<device_id>`，否则退化为
+  /// `entity:<entity_id>`（此时组内只有一个实体）。
+  /// 不要用标题或下标，改名/新增卡片都会让顺序失效。
+  String get orderKey => deviceId == null
+      ? 'entity:${entities.first.entityId}'
+      : 'device:$deviceId';
 
   /// 该设备的全部实体（已排序，主实体在首位）
   final List<HaEntityStateModel> entities;
@@ -137,8 +145,9 @@ class HaDeviceGroup {
   /// 组间排序：全不可用组排最后，其余按主实体权重，再按设备名。
   static int _compareGroups(HaDeviceGroup a, HaDeviceGroup b) {
     if (a.isUnavailable != b.isUnavailable) return a.isUnavailable ? 1 : -1;
-    final int byWeight = _sortWeight(a.primary ?? a.entities.first)
-        .compareTo(_sortWeight(b.primary ?? b.entities.first));
+    final int byWeight = _sortWeight(
+      a.primary ?? a.entities.first,
+    ).compareTo(_sortWeight(b.primary ?? b.entities.first));
     return byWeight != 0 ? byWeight : a.title.compareTo(b.title);
   }
 
@@ -159,7 +168,8 @@ class HaDeviceGroup {
     if (!e.isSwitchable) return 5;
     if (e.domain == 'light') {
       final String id = e.entityId.toLowerCase();
-      final bool indicatorLike = id.contains('indicator') ||
+      final bool indicatorLike =
+          id.contains('indicator') ||
           id.contains('night_light') ||
           id.contains('ambient_light');
       return indicatorLike ? 4 : 0;
@@ -177,8 +187,6 @@ class HaDeviceGroup {
   static bool _isMainPowerSwitch(HaEntityStateModel e) {
     if (e.domain != 'switch') return false;
     final String id = e.entityId.toLowerCase();
-    return id.endsWith('_power') ||
-        id.endsWith('_on') ||
-        id.contains('_on_p_');
+    return id.endsWith('_power') || id.endsWith('_on') || id.contains('_on_p_');
   }
 }
