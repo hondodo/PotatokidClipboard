@@ -2,6 +2,7 @@ import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
+import 'package:pscreen_home/core/wallpaper/wallpaper_controller.dart';
 
 /// 存储模块：注册本地配置持久化（手动设置的 HA 地址 / 令牌）。
 ///
@@ -16,10 +17,12 @@ class StorageModule {
     getIt.registerSingleton<ScreensaverController>(
       ScreensaverController(store),
     );
+    getIt.registerSingleton<WallpaperController>(WallpaperController(store));
     getIt.registerSingleton<UiScaleController>(UiScaleController(store));
   }
 
   static Future<void> unregister() async {
+    await getIt.unregister<WallpaperController>();
     await getIt.unregister<ScreensaverController>();
     await getIt.unregister<UiScaleController>();
     await getIt.unregister<SettingsStore>();

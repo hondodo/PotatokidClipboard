@@ -52,6 +52,47 @@ class SettingsStore {
     screensaverNeverMinutes,
   ];
 
+  /// 屏保壁纸是否开启的持久化键。
+  static const String wallpaperEnabledKey = 'wallpaper_enabled_v1';
+
+  /// 屏保壁纸默认开启。
+  static const bool defaultWallpaperEnabled = true;
+
+  /// 屏保壁纸 API 的持久化键。
+  static const String wallpaperApiUrlKey = 'wallpaper_api_url_v1';
+
+  /// 默认壁纸 API：真实风景照片（302 跳转到随机图片）。
+  ///
+  /// Uapis 的 `category=landscape` 会聚合多个外部图源，其中仍可能混入
+  /// 动漫/幻想插画；这里直接使用其风景图源，保证屏保是真实照片。
+  /// 需要 Uapis 随机壁纸时可在设置页填：
+  /// `https://uapis.cn/api/v1/random/image?category=landscape`
+  static const String defaultWallpaperApiUrl =
+      'https://tu.ltyuanfang.cn/api/fengjing.php';
+
+  /// 壁纸刷新间隔（分钟）的持久化键。
+  static const String wallpaperMinutesKey = 'wallpaper_refresh_minutes_v1';
+
+  /// 壁纸默认刷新间隔（分钟）。
+  static const int defaultWallpaperMinutes = 30;
+
+  /// 可选的壁纸刷新间隔（分钟），设置页按此顺序展示。
+  static const List<int> wallpaperMinuteOptions = <int>[
+    5,
+    10,
+    30,
+    60,
+    720,
+    1440,
+  ];
+
+  /// 壁纸刷新间隔的中文标签。
+  static String wallpaperMinuteLabel(int minutes) {
+    if (minutes == 720) return '半天';
+    if (minutes == 1440) return '1 天';
+    return '$minutes 分钟';
+  }
+
   /// 全局界面缩放倍数（1.0 = 原始尺寸，仅作用于本应用）。
   static const String uiScaleKey = 'ui_scale';
 
@@ -113,6 +154,29 @@ class SettingsStore {
     final int? value = _prefs?.getInt(screensaverMinutesKey);
     if (value == null || !screensaverOptions.contains(value)) {
       return defaultScreensaverMinutes;
+    }
+    return value;
+  }
+
+  /// 屏保壁纸是否开启（未设置时默认开启）。
+  bool get wallpaperEnabled =>
+      _prefs?.getBool(wallpaperEnabledKey) ?? defaultWallpaperEnabled;
+
+  /// 屏保壁纸 API 地址（未设置或为空时回落默认风景接口）。
+  String get wallpaperApiUrl {
+    final String? value = _prefs?.getString(wallpaperApiUrlKey);
+    if (value == null || value.trim().isEmpty) {
+      return defaultWallpaperApiUrl;
+    }
+    return value.trim();
+  }
+
+  /// 壁纸刷新间隔（分钟）。未设置或非法值时回落
+  /// [defaultWallpaperMinutes]。
+  int get wallpaperMinutes {
+    final int? value = _prefs?.getInt(wallpaperMinutesKey);
+    if (value == null || !wallpaperMinuteOptions.contains(value)) {
+      return defaultWallpaperMinutes;
     }
     return value;
   }
@@ -266,6 +330,53 @@ class SettingsStore {
       }
     } catch (e) {
       Injection.get<LogService>().warn('写入屏保时长失败：$e');
+    }
+  }
+
+  /// 持久化壁纸开关；默认值（开启）移除键。
+  Future<void> saveWallpaperEnabled(bool enabled) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      if (enabled == defaultWallpaperEnabled) {
+        await prefs.remove(wallpaperEnabledKey);
+      } else {
+        await prefs.setBool(wallpaperEnabledKey, enabled);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入壁纸开关失败：$e');
+    }
+  }
+
+  /// 持久化壁纸 API；空值或默认值移除键。
+  Future<void> saveWallpaperApiUrl(String url) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      final String next = url.trim();
+      if (next.isEmpty || next == defaultWallpaperApiUrl) {
+        await prefs.remove(wallpaperApiUrlKey);
+      } else {
+        await prefs.setString(wallpaperApiUrlKey, next);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入壁纸 API 失败：$e');
+    }
+  }
+
+  /// 持久化壁纸刷新间隔；默认值移除键，非法值忽略。
+  Future<void> saveWallpaperMinutes(int minutes) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    if (!wallpaperMinuteOptions.contains(minutes)) return;
+    try {
+      if (minutes == defaultWallpaperMinutes) {
+        await prefs.remove(wallpaperMinutesKey);
+      } else {
+        await prefs.setInt(wallpaperMinutesKey, minutes);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入壁纸刷新间隔失败：$e');
     }
   }
 }

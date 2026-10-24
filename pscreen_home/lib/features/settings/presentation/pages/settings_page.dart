@@ -6,6 +6,7 @@ import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
+import 'package:pscreen_home/core/wallpaper/wallpaper_controller.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
@@ -43,6 +44,10 @@ class _SettingsPageState extends State<SettingsPage> {
   late int _sampleSeconds;
   late int _screensaverMinutes;
   late double _uiScale;
+  late final WallpaperController _wallpaper;
+  late final TextEditingController _wallpaperApiController;
+  late bool _wallpaperEnabled;
+  late int _wallpaperMinutes;
 
   /// 天气城市（空串 = 自动，按出口 IP 定位）。
   String _weatherCity = AppSettings.instance.weatherCity;
@@ -56,6 +61,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _sampleSeconds = store.powerSampleSeconds;
     _screensaverMinutes = Injection.get<ScreensaverController>().minutes;
     _uiScale = store.uiScale;
+    _wallpaper = Injection.get<WallpaperController>();
+    _wallpaperEnabled = _wallpaper.enabled;
+    _wallpaperMinutes = _wallpaper.minutes;
+    _wallpaperApiController = TextEditingController(text: _wallpaper.apiUrl);
     _nimAccountController = TextEditingController(
       text: ControlSettings.instance.nimAccount,
     );
@@ -75,6 +84,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _tokenController.dispose();
     _nimAccountController.dispose();
     _nimTokenController.dispose();
+    _wallpaperApiController.dispose();
     super.dispose();
   }
 
@@ -165,6 +175,56 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _applyScreensaverMinutes(int minutes) async {
     setState(() => _screensaverMinutes = minutes);
     await Injection.get<ScreensaverController>().setMinutes(minutes);
+  }
+
+  /// 壁纸开关：立即生效并持久化。
+  Future<void> _applyWallpaperEnabled(bool enabled) async {
+    setState(() => _wallpaperEnabled = enabled);
+    await _wallpaper.setEnabled(enabled);
+  }
+
+  /// 壁纸刷新间隔：立即生效并持久化。
+  Future<void> _applyWallpaperMinutes(int minutes) async {
+    setState(() => _wallpaperMinutes = minutes);
+    await _wallpaper.setMinutes(minutes);
+  }
+
+  /// 保存壁纸 API；只接受 http/https 地址，空输入恢复默认风景接口。
+  Future<void> _saveWallpaperApi() async {
+    final String input = _wallpaperApiController.text.trim();
+    if (input.isNotEmpty) {
+      final Uri? uri = Uri.tryParse(input);
+      if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('壁纸 API 需要 http/https 地址'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        return;
+      }
+    }
+
+    await _wallpaper.setApiUrl(input);
+    if (!mounted) return;
+    _wallpaperApiController.text = _wallpaper.apiUrl;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('已保存壁纸 API'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// 恢复默认的 Uapis 风景接口。
+  Future<void> _resetWallpaperApi() async {
+    _wallpaperApiController.text = SettingsStore.defaultWallpaperApiUrl;
+    await _saveWallpaperApi();
   }
 
   /// 切换天气城市：持久化并立即重新拉取；「自动」传空串（按出口 IP 定位）。
@@ -315,6 +375,71 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   selected: _screensaverMinutes == minutes,
                   onSelected: (_) => _applyScreensaverMinutes(minutes),
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '屏保壁纸',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '屏保时钟的背景图，默认 30 分钟换一张。默认使用真实风景照片接口；Uapis 随机壁纸可填 https://uapis.cn/api/v1/random/image?category=landscape，但它会聚合外部图源，仍可能混入动漫/插画。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.wallpaper_rounded),
+            title: const Text('启用屏保壁纸'),
+            subtitle: const Text('关闭后屏保只显示黑底；时钟页左下角也可随时关闭/开启。'),
+            value: _wallpaperEnabled,
+            onChanged: _applyWallpaperEnabled,
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _wallpaperApiController,
+            decoration: const InputDecoration(
+              labelText: '壁纸 API 地址',
+              hintText: SettingsStore.defaultWallpaperApiUrl,
+              helperText: '默认使用真实风景照片；也可以换成其它返回图片的 API。',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.url,
+            minLines: 1,
+            maxLines: 2,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              FilledButton.tonalIcon(
+                onPressed: _saveWallpaperApi,
+                icon: const Icon(Icons.save_rounded),
+                label: const Text('保存壁纸 API'),
+              ),
+              TextButton(
+                onPressed: _resetWallpaperApi,
+                child: const Text('恢复默认'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final int minutes in SettingsStore.wallpaperMinuteOptions)
+                ChoiceChip(
+                  label: Text(SettingsStore.wallpaperMinuteLabel(minutes)),
+                  selected: _wallpaperMinutes == minutes,
+                  onSelected: (_) => _applyWallpaperMinutes(minutes),
                 ),
             ],
           ),

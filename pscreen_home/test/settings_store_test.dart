@@ -168,5 +168,84 @@ void main() {
       await store.saveScreensaverMinutes(7);
       expect(store.screensaverMinutes, SettingsStore.defaultScreensaverMinutes);
     });
+
+    test('屏保壁纸默认开启、真实风景 API、30 分钟', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+
+      expect(store.wallpaperEnabled, isTrue);
+      expect(store.wallpaperApiUrl, SettingsStore.defaultWallpaperApiUrl);
+      expect(store.wallpaperApiUrl, contains('fengjing.php'));
+      expect(store.wallpaperMinutes, 30);
+      expect(
+        SettingsStore.wallpaperMinuteOptions,
+        containsAll(<int>[5, 10, 30, 60, 720, 1440]),
+      );
+    });
+
+    test('壁纸开关跨实例持久化，恢复默认时删除键', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+
+      await store.saveWallpaperEnabled(false);
+      expect(store.wallpaperEnabled, isFalse);
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.wallpaperEnabled, isFalse);
+
+      await next.saveWallpaperEnabled(true);
+      expect(next.wallpaperEnabled, isTrue);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(SettingsStore.wallpaperEnabledKey), isFalse);
+    });
+
+    test('壁纸 API 自定义地址持久化，空值/默认值回落', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+
+      await store.saveWallpaperApiUrl('https://example.com/wallpaper');
+      expect(store.wallpaperApiUrl, 'https://example.com/wallpaper');
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.wallpaperApiUrl, 'https://example.com/wallpaper');
+
+      await next.saveWallpaperApiUrl('   ');
+      expect(next.wallpaperApiUrl, SettingsStore.defaultWallpaperApiUrl);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(SettingsStore.wallpaperApiUrlKey), isFalse);
+
+      await next.saveWallpaperApiUrl(SettingsStore.defaultWallpaperApiUrl);
+      expect(prefs.containsKey(SettingsStore.wallpaperApiUrlKey), isFalse);
+    });
+
+    test('壁纸刷新间隔持久化，默认值删除键，非法值回落', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      expect(store.wallpaperMinutes, SettingsStore.defaultWallpaperMinutes);
+
+      await store.saveWallpaperMinutes(60);
+      expect(store.wallpaperMinutes, 60);
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.wallpaperMinutes, 60);
+
+      await next.saveWallpaperMinutes(SettingsStore.defaultWallpaperMinutes);
+      expect(next.wallpaperMinutes, SettingsStore.defaultWallpaperMinutes);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(SettingsStore.wallpaperMinutesKey), isFalse);
+
+      await next.saveWallpaperMinutes(7);
+      expect(next.wallpaperMinutes, SettingsStore.defaultWallpaperMinutes);
+    });
+
+    test('壁纸间隔标签', () {
+      expect(SettingsStore.wallpaperMinuteLabel(5), '5 分钟');
+      expect(SettingsStore.wallpaperMinuteLabel(60), '60 分钟');
+      expect(SettingsStore.wallpaperMinuteLabel(720), '半天');
+      expect(SettingsStore.wallpaperMinuteLabel(1440), '1 天');
+    });
   });
 }
