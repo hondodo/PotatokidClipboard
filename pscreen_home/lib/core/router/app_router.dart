@@ -30,6 +30,23 @@ class AppRouter {
 
   GlobalKey<NavigatorState> get navigatorKey => _navigatorKey;
 
+  /// 当前路由路径（不含 query / fragment），供屏保等全局逻辑判断页面。
+  ///
+  /// 不能用 `currentConfiguration.uri`：它保存的是基础路由（`go` 的地址），
+  /// `push` 后仍是旧路径；也不能只看 `routeInformationProvider`，因为通过
+  /// `Navigator.pop` 返回时它不会同步。`currentConfiguration.last` 同时涵盖
+  /// 普通路由和 push 出来的顶部路由，push / pop 后都会更新。
+  String get currentPath {
+    final RouteMatchList config = router.routerDelegate.currentConfiguration;
+    if (config.isEmpty) {
+      return router.routeInformationProvider.value.uri.path;
+    }
+    return config.last.matchedLocation;
+  }
+
+  /// 路由变化通知（push / pop / replace）。
+  Listenable get routeChanges => router.routerDelegate;
+
   GoRouter get router {
     if (_router == null) {
       throw StateError('AppRouter 尚未初始化，请先调用 initialize()');

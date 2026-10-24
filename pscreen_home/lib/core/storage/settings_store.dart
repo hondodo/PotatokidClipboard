@@ -30,6 +30,28 @@ class SettingsStore {
   /// 可选的功率采样间隔（秒），设置页按此顺序展示。
   static const List<int> powerSampleOptions = <int>[1, 2, 3, 4, 5, 10, 30];
 
+  /// 屏保空闲时长（分钟）的持久化键。
+  static const String screensaverMinutesKey = 'screensaver_minutes_v1';
+
+  /// 屏保默认空闲时长（分钟）。
+  static const int defaultScreensaverMinutes = 10;
+
+  /// 屏保「从不」选项：0 表示不自动进入屏保。
+  static const int screensaverNeverMinutes = 0;
+
+  /// 可选的屏保空闲时长（分钟），设置页按此顺序展示。
+  static const List<int> screensaverOptions = <int>[
+    1,
+    5,
+    10,
+    15,
+    20,
+    30,
+    45,
+    60,
+    screensaverNeverMinutes,
+  ];
+
   /// 全局界面缩放倍数（1.0 = 原始尺寸，仅作用于本应用）。
   static const String uiScaleKey = 'ui_scale';
 
@@ -83,6 +105,16 @@ class SettingsStore {
     return powerSampleOptions.contains(value)
         ? value
         : defaultPowerSampleSeconds;
+  }
+
+  /// 屏保空闲时长（分钟）。未设置或非法值时回落
+  /// [defaultScreensaverMinutes]。
+  int get screensaverMinutes {
+    final int? value = _prefs?.getInt(screensaverMinutesKey);
+    if (value == null || !screensaverOptions.contains(value)) {
+      return defaultScreensaverMinutes;
+    }
+    return value;
   }
 
   /// 全局界面缩放倍数（未设置时回落 [defaultUiScale]）。
@@ -218,6 +250,22 @@ class SettingsStore {
       }
     } catch (e) {
       Injection.get<LogService>().warn('写入采样间隔失败：$e');
+    }
+  }
+
+  /// 持久化屏保空闲时长；默认值移除键，非法值忽略。
+  Future<void> saveScreensaverMinutes(int minutes) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    if (!screensaverOptions.contains(minutes)) return;
+    try {
+      if (minutes == defaultScreensaverMinutes) {
+        await prefs.remove(screensaverMinutesKey);
+      } else {
+        await prefs.setInt(screensaverMinutesKey, minutes);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入屏保时长失败：$e');
     }
   }
 }

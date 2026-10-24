@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/app/screensaver_host.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
 
 /// 应用根组件：MaterialApp.router + GoRouter 路由配置。
@@ -12,6 +14,8 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppRouter appRouter = Injection.get<AppRouter>();
     final UiScaleController uiScale = Injection.get<UiScaleController>();
+    final ScreensaverController screensaver =
+        Injection.get<ScreensaverController>();
     return MaterialApp.router(
       title: '薯仔的中控台',
       debugShowCheckedModeBanner: false,
@@ -24,7 +28,11 @@ class App extends StatelessWidget {
         listenable: uiScale,
         builder: (BuildContext context, Widget? _) => UiScaleScope(
           scale: uiScale.scale,
-          child: child ?? const SizedBox.shrink(),
+          child: ScreensaverHost(
+            router: appRouter,
+            controller: screensaver,
+            child: child ?? const SizedBox.shrink(),
+          ),
         ),
       ),
     );
@@ -32,18 +40,31 @@ class App extends StatelessWidget {
 
   ThemeData _buildTheme(Brightness brightness) {
     final bool dark = brightness == Brightness.dark;
-    final ColorScheme scheme = ColorScheme.fromSeed(seedColor: const Color(0xFF4F8CFF), brightness: brightness);
+    final ColorScheme scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF4F8CFF),
+      brightness: brightness,
+    );
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor: dark
+          ? const Color(0xFF0E1116)
+          : const Color(0xFFF5F7FA),
       appBarTheme: AppBarTheme(
-        backgroundColor: dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA),
+        backgroundColor: dark
+            ? const Color(0xFF0E1116)
+            : const Color(0xFFF5F7FA),
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: scheme.onSurface,
+        ),
       ),
-      cardTheme: CardThemeData(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+      cardTheme: CardThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
     );
   }
 }

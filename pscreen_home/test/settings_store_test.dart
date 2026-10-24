@@ -121,5 +121,52 @@ void main() {
       await store.init();
       expect(store.cardOrderByHome, isEmpty);
     });
+
+    test('屏保时长默认 10 分钟，保存后跨实例生效', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+      expect(store.screensaverMinutes, SettingsStore.defaultScreensaverMinutes);
+
+      await store.saveScreensaverMinutes(15);
+      expect(store.screensaverMinutes, 15);
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.screensaverMinutes, 15);
+    });
+
+    test('屏保可选「从不」并跨实例持久化', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+
+      await store.saveScreensaverMinutes(SettingsStore.screensaverNeverMinutes);
+      expect(store.screensaverMinutes, SettingsStore.screensaverNeverMinutes);
+      expect(
+        SettingsStore.screensaverOptions,
+        contains(SettingsStore.screensaverNeverMinutes),
+      );
+
+      final SettingsStore next = SettingsStore();
+      await next.init();
+      expect(next.screensaverMinutes, SettingsStore.screensaverNeverMinutes);
+    });
+
+    test('屏保保存默认值删除键，非法值回落默认', () async {
+      final SettingsStore store = SettingsStore();
+      await store.init();
+
+      await store.saveScreensaverMinutes(30);
+      expect(store.screensaverMinutes, 30);
+
+      await store.saveScreensaverMinutes(
+        SettingsStore.defaultScreensaverMinutes,
+      );
+      expect(store.screensaverMinutes, SettingsStore.defaultScreensaverMinutes);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(SettingsStore.screensaverMinutesKey), isFalse);
+
+      await store.saveScreensaverMinutes(7);
+      expect(store.screensaverMinutes, SettingsStore.defaultScreensaverMinutes);
+    });
   });
 }

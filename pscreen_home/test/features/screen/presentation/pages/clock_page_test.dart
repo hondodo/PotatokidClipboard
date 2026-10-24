@@ -70,23 +70,41 @@ void main() {
     );
   });
 
-  testWidgets('点击画面切换秒显示', (WidgetTester tester) async {
+  testWidgets('时钟页无返回按钮，点击画面返回上一页', (WidgetTester tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: BlocProvider<WeatherBloc>.value(
-          value: bloc,
-          child: const ClockPage(),
+      BlocProvider<WeatherBloc>.value(
+        value: bloc,
+        child: MaterialApp(
+          home: Builder(
+            builder: (BuildContext context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (BuildContext context) => const ClockPage(),
+                    ),
+                  ),
+                  child: const Text('打开时钟'),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
-    await tester.pump();
 
-    final Finder clock = find.textContaining(RegExp(r'^\d{2}:\d{2}:\d{2}$'));
-    expect(clock, findsOneWidget);
+    await tester.tap(find.text('打开时钟'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(ClockPage), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}:\d{2}$')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey<String>('clock-surface')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining(RegExp(r'^\d{2}:\d{2}$')), findsOneWidget);
+    expect(find.byType(ClockPage), findsNothing);
+    expect(find.text('打开时钟'), findsOneWidget);
   });
 }

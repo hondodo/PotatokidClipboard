@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
@@ -40,6 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
+  late int _screensaverMinutes;
   late double _uiScale;
 
   /// 天气城市（空串 = 自动，按出口 IP 定位）。
@@ -52,11 +54,14 @@ class _SettingsPageState extends State<SettingsPage> {
     _hostController = TextEditingController(text: HaConfig.haHost);
     _tokenController = TextEditingController(text: HaConfig.haToken);
     _sampleSeconds = store.powerSampleSeconds;
+    _screensaverMinutes = Injection.get<ScreensaverController>().minutes;
     _uiScale = store.uiScale;
-    _nimAccountController =
-        TextEditingController(text: ControlSettings.instance.nimAccount);
-    _nimTokenController =
-        TextEditingController(text: ControlSettings.instance.nimToken);
+    _nimAccountController = TextEditingController(
+      text: ControlSettings.instance.nimAccount,
+    );
+    _nimTokenController = TextEditingController(
+      text: ControlSettings.instance.nimToken,
+    );
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
       if (!mounted) return;
@@ -74,19 +79,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 保存：持久化输入 → 更新生效值 → 生效值变化时重连刷新。
-  Future<void> _save() async {    final String hostInput = _hostController.text.trim();
+  Future<void> _save() async {
+    final String hostInput = _hostController.text.trim();
     final String tokenInput = _tokenController.text.trim();
 
     // 覆盖语义：与 .env 默认值相同（或清空）= 不覆盖，保持跟随 .env；
     // 不同才存持久化。生效值据此归一化后与当前生效值比较，判定是否刷新。
-    final String hostPersist =
-        hostInput == HaConfig.envHost ? '' : hostInput;
-    final String tokenPersist =
-        tokenInput == HaConfig.envToken ? '' : tokenInput;
-    final String newHost =
-        hostPersist.isEmpty ? HaConfig.envHost : hostPersist;
-    final String newToken =
-        tokenPersist.isEmpty ? HaConfig.envToken : tokenPersist;
+    final String hostPersist = hostInput == HaConfig.envHost ? '' : hostInput;
+    final String tokenPersist = tokenInput == HaConfig.envToken
+        ? ''
+        : tokenInput;
+    final String newHost = hostPersist.isEmpty ? HaConfig.envHost : hostPersist;
+    final String newToken = tokenPersist.isEmpty
+        ? HaConfig.envToken
+        : tokenPersist;
     final bool changed =
         newHost != HaConfig.haHost || newToken != HaConfig.haToken;
 
@@ -155,6 +161,12 @@ class _SettingsPageState extends State<SettingsPage> {
     Injection.get<MetricSampler>().setInterval(Duration(seconds: seconds));
   }
 
+  /// 选择屏保空闲时长：持久化并立即重置全局计时。
+  Future<void> _applyScreensaverMinutes(int minutes) async {
+    setState(() => _screensaverMinutes = minutes);
+    await Injection.get<ScreensaverController>().setMinutes(minutes);
+  }
+
   /// 切换天气城市：持久化并立即重新拉取；「自动」传空串（按出口 IP 定位）。
   ///
   /// 数据写入共享包的 [AppSettings]，天气页与中控台标题读的是同一个
@@ -206,11 +218,12 @@ class _SettingsPageState extends State<SettingsPage> {
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 tooltip: _tokenVisible ? '隐藏' : '显示',
-                icon: Icon(_tokenVisible
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded),
-                onPressed: () =>
-                    setState(() => _tokenVisible = !_tokenVisible),
+                icon: Icon(
+                  _tokenVisible
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                ),
+                onPressed: () => setState(() => _tokenVisible = !_tokenVisible),
               ),
             ),
             maxLines: 1,
@@ -218,16 +231,16 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24),
           Text(
             '天气城市',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
             '中控台标题与天气页共用的查询位置；「自动」每次按出口 IP 定位。可选城市来自 WEATHER_CITIES 配置。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+              color: Theme.of(context).colorScheme.outline,
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -250,16 +263,16 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24),
           Text(
             '功率采样间隔',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
             '当前功率图表的记录频率，仅保留最近 1 小时（不持久化）。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+              color: Theme.of(context).colorScheme.outline,
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -276,18 +289,48 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 24),
           Text(
+            '屏保时间',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '无触摸操作达到设定时长后自动进入时钟屏保；直播页不触发。点击屏保任意位置返回上一页。选择「从不」则不再自动进入屏保。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final int minutes in SettingsStore.screensaverOptions)
+                ChoiceChip(
+                  label: Text(
+                    minutes == SettingsStore.screensaverNeverMinutes
+                        ? '从不'
+                        : '$minutes 分钟',
+                  ),
+                  selected: _screensaverMinutes == minutes,
+                  onSelected: (_) => _applyScreensaverMinutes(minutes),
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
             '界面缩放',
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
             '整块界面（卡片、字号、间距、点击热区）等比放大，适配 15 寸大屏远距离触控；松开滑块生效并自动保存。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+              color: Theme.of(context).colorScheme.outline,
+            ),
           ),
           Row(
             children: <Widget>[
@@ -298,8 +341,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   max: SettingsStore.maxUiScale,
                   divisions: 20,
                   label: '${(_uiScale * 100).round()}%',
-                  onChanged: (double value) =>
-                      setState(() => _uiScale = value),
+                  onChanged: (double value) => setState(() => _uiScale = value),
                   onChangeEnd: _applyUiScale,
                 ),
               ),
@@ -308,10 +350,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Text(
                   '${(_uiScale * 100).round()}%',
                   textAlign: TextAlign.end,
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelLarge
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -331,17 +372,16 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24),
           Text(
             '遥控（云信）',
-            style: Theme.of(context)
-                .textTheme
-                .titleSmall
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
             '用于向电视端下发音量 / 切台 / 文本指令。账号与 Token 与电视端共用同一套云信应用。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
+              color: Theme.of(context).colorScheme.outline,
+            ),
           ),
           const SizedBox(height: 10),
           TextField(
@@ -389,10 +429,14 @@ class _ConnectionStatusLine extends StatelessWidget {
           HaConnectionPhase.ready => ('已连接', Colors.greenAccent),
           HaConnectionPhase.connecting => ('连接中…', Colors.orangeAccent),
           HaConnectionPhase.authenticating => ('认证中…', Colors.orangeAccent),
-          HaConnectionPhase.authFailed =>
-            (state.message ?? '认证失败', Colors.redAccent),
-          HaConnectionPhase.disconnected =>
-            (state.isRetrying ? '重连中…' : '未连接', Colors.redAccent),
+          HaConnectionPhase.authFailed => (
+            state.message ?? '认证失败',
+            Colors.redAccent,
+          ),
+          HaConnectionPhase.disconnected => (
+            state.isRetrying ? '重连中…' : '未连接',
+            Colors.redAccent,
+          ),
         };
         return Row(
           children: <Widget>[
