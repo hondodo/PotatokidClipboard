@@ -6,6 +6,8 @@ import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
+import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/features/connection/domain/repositories/connection_repository.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
@@ -22,6 +24,8 @@ import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
 import 'package:pscreen_home/features/home/domain/models/water_usage_record.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
+import 'package:pscreen_home/features/home/domain/repositories/home_state_cache.dart';
+import 'package:pscreen_home/features/home/domain/repositories/registry_cache.dart';
 
 /// 内存版卡片顺序存储：验证 Bloc 读取与写回。
 class _FakeCardOrderStore extends SettingsStore {
@@ -1937,4 +1941,186 @@ void main() {
       expect(values.every((double v) => v == 25.3), isTrue);
     });
   });
+
+  group('离线状态与本地快照', () {
+    test('非「已连接」时拦截开关操作并提示当前状态', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('switch.plug', 'off')],
+      );
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+        connection: _FakeConnectionRepository(
+          const HaConnectionInfo(phase: HaConnectionPhase.disconnected),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      bloc.add(const ToggleEntity(entityId: 'switch.plug'));
+      await pumpEventQueue();
+
+      expect(repo.toggleCalls, isEmpty);
+      expect(bloc.state.entities['switch.plug']!.state, 'off');
+      expect(bloc.state.errorMessage, '未连接，请稍后操作');
+    });
+
+    test('自动重连中提示「重连中，请稍后操作」', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('switch.plug', 'off')],
+      );
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+        connection: _FakeConnectionRepository(
+          const HaConnectionInfo(
+            phase: HaConnectionPhase.disconnected,
+            retryCount: 3,
+          ),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      bloc.add(const ToggleEntity(entityId: 'switch.plug'));
+      await pumpEventQueue();
+
+      expect(repo.toggleCalls, isEmpty);
+      expect(bloc.state.errorMessage, '重连中，请稍后操作');
+    });
+
+    test('已连接时正常下发控制', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('switch.plug', 'off')],
+      );
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+        connection: _FakeConnectionRepository(
+          const HaConnectionInfo(phase: HaConnectionPhase.ready),
+        ),
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      expect(await _toggle(bloc, 'switch.plug'), isTrue);
+      expect(repo.toggleCalls, <(String, bool)>[('switch.plug', true)]);
+      expect(bloc.state.errorMessage, isNull);
+    });
+
+    test('冷启动从快照恢复卡片并标记 isFromCache', () async {
+      final HomeBloc bloc = HomeBloc(
+        repository: _FakeHomeRepository(states: <HaEntityStateModel>[]),
+        sampler: _powerSampler(),
+        stateCache: _FakeHomeStateCache(
+          cached: <HaEntityStateModel>[_entity('light.cached', 'on')],
+        ),
+        registryCache: _FakeRegistryCache(
+          registry: const HaRegistry(
+            areas: <HaArea>[HaArea(areaId: 'a1', name: '家 客厅')],
+            devices: <String, HaDevice>{
+              'dev-1': HaDevice(id: 'dev-1', name: '客厅灯'),
+            },
+            deviceIdByEntity: <String, String>{'light.cached': 'dev-1'},
+          ),
+        ),
+        connection: _FakeConnectionRepository(
+          const HaConnectionInfo(phase: HaConnectionPhase.disconnected),
+        ),
+      );
+      addTearDown(bloc.close);
+      await pumpEventQueue();
+
+      expect(bloc.state.hasLoaded, isTrue);
+      expect(bloc.state.isFromCache, isTrue);
+      expect(bloc.state.entities.length, 1);
+      expect(bloc.state.deviceGroups.length, 1);
+      expect(bloc.state.deviceGroups.first.title, '客厅灯');
+    });
+
+    test('没有注册表快照时不恢复实体', () async {
+      final HomeBloc bloc = HomeBloc(
+        repository: _FakeHomeRepository(states: <HaEntityStateModel>[]),
+        sampler: _powerSampler(),
+        stateCache: _FakeHomeStateCache(
+          cached: <HaEntityStateModel>[_entity('light.cached', 'on')],
+        ),
+      );
+      addTearDown(bloc.close);
+      await pumpEventQueue();
+
+      expect(bloc.state.hasLoaded, isFalse);
+      expect(bloc.state.entities, isEmpty);
+    });
+
+    test('全量加载成功后写入快照', () async {
+      final _FakeHomeStateCache cache = _FakeHomeStateCache();
+      final HomeBloc bloc = HomeBloc(
+        repository: _FakeHomeRepository(
+          states: <HaEntityStateModel>[_entity('switch.plug', 'on')],
+        ),
+        sampler: _powerSampler(),
+        stateCache: cache,
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      await pumpEventQueue();
+
+      expect(cache.written?.map((HaEntityStateModel e) => e.entityId), <String>[
+        'switch.plug',
+      ]);
+      expect(bloc.state.isFromCache, isFalse);
+    });
+  });
+}
+
+/// 可控连接状态：只提供 HomeBloc 需要的当前连接信息。
+class _FakeConnectionRepository implements ConnectionRepository {
+  _FakeConnectionRepository(this._current);
+
+  final HaConnectionInfo _current;
+
+  @override
+  HaConnectionInfo get current => _current;
+  @override
+  Stream<HaConnectionInfo> watchConnection() =>
+      const Stream<HaConnectionInfo>.empty();
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+}
+
+/// 内存版实体快照。
+class _FakeHomeStateCache implements HomeStateCache {
+  _FakeHomeStateCache({this.cached});
+
+  List<HaEntityStateModel>? cached;
+  List<HaEntityStateModel>? written;
+
+  @override
+  Future<List<HaEntityStateModel>?> read() async => cached;
+
+  @override
+  Future<void> write(List<HaEntityStateModel> states) async {
+    written = List<HaEntityStateModel>.of(states);
+  }
+}
+
+/// 内存版注册表快照。
+class _FakeRegistryCache implements RegistryCache {
+  _FakeRegistryCache({this.registry});
+
+  HaRegistry? registry;
+
+  @override
+  HaRegistry? read() => registry;
+
+  @override
+  Future<void> write(HaRegistry registry) async {
+    this.registry = registry;
+  }
 }

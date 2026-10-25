@@ -1,13 +1,17 @@
+import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
+import 'package:pscreen_home/features/connection/domain/repositories/connection_repository.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_home/features/home/data/cache/file_home_state_cache.dart';
 import 'package:pscreen_home/features/home/data/cache/settings_registry_cache.dart';
 import 'package:pscreen_home/features/home/data/repositories/home_repository_impl.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
+import 'package:pscreen_home/features/home/domain/repositories/home_state_cache.dart';
 import 'package:pscreen_home/features/home/domain/repositories/registry_cache.dart';
 
 /// 主页模块：Repository → 指标历史/采样器 → 历史服务 → Bloc。
@@ -19,6 +23,12 @@ class HomeModule {
       () => SettingsRegistryCache(
         store: getIt<SettingsStore>(),
         log: getIt<LogService>(),
+      ),
+    );
+    getIt.registerLazySingleton<HomeStateCache>(
+      () => FileHomeStateCache(
+        log: getIt<LogService>(),
+        hostProvider: () => HaConfig.haHost,
       ),
     );
     getIt.registerLazySingleton<HomeRepository>(
@@ -49,6 +59,9 @@ class HomeModule {
         repository: getIt<HomeRepository>(),
         sampler: getIt<MetricSampler>(),
         settingsStore: getIt<SettingsStore>(),
+        stateCache: getIt<HomeStateCache>(),
+        registryCache: getIt<RegistryCache>(),
+        connection: getIt<ConnectionRepository>(),
       ),
     );
   }
@@ -59,6 +72,7 @@ class HomeModule {
     await getIt.unregister<MetricSampler>();
     await getIt.unregister<MetricHistoryStore>();
     await getIt.unregister<HomeRepository>();
+    await getIt.unregister<HomeStateCache>();
     await getIt.unregister<RegistryCache>();
   }
 }

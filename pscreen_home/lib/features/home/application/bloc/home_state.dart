@@ -25,6 +25,7 @@ class HomeState {
   const HomeState._({
     required this.isLoading,
     required this.hasLoaded,
+    required this.isFromCache,
     required this.entities,
     required this.togglingIds,
     required this.registry,
@@ -40,6 +41,7 @@ class HomeState {
   factory HomeState.initial() => const HomeState._(
     isLoading: false,
     hasLoaded: false,
+    isFromCache: false,
     entities: <String, HaEntityStateModel>{},
     togglingIds: <String>{},
     registry: HaRegistry.empty,
@@ -53,11 +55,16 @@ class HomeState {
 
   final bool isLoading;
 
-  /// 是否至少成功完成过一次全量加载。
+  /// 是否至少成功完成过一次全量加载（含从本地快照恢复）。
   ///
   /// 用来区分「还没加载 / 加载失败」和「成功加载后确实没有设备」：
   /// 只有 [hasLoaded] 为 true 且分组为空时才显示「没有找到实体」。
   final bool hasLoaded;
+
+  /// 当前实体是否来自本地快照（尚未被本次连接的全量加载校准）。
+  ///
+  /// 断线时用它决定是否继续展示卡片；连接成功后由 [LoadHome] 置回 false。
+  final bool isFromCache;
 
   /// 全部实体状态，key 为 entity_id
   final Map<String, HaEntityStateModel> entities;
@@ -664,6 +671,7 @@ class HomeState {
   HomeState copyWith({
     bool? isLoading,
     bool? hasLoaded,
+    bool? isFromCache,
     Map<String, HaEntityStateModel>? entities,
     Set<String>? togglingIds,
     HaRegistry? registry,
@@ -678,6 +686,7 @@ class HomeState {
     return HomeState._(
       isLoading: isLoading ?? this.isLoading,
       hasLoaded: hasLoaded ?? this.hasLoaded,
+      isFromCache: isFromCache ?? this.isFromCache,
       entities: entities ?? this.entities,
       togglingIds: togglingIds ?? this.togglingIds,
       registry: registry ?? this.registry,

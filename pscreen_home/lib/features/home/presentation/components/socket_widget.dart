@@ -23,6 +23,7 @@ class SocketWidget extends StatefulWidget {
     this.historyService,
     this.deviceId,
     this.powerSource,
+    this.isConnected = true,
   });
 
   final SocketSummary summary;
@@ -40,6 +41,10 @@ class SocketWidget extends StatefulWidget {
   final String? deviceId;
   final MetricSource? powerSource;
 
+  /// HA 是否已连接。冷启动先渲染缓存卡片时可能为 false，
+  /// 此时不发历史请求，等连接就绪后再补拉。
+  final bool isConnected;
+
   static const Color _accent = Color(0xFF64B5F6);
 
   @override
@@ -53,35 +58,48 @@ class _SocketWidgetState extends State<SocketWidget> {
   @override
   void initState() {
     super.initState();
-    _loadHistory();
+    if (widget.isConnected) _loadHistory();
   }
 
   @override
   void didUpdateWidget(SocketWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final bool becameConnected = !oldWidget.isConnected && widget.isConnected;
     if (oldWidget.deviceId != widget.deviceId ||
         oldWidget.powerSource?.entityId != widget.powerSource?.entityId ||
         oldWidget.powerSource?.attribute != widget.powerSource?.attribute ||
         oldWidget.historyService != widget.historyService) {
       _history = null;
       _loadHistory();
+    } else if (becameConnected) {
+      // 冷启动 / 离线时没拉成的 24h 曲线，在连接恢复后补一次。
+      _loadHistory();
     }
   }
 
   Future<void> _loadHistory() async {
+    if (!widget.isConnected) return;
     final HistoryService? service = widget.historyService;
     final String? deviceId = widget.deviceId;
     final MetricSource? source = widget.powerSource;
     if (service == null || deviceId == null || source == null) return;
     final int token = ++_loadToken;
-    final List<MetricSample> samples = await service.load(
-      deviceId: deviceId,
-      metric: Metric.power,
-      range: HistoryRange.h24,
-      source: source,
-    );
-    if (!mounted || token != _loadToken) return;
-    setState(() => _history = samples);
+    try {
+      final List<MetricSample> samples = await service.load(
+        deviceId: deviceId,
+        metric: Metric.power,
+        range: HistoryRange.h24,
+        source: source,
+      );
+      if (!mounted || token != _loadToken) return;
+      setState(() => _history = samples);
+    } catch (e) {
+      // 离线 / 历史接口不可用时保留实时曲线，不能让 Future 异常冒到框架。
+      if (!mounted || token != _loadToken) return;
+      if (_history == null) {
+        setState(() => _history = const <MetricSample>[]);
+      }
+    }
   }
 
   bool get _hasChart =>

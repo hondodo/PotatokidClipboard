@@ -102,6 +102,9 @@ lib/
 │       │   └── components/            # light/climate_widget、device_widget、value_widget、*_control_panel
 │       ├── application/bloc/          # home_{bloc,event,state}.dart
 │       ├── application/power_history.dart  # 内存功率历史 + 定时采样器
+│       ├── data/cache/
+│       │   ├── settings_registry_cache.dart    # 注册表快照（SharedPreferences）
+│       │   └── file_home_state_cache.dart      # 实体状态快照（文件 + gzip）
 │       ├── domain/
 │       │   ├── models/ha_entity_state_model.dart   # 实体状态模型（手写不可变）
 │       │   ├── models/ha_registry_model.dart       # 注册表模型（家庭/房间/设备/实体归属）
@@ -178,7 +181,7 @@ lib/
 | 状态机 | 职责 | 关键事件 |
 | --- | --- | --- |
 | `ConnectionBloc` | 连接阶段（连接中/认证中/就绪/失败/重连中） | `StartConnection` / `RetryConnection` / `Reconnect`（配置变更：先断开再连） / `ConnectionInfoChanged` |
-| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选 | `LoadHome` / `EntityStateChanged` / `ToggleEntity` / `SetLightBrightness` / `SetLightColorTemperature` / `SetLightEffect` / `SetClimateTemperature` / `SetClimateHvacMode` / `SetClimateFanMode` / `SetClimateSwingMode` / `PressEntityButton` / `SelectEntityOption` / `SetWaterHeaterTemperature` / `SetWaterHeaterOperationMode` / `SetTextEntityValue` / `SetNumberEntityValue` / `PressNotifyAction` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
+| `HomeBloc` | 实体状态缓存 + 快捷控件操作 + 家庭/房间筛选；冷启动先恢复本地快照，非「已连接」时拦截控制操作 | `LoadHome` / `RestoreCachedHome` / `EntityStateChanged` / `ToggleEntity` / `SetLightBrightness` / `SetLightColorTemperature` / `SetLightEffect` / `SetClimateTemperature` / `SetClimateHvacMode` / `SetClimateFanMode` / `SetClimateSwingMode` / `PressEntityButton` / `SelectEntityOption` / `SetWaterHeaterTemperature` / `SetWaterHeaterOperationMode` / `SetTextEntityValue` / `SetNumberEntityValue` / `PressNotifyAction` / `HomeSelected` / `AreaSelected` / `ClearHomeError` |
 
 ---
 
@@ -288,6 +291,27 @@ void main() {
 （**必须先 `disconnect` 再 `connect`**，`HaWsClient.connect` 在已连接时幂等返回）→
 就绪后主页自动 `LoadHome` 刷新。清空输入保存 = 删除覆盖回落 `.env`。
 
+**冷启动与断线展示（本地快照）：**
+
+- `HomeBloc` 构造时派发 `RestoreCachedHome`：读取 `FileHomeStateCache`
+  （全部实体状态，文件 + gzip，约 700KB → 100KB）与 `SettingsRegistryCache`
+  （房间 / 设备归属），先渲染上次的卡片，不等 WS 连接。
+- 快照按 `normalizeHaHost(HaConfig.haHost)` 隔离；**没有注册表快照时不恢复**
+  （否则上千个实体会各自成卡，首页反而卡死）。
+- 连接就绪后页面 `LoadHome` 拉在线数据覆盖，`isFromCache` 置 false；
+  若当前只有快照且 `LoadHome` 失败，继续按 5s / 10s / 30s 自动重试。
+- 断线时 `_Body` **不再替换整页**：有实体就保留卡片；右上角 `_ConnectionStatus`
+  只显示 HA 阶段（已连接 / 连接中 / 重连中 / 认证中 / 认证失败 / 未连接），
+  固定宽度、不内嵌重试按钮，避免和唯一的刷新按钮重复、并防止整排图标位移。
+- 所有会下发 HA 的控制事件在 `HomeBloc` 入口统一走 `_blockHaInteraction`：
+  非 `ready` 时写入 `errorMessage = '<状态>，请稍后操作'`（认证失败引导去设置），
+  由页面 SnackBar 展示；**卡片 → 详情页只是路由跳转，不拦截**，详情内控制同样被拦截。
+- AppBar 唯一的刷新入口：已连接时 `LoadHome`，其余状态只提示、不下发请求。
+- 历史曲线（首页插座卡 24h 趋势、详情页功率/温湿度图）只在 `isConnected`
+  为 true 时拉取；冷启动缓存卡片或离线进入详情时先跳过，重连后由
+  `SocketWidget` / `MetricChartCard` 的 `didUpdateWidget` 自动补拉。
+
+
 ---
 
 ## 9. 命名与编码规范
@@ -329,6 +353,9 @@ void main() {
 | 依赖注入 | get_it + 手写 Module，业务用 `Injection.get<T>()` |
 | 网络入口 | `HaWsClient`（WS），服务调用用 `callService` + `target` |
 | 状态订阅 | 连接就绪自动 `subscribe_events(state_changed)` |
+| 冷启动 | 先恢复实体 / 注册表快照渲染卡片，连接就绪后 `LoadHome` 校准 |
+| 断线展示 | 保留卡片；右上角只显示连接阶段，不整页替换 |
+| 非 ready 操作 | `HomeBloc._blockHaInteraction` 统一拦截并提示；卡片→详情不拦截 |
 | 断线重连 | 客户端内建指数退避；authFailed 不自动重试 |
 | 网络异常 | `HaDisconnect/Auth/Request/DataException` → `NetErrorType` |
 | 错误展示 | Bloc 捕获 → `mapErrorToMessage` → State → 页面渲染 |
@@ -451,5 +478,5 @@ void main() {
     显示保温；自来水加热到沸点并显示自来水保温温度（51℃）、除氯；
     凉白开加热到沸点，不显示保温 / 保温温度。米家的扩展模式定义在
     云端，HA 只有 `text.*_mode_id`，不做自定义模式管理。
-- **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
+- **M4** 配置持久化：~~设置页 HA 地址 / 令牌（shared_preferences，优先于 .env，清空回落）~~ **✅ 已实现**（`SettingsStore` + 设置页 + `Reconnect` 刷新）；~~首页实体状态本地快照（冷启动 / 断线保留卡片）、非「已连接」控制拦截~~ **✅ 已实现**（`FileHomeStateCache` + `RestoreCachedHome` + `_blockHaInteraction`）；剩余：常用实体勾选（shared_preferences）、断网横幅、乐观更新确认超时回滚。
 - **M5** 部署：屏幕常亮（wakelock）、开机自启、kiosk 模式（按目标设备选型）。

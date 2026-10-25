@@ -15,6 +15,11 @@ class LoadHome extends HomeEvent {
   final Completer<bool>? completer;
 }
 
+/// 冷启动时从本地快照恢复首页实体（连接就绪后再由 [LoadHome] 校准）。
+class RestoreCachedHome extends HomeEvent {
+  const RestoreCachedHome();
+}
+
 /// 收到一条实时实体状态变更（state_changed）。
 class EntityStateChanged extends HomeEvent {
   const EntityStateChanged(this.entity);

@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_reorderable_grid_view/widgets/reorderable_builder.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/core/network/ha_connection_label.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
@@ -85,7 +86,10 @@ class _HomeControllBoardState extends State<HomeControllBoard> {
       if (!mounted) return;
       final ConnectionState connection = context.read<ConnectionBloc>().state;
       final HomeState home = context.read<HomeBloc>().state;
-      if (connection.isReady && !home.hasLoaded && !home.isLoading) {
+      // isFromCache：冷启动先显示了本地快照，连接已就绪时仍要拉一次在线数据。
+      if (connection.isReady &&
+          (!home.hasLoaded || home.isFromCache) &&
+          !home.isLoading) {
         context.read<HomeBloc>().add(const LoadHome());
       }
     });
@@ -128,11 +132,7 @@ class _HomeControllBoardState extends State<HomeControllBoard> {
           title: const _HomeTitle(),
           actions: <Widget>[
             const _ConnectionStatus(),
-            IconButton(
-              tooltip: '刷新',
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: () => context.read<HomeBloc>().add(const LoadHome()),
-            ),
+            const _RefreshAction(),
             IconButton(
               tooltip: '时钟',
               icon: const Icon(Icons.schedule_rounded),
@@ -400,7 +400,11 @@ class _NowWeather extends StatelessWidget {
   }
 }
 
-/// AppBar 右侧的连接状态：状态点 + 文案，失败时提供重试按钮。
+/// AppBar 右侧的 HA 连接状态：固定宽度的状态点 + 文案。
+///
+/// 只做展示，不再内嵌重试按钮：断线时若这里再出现一个刷新图标，
+/// 会和右侧固定的「刷新」并排，既重复又会让整排图标左右跳动。
+/// 固定宽度保证文案（已连接 / 重连中 / 认证失败）变化时其余图标不位移。
 class _ConnectionStatus extends StatelessWidget {
   const _ConnectionStatus();
 
@@ -408,52 +412,93 @@ class _ConnectionStatus extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<ConnectionBloc, ConnectionState>(
       builder: (BuildContext context, ConnectionState state) {
-        final (String label, Color color) = switch (state.phase) {
-          HaConnectionPhase.ready => ('已连接', Colors.greenAccent),
-          HaConnectionPhase.connecting => ('连接中', Colors.orangeAccent),
-          HaConnectionPhase.authenticating => ('认证中', Colors.orangeAccent),
-          HaConnectionPhase.authFailed => (
-            state.message ?? '认证失败',
-            Colors.redAccent,
-          ),
-          HaConnectionPhase.disconnected => (
-            state.isRetrying ? '重连中…' : '未连接',
-            Colors.redAccent,
-          ),
+        final int retryCount = state.retryCount ?? 0;
+        final String label = haConnectionLabel(
+          state.phase,
+          retryCount: retryCount,
+        );
+        final Color color = switch (state.phase) {
+          HaConnectionPhase.ready => Colors.greenAccent,
+          HaConnectionPhase.connecting ||
+          HaConnectionPhase.authenticating => Colors.orangeAccent,
+          HaConnectionPhase.authFailed => Colors.redAccent,
+          HaConnectionPhase.disconnected =>
+            retryCount > 0 ? Colors.orangeAccent : Colors.redAccent,
         };
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        final String? detail = state.message;
+        return Tooltip(
+          message: detail == null || detail.isEmpty ? label : '$label：$detail',
+          child: SizedBox(
+            width: 92,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 6),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 140),
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
-            if (state.canRetry)
-              IconButton(
-                tooltip: '重试',
-                icon: const Icon(Icons.refresh_rounded),
-                onPressed: () =>
-                    context.read<ConnectionBloc>().add(const RetryConnection()),
-              ),
-          ],
+          ),
         );
       },
     );
   }
 }
 
-/// 主体：未连接时显示连接占位，连接后显示房间标签行 + 快捷控件网格。
+/// AppBar 唯一的刷新入口：已连接时刷新数据，其余状态只提示、不下发请求。
+class _RefreshAction extends StatelessWidget {
+  const _RefreshAction();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<ConnectionBloc, ConnectionState>(
+      builder: (BuildContext context, ConnectionState conn) {
+        return IconButton(
+          tooltip: conn.isReady
+              ? '刷新'
+              : '刷新（${haConnectionLabel(conn.phase, retryCount: conn.retryCount ?? 0)}）',
+          icon: const Icon(Icons.refresh_rounded),
+          onPressed: () {
+            if (conn.isReady) {
+              context.read<HomeBloc>().add(const LoadHome());
+              return;
+            }
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    haInteractionBlockedMessage(
+                      conn.phase,
+                      retryCount: conn.retryCount ?? 0,
+                    ),
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// 主体：有本地快照 / 在线数据时始终显示卡片；只有完全无数据且未连接时
+/// 才显示连接占位。断线不再把整页替换成占位视图。
 class _Body extends StatelessWidget {
   const _Body();
 
@@ -461,13 +506,19 @@ class _Body extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<ConnectionBloc, ConnectionState>(
       builder: (BuildContext context, ConnectionState conn) {
-        if (!conn.isReady) return _ConnectionPlaceholder(state: conn);
-        return const Column(
-          children: <Widget>[
-            _HomeOverviewBar(),
-            _AreaBar(),
-            Expanded(child: _ControlGrid()),
-          ],
+        return BlocBuilder<HomeBloc, HomeState>(
+          builder: (BuildContext context, HomeState home) {
+            if (!conn.isReady && home.entities.isEmpty) {
+              return _ConnectionPlaceholder(state: conn);
+            }
+            return const Column(
+              children: <Widget>[
+                _HomeOverviewBar(),
+                _AreaBar(),
+                Expanded(child: _ControlGrid()),
+              ],
+            );
+          },
         );
       },
     );
@@ -837,6 +888,10 @@ class _ControlGridState extends State<_ControlGrid> {
 
   @override
   Widget build(BuildContext context) {
+    // 连接就绪后才让插座卡片补拉 24h 历史；冷启动的缓存卡片先只画实时曲线。
+    final bool isConnected = context.select<ConnectionBloc, bool>(
+      (ConnectionBloc connection) => connection.state.isReady,
+    );
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
         if (state.isLoading && state.entities.isEmpty) {
@@ -971,6 +1026,7 @@ class _ControlGridState extends State<_ControlGrid> {
               powerSource: powerEntityId == null
                   ? null
                   : MetricSource(powerEntityId),
+              isConnected: isConnected,
               onToggle: () => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: socket.powerEntityId),
               ),

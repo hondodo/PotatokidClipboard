@@ -14,12 +14,16 @@ class MetricChartCard extends StatelessWidget {
     required this.deviceId,
     required this.sources,
     this.initialRange = HistoryRange.h24,
+    this.isConnected = true,
   });
 
   final HistoryService service;
   final String deviceId;
   final Map<Metric, MetricSource> sources;
   final HistoryRange initialRange;
+
+  /// HA 是否已连接；离线时先不拉历史，重连后自动补拉。
+  final bool isConnected;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +39,7 @@ class MetricChartCard extends StatelessWidget {
           deviceId: deviceId,
           sources: sources,
           initialRange: initialRange,
+          isConnected: isConnected,
         ),
       ),
     );
@@ -49,12 +54,16 @@ class MetricChartContent extends StatefulWidget {
     required this.deviceId,
     required this.sources,
     this.initialRange = HistoryRange.h24,
+    this.isConnected = true,
   });
 
   final HistoryService service;
   final String deviceId;
   final Map<Metric, MetricSource> sources;
   final HistoryRange initialRange;
+
+  /// HA 是否已连接；离线时先不拉历史，重连后自动补拉。
+  final bool isConnected;
 
   List<Metric> get metrics =>
       sources.keys.toList(growable: false)
@@ -99,6 +108,7 @@ class _MetricChartContentState extends State<MetricChartContent> {
             metric: metric,
             source: widget.sources[metric]!,
             range: _range,
+            isConnected: widget.isConnected,
           ),
         ],
       ],
@@ -115,6 +125,7 @@ class _MetricSection extends StatefulWidget {
     required this.metric,
     required this.source,
     required this.range,
+    required this.isConnected,
   });
 
   final HistoryService service;
@@ -122,6 +133,7 @@ class _MetricSection extends StatefulWidget {
   final Metric metric;
   final MetricSource source;
   final HistoryRange range;
+  final bool isConnected;
 
   @override
   State<_MetricSection> createState() => _MetricSectionState();
@@ -134,30 +146,43 @@ class _MetricSectionState extends State<_MetricSection> {
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.isConnected) _load();
   }
 
   @override
   void didUpdateWidget(covariant _MetricSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final bool becameConnected = !oldWidget.isConnected && widget.isConnected;
     if (oldWidget.range != widget.range ||
         oldWidget.service != widget.service ||
         oldWidget.deviceId != widget.deviceId) {
+      _load();
+    } else if (becameConnected) {
+      // 离线时进入详情 / 重连：连接恢复后补拉历史。
       _load();
     }
   }
 
   Future<void> _load() async {
+    if (!widget.isConnected) return;
     final int token = ++_loadToken;
-    final List<MetricSample> samples = await widget.service.load(
-      deviceId: widget.deviceId,
-      metric: widget.metric,
-      range: widget.range,
-      source: widget.source,
-    );
-    // 快速切换 range 时丢弃过期结果。
-    if (!mounted || token != _loadToken) return;
-    setState(() => _samples = samples);
+    try {
+      final List<MetricSample> samples = await widget.service.load(
+        deviceId: widget.deviceId,
+        metric: widget.metric,
+        range: widget.range,
+        source: widget.source,
+      );
+      // 快速切换 range 时丢弃过期结果。
+      if (!mounted || token != _loadToken) return;
+      setState(() => _samples = samples);
+    } catch (e) {
+      // 离线 / 历史接口不可用：保留空图区，不要把异常抛给框架。
+      if (!mounted || token != _loadToken) return;
+      if (_samples == null) {
+        setState(() => _samples = const <MetricSample>[]);
+      }
+    }
   }
 
   @override
@@ -184,8 +209,10 @@ class _MetricSectionState extends State<_MetricSection> {
           const SizedBox(height: 110)
         else
           ValueListenableBuilder<List<MetricSample>>(
-            valueListenable:
-                widget.service.watch(widget.deviceId, widget.metric),
+            valueListenable: widget.service.watch(
+              widget.deviceId,
+              widget.metric,
+            ),
             builder: (BuildContext context, _, Widget? child) {
               final List<MetricSample> merged = widget.service.mergeLive(
                 widget.deviceId,

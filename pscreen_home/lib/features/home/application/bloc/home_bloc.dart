@@ -4,10 +4,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_home/core/network/ha_connection_label.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
+import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_screen/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/ha_error_message.dart';
+import 'package:pscreen_home/features/connection/domain/repositories/connection_repository.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/card_order_planner.dart';
@@ -19,6 +22,8 @@ import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
+import 'package:pscreen_home/features/home/domain/repositories/home_state_cache.dart';
+import 'package:pscreen_home/features/home/domain/repositories/registry_cache.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
 ///
@@ -31,8 +36,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     required MetricSampler sampler,
     SettingsStore? settingsStore,
     List<Duration>? loadRetryDelays,
+    HomeStateCache? stateCache,
+    RegistryCache? registryCache,
+    ConnectionRepository? connection,
   }) : _sampler = sampler,
        _settingsStore = settingsStore,
+       _stateCache = stateCache,
+       _registryCache = registryCache,
+       _connection = connection,
        _loadRetryDelays =
            loadRetryDelays ??
            const <Duration>[
@@ -52,6 +63,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     // 绑定指标采样源并启动：按配置间隔记录各设备最近 24 小时的曲线。
     _sampler.bind(_readMetricValues);
     on<LoadHome>(_onLoadHome);
+    on<RestoreCachedHome>(_onRestoreCachedHome);
     on<EntityStateChanged>(_onEntityStateChanged);
     on<ToggleEntity>(_onToggleEntity);
     on<HomeSelected>(_onHomeSelected);
@@ -79,15 +91,25 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       (entity) => add(EntityStateChanged(entity)),
       onError: (Object e) => Injection.get<LogService>().warn('状态订阅流异常：$e'),
     );
+    // 冷启动先用本地快照渲染卡片，连接就绪后的 LoadHome 再校准。
+    add(const RestoreCachedHome());
   }
 
   final HomeRepository repository;
   final MetricSampler _sampler;
   final SettingsStore? _settingsStore;
+  final HomeStateCache? _stateCache;
+  final RegistryCache? _registryCache;
+  final ConnectionRepository? _connection;
   final List<Duration> _loadRetryDelays;
   StreamSubscription<HaEntityStateModel>? _subscription;
   Timer? _loadRetryTimer;
   int _loadRetryAttempt = 0;
+
+  /// 快照写入节流：重连可能很频繁，序列化一千多个实体会卡一帧，
+  /// 首次加载立即写，之后最多每 5 分钟刷新一次。
+  static const Duration _cacheSaveInterval = Duration(minutes: 5);
+  DateTime? _lastCacheSavedAt;
 
   /// 采样源：device_id → metric → 当前数值（来自 HA 实时状态，不额外发请求）。
   ///
@@ -116,6 +138,86 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       };
     });
     return out;
+  }
+
+  /// 冷启动时恢复上次成功加载的实体快照。
+  ///
+  /// 有快照就先展示卡片（右上角仍显示真实连接状态），连接就绪后
+  /// 页面会派发 [LoadHome] 用在线数据覆盖；没有注册表时不恢复：
+  /// 上千个实体各自成卡会让首页卡死，等全量加载更安全。
+  Future<void> _onRestoreCachedHome(
+    RestoreCachedHome event,
+    Emitter<HomeState> emit,
+  ) async {
+    final HomeStateCache? cache = _stateCache;
+    if (cache == null) return;
+    try {
+      final List<HaEntityStateModel>? cached = await cache.read();
+      if (cached == null || cached.isEmpty) return;
+      if (isClosed || state.hasLoaded || state.isLoading) return;
+      final HaRegistry registry = _registryCache?.read() ?? HaRegistry.empty;
+      if (registry.areas.isEmpty && registry.devices.isEmpty) {
+        Injection.get<LogService>().debug('实体快照缺少注册表，跳过恢复');
+        return;
+      }
+      String selectedHome = state.selectedHomeName;
+      if (selectedHome.isNotEmpty &&
+          !registry.areas.any((HaArea area) => area.homeName == selectedHome)) {
+        selectedHome = '';
+      }
+      emit(
+        state.copyWith(
+          isLoading: false,
+          hasLoaded: true,
+          isFromCache: true,
+          entities: <String, HaEntityStateModel>{
+            for (final HaEntityStateModel entity in cached)
+              entity.entityId: entity,
+          },
+          registry: registry,
+          selectedHomeName: selectedHome,
+          selectedAreaId: '',
+          clearError: true,
+        ),
+      );
+      Injection.get<LogService>().debug('已从本地快照恢复 ${cached.length} 个实体');
+    } catch (e) {
+      Injection.get<LogService>().warn('恢复本地实体快照失败：$e');
+    }
+  }
+
+  /// 全量加载成功后异步刷新快照；失败不影响本次展示。
+  void _saveStates(List<HaEntityStateModel> states) {
+    final HomeStateCache? cache = _stateCache;
+    if (cache == null || states.isEmpty) return;
+    final DateTime now = DateTime.now();
+    final DateTime? last = _lastCacheSavedAt;
+    if (last != null && now.difference(last) < _cacheSaveInterval) return;
+    _lastCacheSavedAt = now;
+    unawaited(cache.write(states));
+  }
+
+  /// 非「已连接」时拦截所有会下发到 HA 的控制操作。
+  ///
+  /// 统一在状态机入口拦截，卡片 / 详情页 / 弹窗的所有控件都覆盖；
+  /// 卡片跳转详情不经过这里，因此断线时仍可浏览。
+  bool _blockHaInteraction(
+    Completer<bool>? completer,
+    Emitter<HomeState> emit,
+  ) {
+    final ConnectionRepository? connection = _connection;
+    if (connection == null) return false;
+    final HaConnectionInfo info = connection.current;
+    if (info.isReady) return false;
+    final String message = haInteractionBlockedMessage(
+      info.phase,
+      retryCount: info.retryCount,
+    );
+    if (state.errorMessage != message) {
+      emit(state.copyWith(errorMessage: message));
+    }
+    completeBlocEvent(completer, success: false);
+    return true;
   }
 
   Future<void> _onLoadHome(LoadHome event, Emitter<HomeState> emit) async {
@@ -153,6 +255,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         state.copyWith(
           isLoading: false,
           hasLoaded: true,
+          isFromCache: false,
           entities: <String, HaEntityStateModel>{
             for (final HaEntityStateModel s in states) s.entityId: s,
           },
@@ -161,13 +264,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           selectedAreaId: selectedArea,
         ),
       );
+      _saveStates(states);
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('加载实体状态失败', error: e, stackTrace: s);
       final HaErrorType errorType = e.toNetErrorType();
+      // 已有在线数据时保留旧卡片，只提示错误，不自动重试；
+      // 只有「从未成功加载」或「当前展示的是本地快照」才重试，
+      // 避免连接看似就绪但请求失败时一直停在旧快照上。
+      final bool hasFreshData =
+          state.hasLoaded && !state.isFromCache && state.entities.isNotEmpty;
       final bool shouldRetry =
-          !state.hasLoaded &&
-          state.entities.isEmpty &&
+          !hasFreshData &&
           errorType != HaErrorType.authError &&
           errorType != HaErrorType.dataError;
       emit(
@@ -184,9 +292,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   /// 首次全量加载失败后的自动重试（5s / 10s / 30s，之后维持 30s）。
   ///
-  /// 只有「从未成功加载过且当前没有任何实体」时才重试；已有卡片时
-  /// 保留旧数据，避免刷新失败把界面清空。连接恢复后页面的 LoadHome
-  /// 会取消这里的计时器。
+  /// 只有「还没有在线数据」（从未加载成功，或当前只有本地快照）时才重试；
+  /// 已有在线卡片时保留旧数据，避免刷新失败把界面清空。连接恢复后页面的
+  /// LoadHome 会取消这里的计时器。
   void _scheduleLoadRetry() {
     _loadRetryTimer?.cancel();
     if (_loadRetryDelays.isEmpty) return;
@@ -219,6 +327,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     ToggleEntity event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isSwitchable) {
       completeBlocEvent(event.completer, success: false);
@@ -352,6 +461,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetLightBrightness event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isLight || !current.supportsBrightness) {
       completeBlocEvent(event.completer, success: false);
@@ -378,6 +488,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetLightColorTemperature event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isLight ||
@@ -406,6 +517,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetLightEffect event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isLight ||
@@ -431,6 +543,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetClimateTemperature event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isClimate) {
       completeBlocEvent(event.completer, success: false);
@@ -459,6 +572,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetClimateHvacMode event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isClimate ||
@@ -482,6 +596,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetClimateFanMode event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isClimate ||
@@ -507,6 +622,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetClimateSwingMode event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isClimate ||
@@ -532,6 +648,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetFanPresetMode event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isFan ||
@@ -557,6 +674,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetFanPercentage event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isFan) {
       completeBlocEvent(event.completer, success: false);
@@ -581,6 +699,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetFanOscillating event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isFan) {
       completeBlocEvent(event.completer, success: false);
@@ -604,6 +723,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     PressEntityButton event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         current.domain != 'button' ||
@@ -634,6 +754,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SelectEntityOption event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         current.domain != 'select' ||
@@ -658,6 +779,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetWaterHeaterTemperature event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || !current.isWaterHeater) {
       completeBlocEvent(event.completer, success: false);
@@ -686,6 +808,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetWaterHeaterOperationMode event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         !current.isWaterHeater ||
@@ -709,6 +832,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetTextEntityValue event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || current.domain != 'text' || !current.isAvailable) {
       completeBlocEvent(event.completer, success: false);
@@ -730,6 +854,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     SetNumberEntityValue event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null || current.domain != 'number' || !current.isAvailable) {
       completeBlocEvent(event.completer, success: false);
@@ -754,6 +879,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     PressNotifyAction event,
     Emitter<HomeState> emit,
   ) async {
+    if (_blockHaInteraction(event.completer, emit)) return;
     final HaEntityStateModel? current = state.entities[event.entityId];
     if (current == null ||
         current.domain != 'notify' ||

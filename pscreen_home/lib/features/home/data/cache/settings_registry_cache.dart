@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
+import 'package:pscreen_home/core/utils/ha_host_key.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
 import 'package:pscreen_home/features/home/domain/repositories/registry_cache.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
@@ -34,7 +35,7 @@ class SettingsRegistryCache implements RegistryCache {
       if (decoded is! Map) return null;
       final Map<String, dynamic> payload = Map<String, dynamic>.from(decoded);
       if (payload['version'] != _version) return null;
-      if (payload['host'] != _normalizeHost(_hostProvider())) {
+      if (payload['host'] != normalizeHaHost(_hostProvider())) {
         _log.debug('注册表缓存与当前 HA 地址不匹配，忽略缓存');
         return null;
       }
@@ -54,7 +55,7 @@ class SettingsRegistryCache implements RegistryCache {
     try {
       final Map<String, dynamic> payload = <String, dynamic>{
         'version': _version,
-        'host': _normalizeHost(_hostProvider()),
+        'host': normalizeHaHost(_hostProvider()),
         'savedAt': DateTime.now().toUtc().toIso8601String(),
         'areas': <Map<String, dynamic>>[
           for (final HaArea area in registry.areas)
@@ -136,20 +137,5 @@ class SettingsRegistryCache implements RegistryCache {
       if (key is String && value is String) out[key] = value;
     });
     return Map<String, String>.unmodifiable(out);
-  }
-
-  /// 同一台 HA 可能被写成 `http://host:8123` / `host:8123/`，
-  /// 归一化后再比较，避免仅因写法不同导致缓存失效。
-  static String _normalizeHost(String host) {
-    String value = host.trim().toLowerCase();
-    if (value.startsWith('http://')) {
-      value = value.substring('http://'.length);
-    } else if (value.startsWith('https://')) {
-      value = value.substring('https://'.length);
-    }
-    while (value.endsWith('/')) {
-      value = value.substring(0, value.length - 1);
-    }
-    return value;
   }
 }

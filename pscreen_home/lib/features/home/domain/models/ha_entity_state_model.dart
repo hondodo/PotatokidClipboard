@@ -34,6 +34,17 @@ class HaEntityStateModel {
     );
   }
 
+  /// 序列化为 HA `get_states` 同构 JSON，供本地快照持久化。
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'entity_id': entityId,
+    'state': state,
+    'attributes': attributes,
+    if (lastChanged != null)
+      'last_changed': lastChanged!.toUtc().toIso8601String(),
+    if (lastUpdated != null)
+      'last_updated': lastUpdated!.toUtc().toIso8601String(),
+  };
+
   /// 支持控制（开关 / 参数）的实体域
   static const Set<String> switchableDomains = <String>{
     'light',
@@ -237,8 +248,7 @@ class HaEntityStateModel {
   double? get targetTemperature => _asDouble(attributes['temperature']);
 
   /// 温度步进（0.5 / 1.0）
-  double get targetTempStep =>
-      _asDouble(attributes['target_temp_step']) ?? 0.5;
+  double get targetTempStep => _asDouble(attributes['target_temp_step']) ?? 0.5;
 
   /// 可设定最低温度
   double get minTargetTemperature => _asDouble(attributes['min_temp']) ?? 16;
