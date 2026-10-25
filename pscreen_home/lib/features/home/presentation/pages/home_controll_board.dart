@@ -1239,6 +1239,7 @@ class _ControlGridState extends State<_ControlGrid> {
               : waterHeaters[group.deviceId];
           if (waterHeater != null) {
             final String entityId = waterHeater.entity.entityId;
+            final String? preheatId = waterHeater.preheatEntityId;
             final double step = waterHeater.targetStep;
             void adjust(int direction) {
               final double base =
@@ -1262,6 +1263,15 @@ class _ControlGridState extends State<_ControlGrid> {
               ),
               onIncrease: () => adjust(1),
               onDecrease: () => adjust(-1),
+              preheatAvailable: preheatId != null,
+              preheatOn: waterHeater.preheatOn,
+              isPreheating:
+                  preheatId != null && state.togglingIds.contains(preheatId),
+              onPreheatToggle: preheatId == null
+                  ? null
+                  : () => context.read<HomeBloc>().add(
+                      ToggleEntity(entityId: preheatId),
+                    ),
               onOpenDetail: () => Injection.get<AppRouter>().push(
                 RouteNames.deviceDetailPath(group.deviceId!),
               ),

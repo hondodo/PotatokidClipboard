@@ -18,6 +18,10 @@ class WaterHeaterWidget extends StatelessWidget {
     this.areaLabel,
     this.showAreaInTitle = false,
     this.onOpenDetail,
+    this.preheatAvailable = false,
+    this.preheatOn = false,
+    this.isPreheating = false,
+    this.onPreheatToggle,
   });
 
   final HaEntityStateModel entity;
@@ -29,6 +33,18 @@ class WaterHeaterWidget extends StatelessWidget {
   final String? areaLabel;
   final bool showAreaInTitle;
   final VoidCallback? onOpenDetail;
+
+  /// 设备是否带「预热」开关（switch.*_hot_water_recirculation）。
+  final bool preheatAvailable;
+
+  /// 预热开关当前是否开启。
+  final bool preheatOn;
+
+  /// 预热指令是否下发中。
+  final bool isPreheating;
+
+  /// 切换预热；为空时按钮不可点。
+  final VoidCallback? onPreheatToggle;
 
   static const Color _accent = Color(0xFFFF8A65);
 
@@ -130,10 +146,7 @@ class WaterHeaterWidget extends StatelessWidget {
               const Spacer(),
               Row(
                 children: <Widget>[
-                  _StepButton(
-                    icon: Icons.remove_rounded,
-                    onTap: onDecrease,
-                  ),
+                  _StepButton(icon: Icons.remove_rounded, onTap: onDecrease),
                   Expanded(
                     child: Center(
                       child: Text.rich(
@@ -156,10 +169,15 @@ class WaterHeaterWidget extends StatelessWidget {
                       ),
                     ),
                   ),
-                  _StepButton(
-                    icon: Icons.add_rounded,
-                    onTap: onIncrease,
-                  ),
+                  _StepButton(icon: Icons.add_rounded, onTap: onIncrease),
+                  if (preheatAvailable) ...<Widget>[
+                    const SizedBox(width: 2),
+                    _PreheatButton(
+                      on: preheatOn,
+                      busy: isPreheating,
+                      onTap: onPreheatToggle,
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -185,10 +203,70 @@ class _StepButton extends StatelessWidget {
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: SizedBox(
-          width: 30,
-          height: 30,
-          child: Icon(icon, size: 18),
+        child: SizedBox(width: 30, height: 30, child: Icon(icon, size: 18)),
+      ),
+    );
+  }
+}
+
+/// 首页卡上的预热快捷按钮：关闭时显示「预热」，开启后显示「预热中」。
+///
+/// 固定宽度，避免开启/关闭切换时把中间的温度数字挤得左右跳动。
+class _PreheatButton extends StatelessWidget {
+  const _PreheatButton({
+    required this.on,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final bool on;
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color color = on
+        ? WaterHeaterWidget._accent
+        : theme.colorScheme.onSurfaceVariant;
+    return Tooltip(
+      message: on ? '关闭预热' : '开启预热',
+      child: SizedBox(
+        width: 56,
+        height: 30,
+        child: TextButton(
+          onPressed: busy ? null : onTap,
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(56, 30),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+            backgroundColor: on
+                ? WaterHeaterWidget._accent.withValues(alpha: 0.18)
+                : null,
+            foregroundColor: color,
+            disabledForegroundColor: color.withValues(alpha: 0.5),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          child: busy
+              ? SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: color,
+                  ),
+                )
+              : Text(
+                  on ? '预热中' : '预热',
+                  maxLines: 1,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
         ),
       ),
     );
