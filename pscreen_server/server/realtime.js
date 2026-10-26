@@ -12,6 +12,13 @@ const MAX_OUTBOX = 200;
 const HEARTBEAT_MS = 30000;
 const ACCOUNT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 
+/** 逐帧调试日志开关：REALTIME_DEBUG=1 时打印每个入站帧及请求类命令。 */
+const DEBUG = process.env.REALTIME_DEBUG === '1';
+
+function log(...args) {
+    if (DEBUG) console.log('[realtime]', ...args);
+}
+
 /** 读取 JSONL 历史（启动时一次性载入内存，写入时追加）。 */
 function loadHistory(file) {
     const records = [];
@@ -66,7 +73,7 @@ function attachRealtime(httpServer, options = {}) {
         try {
             ws.send(JSON.stringify(payload));
         } catch (error) {
-            console.error('[realtime] send failed:', error.message);
+            console.error(`[realtime] send failed ${ws.account || 'unknown'}:`, error.message);
         }
     }
 
@@ -106,6 +113,9 @@ function attachRealtime(httpServer, options = {}) {
             fs.unlinkSync(file);
         } catch (_) {
             // 删除失败不影响本次投递
+        }
+        if (list.length > 0) {
+            console.log(`[realtime] flush ${account} count=${list.length}`);
         }
         const sockets = connections.get(account);
         if (!sockets) return;
@@ -172,10 +182,12 @@ function attachRealtime(httpServer, options = {}) {
         try {
             url = new URL(request.url, 'http://localhost');
         } catch (_) {
+            log(`upgrade ignored malformed url=${request.url} ip=${request.socket.remoteAddress}`);
             socket.destroy();
             return;
         }
         if (url.pathname !== wsPath) {
+            log(`upgrade ignored path=${url.pathname} ip=${request.socket.remoteAddress}`);
             socket.destroy();
             return;
         }
@@ -191,17 +203,20 @@ function attachRealtime(httpServer, options = {}) {
         const name = (url.searchParams.get('name') || '').slice(0, 64);
 
         if (!ACCOUNT_PATTERN.test(account)) {
+            console.warn(`[realtime] reject account "${account}" from ${request.socket.remoteAddress}`);
             sendJson(ws, { t: 'error', code: 400, msg: 'invalid account' });
             ws.close(4001, 'invalid account');
             return;
         }
         if (clientToken !== token) {
+            console.warn(`[realtime] reject token for ${account} from ${request.socket.remoteAddress}`);
             sendJson(ws, { t: 'error', code: 401, msg: 'invalid token' });
             ws.close(4001, 'invalid token');
             return;
         }
 
         ws.isAlive = true;
+        ws.connectedAt = Date.now();
         ws.account = account;
         ws.role = role;
         ws.name = name;
@@ -213,7 +228,10 @@ function attachRealtime(httpServer, options = {}) {
             connections.set(account, sockets);
         }
         sockets.add(ws);
-        console.log(`[realtime] online ${account} (${role}), sockets=${sockets.size}`);
+        console.log(
+            `[realtime] online ${account} role=${role} name=${name || '-'} ip=${request.socket.remoteAddress} ` +
+            `sockets=${sockets.size} total=${wss.clients.size}`,
+        );
 
         sendJson(ws, {
             t: 'ready',
@@ -235,13 +253,16 @@ function attachRealtime(httpServer, options = {}) {
             try {
                 frame = JSON.parse(raw.toString());
             } catch (_) {
+                console.warn(`[realtime] bad frame from ${account}: invalid json len=${raw.length}`);
                 sendJson(ws, { t: 'error', code: 400, msg: 'invalid json' });
                 return;
             }
             if (!frame || typeof frame.t !== 'string') {
+                console.warn(`[realtime] bad frame from ${account}: missing type`);
                 sendJson(ws, { t: 'error', code: 400, msg: 'missing type' });
                 return;
             }
+            log(`recv ${account} t=${frame.t}`);
 
             switch (frame.t) {
                 case 'ping':
@@ -253,10 +274,12 @@ function attachRealtime(httpServer, options = {}) {
                     const body = typeof frame.body === 'string' ? frame.body : '';
                     const clientId = typeof frame.id === 'string' ? frame.id : '';
                     if (!ACCOUNT_PATTERN.test(to) || body.length === 0) {
+                        console.warn(`[realtime] bad msg from ${account}: invalid target or empty body`);
                         sendJson(ws, { t: 'error', code: 400, msg: 'invalid message' });
                         return;
                     }
                     if (body.length > MAX_BODY_LENGTH) {
+                        console.warn(`[realtime] bad msg from ${account}: too large len=${body.length}`);
                         sendJson(ws, { t: 'error', code: 413, msg: 'message too large' });
                         return;
                     }
@@ -284,7 +307,13 @@ function attachRealtime(httpServer, options = {}) {
                             delivered = true;
                         }
                     }
-                    if (!delivered) enqueueOffline(to, message);
+                    console.log(
+                        `[realtime] msg ${account}->${to} id=${message.id} bytes=${body.length} delivered=${delivered}`,
+                    );
+                    if (!delivered) {
+                        enqueueOffline(to, message);
+                        console.log(`[realtime] offline-queued ${to} id=${message.id} from=${account}`);
+                    }
 
                     sendJson(ws, {
                         t: 'result',
@@ -301,43 +330,54 @@ function attachRealtime(httpServer, options = {}) {
                     const peer = typeof frame.peer === 'string' ? frame.peer.trim() : '';
                     const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 50, 1), 200);
                     if (!ACCOUNT_PATTERN.test(peer)) {
+                        console.warn(`[realtime] bad history from ${account}: invalid peer "${peer}"`);
                         sendJson(ws, { t: 'error', code: 400, msg: 'invalid peer' });
                         return;
                     }
+                    const messages = historyFor(account, peer, limit);
                     sendJson(ws, {
                         t: 'history',
                         id: frame.id,
                         peer,
-                        messages: historyFor(account, peer, limit),
+                        messages,
                     });
+                    log(`history ${account}<->${peer} limit=${limit} count=${messages.length}`);
                     break;
                 }
 
-                case 'conversations':
+                case 'conversations': {
+                    const items = conversationsFor(account);
                     sendJson(ws, {
                         t: 'conversations',
                         id: frame.id,
-                        items: conversationsFor(account),
+                        items,
                     });
+                    log(`conversations ${account} count=${items.length}`);
                     break;
+                }
 
                 case 'read': {
                     const peer = typeof frame.peer === 'string' ? frame.peer.trim() : '';
-                    if (!ACCOUNT_PATTERN.test(peer)) return;
+                    if (!ACCOUNT_PATTERN.test(peer)) {
+                        console.warn(`[realtime] bad read from ${account}: invalid peer "${peer}"`);
+                        return;
+                    }
                     const file = path.join(readsDir, `${account}.json`);
                     const reads = readJson(file, {});
                     reads[peer] = Date.now();
                     writeJson(file, reads);
                     sendJson(ws, { t: 'read_ok', peer });
+                    log(`read ${account} peer=${peer}`);
                     break;
                 }
 
                 default:
+                    console.warn(`[realtime] bad frame from ${account}: unknown type "${frame.t}"`);
                     sendJson(ws, { t: 'error', code: 400, msg: `unknown type: ${frame.t}` });
             }
         });
 
-        ws.on('close', () => {
+        ws.on('close', (code, reason) => {
             const set = connections.get(account);
             if (set) {
                 set.delete(ws);
@@ -346,7 +386,11 @@ function attachRealtime(httpServer, options = {}) {
                     broadcast({ t: 'presence', account, online: false });
                 }
             }
-            console.log(`[realtime] offline ${account}`);
+            const alive = ws.connectedAt ? Math.round((Date.now() - ws.connectedAt) / 1000) : 0;
+            console.log(
+                `[realtime] offline ${account} code=${code} reason=${reason ? reason.toString() : '-'} ` +
+                `sockets=${set ? set.size : 0} total=${wss.clients.size} alive=${alive}s`,
+            );
         });
 
         ws.on('error', (error) => {
@@ -357,6 +401,7 @@ function attachRealtime(httpServer, options = {}) {
     const heartbeat = setInterval(() => {
         for (const ws of wss.clients) {
             if (ws.isAlive === false) {
+                console.warn(`[realtime] heartbeat timeout, terminate ${ws.account || 'unknown'}`);
                 ws.terminate();
                 continue;
             }
@@ -370,9 +415,18 @@ function attachRealtime(httpServer, options = {}) {
     }, HEARTBEAT_MS);
     heartbeat.unref();
 
+    const stats = setInterval(() => {
+        console.log(
+            `[realtime] stats clients=${wss.clients.size} accounts=${connections.size} ` +
+            `history=${history.length} online=[${onlineAccounts().join(',')}]`,
+        );
+    }, 60000);
+    stats.unref();
+
     httpServer.on('upgrade', handleUpgrade);
     httpServer.on('close', () => {
         clearInterval(heartbeat);
+        clearInterval(stats);
         wss.close();
     });
 

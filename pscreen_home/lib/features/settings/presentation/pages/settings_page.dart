@@ -15,6 +15,7 @@ import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -553,10 +554,67 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: const Icon(Icons.save_rounded),
             label: const Text('保存遥控配置'),
           ),
+          const SizedBox(height: 10),
+          const _RealtimeStatusLine(),
           const SizedBox(height: 24),
           const _ConnectionStatusLine(),
         ],
       ),
+    );
+  }
+}
+
+/// 遥控实时通道状态行：显示连接状态、网关地址与最近错误，便于现场排查。
+class _RealtimeStatusLine extends StatelessWidget {
+  const _RealtimeStatusLine();
+
+  @override
+  Widget build(BuildContext context) {
+    final RealtimeChannel channel = Injection.get<RealtimeChannel>();
+    return StreamBuilder<RealtimeConnectionState>(
+      stream: channel.connectionState,
+      initialData: channel.state,
+      builder: (BuildContext context, AsyncSnapshot<RealtimeConnectionState> snapshot) {
+        final RealtimeConnectionState state =
+            snapshot.data ?? RealtimeConnectionState.disconnected;
+        final (String label, Color color) = switch (state) {
+          RealtimeConnectionState.connected => (
+            '已连接（${channel.account}）',
+            Colors.greenAccent,
+          ),
+          RealtimeConnectionState.connecting => ('连接中…', Colors.orangeAccent),
+          RealtimeConnectionState.disconnected => ('未连接', Colors.redAccent),
+          RealtimeConnectionState.error => ('连接错误', Colors.redAccent),
+        };
+        final TextStyle? hint = Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.outline,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 8),
+                Text('遥控通道：$label', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+            if (channel.lastError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('最近错误：${channel.lastError}', style: hint),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
+            ),
+          ],
+        );
+      },
     );
   }
 }
