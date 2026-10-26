@@ -32,9 +32,6 @@ class AppSettings {
   static const String _keyProxyRetry = 'app_proxy_retry_v1';
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
   static const String _keyRemoteAccount = 'app_remote_account_v1';
-  static const String _keyWpPassword = 'app_wp_password_v1';
-  static const String _keyToolsAccount = 'app_tools_account_v1';
-  static const String _keyToolsPassword = 'app_tools_password_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -68,15 +65,6 @@ class AppSettings {
   /// 实时通道「远程」账号；**空串表示未设置**。
   String _remoteAccount = '';
 
-  /// WordPress 密码保护文章的访问密码；**空串表示未设置**。
-  String _wpPassword = '';
-
-  /// Tools 账号（ptools 服务端登录用）；**空串表示未设置**。
-  String _toolsAccount = '';
-
-  /// Tools 密码（ptools 服务端登录用，明文保存）；**空串表示未设置**。
-  String _toolsPassword = '';
-
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -99,15 +87,6 @@ class AppSettings {
 
   /// 实时通道「远程」账号：空串表示未设置。
   String get remoteAccount => _remoteAccount;
-
-  /// WordPress 密码：空串表示未设置。
-  String get wpPassword => _wpPassword;
-
-  /// Tools 账号：空串表示未设置。
-  String get toolsAccount => _toolsAccount;
-
-  /// Tools 密码：空串表示未设置。
-  String get toolsPassword => _toolsPassword;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -146,16 +125,7 @@ class AppSettings {
 
       // 后台播放
       _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
-
-      // 实时通道「远程」账号
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
-
-      // WordPress 密码
-      _wpPassword = prefs.getString(_keyWpPassword) ?? '';
-
-      // Tools 账号 / 密码
-      _toolsAccount = prefs.getString(_keyToolsAccount) ?? '';
-      _toolsPassword = prefs.getString(_keyToolsPassword) ?? '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -271,39 +241,6 @@ class AppSettings {
     }
   }
 
-  /// 保存 WordPress 密码（空串表示清除）。
-  Future<void> setWpPassword(String password) async {
-    _wpPassword = password;
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyWpPassword, password);
-    } catch (_) {
-      // 写入失败不影响运行。
-    }
-  }
-
-  /// 保存 Tools 账号（空串表示清除）。
-  Future<void> setToolsAccount(String account) async {
-    _toolsAccount = account;
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyToolsAccount, account);
-    } catch (_) {
-      // 写入失败不影响运行。
-    }
-  }
-
-  /// 保存 Tools 密码（空串表示清除）。
-  Future<void> setToolsPassword(String password) async {
-    _toolsPassword = password;
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyToolsPassword, password);
-    } catch (_) {
-      // 写入失败不影响运行。
-    }
-  }
-
   /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
   ///
   /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
@@ -333,9 +270,6 @@ class AppSettings {
     _proxyRetryEnabled = false;
     _backgroundPlayback = false;
     _remoteAccount = '';
-    _wpPassword = '';
-    _toolsAccount = '';
-    _toolsPassword = '';
   }
 
   static String _themeModeToString(ThemeMode mode) {

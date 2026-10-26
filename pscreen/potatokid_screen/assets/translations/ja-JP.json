@@ -47,12 +47,6 @@
   "settings_reset_cancel": "キャンセル",
   "settings_reset_ok": "はい、リセットして終了",
   "settings_remote": "リモート",
-  "settings_wp_password": "WordPressパスワード",
-  "wp_password_input_hint": "WordPressパスワードを入力",
-  "settings_tools_account": "Toolsアカウント",
-  "settings_tools_password": "Toolsパスワード",
-  "tools_account_input_hint": "Toolsアカウントを入力",
-  "tools_password_input_hint": "Toolsパスワードを入力",
   "remote_not_set": "未設定",
   "remote_logging_in": "ログイン中",
   "remote_logged_in": "ログイン済み",
@@ -72,7 +66,5 @@
   "weather_data_source": "天気データの提供元",
   "weather_source_seniverse": "心知天気",
   "disclaimer_title": "免責事項",
-  "disclaimer_body": "本ソフトウェアはインターネット上の公開ライブストリームを集約して再生するのみで、音声・映像コンテンツの保存や制作は行いません。すべてのチャンネルデータはインターネットから取得したものであり、著作権は原著作者に帰属します。権利を侵害する内容がある場合は 416049529@qq.com までご連絡ください。確認後、速やかに対応いたします。本ソフトウェアは個人の学習および技術研究用です。商用利用はご遠慮ください。",
-  "tools_login_ok": "ログイン済み",
-  "tools_login_fail": "ログイン失敗"
+  "disclaimer_body": "本ソフトウェアはインターネット上の公開ライブストリームを集約して再生するのみで、音声・映像コンテンツの保存や制作は行いません。すべてのチャンネルデータはインターネットから取得したものであり、著作権は原著作者に帰属します。権利を侵害する内容がある場合は 416049529@qq.com までご連絡ください。確認後、速やかに対応いたします。本ソフトウェアは個人の学習および技術研究用です。商用利用はご遠慮ください。"
 }

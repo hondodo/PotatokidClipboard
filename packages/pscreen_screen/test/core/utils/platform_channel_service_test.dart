@@ -9,6 +9,11 @@ void main() {
   final List<String> methodCalls = <String>[];
   Object? modelReturn = 'TEST-MODEL';
   bool modelThrow = false;
+  Object? identityReturn = <String, String>{
+    'androidId': 'ABCDEF0123456789',
+    'mediaDrmId': '',
+  };
+  bool identityThrow = false;
 
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (MethodCall call) async {
@@ -18,6 +23,12 @@ void main() {
         throw PlatformException(code: 'unavailable');
       }
       return modelReturn;
+    }
+    if (call.method == 'getDeviceIdentity') {
+      if (identityThrow) {
+        throw PlatformException(code: 'unavailable');
+      }
+      return identityReturn;
     }
     return null;
   });
@@ -57,6 +68,35 @@ void main() {
     final String model = await PlatformChannelService.instance.deviceModel();
     expect(model, 'Android TV');
     modelThrow = false;
+  });
+
+  test('deviceIdentity 返回平台原始值', () async {
+    identityReturn = <String, String>{
+      'androidId': 'ABCDEF0123456789',
+      'mediaDrmId': 'deadbeef',
+    };
+    final ({String androidId, String mediaDrmId}) id =
+        await PlatformChannelService.instance.deviceIdentity();
+    expect(methodCalls, <String>['getDeviceIdentity']);
+    expect(id.androidId, 'ABCDEF0123456789');
+    expect(id.mediaDrmId, 'deadbeef');
+  });
+
+  test('deviceIdentity 平台返回 null 时回落空串', () async {
+    identityReturn = null;
+    final ({String androidId, String mediaDrmId}) id =
+        await PlatformChannelService.instance.deviceIdentity();
+    expect(id.androidId, '');
+    expect(id.mediaDrmId, '');
+  });
+
+  test('deviceIdentity 平台异常时不抛出且回落空串', () async {
+    identityThrow = true;
+    final ({String androidId, String mediaDrmId}) id =
+        await PlatformChannelService.instance.deviceIdentity();
+    expect(id.androidId, '');
+    expect(id.mediaDrmId, '');
+    identityThrow = false;
   });
 
   test('音量方法平台异常时不抛出', () async {

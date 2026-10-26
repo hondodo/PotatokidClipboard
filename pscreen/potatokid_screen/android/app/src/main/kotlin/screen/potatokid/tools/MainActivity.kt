@@ -1,13 +1,19 @@
 package screen.potatokid.tools
 
 import android.media.AudioManager
+import android.media.MediaDrm
 import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "potatokid/volume"
+
+    /** Widevine 的 UUID：MediaDrm 设备唯一 ID 只在 Widevine 下可取。 */
+    private val WIDEVINE_UUID = UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -39,8 +45,43 @@ class MainActivity : FlutterActivity() {
                     "getDeviceModel" -> {
                         result.success(Build.MODEL ?: "Android TV")
                     }
+                    // 设备唯一编号原始值：ANDROID_ID（API 26+ 由「签名密钥+用户+设备」
+                    // 决定，卸载重装不变）+ MediaDrm 设备 ID（ANDROID_ID 不可用时的兜底）。
+                    "getDeviceIdentity" -> {
+                        result.success(
+                            mapOf(
+                                "androidId" to (
+                                    Settings.Secure.getString(
+                                        contentResolver,
+                                        Settings.Secure.ANDROID_ID
+                                    ) ?: ""
+                                    ),
+                                "mediaDrmId" to mediaDrmDeviceId()
+                            )
+                        )
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** 读取 MediaDrm（Widevine）设备唯一 ID 的十六进制串；不可用时返回空串。 */
+    private fun mediaDrmDeviceId(): String {
+        var drm: MediaDrm? = null
+        return try {
+            drm = MediaDrm(WIDEVINE_UUID)
+            drm.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
+                .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        } catch (e: Throwable) {
+            ""
+        } finally {
+            try {
+                // 用 release() 而非 close()：close() 是 API 28 才有的方法，
+                // 在 Android 7.x/8.x 上调用会 NoSuchMethodError 崩溃。
+                drm?.release()
+            } catch (e: Throwable) {
+                // 释放失败忽略
+            }
+        }
     }
 }

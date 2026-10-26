@@ -4,7 +4,7 @@ class DioLogInterceptor extends PrettyDioLogger {
   DioLogInterceptor({
     super.requestHeader = true,
     super.requestBody = true,
-    super.responseBody = false,
+    super.responseBody = true,
     super.responseHeader = true,
     super.error = true,
     super.compact = true,

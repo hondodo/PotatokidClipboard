@@ -46,4 +46,25 @@ class PlatformChannelService implements VolumeControl {
     }
     return 'Android TV';
   }
+
+  /// 设备唯一编号**原始值**：`androidId`（API 26+ 由「签名密钥+用户+设备」决定，
+  /// 卸载重装不变；API 26 以下为设备级值，同样跨卸载存活）、`mediaDrmId`
+  /// （Widevine 设备唯一 ID，androidId 不可用时兜底）。两者都可能为空串。
+  ///
+  /// 只负责取原始值，归一化与格式化见 `DeviceIdentity`。
+  Future<({String androidId, String mediaDrmId})> deviceIdentity() async {
+    try {
+      final Map<Object?, Object?>? raw =
+          await _channel.invokeMethod<Map<Object?, Object?>>('getDeviceIdentity');
+      if (raw != null) {
+        return (
+          androidId: '${raw['androidId'] ?? ''}',
+          mediaDrmId: '${raw['mediaDrmId'] ?? ''}',
+        );
+      }
+    } catch (e) {
+      // 忽略：非 Android 平台或原生异常
+    }
+    return (androidId: '', mediaDrmId: '');
+  }
 }

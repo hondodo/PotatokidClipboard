@@ -2,10 +2,10 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 import 'package:pscreen_screen/core/network/http_method.dart';
-import 'package:pscreen_screen/core/utils/app_settings.dart';
 
 class PtoolsCode {
   const PtoolsCode._();
@@ -68,7 +68,7 @@ class PtoolsUtil {
   /// 同时命中未登录时重复请求登录接口。
   static Future<bool>? _loginInFlight;
 
-  /// 用「我的」页保存的 Tools 账号/密码登录；未配置或失败返回 false。
+  /// 用 `.env` 里的 Tools 账号/密码登录；未配置或失败返回 false。
   static Future<bool> loginWithSaved() {
     return _loginInFlight ??= _doLoginWithSaved().whenComplete(() {
       _loginInFlight = null;
@@ -76,9 +76,8 @@ class PtoolsUtil {
   }
 
   static Future<bool> _doLoginWithSaved() async {
-    await AppSettings.instance.ensureLoaded();
-    final String account = AppSettings.instance.toolsAccount;
-    final String password = AppSettings.instance.toolsPassword;
+    final String account = AppConfig.toolsToken;
+    final String password = AppConfig.toolsPassword;
     if (account.isEmpty || password.isEmpty) return false;
     try {
       await login(username: account, password: password);

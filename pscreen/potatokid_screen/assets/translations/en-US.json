@@ -47,12 +47,6 @@
   "settings_reset_cancel": "Cancel",
   "settings_reset_ok": "Yes, reset and exit",
   "settings_remote": "Remote",
-  "settings_wp_password": "WordPress Password",
-  "wp_password_input_hint": "Enter WordPress password",
-  "settings_tools_account": "Tools Account",
-  "settings_tools_password": "Tools Password",
-  "tools_account_input_hint": "Enter Tools account",
-  "tools_password_input_hint": "Enter Tools password",
   "remote_not_set": "Not set",
   "remote_logging_in": "Logging in",
   "remote_logged_in": "Logged in",
@@ -72,7 +66,5 @@
   "weather_data_source": "Weather Data Source",
   "weather_source_seniverse": "Seniverse Weather",
   "disclaimer_title": "Disclaimer",
-  "disclaimer_body": "This software only aggregates publicly available internet live streams for playback and does not store or produce any audio or video content. All channel data comes from the internet and the copyright belongs to the original rights holders. If any content infringes your lawful rights, please contact 416049529@qq.com and we will handle it promptly. This software is for personal learning and technical research only; please do not use it for commercial purposes.",
-  "tools_login_ok": "Logged in",
-  "tools_login_fail": "Login failed"
+  "disclaimer_body": "This software only aggregates publicly available internet live streams for playback and does not store or produce any audio or video content. All channel data comes from the internet and the copyright belongs to the original rights holders. If any content infringes your lawful rights, please contact 416049529@qq.com and we will handle it promptly. This software is for personal learning and technical research only; please do not use it for commercial purposes."
 }

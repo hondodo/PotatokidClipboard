@@ -5,12 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
-import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
-import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -40,12 +38,11 @@ const List<(Locale, String)> _supportedLanguages = <(Locale, String)>[
 ];
 
 /// 主题的可选值（labelKey 对应翻译文案，mode 对应 [ThemeMode]）
-const List<({String labelKey, ThemeMode mode})> _themeOptions =
-    <({String labelKey, ThemeMode mode})>[
-      (labelKey: 'theme_system', mode: ThemeMode.system),
-      (labelKey: 'theme_light', mode: ThemeMode.light),
-      (labelKey: 'theme_dark', mode: ThemeMode.dark),
-    ];
+const List<({String labelKey, ThemeMode mode})> _themeOptions = <({String labelKey, ThemeMode mode})>[
+  (labelKey: 'theme_system', mode: ThemeMode.system),
+  (labelKey: 'theme_light', mode: ThemeMode.light),
+  (labelKey: 'theme_dark', mode: ThemeMode.dark),
+];
 
 /// 「我的」Tab 页面：面向 TV 遥控器操作的设置页。
 ///
@@ -102,15 +99,6 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「远程」行（实时通道账号登录：常态展示账号+状态，激活后行内输入框）的序号。
   static const int _remoteRow = 13;
 
-  /// 「WordPress密码」行（密码保护文章访问密码：常态掩码展示，激活后行内输入框）的序号。
-  static const int _wpPasswordRow = 14;
-
-  /// 「Tools账号」行（ptools 服务端登录账号：常态展示账号，激活后行内输入框）的序号。
-  static const int _toolsAccountRow = 15;
-
-  /// 「Tools密码」行（ptools 服务端登录密码：常态掩码展示，激活后行内输入框）的序号。
-  static const int _toolsPasswordRow = 16;
-
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
 
@@ -125,17 +113,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 天气城市的可选项：首项空串代表「自动」（IP 反查），
   /// 其余为 `.env` 中 `WEATHER_CITIES` 配置的城市名。
-  static List<String> get _weatherCityOptions =>
-      <String>['', ...AppConfig.weatherCities];
+  static List<String> get _weatherCityOptions => <String>['', ...AppConfig.weatherCities];
 
   /// 天气城市选项的展示文案：空串为「自动」，其余直接显示城市名。
-  static String _weatherCityLabel(String city) =>
-      city.isEmpty ? 'weather_city_auto'.tr() : city;
+  static String _weatherCityLabel(String city) => city.isEmpty ? 'weather_city_auto'.tr() : city;
 
   /// 定时关闭选项的展示文案：null 为「关闭」，其余显示「N 分钟」。
-  static String _sleepTimerLabel(int? minutes) => minutes == null
-      ? 'common_off'.tr()
-      : 'sleep_timer_minutes'.tr(args: <String>['$minutes']);
+  static String _sleepTimerLabel(int? minutes) =>
+      minutes == null ? 'common_off'.tr() : 'sleep_timer_minutes'.tr(args: <String>['$minutes']);
 
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
@@ -144,10 +129,6 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 复制失效源的结果提示：null=空闲，非空=「已复制 N 条」/「暂无失效源记录」。
   final ValueNotifier<String?> _copyMsg = ValueNotifier<String?>(null);
   Timer? _copyMsgTimer;
-
-  /// Tools 登录结果提示：null=空闲，非空=「已登录」/「登录失败」。
-  final ValueNotifier<String?> _toolsMsg = ValueNotifier<String?>(null);
-  Timer? _toolsMsgTimer;
 
   /// 重置流程是否正在进行（含确认弹窗），避免重复触发/叠出多个弹窗。
   bool _resetting = false;
@@ -158,32 +139,13 @@ class _ProfilePageState extends State<ProfilePage> {
   set _editingRow(int? value) => ProfilePage.editingRow = value;
 
   /// 「远程」行输入框的控制器与焦点节点。
-  final TextEditingController _remoteInputController =
-      TextEditingController();
+  final TextEditingController _remoteInputController = TextEditingController();
   final FocusNode _remoteInputFocusNode = FocusNode();
-
-  /// 「WordPress密码」行输入框的控制器与焦点节点。
-  final TextEditingController _wpPasswordInputController =
-      TextEditingController();
-  final FocusNode _wpPasswordInputFocusNode = FocusNode();
-
-  /// 「Tools账号」行输入框的控制器与焦点节点。
-  final TextEditingController _toolsAccountInputController =
-      TextEditingController();
-  final FocusNode _toolsAccountInputFocusNode = FocusNode();
-
-  /// 「Tools密码」行输入框的控制器与焦点节点。
-  final TextEditingController _toolsPasswordInputController =
-      TextEditingController();
-  final FocusNode _toolsPasswordInputFocusNode = FocusNode();
 
   Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
-  final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(
-    ProfileFocusController.rowCount,
-    (_) => GlobalKey<State>(),
-  );
+  final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(ProfileFocusController.rowCount, (_) => GlobalKey<State>());
 
   int _prevRow = 0;
   bool _prevFocused = false;
@@ -222,18 +184,9 @@ class _ProfilePageState extends State<ProfilePage> {
     ProfilePage.editingRow = null;
     _cityApplyTimer?.cancel();
     _copyMsgTimer?.cancel();
-    _refreshMsg.dispose();
     _copyMsg.dispose();
-    _toolsMsgTimer?.cancel();
-    _toolsMsg.dispose();
     _remoteInputController.dispose();
     _remoteInputFocusNode.dispose();
-    _wpPasswordInputController.dispose();
-    _wpPasswordInputFocusNode.dispose();
-    _toolsAccountInputController.dispose();
-    _toolsAccountInputFocusNode.dispose();
-    _toolsPasswordInputController.dispose();
-    _toolsPasswordInputFocusNode.dispose();
     super.dispose();
   }
 
@@ -263,12 +216,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       final BuildContext? ctx = _rowKeys[c.row].currentContext;
       if (ctx == null) return;
-      Scrollable.ensureVisible(
-        ctx,
-        alignment: 0.5,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
+      Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
     });
   }
 
@@ -278,11 +226,6 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
     if (row == _remoteRow && mounted) _beginInlineEdit(_remoteRow);
-    if (row == _wpPasswordRow && mounted) _beginInlineEdit(_wpPasswordRow);
-    if (row == _toolsAccountRow && mounted) _beginInlineEdit(_toolsAccountRow);
-    if (row == _toolsPasswordRow && mounted) {
-      _beginInlineEdit(_toolsPasswordRow);
-    }
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -318,10 +261,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // 2) 重启应用；失败则退出程序。
     try {
-      final RestartResult result = await Restart.restartApp(
-        mode: RestartMode.process,
-        forceKill: true,
-      );
+      final RestartResult result = await Restart.restartApp(mode: RestartMode.process, forceKill: true);
       Injection.get<LogService>().info(
         '[ProfilePage] 重置：重启结果 success=${result.success} '
         'mode=${result.mode.name} code=${result.code} message=${result.message}',
@@ -341,16 +281,17 @@ class _ProfilePageState extends State<ProfilePage> {
     _refreshMsg.value = 'settings_refreshing'.tr();
     final Completer<bool> done = Completer<bool>();
     context.read<IptvBloc>().add(LoadIptv(isRefresh: true, completer: done));
-    unawaited(done.future.then((bool ok) {
-      if (!mounted) return;
-      _refreshing = false;
-      _refreshMsg.value =
-          ok ? 'settings_refresh_done'.tr() : 'settings_refresh_failed'.tr();
-      // 几秒后恢复空闲，便于再次操作。
-      Timer(const Duration(seconds: 2), () {
-        if (mounted && !_refreshing) _refreshMsg.value = null;
-      });
-    }));
+    unawaited(
+      done.future.then((bool ok) {
+        if (!mounted) return;
+        _refreshing = false;
+        _refreshMsg.value = ok ? 'settings_refresh_done'.tr() : 'settings_refresh_failed'.tr();
+        // 几秒后恢复空闲，便于再次操作。
+        Timer(const Duration(seconds: 2), () {
+          if (mounted && !_refreshing) _refreshMsg.value = null;
+        });
+      }),
+    );
   }
 
   /// 按当前行执行真正的值改动（主题/语言/悬浮遥控器/硬解/画面/天气城市/刷新频道/清理失效源）。
@@ -359,17 +300,13 @@ class _ProfilePageState extends State<ProfilePage> {
     switch (row) {
       case 0: // 主题
         final AppState state = context.read<AppBloc>().state;
-        final int idx = _themeOptions.indexWhere(
-          (t) => t.mode == state.themeMode,
-        );
+        final int idx = _themeOptions.indexWhere((t) => t.mode == state.themeMode);
         final int val = idx < 0 ? 0 : idx;
         final int next = (val + delta).clamp(0, _themeOptions.length - 1);
         context.read<AppBloc>().add(ChangeThemeMode(_themeOptions[next].mode));
         break;
       case 1: // 语言
-        final int idx = _supportedLanguages.indexWhere(
-          (l) => context.locale == l.$1,
-        );
+        final int idx = _supportedLanguages.indexWhere((l) => context.locale == l.$1);
         final int val = idx < 0 ? 0 : idx;
         final int next = (val + delta).clamp(0, _supportedLanguages.length - 1);
         context.setLocale(_supportedLanguages[next].$1);
@@ -426,15 +363,6 @@ class _ProfilePageState extends State<ProfilePage> {
       case _remoteRow: // 远程：左/右键打开行内输入框
         _beginInlineEdit(_remoteRow);
         break;
-      case _wpPasswordRow: // WordPress密码：左/右键打开行内输入框
-        _beginInlineEdit(_wpPasswordRow);
-        break;
-      case _toolsAccountRow: // Tools账号：左/右键打开行内输入框
-        _beginInlineEdit(_toolsAccountRow);
-        break;
-      case _toolsPasswordRow: // Tools密码：左/右键打开行内输入框
-        _beginInlineEdit(_toolsPasswordRow);
-        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -473,75 +401,27 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 12),
                 KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_sleepTimerRow],
-                  child: _buildSleepTimerRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_sleepTimerRow], child: _buildSleepTimerRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_backgroundPlaybackRow],
-                  child: _buildBackgroundPlaybackRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_backgroundPlaybackRow], child: _buildBackgroundPlaybackRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_refreshRow],
-                  child: _buildRefreshRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_refreshRow], child: _buildRefreshRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_removeInvalidRow],
-                  child: _buildRemoveInvalidRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_removeInvalidRow], child: _buildRemoveInvalidRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_copyInvalidRow],
-                  child: _buildCopyInvalidRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_copyInvalidRow], child: _buildCopyInvalidRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_proxyRetryRow],
-                  child: _buildProxyRetryRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_proxyRetryRow], child: _buildProxyRetryRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_resetRow],
-                  child: _buildResetRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_resetRow], child: _buildResetRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_remoteRow],
-                  child: _buildRemoteLoginRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_remoteRow], child: _buildRemoteLoginRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_wpPasswordRow],
-                  child: _buildWpPasswordRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_versionRow], child: _buildVersionRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_toolsAccountRow],
-                  child: _buildToolsAccountRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_weatherSourceRow], child: _buildWeatherSourceRow(inContent, c)),
                 const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_toolsPasswordRow],
-                  child: _buildToolsPasswordRow(inContent, c),
-                ),
-                const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_versionRow],
-                  child: _buildVersionRow(inContent, c),
-                ),
-                const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_weatherSourceRow],
-                  child: _buildWeatherSourceRow(inContent, c),
-                ),
-                const SizedBox(height: 12),
-                KeyedSubtree(
-                  key: _rowKeys[_disclaimerRow],
-                  child: _buildDisclaimerRow(inContent, c),
-                ),
+                KeyedSubtree(key: _rowKeys[_disclaimerRow], child: _buildDisclaimerRow(inContent, c)),
               ],
             );
           },
@@ -553,9 +433,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildThemeRow(bool inContent, ProfileFocusController c) {
     return BlocBuilder<AppBloc, AppState>(
       builder: (context, state) {
-        final int idx = _themeOptions.indexWhere(
-          (t) => t.mode == state.themeMode,
-        );
+        final int idx = _themeOptions.indexWhere((t) => t.mode == state.themeMode);
         final int val = idx < 0 ? 0 : idx;
         return _SettingRow(
           highlighted: inContent && c.row == 0,
@@ -578,9 +456,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildLanguageRow(bool inContent, ProfileFocusController c) {
-    final int idx = _supportedLanguages.indexWhere(
-      (l) => context.locale == l.$1,
-    );
+    final int idx = _supportedLanguages.indexWhere((l) => context.locale == l.$1);
     final int val = idx < 0 ? 0 : idx;
     return _SettingRow(
       highlighted: inContent && c.row == 1,
@@ -924,10 +800,9 @@ class _ProfilePageState extends State<ProfilePage> {
         if (_editingRow == _remoteRow) {
           return _buildRemoteEditRow();
         }
-        final String value =
-            state.status == RemoteLoginStatus.notConfigured
-                ? 'remote_not_set'.tr()
-                : '${state.account} ${_remoteStatusLabel(state.status)}';
+        final String value = state.status == RemoteLoginStatus.notConfigured
+            ? 'remote_not_set'.tr()
+            : '${state.account} ${_remoteStatusLabel(state.status)}';
         return _SettingRow(
           highlighted: inContent && c.row == _remoteRow,
           label: 'settings_remote'.tr(),
@@ -962,154 +837,15 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  /// 「WordPress密码」行：常态掩码展示（未设置显示「未设置」），
-  /// 点按 / OK / 右键进入行内输入（编辑态替换为掩码输入框）。
-  Widget _buildWpPasswordRow(bool inContent, ProfileFocusController c) {
-    if (_editingRow == _wpPasswordRow) return _buildWpPasswordEditRow();
-    final String value = AppSettings.instance.wpPassword.isEmpty
-        ? 'remote_not_set'.tr()
-        : '••••••';
-    return _SettingRow(
-      highlighted: inContent && c.row == _wpPasswordRow,
-      label: 'settings_wp_password'.tr(),
-      value: value,
-      canStepLeft: false,
-      canStepRight: true,
-      onTap: () {
-        c.select(_wpPasswordRow);
-        _beginInlineEdit(_wpPasswordRow);
-      },
-      onStepLeft: () => c.select(_wpPasswordRow),
-      onStepRight: () {
-        c.select(_wpPasswordRow);
-        _beginInlineEdit(_wpPasswordRow);
-      },
-    );
-  }
-
-  /// 「WordPress密码」行编辑态：掩码输入框（不预填），✕ 取消、✓ 提交保存。
-  Widget _buildWpPasswordEditRow() {
-    return _InlineEditFrame(
-      label: 'settings_wp_password'.tr(),
-      controller: _wpPasswordInputController,
-      focusNode: _wpPasswordInputFocusNode,
-      hintText: 'wp_password_input_hint'.tr(),
-      obscureText: true,
-      onCancel: _cancelInlineEdit,
-      onSubmit: _submitInlineEdit,
-    );
-  }
-
-  /// 「Tools账号」行：常态展示已保存账号（未设置显示「未设置」），
-  /// 点按 / OK / 右键进入行内输入（编辑态预填当前账号）。
-  Widget _buildToolsAccountRow(bool inContent, ProfileFocusController c) {
-    if (_editingRow == _toolsAccountRow) return _buildToolsAccountEditRow();
-    final String account = AppSettings.instance.toolsAccount;
-    return ListenableBuilder(
-      listenable: _toolsMsg,
-      builder: (context, _) {
-        final String value = _toolsMsg.value ??
-            (account.isEmpty ? 'remote_not_set'.tr() : account);
-        return _SettingRow(
-          highlighted: inContent && c.row == _toolsAccountRow,
-          label: 'settings_tools_account'.tr(),
-          value: value,
-          canStepLeft: false,
-          canStepRight: true,
-          onTap: () {
-            c.select(_toolsAccountRow);
-            _beginInlineEdit(_toolsAccountRow);
-          },
-          onStepLeft: () => c.select(_toolsAccountRow),
-          onStepRight: () {
-            c.select(_toolsAccountRow);
-            _beginInlineEdit(_toolsAccountRow);
-          },
-        );
-      },
-    );
-  }
-
-  /// 「Tools账号」行编辑态：明文输入框（预填当前账号），✕ 取消、✓ 提交保存。
-  Widget _buildToolsAccountEditRow() {
-    return _InlineEditFrame(
-      label: 'settings_tools_account'.tr(),
-      controller: _toolsAccountInputController,
-      focusNode: _toolsAccountInputFocusNode,
-      hintText: 'tools_account_input_hint'.tr(),
-      onCancel: _cancelInlineEdit,
-      onSubmit: _submitInlineEdit,
-    );
-  }
-
-  /// 「Tools密码」行：常态掩码展示（未设置显示「未设置」），
-  /// 点按 / OK / 右键进入行内输入（编辑态不预填）。
-  Widget _buildToolsPasswordRow(bool inContent, ProfileFocusController c) {
-    if (_editingRow == _toolsPasswordRow) return _buildToolsPasswordEditRow();
-    final String value = AppSettings.instance.toolsPassword.isEmpty
-        ? 'remote_not_set'.tr()
-        : '••••••';
-    return _SettingRow(
-      highlighted: inContent && c.row == _toolsPasswordRow,
-      label: 'settings_tools_password'.tr(),
-      value: value,
-      canStepLeft: false,
-      canStepRight: true,
-      onTap: () {
-        c.select(_toolsPasswordRow);
-        _beginInlineEdit(_toolsPasswordRow);
-      },
-      onStepLeft: () => c.select(_toolsPasswordRow),
-      onStepRight: () {
-        c.select(_toolsPasswordRow);
-        _beginInlineEdit(_toolsPasswordRow);
-      },
-    );
-  }
-
-  /// 「Tools密码」行编辑态：掩码输入框（不预填），✕ 取消、✓ 提交保存。
-  Widget _buildToolsPasswordEditRow() {
-    return _InlineEditFrame(
-      label: 'settings_tools_password'.tr(),
-      controller: _toolsPasswordInputController,
-      focusNode: _toolsPasswordInputFocusNode,
-      hintText: 'tools_password_input_hint'.tr(),
-      obscureText: true,
-      onCancel: _cancelInlineEdit,
-      onSubmit: _submitInlineEdit,
-    );
-  }
-
   /// 行内输入编辑态的焦点节点，按行号取（未配置的行返回 null）。
-  FocusNode? _focusNodeOf(int row) {
-    if (row == _remoteRow) return _remoteInputFocusNode;
-    if (row == _wpPasswordRow) return _wpPasswordInputFocusNode;
-    if (row == _toolsAccountRow) return _toolsAccountInputFocusNode;
-    if (row == _toolsPasswordRow) return _toolsPasswordInputFocusNode;
-    return null;
-  }
+  FocusNode? _focusNodeOf(int row) => row == _remoteRow ? _remoteInputFocusNode : null;
 
   /// 进入行内输入编辑态：各行为自己的输入框装文本，下一帧聚焦弹出输入法。
   void _beginInlineEdit(int row) {
     if (_editingRow != null || !mounted) return;
     if (_focusNodeOf(row) == null) return; // 未配置焦点节点的行不进入编辑态
-    if (row == _remoteRow) {
-      // 实时通道账号：预填当前账号。
-      _remoteInputController.text =
-          context.read<RemoteLoginBloc>().state.account;
-    }
-    if (row == _wpPasswordRow) {
-      // 密码：不预填，必须由用户输入。
-      _wpPasswordInputController.text = '';
-    }
-    if (row == _toolsAccountRow) {
-      // Tools 账号：预填当前账号，便于修改。
-      _toolsAccountInputController.text = AppSettings.instance.toolsAccount;
-    }
-    if (row == _toolsPasswordRow) {
-      // Tools 密码：不预填，必须由用户输入。
-      _toolsPasswordInputController.text = '';
-    }
+    // 实时通道账号：预填当前账号。
+    _remoteInputController.text = context.read<RemoteLoginBloc>().state.account;
     _editingRow = row;
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1126,26 +862,6 @@ class _ProfilePageState extends State<ProfilePage> {
       _cancelInlineEdit();
       if (account.isEmpty || !mounted) return;
       context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
-    } else if (row == _wpPasswordRow) {
-      final String password = _wpPasswordInputController.text;
-      _cancelInlineEdit();
-      if (password.isEmpty || !mounted) return;
-      // 密码不 trim、原样保存；setWpPassword 内存赋值同步、落盘异步。
-      AppSettings.instance.setWpPassword(password);
-    } else if (row == _toolsAccountRow) {
-      final String account = _toolsAccountInputController.text.trim();
-      _cancelInlineEdit();
-      if (account.isEmpty || !mounted) return;
-      // 账号 trim 后保存；setToolsAccount 内存赋值同步、落盘异步。
-      await AppSettings.instance.setToolsAccount(account);
-      await _refreshToolsSession();
-    } else if (row == _toolsPasswordRow) {
-      final String password = _toolsPasswordInputController.text;
-      _cancelInlineEdit();
-      if (password.isEmpty || !mounted) return;
-      // 密码不 trim、原样保存；setToolsPassword 内存赋值同步、落盘异步。
-      await AppSettings.instance.setToolsPassword(password);
-      await _refreshToolsSession();
     } else {
       // 未配置提交分支的行：安全退出编辑态，避免吞键卡死。
       _cancelInlineEdit();
@@ -1158,41 +874,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (row == null) return;
     _editingRow = null;
     _focusNodeOf(row)?.unfocus();
-    if (row == _wpPasswordRow) _wpPasswordInputController.clear();
-    if (row == _toolsPasswordRow) _toolsPasswordInputController.clear();
     if (mounted) setState(() {});
-  }
-
-  /// Tools 账号/密码提交后：登录 → 刷新数据文件 → 重载频道列表。
-  Future<void> _refreshToolsSession() async {
-    if (!mounted) return;
-    _toolsMsg.value = 'remote_logging_in'.tr();
-    try {
-      final bool ok = await PtoolsUtil.loginWithSaved();
-      if (!mounted) return;
-      if (!ok) {
-        _toolsMsg.value = 'tools_login_fail'.tr();
-        _toolsMsgTimer?.cancel();
-        _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
-          if (mounted) _toolsMsg.value = null;
-        });
-        return;
-      }
-      _toolsMsg.value = 'tools_login_ok'.tr();
-      _toolsMsgTimer?.cancel();
-      _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) _toolsMsg.value = null;
-      });
-      unawaited(DataFiles.instance.refresh());
-      context.read<IptvBloc>().add(const LoadIptv(isRefresh: true));
-    } catch (e) {
-      if (!mounted) return;
-      _toolsMsg.value = 'tools_login_fail'.tr();
-      _toolsMsgTimer?.cancel();
-      _toolsMsgTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) _toolsMsg.value = null;
-      });
-    }
   }
 
   /// 编辑态下拦截返回（取消编辑）与 OK/Enter/空格（提交），
@@ -1213,13 +895,13 @@ class _ProfilePageState extends State<ProfilePage> {
     // 避免与下方远程编辑态的 OK/返回分支抢占焦点输入。
     if (MessageOverlayController.instance.visible) {
       MessageOverlayController.instance.onAnyKey();
-      final bool isBack = key == LogicalKeyboardKey.escape ||
-          key == LogicalKeyboardKey.goBack;
+      final bool isBack = key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack;
       if (isBack) {
         MessageOverlayController.instance.handleBack();
         return KeyEventResult.handled;
       }
-      final bool ok = key == LogicalKeyboardKey.enter ||
+      final bool ok =
+          key == LogicalKeyboardKey.enter ||
           key == LogicalKeyboardKey.numpadEnter ||
           key == LogicalKeyboardKey.select ||
           key == LogicalKeyboardKey.gameButtonA ||
@@ -1229,11 +911,9 @@ class _ProfilePageState extends State<ProfilePage> {
         return KeyEventResult.handled;
       }
       if (MessageOverlayController.instance.detail) {
-        final bool isArrow = key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.arrowDown;
+        final bool isArrow = key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown;
         if (isArrow) {
-          MessageOverlay.scrollDetail(
-              key == LogicalKeyboardKey.arrowUp ? -1 : 1);
+          MessageOverlay.scrollDetail(key == LogicalKeyboardKey.arrowUp ? -1 : 1);
           return KeyEventResult.handled;
         }
       }
@@ -1241,8 +921,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     if (_editingRow == null) return KeyEventResult.ignored;
     // 返回键（部分遥控器发 goBack；悬浮遥控器的 escape 走 MainApp 分支）→ 取消编辑。
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _cancelInlineEdit();
       return KeyEventResult.handled;
     }
@@ -1260,8 +939,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 「远程」行编辑态：共用 [_InlineEditFrame]；已登录时下方附二维码。
   Widget _buildRemoteEditRow() {
-    final RemoteLoginState remoteState =
-        context.read<RemoteLoginBloc>().state;
+    final RemoteLoginState remoteState = context.read<RemoteLoginBloc>().state;
     return _InlineEditFrame(
       label: 'settings_remote'.tr(),
       controller: _remoteInputController,
@@ -1270,13 +948,8 @@ class _ProfilePageState extends State<ProfilePage> {
       onCancel: _cancelInlineEdit,
       onSubmit: _submitInlineEdit,
       obscureText: false,
-      child: (remoteState.status == RemoteLoginStatus.loggedIn &&
-              remoteState.account.isNotEmpty)
-          ? QrImageView(
-              data: remoteState.account,
-              size: 120,
-              backgroundColor: Colors.white,
-            )
+      child: (remoteState.status == RemoteLoginStatus.loggedIn && remoteState.account.isNotEmpty)
+          ? QrImageView(data: remoteState.account, size: 120, backgroundColor: Colors.white)
           : null,
     );
   }
@@ -1376,58 +1049,34 @@ class _SettingRow extends StatelessWidget {
         duration: const Duration(milliseconds: 120),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: highlighted
-              ? scheme.primaryContainer.withValues(alpha: 0.30)
-              : Colors.transparent,
+          color: highlighted ? scheme.primaryContainer.withValues(alpha: 0.30) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: highlighted ? scheme.primary : Colors.transparent,
-            width: 2,
-          ),
+          border: Border.all(color: highlighted ? scheme.primary : Colors.transparent, width: 2),
         ),
         child: Row(
-          crossAxisAlignment: wrapValue
-              ? CrossAxisAlignment.start
-              : CrossAxisAlignment.center,
+          crossAxisAlignment: wrapValue ? CrossAxisAlignment.start : CrossAxisAlignment.center,
           children: <Widget>[
             Text(
               label,
-              style: textTheme.titleMedium?.copyWith(
-                color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant,
-              ),
+              style: textTheme.titleMedium?.copyWith(color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: wrapValue
-                    ? CrossAxisAlignment.start
-                    : CrossAxisAlignment.center,
+                crossAxisAlignment: wrapValue ? CrossAxisAlignment.start : CrossAxisAlignment.center,
                 children: <Widget>[
-                  if (canStepLeft)
-                    _StepIcon(
-                      icon: Icons.chevron_left,
-                      color: accent,
-                      onTap: onStepLeft,
-                    ),
+                  if (canStepLeft) _StepIcon(icon: Icons.chevron_left, color: accent, onTap: onStepLeft),
                   Flexible(
                     child: Text(
                       value,
                       textAlign: wrapValue ? TextAlign.start : TextAlign.right,
                       maxLines: wrapValue ? null : 1,
                       overflow: wrapValue ? null : TextOverflow.ellipsis,
-                      style: textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: accent,
-                      ),
+                      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: accent),
                     ),
                   ),
-                  if (canStepRight)
-                    _StepIcon(
-                      icon: Icons.chevron_right,
-                      color: accent,
-                      onTap: onStepRight,
-                    ),
+                  if (canStepRight) _StepIcon(icon: Icons.chevron_right, color: accent, onTap: onStepRight),
                 ],
               ),
             ),
@@ -1440,11 +1089,7 @@ class _SettingRow extends StatelessWidget {
 
 /// 步进指示图标（< 或 >），触摸/点击也可直接步进。
 class _StepIcon extends StatelessWidget {
-  const _StepIcon({
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
+  const _StepIcon({required this.icon, required this.color, required this.onTap});
 
   final IconData icon;
   final Color color;
@@ -1509,11 +1154,7 @@ class _InlineEditFrame extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Text(
-                label,
-                style:
-                    textTheme.titleMedium?.copyWith(color: scheme.onSurface),
-              ),
+              Text(label, style: textTheme.titleMedium?.copyWith(color: scheme.onSurface)),
               const SizedBox(width: 16),
               Expanded(
                 child: TextField(
@@ -1523,15 +1164,8 @@ class _InlineEditFrame extends StatelessWidget {
                   textCapitalization: TextCapitalization.none,
                   autocorrect: false,
                   obscureText: obscureText,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.primary,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: hintText,
-                    isDense: true,
-                    border: InputBorder.none,
-                  ),
+                  style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: scheme.primary),
+                  decoration: InputDecoration(hintText: hintText, isDense: true, border: InputBorder.none),
                   onSubmitted: (_) => onSubmit(),
                 ),
               ),
@@ -1547,11 +1181,7 @@ class _InlineEditFrame extends StatelessWidget {
               ),
             ],
           ),
-          if (child != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: child,
-            ),
+          if (child != null) Padding(padding: const EdgeInsets.only(top: 8), child: child),
         ],
       ),
     );

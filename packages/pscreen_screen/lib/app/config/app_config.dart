@@ -27,6 +27,12 @@ class AppConfig {
   /// 实时消息网关口令（各端统一，服务端用 REALTIME_TOKEN 校验）。
   static String realtimeToken = '';
 
+  /// ptools 服务端登录账号（`TOOLS_TOKEN`），用于拉取 screen 数据文件与频道列表。
+  static String toolsToken = '';
+
+  /// ptools 服务端登录密码（`TOOLS_PASSWORD`，明文；提交前客户端做 MD5）。
+  static String toolsPassword = '';
+
   /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
   ///
   /// 实际取值由 DataFiles 决定（`weather_cities.txt`：git 同步结果 → 本地缓存 →
@@ -68,6 +74,9 @@ class AppConfig {
     seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
 
     realtimeToken = _readString('REALTIME_TOKEN', realtimeToken);
+
+    toolsToken = _readString('TOOLS_TOKEN', toolsToken);
+    toolsPassword = _readString('TOOLS_PASSWORD', toolsPassword);
 
     weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
 

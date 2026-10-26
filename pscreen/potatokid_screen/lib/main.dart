@@ -10,6 +10,8 @@ import 'package:potatokid_screen/app/app.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_identity.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
@@ -76,6 +78,16 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
+      // 4.05 设备唯一编号作为默认「远程」账号：仅当用户从未设置过账号时写入一次
+      //      （编号形如 xxxx-xxxx-xxxx-xxxx，卸载重装后不变）。必须在 4.1 派发
+      //      自动连接之前完成，否则 RemoteLoginBloc 的初始 State 读不到该账号。
+      if (AppSettings.instance.remoteAccount.isEmpty) {
+        final String deviceId = await DeviceIdentity.instance.resolve();
+        if (deviceId.isNotEmpty) {
+          await AppSettings.instance.setRemoteAccount(deviceId);
+        }
+      }
+
       // 4.1 实时通道自动连接（不阻塞启动）。
       //     连接结果（成功 / 失败 / 断线重连）由 RemoteLoginBloc 反映到「我的」页。
       Injection.get<RemoteLoginBloc>().add(const RemoteLoginAutoLogin());
@@ -116,9 +128,7 @@ void main() {
               BlocProvider<WeatherBloc>(create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather())),
               // 远程实时通道登录状态机：全局共享（设置页「远程」行消费），
               // 自动登录已在 4.1 派发，这里只负责 provide。
-              BlocProvider<RemoteLoginBloc>(
-                create: (_) => Injection.get<RemoteLoginBloc>(),
-              ),
+              BlocProvider<RemoteLoginBloc>(create: (_) => Injection.get<RemoteLoginBloc>()),
             ],
             child: const App(),
           ),

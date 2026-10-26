@@ -46,13 +46,7 @@
   "settings_reset_message": "是否重置所有選項？重置後將退出應用。",
   "settings_reset_cancel": "取消",
   "settings_reset_ok": "是，重置並退出",
-  "settings_remote": "遠程",
-  "settings_wp_password": "WordPress密碼",
-  "wp_password_input_hint": "輸入WordPress密碼",
-  "settings_tools_account": "Tools帳號",
-  "settings_tools_password": "Tools密碼",
-  "tools_account_input_hint": "輸入Tools帳號",
-  "tools_password_input_hint": "輸入Tools密碼",
+  "settings_remote": "遠端",
   "remote_not_set": "未設定",
   "remote_logging_in": "正在登入",
   "remote_logged_in": "已登入",
@@ -72,7 +66,5 @@
   "weather_data_source": "天氣資料來源",
   "weather_source_seniverse": "心知天氣",
   "disclaimer_title": "免責聲明",
-  "disclaimer_body": "本軟體僅聚合網路公開直播源用於播放，不儲存、不製作任何影音內容；所有頻道資料均來自網際網路，版權歸原權利人所有。若相關內容侵犯了您的合法權益，請透過 416049529@qq.com 告知，我們將及時處理。本軟體僅供個人學習與技術研究，請勿用於商業用途。",
-  "tools_login_ok": "已登入",
-  "tools_login_fail": "登入失敗"
+  "disclaimer_body": "本軟體僅聚合網路公開直播源用於播放，不儲存、不製作任何影音內容；所有頻道資料均來自網際網路，版權歸原權利人所有。若相關內容侵犯了您的合法權益，請透過 416049529@qq.com 告知，我們將及時處理。本軟體僅供個人學習與技術研究，請勿用於商業用途。"
 }
