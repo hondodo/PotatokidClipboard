@@ -64,7 +64,6 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
-  nim_core_v2: ^10.9.91
 
   # 二维码展示（消息浮层 Task 9：配对/分享）
   qr_flutter: ^4.1.0

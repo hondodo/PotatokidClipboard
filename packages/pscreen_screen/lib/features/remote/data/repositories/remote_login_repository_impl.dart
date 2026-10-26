@@ -1,29 +1,24 @@
-import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
-import 'package:pscreen_screen/core/utils/nim_manager.dart';
 import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 
-/// [RemoteLoginRepository] 实现：封装 NimManager（云信 SDK）与 AppSettings（账号持久化）。
+/// [RemoteLoginRepository] 实现：封装 RealtimeChannel（WebSocket）与 AppSettings（账号持久化）。
 class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
-  RemoteLoginRepositoryImpl({required NimManager nim}) : _nim = nim;
+  RemoteLoginRepositoryImpl({required RealtimeChannel channel})
+      : _channel = channel;
 
-  final NimManager _nim;
-
-  @override
-  String get savedAccount => AppSettings.instance.nimAccount;
+  final RealtimeChannel _channel;
 
   @override
-  Stream<NIMLoginStatus> get onLoginStatus => _nim.onLoginStatus;
+  String get savedAccount => AppSettings.instance.remoteAccount;
 
   @override
-  Stream<NIMDataSyncDetail> get onDataSync => _nim.onDataSync;
+  Stream<RealtimeConnectionState> get onConnectionState =>
+      _channel.connectionState;
 
   @override
-  Stream<NIMError> get onLoginFailed => _nim.onLoginFailed;
-
-  @override
-  Stream<NIMKickedOfflineDetail> get onKickedOffline => _nim.onKickedOffline;
+  Stream<String> get onFatalError => _channel.fatalErrors;
 
   /// 确保 [AppSettings] 已加载（DI 注册时 await，保证 [savedAccount] 可信）。
   Future<void> ensureLoaded() => AppSettings.instance.ensureLoaded();
@@ -32,31 +27,26 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
   Future<void> autoLogin() async {
     final String account = savedAccount;
     if (account.isEmpty) return;
-    await _login(account);
+    await _connect(account);
   }
 
   @override
   Future<void> switchAccount(String account) async {
-    // 先持久化：登录失败时重启后仍重试该账号。
-    await AppSettings.instance.setNimAccount(account);
-    final NIMResult<NIMLoginStatus> status = await _nim.getLoginStatus();
-    final NIMLoginStatus? current = status.data;
-    if (current == NIMLoginStatus.loginStatusLogined ||
-        current == NIMLoginStatus.loginStatusLogining) {
-      try {
-        await _nim.logout();
-      } catch (_) {
-        // 登出失败忽略：随后的新登录会顶掉旧会话。
-      }
-    }
-    await _login(account);
+    // 先持久化：连接失败时重启后仍重试该账号。
+    await AppSettings.instance.setRemoteAccount(account);
+    await _channel.disconnect();
+    await _connect(account);
   }
 
-  Future<void> _login(String account) async {
-    final NIMResult<void> result =
-        await _nim.login(accountId: account, token: AppConfig.nimPassword);
-    if (!result.isSuccess) {
-      throw RemoteLoginException(result.code, result.errorDetails);
+  Future<void> _connect(String account) async {
+    try {
+      await _channel.connect(
+        account: account,
+        token: AppConfig.realtimeToken,
+        role: 'tv',
+      );
+    } on RealtimeException catch (e) {
+      throw RemoteLoginException(e.code, e.message);
     }
   }
 }

@@ -12,9 +12,8 @@ class _FakeSceneProvider extends CurrentSceneProvider {
 }
 
 void main() {
-  // 必须初始化绑定：MsgModule 注册时会给 nim_core_v2 的 MethodChannel 挂 handler，
-  // 没有 binary messenger 会直接断言失败（Cannot set the method call handler
-  // before the binary messenger has been initialized）。
+  // 必须初始化绑定：RemoteModule 注册时会读取 SharedPreferences（账号持久化），
+  // 没有 binary messenger 会直接断言失败。
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {

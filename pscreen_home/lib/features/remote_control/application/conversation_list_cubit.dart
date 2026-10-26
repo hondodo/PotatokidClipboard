@@ -8,7 +8,7 @@ import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'conversation_source.dart';
 
 export 'conversation_source.dart'
-    show ConversationSource, NimConversationSource, peerAccountFromConversationId;
+    show ConversationSource, RealtimeConversationSource;
 
 part 'conversation_list_state.dart';
 
@@ -30,7 +30,7 @@ class ConversationItem extends Equatable {
   List<Object?> get props => <Object?>[account, title, lastMessage, unread];
 }
 
-/// 会话列表 Cubit：NIM 会话驱动，title 经 nameOf 映射。
+/// 会话列表 Cubit：实时通道会话驱动，title 经 nameOf 映射。
 class ConversationListCubit extends Cubit<ConversationListState> {
   ConversationListCubit({
     required this.source,

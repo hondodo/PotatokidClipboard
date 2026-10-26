@@ -6,8 +6,8 @@ class ControlSettings {
 
   static final ControlSettings instance = ControlSettings._();
 
-  static const String _kAccount = 'nim_account';
-  static const String _kToken = 'nim_token';
+  static const String _kAccount = 'realtime_account';
+  static const String _kToken = 'realtime_token';
   static const String _kSelectedTvs = 'selected_tv_accounts';
 
   late SharedPreferences _prefs;
@@ -19,13 +19,15 @@ class ControlSettings {
     _loaded = true;
   }
 
-  String get nimAccount => _loaded ? (_prefs.getString(_kAccount) ?? '') : '';
-  Future<void> setNimAccount(String value) =>
+  String get account => _loaded ? (_prefs.getString(_kAccount) ?? '') : '';
+
+  Future<void> setAccount(String value) =>
       _prefs.setString(_kAccount, value);
 
-  String get nimToken =>
+  String get token =>
       _loaded ? (_prefs.getString(_kToken) ?? '12345678') : '12345678';
-  Future<void> setNimToken(String value) =>
+
+  Future<void> setToken(String value) =>
       _prefs.setString(_kToken, value);
 
   /// 管理员最近勾选的目标账号列表。

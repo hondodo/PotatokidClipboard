@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
-import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
-/// 聊天页：消息流（NIM 实时） + 底部输入（文本/命令）。
+/// 聊天页：消息流（实时通道） + 底部输入（文本/命令）。
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key, required this.account, required this.title});
 
@@ -20,21 +20,49 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _text = TextEditingController();
   final List<ChatMessageItem> _messages = <ChatMessageItem>[];
-  StreamSubscription<List<ChatMessageItem>>? _msgSub;
+  StreamSubscription<RealtimeMessage>? _msgSub;
+  bool _historyLoaded = false;
+
+  RealtimeChannel get _channel => Injection.get<RealtimeChannel>();
 
   @override
   void initState() {
     super.initState();
-    // 进入聊天页即标为已读（内部 fire-and-forget，失败仅记日志）。
-    unawaited(Injection.get<NimClient>().markConversationRead(widget.account));
-    // 流按批次到达（批内旧→新）；reversed 后 insertAll(0) 使最新在索引 0，
-    // 配合 ListView(reverse: true) 最新消息显示在底部。
-    _msgSub = Injection.get<NimClient>()
-        .watchMessages(widget.account)
-        .listen((List<ChatMessageItem> batch) {
-      if (!mounted || batch.isEmpty) return;
-      setState(() => _messages.insertAll(0, batch.reversed));
+    // 进入聊天页即标为已读，并拉取历史（fire-and-forget）。
+    _channel.markRead(widget.account);
+    unawaited(_loadHistory());
+    // 实时消息只投递寻址到本账号的帧；这里再按对方账号过滤。
+    _msgSub = _channel.messages.listen((RealtimeMessage message) {
+      if (!mounted || message.from != widget.account) return;
+      setState(() {
+        _messages.insert(0, ChatMessageItem(text: message.body, isOutgoing: false));
+      });
     });
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final List<RealtimeMessage> history =
+          await _channel.fetchHistory(widget.account);
+      if (!mounted || history.isEmpty) return;
+      setState(() {
+        // 历史按时间升序；列表 reverse: true，最新消息放索引 0。
+        _messages.insertAll(
+          0,
+          history
+              .where((RealtimeMessage m) => m.body.isNotEmpty)
+              .map((RealtimeMessage m) => ChatMessageItem(
+                    text: m.body,
+                    isOutgoing: m.from != widget.account,
+                  ))
+              .toList()
+              .reversed,
+        );
+        _historyLoaded = true;
+      });
+    } catch (_) {
+      // 历史拉取失败不阻断实时收发。
+    }
   }
 
   @override
@@ -46,9 +74,13 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send(String body) async {
     if (body.isEmpty) return;
-    final bool ok = await Injection.get<NimClient>()
-        .sendText(toAccount: widget.account, text: body);
+    final bool ok = await _channel.sendText(to: widget.account, body: body);
     if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _messages.insert(0, ChatMessageItem(text: body, isOutgoing: true));
+      });
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? '已发送' : '发送失败')),
     );
@@ -61,24 +93,26 @@ class _ChatPageState extends State<ChatPage> {
       body: Column(
         children: <Widget>[
           Expanded(
-            child: ListView.builder(
-              reverse: true,
-              itemCount: _messages.length,
-              itemBuilder: (BuildContext context, int i) {
-                final ChatMessageItem m = _messages[i];
-                return Align(
-                  alignment: m.isOutgoing
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(m.text),
-                    ),
-                  ),
-                );
-              },
-            ),
+            child: _historyLoaded || _messages.isNotEmpty
+                ? ListView.builder(
+                    reverse: true,
+                    itemCount: _messages.length,
+                    itemBuilder: (BuildContext context, int i) {
+                      final ChatMessageItem m = _messages[i];
+                      return Align(
+                        alignment: m.isOutgoing
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Text(m.text),
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                : const Center(child: Text('暂无消息')),
           ),
           CommandPanel(
             onCommand: (String body) => _send(body),

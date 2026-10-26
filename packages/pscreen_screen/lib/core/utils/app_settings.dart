@@ -31,7 +31,7 @@ class AppSettings {
   static const String _keyRemoveInvalidSources = 'app_remove_invalid_sources_v1';
   static const String _keyProxyRetry = 'app_proxy_retry_v1';
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
-  static const String _keyNimAccount = 'app_nim_account_v1';
+  static const String _keyRemoteAccount = 'app_remote_account_v1';
   static const String _keyWpPassword = 'app_wp_password_v1';
   static const String _keyToolsAccount = 'app_tools_account_v1';
   static const String _keyToolsPassword = 'app_tools_password_v1';
@@ -65,8 +65,8 @@ class AppSettings {
   /// 后台播放：默认**关闭**（关闭时 App 退到后台即暂停，与系统默认行为一致）。
   bool _backgroundPlayback = false;
 
-  /// 云信「远程」账号；**空串表示未设置**。
-  String _nimAccount = '';
+  /// 实时通道「远程」账号；**空串表示未设置**。
+  String _remoteAccount = '';
 
   /// WordPress 密码保护文章的访问密码；**空串表示未设置**。
   String _wpPassword = '';
@@ -97,8 +97,8 @@ class AppSettings {
   /// 是否开启「后台播放」（关闭时退到后台即暂停）。
   bool get backgroundPlayback => _backgroundPlayback;
 
-  /// 云信「远程」账号：空串表示未设置。
-  String get nimAccount => _nimAccount;
+  /// 实时通道「远程」账号：空串表示未设置。
+  String get remoteAccount => _remoteAccount;
 
   /// WordPress 密码：空串表示未设置。
   String get wpPassword => _wpPassword;
@@ -147,8 +147,8 @@ class AppSettings {
       // 后台播放
       _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
 
-      // 云信「远程」账号
-      _nimAccount = prefs.getString(_keyNimAccount) ?? '';
+      // 实时通道「远程」账号
+      _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
 
       // WordPress 密码
       _wpPassword = prefs.getString(_keyWpPassword) ?? '';
@@ -260,12 +260,12 @@ class AppSettings {
     }
   }
 
-  /// 保存云信「远程」账号（空串表示清除）。
-  Future<void> setNimAccount(String account) async {
-    _nimAccount = account;
+  /// 保存实时通道「远程」账号（空串表示清除）。
+  Future<void> setRemoteAccount(String account) async {
+    _remoteAccount = account;
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyNimAccount, account);
+      await prefs.setString(_keyRemoteAccount, account);
     } catch (_) {
       // 写入失败不影响运行。
     }
@@ -332,7 +332,7 @@ class AppSettings {
     _removeInvalidSources = false;
     _proxyRetryEnabled = false;
     _backgroundPlayback = false;
-    _nimAccount = '';
+    _remoteAccount = '';
     _wpPassword = '';
     _toolsAccount = '';
     _toolsPassword = '';

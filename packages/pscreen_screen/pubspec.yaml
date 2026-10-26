@@ -22,10 +22,8 @@ dependencies:
   shared_preferences: ^2.5.1
   crypto: ^3.0.6
   package_info_plus: ^10.2.1
-  nim_core_v2: ^10.9.91
-  # 直接声明（包内 lib/ 与 test/ 直接 import 它）：不能只靠 nim_core_v2 的
-  # 传递依赖，否则 analyzer 的 depend_on_referenced_packages 会告警。
-  nim_core_v2_platform_interface: ^10.9.91
+  # 实时消息通道（自建 WebSocket 网关）
+  web_socket_channel: ^3.0.0
 
 dev_dependencies:
   flutter_test:

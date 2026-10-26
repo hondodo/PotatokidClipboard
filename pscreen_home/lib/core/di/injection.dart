@@ -17,10 +17,10 @@ class Injection {
     await GetItConfig.init();
     // 1. 宿主场景描述器（共享包 MsgModule 会立即读取，必须最先）
     await ScreenModule.register();
-    // 2. 共享包能力层（内含 LogService / DioManager / NimManager /
+    // 2. 共享包能力层（内含 LogService / RealtimeChannel / DioManager /
     //    IptvBloc / WeatherBloc / RemoteLoginBloc 等）
     await ScreenModules.register(getIt);
-    // 2.1 遥控模块（NimClient 依赖共享包注册的 NimManager）
+    // 2.1 遥控模块（依赖共享包注册的 RealtimeChannel）
     await RemoteControlModule.register();
     // 3. 宿主模块（NetworkModule 依赖共享包注册的 LogService）
     await StorageModule.register();

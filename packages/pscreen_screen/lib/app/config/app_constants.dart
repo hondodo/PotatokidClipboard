@@ -2,8 +2,6 @@
 class AppConstants {
   const AppConstants._();
 
-  static const String nimAppKey = '8e3cb3b1cf5f8ae073c269ad461a69b5';
-
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 20);
   static const Duration sendTimeout = Duration(seconds: 20);
@@ -33,6 +31,12 @@ class AppConstants {
 
   /// ptools 登录接口（密码需在客户端做 MD5 后提交）。
   static const String ptoolsLoginUrl = '$toolsBaseUrl/api/login';
+
+  /// 实时消息网关（与 ptools 服务端同一端口）。
+  ///
+  /// 服务端仅提供 http，故同步使用 `ws://`（https 会被 nginx 302 降级）。
+  static String get realtimeWsUrl =>
+      '${toolsBaseUrl.replaceFirst(RegExp(r'^http'), 'ws')}/ws';
 
   /// github 访问不稳定，缓存方案也不稳定，
   static const String githubDataBaseUrl = '$toolsBaseUrl/api/screen/';

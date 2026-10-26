@@ -1,127 +1,102 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
-import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
-import 'package:pscreen_screen/core/utils/nim_manager.dart';
 import 'package:pscreen_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
 import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// NimManager 手工 Fake：仅覆写用到的方法，其余走 Mock 的 noSuchMethod。
-class FakeNimManager extends Mock implements NimManager {
+/// RealtimeChannel 手工 Fake：记录调用、可控失败。
+class FakeRealtimeChannel implements RealtimeChannel {
   final List<String> calls = <String>[];
 
-  /// 登录返回结果。
-  NIMResult<void> loginResult = NIMResult<void>.success();
+  /// connect 抛出的异常（null 表示成功）。
+  RealtimeException? connectError;
 
-  /// getLoginStatus 返回结果。
-  NIMResult<NIMLoginStatus> loginStatusResult =
-      NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogout);
-
-  /// logout 抛异常开关（验证「登出失败忽略」）。
-  bool throwOnLogout = false;
-
-  /// logout 返回结果。
-  NIMResult<void> logoutResult = NIMResult<void>.success();
+  final StreamController<RealtimeConnectionState> stateController =
+      StreamController<RealtimeConnectionState>.broadcast();
+  final StreamController<String> errorController =
+      StreamController<String>.broadcast();
 
   @override
-  Future<NIMResult<void>> login({required String accountId, required String token}) async {
-    calls.add('login:$accountId:$token');
-    return loginResult;
+  Stream<RealtimeConnectionState> get connectionState =>
+      stateController.stream;
+
+  @override
+  Stream<String> get fatalErrors => errorController.stream;
+
+  @override
+  Future<void> connect({
+    required String account,
+    required String token,
+    String role = 'tv',
+    String? name,
+  }) async {
+    calls.add('connect:$account:$token:$role');
+    final RealtimeException? error = connectError;
+    if (error != null) throw error;
   }
 
   @override
-  Future<NIMResult<void>> logout() async {
-    calls.add('logout');
-    if (throwOnLogout) {
-      throw Exception('logout failed');
-    }
-    return logoutResult;
-  }
+  Future<void> disconnect() async => calls.add('disconnect');
 
   @override
-  Future<NIMResult<NIMLoginStatus>> getLoginStatus() async => loginStatusResult;
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<void> dispose() async {
+    await stateController.close();
+    await errorController.close();
+  }
 }
 
 void main() {
-  late FakeNimManager nim;
+  late FakeRealtimeChannel channel;
   late RemoteLoginRepositoryImpl repository;
 
   setUp(() async {
     // 先清空（同时使 singleton 加载缓存失效），再注入 mock 存储，最后重新加载。
     await AppSettings.instance.clearAllPersisted();
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    nim = FakeNimManager();
-    repository = RemoteLoginRepositoryImpl(nim: nim);
+    channel = FakeRealtimeChannel();
+    repository = RemoteLoginRepositoryImpl(channel: channel);
     await repository.ensureLoaded();
-    AppConfig.nimPassword = '12345678';
+    AppConfig.realtimeToken = '12345678';
   });
 
-  test('autoLogin 无账号：静默返回，不调用登录', () async {
+  tearDown(() => channel.dispose());
+
+  test('autoLogin 无账号：静默返回，不发起连接', () async {
     await repository.autoLogin();
-    expect(nim.calls, isEmpty);
+    expect(channel.calls, isEmpty);
   });
 
-  test('autoLogin 有持久化账号：用固定 token 登录', () async {
+  test('autoLogin 有持久化账号：用固定口令连接 TV 角色', () async {
     await AppSettings.instance.clearAllPersisted();
-    SharedPreferences.setMockInitialValues(<String, Object>{'app_nim_account_v1': 'ABCD'});
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{'app_remote_account_v1': 'ABCD'},
+    );
     await repository.ensureLoaded();
 
     await repository.autoLogin();
-    expect(nim.calls, <String>['login:ABCD:12345678']);
+    expect(channel.calls, <String>['connect:ABCD:12345678:tv']);
   });
 
-  test('switchAccount 未登录：不登出，直接登录并持久化', () async {
+  test('switchAccount：先断开再连接，并持久化新账号', () async {
     await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['login:EFGH:12345678']);
+    expect(channel.calls, <String>['disconnect', 'connect:EFGH:12345678:tv']);
     expect(repository.savedAccount, 'EFGH');
   });
 
-  test('switchAccount 已登录：先登出再登录', () async {
-    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogined);
-
-    await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
-  });
-
-  test('switchAccount 正在登录：同样先登出再登录', () async {
-    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogining);
-
-    await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
-  });
-
-  test('switchAccount 状态查询失败：跳过登出直接登录', () async {
-    nim.loginStatusResult = NIMResult<NIMLoginStatus>.failure(code: -1, message: 'query failed');
-
-    await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['login:EFGH:12345678']);
-  });
-
-  test('switchAccount 登出失败：忽略并继续登录', () async {
-    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogined);
-    nim.throwOnLogout = true;
-
-    await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
-  });
-
-  test('switchAccount 登出返回失败结果：忽略并继续登录', () async {
-    nim.loginStatusResult = NIMResult<NIMLoginStatus>.success(data: NIMLoginStatus.loginStatusLogined);
-    nim.logoutResult = NIMResult<void>.failure(code: 500, message: 'logout rejected');
-
-    await repository.switchAccount('EFGH');
-    expect(nim.calls, <String>['logout', 'login:EFGH:12345678']);
-  });
-
-  test('switchAccount 登录失败：抛 RemoteLoginException', () async {
-    nim.loginResult = NIMResult<void>.failure(code: 302, message: 'token invalid');
+  test('switchAccount 鉴权失败：抛 RemoteLoginException 并保留账号', () async {
+    channel.connectError = const RealtimeException(401, 'token invalid');
 
     await expectLater(
       repository.switchAccount('BAD'),
       throwsA(isA<RemoteLoginException>()
-          .having((RemoteLoginException e) => e.code, 'code', 302)),
+          .having((RemoteLoginException e) => e.code, 'code', 401)),
     );
     // 失败也保留新账号配置（重启后仍重试）。
     expect(repository.savedAccount, 'BAD');

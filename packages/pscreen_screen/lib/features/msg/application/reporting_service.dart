@@ -6,7 +6,7 @@ import 'package:pscreen_screen/features/iptv/application/channel_info_provider.d
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 
-/// 文本发送抽象（生产为 NimManager 包装；测试用 Fake）。
+/// 文本发送抽象（生产为实时通道；测试用 Fake）。
 abstract class MessageSender {
   Future<bool> sendText({required String toAccount, required String text});
 }

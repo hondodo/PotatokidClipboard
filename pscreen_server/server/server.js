@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require('http');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -6,6 +7,7 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
 const definds = require('./definds');
+const { attachRealtime } = require('./realtime');
 
 const app = express();
 const PORT = config.port;
@@ -1703,14 +1705,22 @@ app.use((req, res) => {
     res.sendFile(indexPath);
 });
 
-// 启动服务器
-app.listen(PORT, () => {
+// 启动服务器（HTTP + WebSocket 共用同一端口）
+const httpServer = http.createServer(app);
+attachRealtime(httpServer, {
+    path: config.realtime.path,
+    token: config.realtime.token,
+    dataDir: path.join(__dirname, config.realtime.dataDir),
+});
+httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);
+    console.log(`🔌 实时消息网关运行在 ws://localhost:${PORT}${config.realtime.path}`);
     console.log(`📁 Flutter Web应用路径: ${webAppPath}`);
     console.log(`📁 上传目录: ${uploadDir}`);
     console.log(`📦 文件大小限制: ${config.limits.fileSize / (1024 * 1024)}MB`);
     console.log('🔧 支持的功能:');
     console.log('- 静态文件服务 (Flutter Web应用)');
+    console.log('- WebSocket /ws - 实时消息与在线状态');
     console.log('- POST /api/upload - 上传文件');
     console.log('- GET /api/files - 获取文件列表');
     console.log('- DELETE /api/files/:filename - 删除文件');

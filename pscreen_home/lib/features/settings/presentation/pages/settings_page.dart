@@ -14,8 +14,8 @@ import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
-import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
@@ -37,8 +37,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _hostController;
   late final TextEditingController _tokenController;
-  late final TextEditingController _nimAccountController;
-  late final TextEditingController _nimTokenController;
+  late final TextEditingController _remoteAccountController;
+  late final TextEditingController _remoteTokenController;
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
@@ -65,11 +65,11 @@ class _SettingsPageState extends State<SettingsPage> {
     _wallpaperEnabled = _wallpaper.enabled;
     _wallpaperMinutes = _wallpaper.minutes;
     _wallpaperApiController = TextEditingController(text: _wallpaper.apiUrl);
-    _nimAccountController = TextEditingController(
-      text: ControlSettings.instance.nimAccount,
+    _remoteAccountController = TextEditingController(
+      text: ControlSettings.instance.account,
     );
-    _nimTokenController = TextEditingController(
-      text: ControlSettings.instance.nimToken,
+    _remoteTokenController = TextEditingController(
+      text: ControlSettings.instance.token,
     );
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
@@ -82,8 +82,8 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _hostController.dispose();
     _tokenController.dispose();
-    _nimAccountController.dispose();
-    _nimTokenController.dispose();
+    _remoteAccountController.dispose();
+    _remoteTokenController.dispose();
     _wallpaperApiController.dispose();
     super.dispose();
   }
@@ -134,30 +134,49 @@ class _SettingsPageState extends State<SettingsPage> {
       );
   }
 
-  /// 保存云信账号 / Token，并立即尝试登录（失败仅提示，不阻断中控台）。
-  Future<void> _saveNimCredentials() async {
-    final String account = _nimAccountController.text.trim();
-    final String token = _nimTokenController.text.trim().isEmpty
-        ? ControlConfig.defaultNimToken
-        : _nimTokenController.text.trim();
-    await ControlSettings.instance.setNimAccount(account);
-    await ControlSettings.instance.setNimToken(token);
+  /// 保存实时通道账号 / 口令，并立即重连（失败仅提示，不阻断中控台）。
+  Future<void> _saveRemoteCredentials() async {
+    final String account = _remoteAccountController.text.trim();
+    final String token = _remoteTokenController.text.trim().isEmpty
+        ? ControlConfig.defaultRealtimeToken
+        : _remoteTokenController.text.trim();
+    await ControlSettings.instance.setAccount(account);
+    await ControlSettings.instance.setToken(token);
 
-    // 立即用新凭据重登，让当前会话生效（失败只提示，不阻断中控台）。
-    // 兜底超时：云信原生通道无响应时不能让保存流程一直挂着（否则没有任何反馈）。
-    final bool ok = await Injection.get<NimClient>()
-        .login(account: account, token: token)
-        .timeout(const Duration(seconds: 10), onTimeout: () => false);
-    if (!ok) {
-      ControlLog.e('[NIM] 重新登录失败');
+    // 立即用新凭据重连，让当前会话生效（失败只提示，不阻断中控台）。
+    final RealtimeChannel channel = Injection.get<RealtimeChannel>();
+    bool ok = false;
+    if (account.isEmpty) {
+      await channel.disconnect();
+    } else {
+      await channel.disconnect();
+      try {
+        await channel
+            .connect(
+              account: account,
+              token: token,
+              role: 'controller',
+              name: '中控台',
+            )
+            .timeout(const Duration(seconds: 25), onTimeout: () {
+          throw const RealtimeException(-3, '连接超时');
+        });
+        ok = true;
+      } catch (e) {
+        ControlLog.e('[实时通道] 连接失败: $e');
+      }
     }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        const SnackBar(
-          content: Text('已保存遥控配置'),
+        SnackBar(
+          content: Text(
+            account.isEmpty
+                ? '已清除遥控账号'
+                : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -496,23 +515,23 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 24),
           Text(
-            '遥控（云信）',
+            '遥控（实时通道）',
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
-            '用于向电视端下发音量 / 切台 / 文本指令。账号与 Token 与电视端共用同一套云信应用。',
+            '用于向电视端下发音量 / 切台 / 文本指令。账号与口令与电视端共用同一套实时网关。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
           ),
           const SizedBox(height: 10),
           TextField(
-            controller: _nimAccountController,
+            controller: _remoteAccountController,
             decoration: const InputDecoration(
-              labelText: '云信账号',
+              labelText: '实时账号',
               helperText: '管理员账号见遥控面板（默认 1000001）',
               border: OutlineInputBorder(),
             ),
@@ -520,17 +539,17 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: _nimTokenController,
+            controller: _remoteTokenController,
             decoration: InputDecoration(
-              labelText: '云信 Token',
-              helperText: '默认 ${ControlConfig.defaultNimToken}',
+              labelText: '实时口令',
+              helperText: '默认 ${ControlConfig.defaultRealtimeToken}',
               border: const OutlineInputBorder(),
             ),
             maxLines: 1,
           ),
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
-            onPressed: _saveNimCredentials,
+            onPressed: _saveRemoteCredentials,
             icon: const Icon(Icons.save_rounded),
             label: const Text('保存遥控配置'),
           ),

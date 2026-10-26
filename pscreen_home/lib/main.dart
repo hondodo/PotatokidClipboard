@@ -11,15 +11,13 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
-import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
-import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
 import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
-import 'package:pscreen_screen/core/utils/nim_manager.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -69,25 +67,24 @@ void main() {
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();
 
-      // 4.5 NIM 初始化（DI 单例；不阻塞启动，失败仅记日志）。
-      //     SDK 初始化由共享包的 NimManager 统一负责（幂等）。
-      //     当前平台无 NIM 实现（如 Linux，缺 nim_core_v2_linux）时 init 返回
-      //     false：跳过监听与自动登录，避免后续 MissingPluginException。
-      //     成功后自动登录遥控端账号（账号 / token 来自本地持久化）。
+      // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
+      //     账号 / 口令来自本地持久化，未配置时跳过；断线由通道自动重连。
       unawaited(() async {
+        final String account = ControlSettings.instance.account;
+        if (account.isEmpty) {
+          ControlLog.i('[实时通道] 未配置账号，跳过自动连接');
+          return;
+        }
         try {
-          final bool inited = await Injection.get<NimManager>().init(appKey: ControlConfig.nimAppKey);
-          if (!inited) {
-            ControlLog.i('[NIM] 当前平台无 NIM 实现，跳过监听与自动登录');
-            return;
-          }
-          Injection.get<NimManager>().startListen();
-          final bool ok = await Injection.get<NimClient>().autoLogin(account: ControlSettings.instance.nimAccount);
-          if (!ok) {
-            ControlLog.e('[NIM] 自动登录失败，请到设置页检查账号 / Token');
-          }
+          await Injection.get<RealtimeChannel>().connect(
+            account: account,
+            token: ControlSettings.instance.token,
+            role: 'controller',
+            name: '中控台',
+          );
+          ControlLog.i('[实时通道] 已连接 $account');
         } catch (e) {
-          ControlLog.e('[NIM] initialize failed: $e');
+          ControlLog.e('[实时通道] 自动连接失败: $e');
         }
       }());
 

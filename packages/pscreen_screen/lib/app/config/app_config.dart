@@ -24,8 +24,8 @@ class AppConfig {
   static String seniverseIpGeoHost = 'https://ipwho.is/';
   static String seniverseIpGeoHostB = 'https://ipapi.co/json/';
 
-  /// 网易云信登录 token（各账号统一，即「密码」）。
-  static String nimPassword = '';
+  /// 实时消息网关口令（各端统一，服务端用 REALTIME_TOKEN 校验）。
+  static String realtimeToken = '';
 
   /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
   ///
@@ -67,7 +67,7 @@ class AppConfig {
     seniverseIpGeoHost = _readString('SENIVERSE_IP_GEO_HOST', seniverseIpGeoHost);
     seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
 
-    nimPassword = _readString('NIM_PASSWORD', nimPassword);
+    realtimeToken = _readString('REALTIME_TOKEN', realtimeToken);
 
     weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
 

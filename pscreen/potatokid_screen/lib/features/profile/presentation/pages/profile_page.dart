@@ -99,7 +99,7 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
   static const int _resetRow = 12;
 
-  /// 「远程」行（云信账号登录：常态展示账号+状态，激活后行内输入框）的序号。
+  /// 「远程」行（实时通道账号登录：常态展示账号+状态，激活后行内输入框）的序号。
   static const int _remoteRow = 13;
 
   /// 「WordPress密码」行（密码保护文章访问密码：常态掩码展示，激活后行内输入框）的序号。
@@ -955,8 +955,6 @@ class _ProfilePageState extends State<ProfilePage> {
         return 'remote_not_set'.tr();
       case RemoteLoginStatus.loggingIn:
         return 'remote_logging_in'.tr();
-      case RemoteLoginStatus.syncing:
-        return 'remote_syncing'.tr();
       case RemoteLoginStatus.loggedIn:
         return 'remote_logged_in'.tr();
       case RemoteLoginStatus.error:
@@ -1096,7 +1094,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_editingRow != null || !mounted) return;
     if (_focusNodeOf(row) == null) return; // 未配置焦点节点的行不进入编辑态
     if (row == _remoteRow) {
-      // 云信账号：预填当前账号。
+      // 实时通道账号：预填当前账号。
       _remoteInputController.text =
           context.read<RemoteLoginBloc>().state.account;
     }
@@ -1467,8 +1465,8 @@ class _StepIcon extends StatelessWidget {
 
 /// 行内输入编辑态的共用外框：标题 + 输入框 + ✕ 取消 + ✓ 提交。
 ///
-/// 云信「远程」行等输入行共用；[child] 用于附加内容（如云信行的二维码）。
-/// 视觉与原云信编辑态完全一致（外框、字体、密度逐项照搬）。
+/// 实时通道「远程」行等输入行共用；[child] 用于附加内容（如远程行的二维码）。
+/// 视觉与原编辑态完全一致（外框、字体、密度逐项照搬）。
 class _InlineEditFrame extends StatelessWidget {
   const _InlineEditFrame({
     required this.label,

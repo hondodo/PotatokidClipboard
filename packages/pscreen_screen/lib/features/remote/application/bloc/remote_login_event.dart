@@ -1,11 +1,11 @@
-import 'package:nim_core_v2_platform_interface/nim_core_v2_platform_interface.dart' hide Log;
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 远程登录事件。
 abstract class RemoteLoginEvent {
   const RemoteLoginEvent();
 }
 
-/// 启动自动登录（main 在 NIM 初始化收尾后派发，无论初始化成败）。
+/// 启动自动连接（main 在 DI 完成后派发）。
 class RemoteLoginAutoLogin extends RemoteLoginEvent {
   const RemoteLoginAutoLogin();
 }
@@ -17,35 +17,16 @@ class RemoteLoginSubmit extends RemoteLoginEvent {
   final String account;
 }
 
-/// SDK 登录状态变更。
+/// 实时通道连接状态变更。
 class RemoteLoginStatusChanged extends RemoteLoginEvent {
   const RemoteLoginStatusChanged(this.status);
 
-  final NIMLoginStatus status;
+  final RealtimeConnectionState status;
 }
 
-/// SDK 数据同步变更。
-class RemoteLoginDataSyncChanged extends RemoteLoginEvent {
-  const RemoteLoginDataSyncChanged(this.detail);
-
-  final NIMDataSyncDetail detail;
-}
-
-/// SDK 登录失败。
+/// 致命错误（鉴权失败等）。
 class RemoteLoginLoginFailed extends RemoteLoginEvent {
-  const RemoteLoginLoginFailed(this.error);
+  const RemoteLoginLoginFailed(this.message);
 
-  final NIMError error;
-}
-
-/// SDK 被踢下线。
-class RemoteLoginKickedOffline extends RemoteLoginEvent {
-  const RemoteLoginKickedOffline(this.reasonDesc);
-
-  final String reasonDesc;
-}
-
-/// 同步兜底：进入「同步数据」后超时未见主数据完成，视为已登录。
-class RemoteLoginSyncFallbackElapsed extends RemoteLoginEvent {
-  const RemoteLoginSyncFallbackElapsed();
+  final String message;
 }

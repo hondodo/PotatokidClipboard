@@ -11,8 +11,7 @@ import 'package:app_translator_web/framework/mixin/base_status_mixin.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-abstract class BaseStatelessSubWidget<T extends BaseStatusMixin>
-    extends GetView<T> {
+abstract class BaseStatelessSubWidget<T extends BaseStatusMixin> extends GetView<T> {
   const BaseStatelessSubWidget({
     super.key,
     this.isStatusWidgetCover = false,
@@ -167,18 +166,15 @@ abstract class BaseStatelessSubWidget<T extends BaseStatusMixin>
     return loadingBody(context) ?? const NetLoadingStatusWidget();
   }
 
-  Widget buildStatusWidget(
-      BuildContext context, Status status, StatusErrorCode code) {
+  Widget buildStatusWidget(BuildContext context, Status status, StatusErrorCode code) {
     Color? boundingColor = isStatusWidgetCover ? Colors.white : null;
     switch (status) {
       case Status.loading:
-        return buildLoadingBody(
-            context); // loadingBody(context) ?? const NetLoadingStatusWidget();
+        return buildLoadingBody(context); // loadingBody(context) ?? const NetLoadingStatusWidget();
       case Status.success:
         return Container(
             padding: bodyPadding(),
-            decoration:
-                BoxDecoration(color: bodyBackgroundColor ?? Colors.white),
+            decoration: BoxDecoration(color: bodyBackgroundColor ?? Colors.white),
             child: buildBody(context));
       case Status.error:
         if (code == StatusErrorCode.disconnect) {
@@ -237,13 +233,7 @@ abstract class BaseStatelessSubWidget<T extends BaseStatusMixin>
                 retry();
               },
             );
-      default:
-        break;
     }
-    return Center(
-        child: Text(
-      'not defined'.tr,
-    ));
   }
 
   void retry() {

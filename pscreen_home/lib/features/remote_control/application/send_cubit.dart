@@ -1,20 +1,20 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
-import 'package:pscreen_home/features/remote_control/data/nim_client.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 part 'send_state.dart';
 
 /// 发送端 Cubit：管理目标勾选 + 发送（文本/命令）。
 class SendCubit extends Cubit<SendState> {
-  SendCubit({required this.nim, this.persistTargets = false})
+  SendCubit({required this.channel, this.persistTargets = false})
       : super(SendState(
             targets: persistTargets
                 ? ControlSettings.instance.selectedTvAccounts
                 : const <String>[]));
 
-  final NimClient nim;
+  final RealtimeChannel channel;
 
   /// 仅管理员勾选目标需要持久化/恢复（spec §4.3）；家人单页不共享该 key。
   final bool persistTargets;
@@ -59,7 +59,7 @@ class SendCubit extends Cubit<SendState> {
     emit(state.copyWith(isSending: true));
     final Map<String, bool> results = Map<String, bool>.from(state.sendResults);
     for (final String account in accounts) {
-      final bool ok = await nim.sendText(toAccount: account, text: body);
+      final bool ok = await channel.sendText(to: account, body: body);
       if (isClosed) return;
       results[account] = ok;
       emit(state.copyWith(sendResults: Map<String, bool>.from(results)));
@@ -74,7 +74,7 @@ class SendCubit extends Cubit<SendState> {
     emit(state.copyWith(isSending: true, lastBody: body));
     final Map<String, bool> results = <String, bool>{};
     for (final String target in state.targets) {
-      final bool ok = await nim.sendText(toAccount: target, text: body);
+      final bool ok = await channel.sendText(to: target, body: body);
       if (isClosed) return;
       results[target] = ok;
       emit(state.copyWith(sendResults: Map<String, bool>.from(results)));
