@@ -1,4 +1,5 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/application/send_cubit.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
@@ -109,9 +110,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
     // isSending:true 那次 emit 时 sendResults 仍空；随后每台一个非空快照
-    final List<Map<String, bool>> nonEmpty = snapshots
-        .where((m) => m.isNotEmpty)
-        .toList();
+    final List<Map<String, bool>> nonEmpty = snapshots.where((m) => m.isNotEmpty).toList();
     expect(nonEmpty.length, greaterThanOrEqualTo(2));
     expect(nonEmpty.first.keys, ['TV_001']);
     expect(nonEmpty.last.keys, ['TV_001', 'TV_002']);
@@ -155,6 +154,27 @@ void main() {
     expect(cubit.state.isSending, isFalse);
   });
 
+  test('管理员不能把自己加入目标', () async {
+    final SendCubit c = SendCubit(channel: FakeRealtimeChannel(), isAdmin: true);
+    c.toggleTarget(ControlConfig.adminAccount);
+    expect(c.state.targets, isEmpty);
+    c.toggleTarget('TV_001');
+    c.setSingleTarget(ControlConfig.adminAccount);
+    expect(c.state.targets, <String>['TV_001']);
+    await c.close();
+  });
+
+  test('管理员发送时跳过 adminAccount 目标', () async {
+    final FakeRealtimeChannel ch = FakeRealtimeChannel();
+    final SendCubit c = SendCubit(channel: ch, isAdmin: true);
+    c
+      ..toggleTarget('TV_001')
+      ..toggleTarget(ControlConfig.adminAccount);
+    await c.sendPlainText('你好');
+    expect(ch.sent.map(((String, String) e) => e.$1), <String>['TV_001']);
+    await c.close();
+  });
+
   // 注意：此测试必须放在最后 —— 它会加载 ControlSettings（单例，无法卸载）。
   // 默认构造 persistTargets: false（家人角色）不恢复/不写回共享 key，
   // 仅管理员显式 persistTargets: true 才恢复。
@@ -164,6 +184,13 @@ void main() {
     });
     await ControlSettings.instance.ensureLoaded();
     final SendCubit c = SendCubit(channel: FakeRealtimeChannel(), persistTargets: true);
+    expect(c.state.targets, <String>['TV_001', 'TV_002']);
+    await c.close();
+  });
+
+  test('管理员恢复目标时过滤 adminAccount', () async {
+    await ControlSettings.instance.setSelectedTvAccounts(<String>['TV_001', ControlConfig.adminAccount, 'TV_002']);
+    final SendCubit c = SendCubit(channel: FakeRealtimeChannel(), persistTargets: true, isAdmin: true);
     expect(c.state.targets, <String>['TV_001', 'TV_002']);
     await c.close();
   });

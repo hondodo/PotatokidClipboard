@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
@@ -25,6 +27,9 @@ class _ChatPageState extends State<ChatPage> {
 
   RealtimeChannel get _channel => Injection.get<RealtimeChannel>();
 
+  bool get _isAdminSelf =>
+      ControlSettings.instance.account == ControlConfig.adminAccount && widget.account == ControlConfig.adminAccount;
+
   @override
   void initState() {
     super.initState();
@@ -42,8 +47,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _loadHistory() async {
     try {
-      final List<RealtimeMessage> history =
-          await _channel.fetchHistory(widget.account);
+      final List<RealtimeMessage> history = await _channel.fetchHistory(widget.account);
       if (!mounted || history.isEmpty) return;
       setState(() {
         // 历史按时间升序；列表 reverse: true，最新消息放索引 0。
@@ -51,10 +55,7 @@ class _ChatPageState extends State<ChatPage> {
           0,
           history
               .where((RealtimeMessage m) => m.body.isNotEmpty)
-              .map((RealtimeMessage m) => ChatMessageItem(
-                    text: m.body,
-                    isOutgoing: m.from != widget.account,
-                  ))
+              .map((RealtimeMessage m) => ChatMessageItem(text: m.body, isOutgoing: m.from != widget.account))
               .toList()
               .reversed,
         );
@@ -74,6 +75,11 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send(String body) async {
     if (body.isEmpty) return;
+    // 管理员登录时不允许给 adminAccount（自己）发消息。
+    if (_isAdminSelf) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('不能给自己发消息')));
+      return;
+    }
     final bool ok = await _channel.sendText(to: widget.account, body: body);
     if (!mounted) return;
     if (ok) {
@@ -81,9 +87,7 @@ class _ChatPageState extends State<ChatPage> {
         _messages.insert(0, ChatMessageItem(text: body, isOutgoing: true));
       });
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? '已发送' : '发送失败')),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? '已发送' : '发送失败')));
   }
 
   @override
@@ -100,23 +104,16 @@ class _ChatPageState extends State<ChatPage> {
                     itemBuilder: (BuildContext context, int i) {
                       final ChatMessageItem m = _messages[i];
                       return Align(
-                        alignment: m.isOutgoing
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
+                        alignment: m.isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
                         child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Text(m.text),
-                          ),
+                          child: Padding(padding: const EdgeInsets.all(8), child: Text(m.text)),
                         ),
                       );
                     },
                   )
                 : const Center(child: Text('暂无消息')),
           ),
-          CommandPanel(
-            onCommand: (String body) => _send(body),
-          ),
+          CommandPanel(onCommand: (String body) => _send(body)),
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(

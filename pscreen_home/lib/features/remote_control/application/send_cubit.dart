@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
@@ -8,18 +9,30 @@ part 'send_state.dart';
 
 /// 发送端 Cubit：管理目标勾选 + 发送（文本/命令）。
 class SendCubit extends Cubit<SendState> {
-  SendCubit({required this.channel, this.persistTargets = false})
-      : super(SendState(
-            targets: persistTargets
-                ? ControlSettings.instance.selectedTvAccounts
-                : const <String>[]));
+  SendCubit({required this.channel, this.persistTargets = false, this.isAdmin = false})
+    : super(
+        SendState(
+          targets: persistTargets
+              ? _withoutAdminSelf(ControlSettings.instance.selectedTvAccounts, isAdmin)
+              : const <String>[],
+        ),
+      );
 
   final RealtimeChannel channel;
 
   /// 仅管理员勾选目标需要持久化/恢复（spec §4.3）；家人单页不共享该 key。
   final bool persistTargets;
 
+  /// 当前登录账号是否为管理员；管理员不允许给自己（adminAccount）发消息。
+  final bool isAdmin;
+
+  bool _isSelf(String account) => isAdmin && account == ControlConfig.adminAccount;
+
+  static List<String> _withoutAdminSelf(List<String> targets, bool isAdmin) =>
+      isAdmin ? targets.where((String a) => a != ControlConfig.adminAccount).toList() : targets;
+
   void toggleTarget(String account) {
+    if (_isSelf(account)) return;
     final List<String> next = List<String>.from(state.targets);
     if (next.contains(account)) {
       next.remove(account);
@@ -31,6 +44,7 @@ class SendCubit extends Cubit<SendState> {
 
   /// 家人单页：替换为单一台（不支持多选，spec §4.2）。
   void setSingleTarget(String account) {
+    if (_isSelf(account)) return;
     emit(state.copyWith(targets: <String>[account]));
   }
 
@@ -59,6 +73,7 @@ class SendCubit extends Cubit<SendState> {
     emit(state.copyWith(isSending: true));
     final Map<String, bool> results = Map<String, bool>.from(state.sendResults);
     for (final String account in accounts) {
+      if (_isSelf(account)) continue;
       final bool ok = await channel.sendText(to: account, body: body);
       if (isClosed) return;
       results[account] = ok;
@@ -74,6 +89,7 @@ class SendCubit extends Cubit<SendState> {
     emit(state.copyWith(isSending: true, lastBody: body));
     final Map<String, bool> results = <String, bool>{};
     for (final String target in state.targets) {
+      if (_isSelf(target)) continue;
       final bool ok = await channel.sendText(to: target, body: body);
       if (isClosed) return;
       results[target] = ok;
@@ -86,8 +102,7 @@ class SendCubit extends Cubit<SendState> {
   Future<void> _persistTargets() async {
     if (!persistTargets) return;
     try {
-      await ControlSettings.instance
-          .setSelectedTvAccounts(List<String>.from(state.targets));
+      await ControlSettings.instance.setSelectedTvAccounts(List<String>.from(state.targets));
     } catch (_) {
       // prefs 未加载/写入失败均非致命
     }

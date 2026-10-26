@@ -24,6 +24,7 @@ class SendPage extends StatelessWidget {
       create: (_) => SendCubit(
         channel: Injection.get<RealtimeChannel>(),
         persistTargets: isAdmin,
+        isAdmin: isAdmin,
       ),
       child: isAdmin ? const _AdminSendShell() : const _FamilySendPage(),
     );

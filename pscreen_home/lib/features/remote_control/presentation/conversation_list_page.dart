@@ -14,9 +14,7 @@ class ConversationListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<ConversationListCubit>(
       create: (_) => ConversationListCubit(
-        source: RealtimeConversationSource(
-          channel: Injection.get<RealtimeChannel>(),
-        ),
+        source: RealtimeConversationSource(channel: Injection.get<RealtimeChannel>()),
         nameOf: Injection.get<TvDirectory>().nameOf,
       )..refresh(),
       child: const _ConversationListView(),
@@ -39,31 +37,45 @@ class _ConversationListView extends StatelessWidget {
           itemBuilder: (BuildContext context, int i) {
             final ConversationItem item = state.items[i];
             return ListTile(
-              title: Text(item.title),
-              subtitle: Text(
-                item.lastMessage,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              title: Row(
+                children: <Widget>[
+                  _OnlineDot(online: item.online),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(item.title)),
+                ],
               ),
+              subtitle: Text(item.lastMessage, maxLines: 1, overflow: TextOverflow.ellipsis),
               trailing: item.unread > 0
-                  ? CircleAvatar(
-                      radius: 12,
-                      child: Text('${item.unread}',
-                          style: const TextStyle(fontSize: 12)),
-                    )
+                  ? CircleAvatar(radius: 12, child: Text('${item.unread}', style: const TextStyle(fontSize: 12)))
                   : null,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => ChatPage(
-                    account: item.account,
-                    title: item.title,
-                  ),
+                  builder: (_) => ChatPage(account: item.account, title: item.title),
                 ),
               ),
             );
           },
         );
       },
+    );
+  }
+}
+
+/// 账号在线状态圆点：在线绿色，离线灰色。
+class _OnlineDot extends StatelessWidget {
+  const _OnlineDot({required this.online});
+
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: online ? const Color(0xFF34C759) : const Color(0xFFBDBDBD),
+      ),
     );
   }
 }
