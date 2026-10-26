@@ -19,12 +19,44 @@ function log(...args) {
     if (DEBUG) console.log('[realtime]', ...args);
 }
 
-/** 读取 JSONL 历史（启动时一次性载入内存，写入时追加）。 */
+/** 从文件尾部倒序分块读取，凑够 maxRecords 行即停止，避免启动时全量加载。 */
+function readTail(file, maxRecords) {
+    const chunkSize = 1024 * 1024;
+    let fd;
+    try {
+        fd = fs.openSync(file, 'r');
+    } catch (_) {
+        return '';
+    }
+    try {
+        let pos = fs.fstatSync(fd).size;
+        const chunks = [];
+        let newlines = 0;
+        while (pos > 0 && newlines <= maxRecords) {
+            const len = Math.min(chunkSize, pos);
+            pos -= len;
+            const buf = Buffer.allocUnsafe(len);
+            fs.readSync(fd, buf, 0, len, pos);
+            chunks.unshift(buf);
+            for (let i = 0; i < len; i++) {
+                if (buf[i] === 0x0a) newlines++;
+            }
+        }
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (pos === 0) return text;
+        // 块边界可能截断首行，丢弃这段不完整的行
+        const nl = text.indexOf('\n');
+        return nl === -1 ? '' : text.slice(nl + 1);
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+/** 读取 JSONL 历史（启动时只载入尾部最近的 MAX_HISTORY 条，写入时追加）。 */
 function loadHistory(file) {
     const records = [];
     if (!fs.existsSync(file)) return records;
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    for (const line of lines) {
+    for (const line of readTail(file, MAX_HISTORY).split('\n')) {
         const raw = line.trim();
         if (!raw) continue;
         try {
@@ -143,10 +175,16 @@ function attachRealtime(httpServer, options = {}) {
         }
     }
 
-    function unreadCount(account, peer) {
-        const reads = readJson(path.join(readsDir, `${account}.json`), {});
-        const since = reads[peer] || 0;
-        return history.filter((m) => m.to === account && m.from === peer && m.ts > since).length;
+    /** account -> 已读游标，启动后只在内存更新，不再每次读盘 */
+    const readsCache = new Map();
+
+    function readsFor(account) {
+        let reads = readsCache.get(account);
+        if (!reads) {
+            reads = readJson(path.join(readsDir, `${account}.json`), {});
+            readsCache.set(account, reads);
+        }
+        return reads;
     }
 
     function conversationsFor(account) {
@@ -157,12 +195,22 @@ function attachRealtime(httpServer, options = {}) {
             const current = byPeer.get(peer);
             if (!current || message.ts >= current.ts) byPeer.set(peer, message);
         }
+        // 未读数单次遍历累计，避免每个会话都把整表过滤一遍
+        const reads = readsFor(account);
+        const unreadByPeer = new Map();
+        for (const message of history) {
+            if (message.to !== account) continue;
+            if (!byPeer.has(message.from)) continue;
+            if (message.ts > (reads[message.from] || 0)) {
+                unreadByPeer.set(message.from, (unreadByPeer.get(message.from) || 0) + 1);
+            }
+        }
         return Array.from(byPeer.entries())
             .map(([peer, last]) => ({
                 account: peer,
                 lastMessage: last.body,
                 ts: last.ts,
-                unread: unreadCount(account, peer),
+                unread: unreadByPeer.get(peer) || 0,
             }))
             .sort((a, b) => b.ts - a.ts)
             .slice(0, 100);
@@ -363,7 +411,7 @@ function attachRealtime(httpServer, options = {}) {
                         return;
                     }
                     const file = path.join(readsDir, `${account}.json`);
-                    const reads = readJson(file, {});
+                    const reads = readsFor(account);
                     reads[peer] = Date.now();
                     writeJson(file, reads);
                     sendJson(ws, { t: 'read_ok', peer });
