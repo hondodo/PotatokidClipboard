@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Potatokid 实时监控</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0e14;
+      --bg-soft: #0f1620;
+      --panel: #121b26;
+      --panel-2: #172230;
+      --border: #233144;
+      --border-soft: #1b2838;
+      --text: #e8eef7;
+      --muted: #8493a8;
+      --muted-2: #5e6c80;
+      --accent: #48c6a4;
+      --accent-soft: rgba(72, 198, 164, .12);
+      --blue: #6ea8fe;
+      --blue-soft: rgba(110, 168, 254, .13);
+      --purple: #b495ff;
+      --purple-soft: rgba(180, 149, 255, .13);
+      --amber: #f0c35c;
+      --amber-soft: rgba(240, 195, 92, .12);
+      --red: #ff7b7b;
+      --red-soft: rgba(255, 123, 123, .13);
+      --shadow: 0 18px 48px rgba(0, 0, 0, .28);
+      --radius: 14px;
+      --sidebar: 318px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(900px 480px at 15% -10%, rgba(72, 198, 164, .09), transparent 60%),
+        radial-gradient(700px 420px at 100% 0%, rgba(110, 168, 254, .08), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+      overflow: hidden;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .topbar {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 12px 22px;
+      border-bottom: 1px solid var(--border-soft);
+      background: rgba(10, 14, 20, .76);
+      backdrop-filter: blur(16px);
+      z-index: 3;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 230px;
+    }
+
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      color: #06120f;
+      background: linear-gradient(135deg, #6ee7c2, #4aa8ff);
+      box-shadow: 0 8px 24px rgba(72, 198, 164, .22);
+    }
+
+    .brand h1 {
+      font-size: 15px;
+      line-height: 1.2;
+      margin: 0;
+      letter-spacing: .2px;
+    }
+
+    .brand p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .3px;
+    }
+
+    .login {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .field input {
+      width: 126px;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      outline: none;
+      transition: border-color .18s, box-shadow .18s;
+    }
+
+    .field input:focus {
+      border-color: rgba(72, 198, 164, .65);
+      box-shadow: 0 0 0 3px rgba(72, 198, 164, .1);
+    }
+
+    .btn {
+      height: 34px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 0 14px;
+      transition: background .18s, border-color .18s, opacity .18s;
+    }
+
+    .btn:hover { background: var(--panel-2); border-color: #31455d; }
+    .btn.primary {
+      border-color: transparent;
+      color: #06120f;
+      font-weight: 700;
+      background: linear-gradient(135deg, #65dfbc, #59a9ff);
+    }
+    .btn.primary:hover { filter: brightness(1.05); }
+    .btn.ghost { color: var(--muted); }
+    .btn:disabled { opacity: .45; cursor: default; }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 150px;
+      justify-content: flex-end;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted-2);
+      box-shadow: 0 0 0 4px rgba(94, 108, 128, .1);
+      flex: 0 0 auto;
+    }
+
+    .status.connected { color: var(--accent); }
+    .status.connected .status-dot {
+      background: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+    .status.connecting { color: var(--amber); }
+    .status.connecting .status-dot {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px var(--amber-soft);
+      animation: pulse 1.3s infinite;
+    }
+    .status.error { color: var(--red); }
+    .status.error .status-dot {
+      background: var(--red);
+      box-shadow: 0 0 0 4px var(--red-soft);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+    }
+
+    .sidebar {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border-soft);
+      background: rgba(15, 22, 32, .62);
+    }
+
+    .sidebar-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 18px 10px;
+    }
+
+    .sidebar-head h2 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .sidebar-head p {
+      margin: 4px 0 0;
+      color: var(--muted-2);
+      font-size: 12px;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1;
+    }
+    .icon-btn:hover { color: var(--text); background: var(--panel-2); }
+
+    .search {
+      margin: 0 14px 10px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      outline: none;
+      padding: 0 12px;
+    }
+    .search:focus { border-color: rgba(72, 198, 164, .55); }
+
+    .account-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 2px 10px 14px;
+    }
+
+    .account {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      margin: 2px 0;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      transition: background .16s, border-color .16s;
+    }
+
+    .account:hover { background: rgba(255, 255, 255, .035); }
+    .account.active {
+      background: var(--accent-soft);
+      border-color: rgba(72, 198, 164, .26);
+    }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      background: #334155;
+      letter-spacing: .2px;
+      position: relative;
+    }
+
+    .avatar.large {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      font-size: 15px;
+    }
+
+    .account-main { flex: 1; min-width: 0; }
+
+    .account-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .account-name {
+      font-weight: 650;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tag {
+      flex: 0 0 auto;
+      font-size: 10px;
+      line-height: 1;
+      padding: 3px 5px;
+      border-radius: 5px;
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .account-preview {
+      margin-top: 3px;
+      color: var(--muted-2);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .account-side {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+    }
+
+    .online-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #3b4a5e;
+    }
+    .online-dot.on { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+    .account-time { color: var(--muted-2); font-size: 10px; }
+
+    .unread {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: var(--accent);
+      color: #05130f;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .list-empty {
+      padding: 30px 16px;
+      text-align: center;
+      color: var(--muted-2);
+      font-size: 12px;
+    }
+
+    .sidebar-foot {
+      border-top: 1px solid var(--border-soft);
+      padding: 9px 16px;
+      color: var(--muted-2);
+      font-size: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .content {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        linear-gradient(180deg, rgba(18, 27, 38, .55), rgba(10, 14, 20, .22));
+    }
+
+    .content-head {
+      min-height: 82px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border-soft);
+      background: rgba(15, 22, 32, .34);
+    }
+
+    .peer-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .peer-head h2 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .peer-head p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .filters {
+      display: flex;
+      gap: 4px;
+      padding: 3px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      flex: 0 0 auto;
+    }
+
+    .filters button {
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      padding: 6px 11px;
+      font-size: 12px;
+    }
+    .filters button:hover { color: var(--text); }
+    .filters button.active {
+      background: var(--panel-2);
+      color: var(--text);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+    }
+
+    .timeline {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 20px clamp(16px, 4vw, 48px) 34px;
+      scroll-behavior: smooth;
+    }
+
+    .message-row {
+      display: flex;
+      margin: 8px 0;
+    }
+    .message-row.mine { justify-content: flex-end; }
+
+    .message {
+      max-width: min(680px, 86%);
+      padding: 9px 13px;
+      border-radius: 13px 13px 13px 4px;
+      border: 1px solid var(--border-soft);
+      background: var(--panel);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
+    }
+
+    .message-row.mine .message {
+      border-radius: 13px 13px 4px 13px;
+      border-color: rgba(72, 198, 164, .22);
+      background: linear-gradient(180deg, rgba(72, 198, 164, .14), rgba(72, 198, 164, .08));
+    }
+
+    .message-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 3px;
+      color: var(--muted-2);
+      font-size: 10px;
+    }
+
+    .message-from {
+      color: var(--muted);
+      font-weight: 650;
+      font-size: 11px;
+    }
+
+    .message-body {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+
+    .event-card {
+      margin: 14px 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(23, 34, 48, .92), rgba(18, 27, 38, .92));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .event-card.failed {
+      border-color: rgba(255, 123, 123, .32);
+    }
+
+    .event-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 13px;
+      border-bottom: 1px solid var(--border-soft);
+      background: rgba(255, 255, 255, .018);
+      color: var(--muted-2);
+      font-size: 10px;
+      flex-wrap: wrap;
+    }
+
+    .event-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: .2px;
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .event-card[data-event="scene_changed"] .event-badge {
+      color: var(--blue);
+      background: var(--blue-soft);
+    }
+    .event-card[data-event="channel_changed"] .event-badge {
+      color: var(--purple);
+      background: var(--purple-soft);
+    }
+
+    .event-route { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .event-time { margin-left: auto; flex: 0 0 auto; }
+
+    .event-body { padding: 13px 15px 14px; }
+
+    .event-title {
+      margin: 0 0 9px;
+      font-size: 14px;
+      line-height: 1.4;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .chips {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+      padding: 3px 7px;
+      border-radius: 6px;
+      border: 1px solid var(--border-soft);
+      background: rgba(255, 255, 255, .025);
+      color: var(--muted);
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .chip.ok { color: var(--accent); border-color: rgba(72, 198, 164, .25); background: var(--accent-soft); }
+    .chip.fail { color: var(--red); border-color: rgba(255, 123, 123, .3); background: var(--red-soft); }
+
+    .event-line {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .event-line strong { color: var(--text); font-weight: 650; }
+    .event-error {
+      margin: 9px 0 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--red);
+      background: var(--red-soft);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .raw {
+      margin-top: 10px;
+      color: var(--muted-2);
+      font-size: 11px;
+    }
+    .raw summary { cursor: pointer; user-select: none; }
+    .raw pre {
+      max-height: 260px;
+      overflow: auto;
+      margin: 8px 0 0;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border-soft);
+      background: rgba(0, 0, 0, .2);
+      color: #b8c7db;
+      font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      place-content: center;
+      justify-items: center;
+      gap: 8px;
+      padding: 40px;
+      text-align: center;
+      color: var(--muted-2);
+    }
+    .empty[hidden] { display: none; }
+    .empty-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 24px;
+    }
+    .empty h3 { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .empty p { margin: 0; font-size: 12px; }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      border-radius: 8px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+      background-color: #2a3a4e;
+    }
+    ::-webkit-scrollbar-thumb:hover { background-color: #3a4e67; }
+
+    @media (max-width: 900px) {
+      :root { --sidebar: 260px; }
+      .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+      .brand { min-width: 190px; }
+      .login { order: 3; width: 100%; }
+      .field { flex: 1; }
+      .field input { width: 100%; }
+      .status { margin-left: auto; }
+      .content-head { padding: 12px 14px; }
+      .timeline { padding: 14px 12px 26px; }
+      .accessory { display: none; }
+    }
+
+    @media (max-width: 680px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100%; }
+      .layout { display: flex; flex-direction: column; }
+      .sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border-soft); }
+      .content { min-height: 58vh; }
+      .brand p { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo">P</div>
+        <div>
+          <h1>Potatokid Realtime</h1>
+          <p>账号消息 · 场景变化 · HA 操作</p>
+        </div>
+      </div>
+
+      <form class="login" id="login-form">
+        <label class="field">账号
+          <input id="account-input" autocomplete="username" spellcheck="false" value="1000001">
+        </label>
+        <label class="field">Token
+          <input id="token-input" type="password" autocomplete="current-password" spellcheck="false" value="12345678">
+        </label>
+        <button type="submit" class="btn primary" id="connect-btn">连接</button>
+        <button type="button" class="btn ghost" id="disconnect-btn">断开</button>
+      </form>
+
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span id="status-text">未连接</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <div>
+            <h2>账号</h2>
+            <p id="online-summary">0 个在线</p>
+          </div>
+          <button type="button" class="icon-btn" id="refresh-btn" title="刷新列表">↻</button>
+        </div>
+        <input id="search-input" class="search" type="search" placeholder="搜索账号 / 设备">
+        <div id="account-list" class="account-list"></div>
+        <div class="sidebar-foot" id="ws-label"></div>
+      </aside>
+
+      <section class="content">
+        <div class="content-head">
+          <div class="peer-head">
+            <div class="avatar large" id="peer-avatar">Σ</div>
+            <div>
+              <h2 id="peer-title">全部事件</h2>
+              <p id="peer-subtitle">选择左侧账号查看详情</p>
+            </div>
+          </div>
+          <div class="filters" role="group" aria-label="信息类型">
+            <button type="button" data-filter="all" class="active">全部</button>
+            <button type="button" data-filter="message">消息</button>
+            <button type="button" data-filter="event">事件</button>
+          </div>
+        </div>
+
+        <div id="timeline" class="timeline" aria-live="polite"></div>
+        <div id="empty" class="empty">
+          <div class="empty-icon">⌁</div>
+          <h3>暂无信息</h3>
+          <p>连接后选择左侧账号，或等待实时消息。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const ALL = '__all__';
+      const DEFAULT_ACCOUNT = '1000001';
+      const DEFAULT_TOKEN = '12345678';
+      const STORAGE_ACCOUNT = 'potatokid.realtime.account';
+      const STORAGE_TOKEN = 'potatokid.realtime.token';
+      const POLL_MS = 20000;
+
+      const ACCOUNT_LABELS = {
+        '1000001': '系统管理员',
+      };
+
+      const ACTION_LABELS = {
+        turn_on: '打开',
+        turn_off: '关闭',
+        set_brightness: '设置亮度',
+        set_color_temperature: '设置色温',
+        set_effect: '设置灯光效果',
+        set_temperature: '设置温度',
+        set_hvac_mode: '设置空调模式',
+        set_fan_mode: '设置风速',
+        set_swing_mode: '设置摆风',
+        set_preset_mode: '设置预设模式',
+        set_percentage: '设置档位',
+        set_oscillating: '设置摆风',
+        set_operation_mode: '设置模式',
+        set_text: '设置文本',
+        set_number: '设置数值',
+        select_option: '选择选项',
+        press: '按下按钮',
+        notify: '发送通知',
+        open_device_detail: '打开设备详情',
+      };
+
+      const EVENT_LABELS = {
+        scene_changed: '场景变化',
+        channel_changed: '频道变化',
+        ha_action: 'HA 操作',
+      };
+
+      const TRIGGER_LABELS = {
+        home_card: '主页卡片',
+        device_detail: '设备详情',
+        unknown: '未知入口',
+      };
+
+      const state = {
+        socket: null,
+        account: '',
+        token: '',
+        manualClose: true,
+        shouldReconnect: true,
+        reconnectTimer: null,
+        pollTimer: null,
+        online: new Set(),
+        peers: new Map(),
+        messages: new Map(),
+        events: new Map(),
+        currentPeer: ALL,
+        filter: 'all',
+        pending: new Map(),
+        seq: 0,
+        initialScrollDone: false,
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const accountInput = $('account-input');
+      const tokenInput = $('token-input');
+      const statusEl = $('status');
+      const statusText = $('status-text');
+      const accountList = $('account-list');
+      const onlineSummary = $('online-summary');
+      const searchInput = $('search-input');
+      const wsLabel = $('ws-label');
+      const peerAvatar = $('peer-avatar');
+      const peerTitle = $('peer-title');
+      const peerSubtitle = $('peer-subtitle');
+      const timeline = $('timeline');
+      const emptyEl = $('empty');
+
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = String(text);
+        return node;
+      }
+
+      function append(parent, ...children) {
+        for (const child of children) {
+          if (child !== null && child !== undefined) parent.append(child);
+        }
+        return parent;
+      }
+
+      function truncate(value, max) {
+        const text = String(value ?? '');
+        return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+      }
+
+      function formatTime(ts) {
+        const value = Number(ts);
+        if (!Number.isFinite(value) || value <= 0) return '--:--';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '--:--';
+        const now = new Date();
+        const sameDay = date.toDateString() === now.toDateString();
+        const time = date.toLocaleTimeString('zh-CN', { hour12: false });
+        if (sameDay) return time;
+        return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+      }
+
+      function formatValue(action, value) {
+        if (value === undefined || value === null || value === '') return '—';
+        if (typeof value === 'boolean') return value ? '开' : '关';
+        if (action === 'set_brightness' || action === 'set_percentage') return `${value}%`;
+        if (action === 'set_color_temperature') return `${value}K`;
+        if (action === 'set_temperature') return `${value}°C`;
+        return String(value);
+      }
+
+      function accountLabel(account) {
+        return ACCOUNT_LABELS[account] ? `${account} · ${ACCOUNT_LABELS[account]}` : account;
+      }
+
+      function avatarText(account) {
+        if (account === ALL) return 'Σ';
+        const text = String(account || '?').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '');
+        return (text.slice(-2) || '?').toUpperCase();
+      }
+
+      function avatarColor(account) {
+        if (account === ALL) return 'linear-gradient(135deg, #5eead4, #60a5fa)';
+        let hash = 0;
+        for (const char of String(account)) hash = ((hash << 5) - hash + char.codePointAt(0)) | 0;
+        const hue = Math.abs(hash) % 360;
+        return `linear-gradient(135deg, hsl(${hue} 55% 48%), hsl(${(hue + 34) % 360} 60% 42%))`;
+      }
+
+      function eventPeer(event) {
+        if (event.from === state.account) return event.to;
+        if (event.to === state.account) return event.from;
+        return event.from || event.to || '';
+      }
+
+      function messagePeer(message) {
+        if (message.from === state.account) return message.to;
+        if (message.to === state.account) return message.from;
+        return message.from || message.to || '';
+      }
+
+      function ensurePeer(account) {
+        if (!account || account === state.account) return null;
+        let peer = state.peers.get(account);
+        if (!peer) {
+          peer = { account, last: '', ts: 0, unread: 0 };
+          state.peers.set(account, peer);
+        }
+        return peer;
+      }
+
+      function updatePeer(account, patch = {}) {
+        const peer = ensurePeer(account);
+        if (!peer) return;
+        const incomingTs = Number(patch.ts) || 0;
+        if (patch.last !== undefined) {
+          if (incomingTs >= peer.ts) {
+            peer.last = String(patch.last || '');
+            peer.ts = incomingTs || peer.ts;
+          } else if (!peer.last) {
+            peer.last = String(patch.last || '');
+          }
+        } else if (incomingTs > peer.ts) {
+          peer.ts = incomingTs;
+        }
+        if (patch.unread !== undefined) peer.unread = Math.max(0, Number(patch.unread) || 0);
+      }
+
+      function addMessage(peer, message) {
+        if (!peer || peer === state.account) return;
+        let map = state.messages.get(peer);
+        if (!map) {
+          map = new Map();
+          state.messages.set(peer, map);
+        }
+        map.set(message.id, message);
+      }
+
+      function messagesFor(peer) {
+        if (peer !== ALL) {
+          return [...(state.messages.get(peer)?.values() || [])];
+        }
+        const result = [];
+        for (const map of state.messages.values()) result.push(...map.values());
+        return result;
+      }
+
+      function eventsFor(peer) {
+        const all = [...state.events.values()];
+        if (peer === ALL) return all;
+        return all.filter((event) => event.from === peer || event.to === peer);
+      }
+
+      function setStatus(kind, text) {
+        statusEl.className = `status ${kind || ''}`.trim();
+        statusText.textContent = text;
+      }
+
+      function setWsLabel() {
+        wsLabel.textContent = buildWsUrl(state.account || accountInput.value.trim(), state.token || '…')
+          .replace(/token=[^&]+/, 'token=***');
+      }
+
+      function buildWsUrl(account, token) {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = location.host || 'localhost:3000';
+        const params = new URLSearchParams({
+          account,
+          token,
+          role: 'viewer',
+          name: 'web-realtime',
+        });
+        return `${protocol}//${host}/ws?${params.toString()}`;
+      }
+
+      function isOpen() {
+        return state.socket && state.socket.readyState === WebSocket.OPEN;
+      }
+
+      function request(frame, timeoutMs = 8000) {
+        return new Promise((resolve) => {
+          if (!isOpen()) {
+            resolve(null);
+            return;
+          }
+          const id = `web-${Date.now()}-${++state.seq}`;
+          const timer = setTimeout(() => {
+            state.pending.delete(id);
+            resolve(null);
+          }, timeoutMs);
+          state.pending.set(id, {
+            resolve: (value) => {
+              clearTimeout(timer);
+              state.pending.delete(id);
+              resolve(value);
+            },
+          });
+          try {
+            state.socket.send(JSON.stringify({ ...frame, id }));
+          } catch (_) {
+            clearTimeout(timer);
+            state.pending.delete(id);
+            resolve(null);
+          }
+        });
+      }
+
+      function rejectPending() {
+        for (const pending of state.pending.values()) pending.resolve(null);
+        state.pending.clear();
+      }
+
+      function disconnectSocket() {
+        const old = state.socket;
+        state.socket = null;
+        if (old) {
+          old.onopen = null;
+          old.onmessage = null;
+          old.onerror = null;
+          old.onclose = null;
+          try { old.close(); } catch (_) { /* ignore */ }
+        }
+        rejectPending();
+      }
+
+      function resetData() {
+        state.online.clear();
+        state.peers.clear();
+        state.messages.clear();
+        state.events.clear();
+        state.currentPeer = ALL;
+        state.filter = 'all';
+        state.initialScrollDone = false;
+        document.querySelectorAll('.filters button').forEach((button) => {
+          button.classList.toggle('active', button.dataset.filter === 'all');
+        });
+        renderAll();
+      }
+
+      function connect() {
+        const account = accountInput.value.trim();
+        const token = tokenInput.value;
+        if (!account) {
+          setStatus('error', '账号不能为空');
+          accountInput.focus();
+          return;
+        }
+        if (!token) {
+          setStatus('error', 'Token 不能为空');
+          tokenInput.focus();
+          return;
+        }
+
+        localStorage.setItem(STORAGE_ACCOUNT, account);
+        localStorage.setItem(STORAGE_TOKEN, token);
+
+        if (state.reconnectTimer) {
+          clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = null;
+        }
+        disconnectSocket();
+        resetData();
+        state.account = account;
+        state.token = token;
+        state.manualClose = false;
+        state.shouldReconnect = true;
+
+        setStatus('connecting', '连接中…');
+        setWsLabel();
+
+        let socket;
+        try {
+          socket = new WebSocket(buildWsUrl(account, token));
+        } catch (error) {
+          setStatus('error', `无法创建连接：${error.message || error}`);
+          return;
+        }
+        state.socket = socket;
+
+        socket.onopen = () => {
+          if (state.socket !== socket) return;
+          setStatus('connecting', '已连接，等待服务端 ready…');
+        };
+
+        socket.onmessage = (event) => {
+          if (state.socket !== socket) return;
+          handleFrame(event.data);
+        };
+
+        socket.onerror = () => {
+          if (state.socket !== socket) return;
+          setStatus('error', '连接错误');
+        };
+
+        socket.onclose = (event) => {
+          if (state.socket !== socket) return;
+          state.socket = null;
+          rejectPending();
+          const suffix = event.code ? ` (${event.code}${event.reason ? ` ${event.reason}` : ''})` : '';
+          setStatus('offline', `已断开${suffix}`);
+          if (!state.manualClose && state.shouldReconnect) scheduleReconnect();
+        };
+      }
+
+      function scheduleReconnect() {
+        if (state.manualClose || !state.shouldReconnect || state.reconnectTimer) return;
+        setStatus('connecting', '3 秒后重连…');
+        state.reconnectTimer = setTimeout(() => {
+          state.reconnectTimer = null;
+          if (!state.manualClose && state.shouldReconnect) connect();
+        }, 3000);
+      }
+
+      function disconnect() {
+        state.manualClose = true;
+        state.shouldReconnect = false;
+        if (state.reconnectTimer) {
+          clearTimeout(state.reconnectTimer);
+          state.reconnectTimer = null;
+        }
+        disconnectSocket();
+        setStatus('offline', '已断开');
+      }
+
+      function handleFrame(raw) {
+        let frame;
+        try {
+          frame = JSON.parse(raw);
+        } catch (_) {
+          return;
+        }
+        if (!frame || typeof frame.t !== 'string') return;
+
+        if (frame.id && state.pending.has(frame.id)) {
+          const pending = state.pending.get(frame.id);
+          state.pending.delete(frame.id);
+          pending.resolve(frame);
+        }
+
+        switch (frame.t) {
+          case 'ready': {
+            if (typeof frame.account === 'string' && frame.account) state.account = frame.account;
+            state.online = new Set((Array.isArray(frame.online) ? frame.online : []).map(String));
+            setStatus('connected', `已连接 · ${onlineCount()} 个在线`);
+            renderAll();
+            refreshAll();
+            break;
+          }
+          case 'presence': {
+            const account = String(frame.account || '');
+            if (!account) return;
+            if (frame.online === true) {
+              state.online.add(account);
+              ensurePeer(account);
+            } else {
+              state.online.delete(account);
+            }
+            setStatus(isOpen() ? 'connected' : 'offline', isOpen() ? `已连接 · ${onlineCount()} 个在线` : '未连接');
+            renderAll();
+            break;
+          }
+          case 'msg': {
+            const message = normalizeMessage(frame);
+            if (!message.id) return;
+            const peer = messagePeer(message);
+            if (!peer || peer === state.account) return;
+            addMessage(peer, message);
+            const peerState = ensurePeer(peer);
+            const shouldUnread = message.from === peer && state.currentPeer !== peer && state.currentPeer !== ALL;
+            updatePeer(peer, {
+              last: `消息：${truncate(message.body, 80)}`,
+              ts: message.ts,
+              unread: shouldUnread ? (peerState?.unread || 0) + 1 : peerState?.unread,
+            });
+            renderAccounts();
+            renderTimeline();
+            break;
+          }
+          case 'event': {
+            const event = normalizeEvent(frame);
+            if (!event.id) return;
+            addEvent(event);
+            renderAccounts();
+            renderTimeline();
+            break;
+          }
+          case 'conversations': {
+            const items = Array.isArray(frame.items) ? frame.items : [];
+            for (const item of items) {
+              const account = String(item.account || '');
+              if (!account || account === state.account) continue;
+              updatePeer(account, {
+                last: String(item.lastMessage || ''),
+                ts: Number(item.ts) || 0,
+                unread: Number(item.unread) || 0,
+              });
+            }
+            renderAccounts();
+            break;
+          }
+          case 'history': {
+            const peer = String(frame.peer || '');
+            const items = Array.isArray(frame.messages) ? frame.messages : [];
+            if (peer && peer !== state.account) {
+              for (const item of items) {
+                const message = normalizeMessage(item);
+                if (message.id) addMessage(peer, message);
+              }
+              if (state.currentPeer === peer) renderTimeline();
+            }
+            break;
+          }
+          case 'events': {
+            const items = Array.isArray(frame.items) ? frame.items : [];
+            for (const item of items) {
+              const event = normalizeEvent(item);
+              if (event.id) addEvent(event, false);
+            }
+            renderAccounts();
+            renderTimeline();
+            break;
+          }
+          case 'error': {
+            const code = Number(frame.code) || 0;
+            const message = String(frame.msg || '未知错误');
+            setStatus('error', `服务端 ${code || ''}：${message}`.trim());
+            if (code === 401 || code === 403 || /invalid (account|token)/i.test(message)) {
+              state.shouldReconnect = false;
+            }
+            break;
+          }
+          case 'read_ok':
+          case 'pong':
+            break;
+          default:
+            break;
+        }
+      }
+
+      function normalizeMessage(frame) {
+        return {
+          id: String(frame.id || ''),
+          from: String(frame.from || ''),
+          to: String(frame.to || ''),
+          body: String(frame.body || ''),
+          ts: Number(frame.ts) || 0,
+        };
+      }
+
+      function normalizeEvent(frame) {
+        const data = frame.data && typeof frame.data === 'object' && !Array.isArray(frame.data)
+          ? frame.data
+          : {};
+        return {
+          id: String(frame.id || frame.eventId || `${frame.from || ''}-${frame.ts || 0}-${frame.event || ''}`),
+          from: String(frame.from || ''),
+          to: String(frame.to || ''),
+          event: String(frame.event || ''),
+          data,
+          ts: Number(frame.ts) || Number(data.ts) || 0,
+        };
+      }
+
+      function addEvent(event, render = true) {
+        if (!event.id) return;
+        state.events.set(event.id, event);
+        const peer = eventPeer(event);
+        if (peer && peer !== state.account) {
+          updatePeer(peer, {
+            last: `事件：${EVENT_LABELS[event.event] || event.event}`,
+            ts: event.ts,
+          });
+        }
+        if (render) renderAccounts();
+      }
+
+      function refreshAll() {
+        if (!isOpen()) return Promise.resolve();
+        const tasks = [refreshConversations(), refreshEvents()];
+        if (state.currentPeer !== ALL) tasks.push(refreshHistory(state.currentPeer));
+        return Promise.allSettled(tasks).then(() => {
+          renderAll();
+        });
+      }
+
+      async function refreshConversations() {
+        const reply = await request({ t: 'conversations' });
+        if (!reply || !Array.isArray(reply.items)) return;
+        for (const item of reply.items) {
+          const account = String(item.account || '');
+          if (!account || account === state.account) continue;
+          updatePeer(account, {
+            last: String(item.lastMessage || ''),
+            ts: Number(item.ts) || 0,
+            unread: Number(item.unread) || 0,
+          });
+        }
+        renderAccounts();
+      }
+
+      async function refreshEvents() {
+        const reply = await request({ t: 'events', limit: 200 });
+        if (!reply || !Array.isArray(reply.items)) return;
+        for (const item of reply.items) {
+          const event = normalizeEvent(item);
+          addEvent(event, false);
+        }
+        renderAccounts();
+      }
+
+      async function refreshHistory(peer) {
+        if (peer === ALL) return;
+        const reply = await request({ t: 'history', peer, limit: 200 });
+        if (!reply || !Array.isArray(reply.messages)) return;
+        for (const item of reply.messages) {
+          const message = normalizeMessage(item);
+          if (message.id) addMessage(peer, message);
+        }
+        if (state.currentPeer === peer) renderTimeline();
+      }
+
+      function markRead(peer) {
+        if (!isOpen() || !peer || peer === ALL) return;
+        const peerState = state.peers.get(peer);
+        if (peerState) peerState.unread = 0;
+        try {
+          state.socket.send(JSON.stringify({ t: 'read', peer }));
+        } catch (_) {
+          // 忽略：已读游标失败不影响查看。
+        }
+        renderAccounts();
+      }
+
+      function selectPeer(peer) {
+        state.currentPeer = peer;
+        markRead(peer);
+        renderAccounts();
+        renderHeader();
+        renderTimeline(true);
+        if (peer !== ALL) refreshHistory(peer);
+      }
+
+      function onlineCount() {
+        return [...state.online].filter((account) => account !== state.account).length;
+      }
+
+      function renderAll() {
+        renderAccounts();
+        renderHeader();
+        renderTimeline();
+      }
+
+      function renderHeader() {
+        if (state.currentPeer === ALL) {
+          peerAvatar.textContent = 'Σ';
+          peerAvatar.style.background = avatarColor(ALL);
+          peerTitle.textContent = '全部事件';
+          const totalEvents = state.events.size;
+          peerSubtitle.textContent = `${totalEvents} 条事件 · ${onlineCount()} 个账号在线`;
+          return;
+        }
+
+        const peer = state.currentPeer;
+        const peerState = state.peers.get(peer);
+        peerAvatar.textContent = avatarText(peer);
+        peerAvatar.style.background = avatarColor(peer);
+        peerTitle.textContent = accountLabel(peer);
+        const online = state.online.has(peer);
+        const last = peerState?.last ? ` · ${truncate(peerState.last, 56)}` : '';
+        peerSubtitle.textContent = `${online ? '在线' : '离线'}${last}`;
+      }
+
+      function renderAccounts() {
+        const scrollTop = accountList.scrollTop;
+        const query = searchInput.value.trim().toLowerCase();
+        const online = onlineCount();
+        onlineSummary.textContent = `${online} 个在线`;
+
+        const peers = [];
+        for (const peer of state.peers.values()) {
+          if (peer.account === state.account) continue;
+          peers.push(peer);
+        }
+        for (const account of state.online) {
+          if (account === state.account || state.peers.has(account)) continue;
+          peers.push({ account, last: '在线，暂无消息', ts: 0, unread: 0 });
+        }
+
+        peers.sort((a, b) => {
+          const aOnline = state.online.has(a.account) ? 1 : 0;
+          const bOnline = state.online.has(b.account) ? 1 : 0;
+          if (aOnline !== bOnline) return bOnline - aOnline;
+          if ((b.ts || 0) !== (a.ts || 0)) return (b.ts || 0) - (a.ts || 0);
+          return a.account.localeCompare(b.account);
+        });
+
+        accountList.replaceChildren();
+
+        if (!query) {
+          accountList.append(renderAccountRow({
+            account: ALL,
+            last: `${state.events.size} 条事件`,
+            ts: 0,
+            unread: 0,
+          }, true));
+        }
+
+        let count = 0;
+        for (const peer of peers) {
+          const label = accountLabel(peer.account);
+          if (query && !label.toLowerCase().includes(query)) continue;
+          accountList.append(renderAccountRow(peer, false));
+          count++;
+        }
+
+        if (count === 0) {
+          accountList.append(el('div', 'list-empty', query ? '没有匹配的账号' : '暂无其他账号'));
+        }
+        accountList.scrollTop = scrollTop;
+      }
+
+      function renderAccountRow(peer, isAll) {
+        const active = state.currentPeer === peer.account;
+        const button = el('button', `account${active ? ' active' : ''}`);
+        button.type = 'button';
+        button.title = peer.account;
+        button.addEventListener('click', () => selectPeer(peer.account));
+
+        const avatar = el('div', 'avatar', isAll ? 'Σ' : avatarText(peer.account));
+        avatar.style.background = avatarColor(peer.account);
+
+        const main = el('div', 'account-main');
+        const line = el('div', 'account-line');
+        line.append(el('span', 'account-name', isAll ? '全部事件' : peer.account));
+        if (!isAll && ACCOUNT_LABELS[peer.account]) {
+          line.append(el('span', 'tag', ACCOUNT_LABELS[peer.account]));
+        }
+        main.append(line);
+        main.append(el('div', 'account-preview', peer.last || '暂无消息'));
+
+        const side = el('div', 'account-side');
+        if (!isAll) {
+          const dot = el('span', `online-dot${state.online.has(peer.account) ? ' on' : ''}`);
+          side.append(dot);
+        } else {
+          side.append(el('span', 'account-time', state.events.size ? `${state.events.size}` : ''));
+        }
+        if (peer.ts) side.append(el('span', 'account-time', formatTime(peer.ts)));
+        if (peer.unread > 0) side.append(el('span', 'unread', peer.unread > 99 ? '99+' : String(peer.unread)));
+
+        button.append(avatar, main, side);
+        return button;
+      }
+
+      function collectTimeline() {
+        const peer = state.currentPeer;
+        const messages = state.filter === 'event' ? [] : messagesFor(peer);
+        const events = state.filter === 'message' ? [] : eventsFor(peer);
+        const items = [
+          ...messages.map((message) => ({ kind: 'message', ts: message.ts, id: message.id, value: message })),
+          ...events.map((event) => ({ kind: 'event', ts: event.ts, id: event.id, value: event })),
+        ];
+        items.sort((a, b) => {
+          if ((a.ts || 0) !== (b.ts || 0)) return (a.ts || 0) - (b.ts || 0);
+          return a.id.localeCompare(b.id);
+        });
+        return items;
+      }
+
+      function renderTimeline(forceBottom = false) {
+        const nearBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
+        const items = collectTimeline();
+        timeline.replaceChildren();
+
+        for (const item of items) {
+          timeline.append(item.kind === 'message'
+            ? renderMessage(item.value)
+            : renderEvent(item.value));
+        }
+
+        const isEmpty = items.length === 0;
+        emptyEl.hidden = !isEmpty;
+        timeline.hidden = isEmpty;
+        if (!isEmpty && !state.initialScrollDone) {
+          state.initialScrollDone = true;
+          timeline.scrollTop = timeline.scrollHeight;
+        }
+        if (isEmpty) {
+          const title = emptyEl.querySelector('h3');
+          const desc = emptyEl.querySelector('p');
+          if (state.filter === 'message') {
+            title.textContent = '暂无消息';
+            desc.textContent = '这个筛选条件下还没有聊天消息。';
+          } else if (state.filter === 'event') {
+            title.textContent = '暂无事件';
+            desc.textContent = '这个筛选条件下还没有场景或 HA 操作事件。';
+          } else {
+            title.textContent = '暂无信息';
+            desc.textContent = '连接后选择左侧账号，或等待实时消息。';
+          }
+        }
+
+        if (forceBottom || nearBottom) {
+          timeline.scrollTop = timeline.scrollHeight;
+        }
+      }
+
+      function renderMessage(message) {
+        const mine = message.from === state.account;
+        const row = el('div', `message-row${mine ? ' mine' : ''}`);
+        const bubble = el('div', 'message');
+
+        const meta = el('div', 'message-meta');
+        meta.append(el('span', 'message-from', mine ? '我' : message.from));
+        meta.append(el('span', null, formatTime(message.ts)));
+        bubble.append(meta);
+        bubble.append(el('div', 'message-body', message.body || '（空消息）'));
+        row.append(bubble);
+        return row;
+      }
+
+      function renderEvent(event) {
+        const data = event.data || {};
+        const card = el('article', 'event-card');
+        card.dataset.event = event.event;
+        if (data.success === false) card.classList.add('failed');
+
+        const head = el('div', 'event-head');
+        head.append(el('span', 'event-badge', EVENT_LABELS[event.event] || event.event || '事件'));
+        head.append(el('span', 'event-route', `${event.from || '-'} → ${event.to || '仅落库'}`));
+        head.append(el('span', 'event-time', formatTime(event.ts)));
+        card.append(head);
+
+        const body = el('div', 'event-body');
+        if (event.event === 'ha_action') {
+          renderHaAction(body, event, data);
+        } else if (event.event === 'scene_changed') {
+          renderSceneChanged(body, data);
+        } else if (event.event === 'channel_changed') {
+          renderChannelChanged(body, data);
+        } else {
+          body.append(el('h3', 'event-title', event.event || '未命名事件'));
+          body.append(el('p', 'event-line', '未知事件类型，展开原始 JSON 查看。'));
+        }
+        card.append(body);
+        card.append(renderRaw(event));
+        return card;
+      }
+
+      function renderHaAction(body, event, data) {
+        const action = String(data.action || '');
+        const title = action === 'open_device_detail'
+          ? `打开卡片 · ${data.cardName || data.entityName || data.entityId || ''}`
+          : action === 'press'
+            ? `按下按钮 · ${data.entityName || data.entityId || ''}`
+            : `${ACTION_LABELS[action] || action || '操作'} · ${data.entityName || data.entityId || ''}`;
+        body.append(el('h3', 'event-title', title));
+
+        const chips = el('div', 'chips');
+        if (data.site) chips.append(el('span', 'chip', `站点 ${data.site}`));
+        if (data.deviceName || data.deviceId) {
+          chips.append(el('span', 'chip', `设备 ${data.deviceName || data.deviceId}`));
+        }
+        if (data.areaName || data.areaId) {
+          chips.append(el('span', 'chip', `区域 ${data.areaName || data.areaId}`));
+        }
+        if (data.entityId) chips.append(el('span', 'chip', `实体 ${data.entityId}`));
+        if (data.buttonId) chips.append(el('span', 'chip', `按钮 ${data.buttonId}`));
+        if (data.trigger) chips.append(el('span', 'chip', `入口 ${TRIGGER_LABELS[data.trigger] || data.trigger}`));
+        if (data.scene && data.scene.title) chips.append(el('span', 'chip', `场景 ${data.scene.title}`));
+        chips.append(el('span', `chip ${data.success === false ? 'fail' : 'ok'}`, data.success === false ? '失败' : '成功'));
+        body.append(chips);
+
+        if (data.value !== undefined && data.value !== null && data.value !== '') {
+          const line = el('p', 'event-line');
+          line.append(document.createTextNode('值：'));
+          line.append(el('strong', null, formatValue(action, data.value)));
+          if (data.previousValue !== undefined && data.previousValue !== null && data.previousValue !== '') {
+            line.append(document.createTextNode('（原：'));
+            line.append(el('strong', null, formatValue(action, data.previousValue)));
+            line.append(document.createTextNode('）'));
+          }
+          body.append(line);
+        }
+
+        if (data.error) body.append(el('p', 'event-error', data.error));
+      }
+
+      function renderSceneChanged(body, data) {
+        body.append(el('h3', 'event-title', `场景：${data.title || '未知场景'}`));
+        const chips = el('div', 'chips');
+        if (data.kind) chips.append(el('span', 'chip', `类型 ${data.kind}`));
+        if (data.route) chips.append(el('span', 'chip', `路由 ${data.route}`));
+        if (data.channelName) chips.append(el('span', 'chip', `频道 ${data.channelName}`));
+        if (data.deviceName || data.deviceId) chips.append(el('span', 'chip', `设备 ${data.deviceName || data.deviceId}`));
+        if (data.areaName || data.areaId) chips.append(el('span', 'chip', `区域 ${data.areaName || data.areaId}`));
+        body.append(chips);
+      }
+
+      function renderChannelChanged(body, data) {
+        body.append(el('h3', 'event-title', `频道：${data.channelName || '未知频道'}`));
+        const chips = el('div', 'chips');
+        if (data.index !== undefined) chips.append(el('span', 'chip', `序号 ${data.index}`));
+        if (data.scene && data.scene.title) chips.append(el('span', 'chip', `场景 ${data.scene.title}`));
+        body.append(chips);
+      }
+
+      function renderRaw(event) {
+        const details = el('details', 'raw');
+        details.append(el('summary', null, '原始 JSON'));
+        details.append(el('pre', null, JSON.stringify({
+          id: event.id,
+          from: event.from,
+          to: event.to,
+          event: event.event,
+          ts: event.ts,
+          data: event.data,
+        }, null, 2)));
+        return details;
+      }
+
+      function bindEvents() {
+        $('login-form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          connect();
+        });
+
+        $('disconnect-btn').addEventListener('click', disconnect);
+        $('refresh-btn').addEventListener('click', () => refreshAll());
+        searchInput.addEventListener('input', renderAccounts);
+
+        document.querySelectorAll('.filters button').forEach((button) => {
+          button.addEventListener('click', () => {
+            state.filter = button.dataset.filter || 'all';
+            document.querySelectorAll('.filters button').forEach((item) => {
+              item.classList.toggle('active', item === button);
+            });
+            renderTimeline(true);
+          });
+        });
+
+        window.addEventListener('beforeunload', () => {
+          state.manualClose = true;
+          disconnectSocket();
+        });
+      }
+
+      function boot() {
+        const savedAccount = localStorage.getItem(STORAGE_ACCOUNT);
+        const savedToken = localStorage.getItem(STORAGE_TOKEN);
+        accountInput.value = savedAccount || DEFAULT_ACCOUNT;
+        tokenInput.value = savedToken || DEFAULT_TOKEN;
+        state.account = accountInput.value.trim();
+        state.token = tokenInput.value;
+        setWsLabel();
+        bindEvents();
+        renderAll();
+
+        state.pollTimer = setInterval(() => {
+          if (isOpen()) refreshAll();
+        }, POLL_MS);
+
+        setTimeout(() => connect(), 250);
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>
