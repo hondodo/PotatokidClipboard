@@ -69,6 +69,12 @@ if (!fs.existsSync(registerUsersDir)) {
     fs.mkdirSync(registerUsersDir, { recursive: true });
 }
 
+// 确保 screen 数据目录存在（../datas/screen/datas）
+const screenDatasDir = path.join(datasDir, 'screen', 'datas');
+if (!fs.existsSync(screenDatasDir)) {
+    fs.mkdirSync(screenDatasDir, { recursive: true });
+}
+
 // 保持向后兼容的上传目录
 const uploadDir = path.join(__dirname, config.directories.uploads);
 if (!fs.existsSync(uploadDir)) {
@@ -719,6 +725,88 @@ app.get('/api/download/:filename', (req, res) => {
 });
 
 // 翻译文件目录已在上方定义，使用新的datas/translations目录
+
+// 获取 screen 数据文件（需登录）
+// 文件位置：../datas/screen/datas/
+// 例：GET /api/screen/source.txt
+// 约定：HTTP 状态码统一 200，业务结果看响应体 code
+app.get('/api/screen/:filename', (req, res) => {
+    try {
+        // 校验登录状态（cookie 中的 username，需对应已注册用户）
+        const username = req.cookies?.username;
+        if (!username || !fs.existsSync(path.join(registerUsersDir, username))) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.UNLOGIN,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+
+        // 只允许访问文件名，防止路径穿越
+        const rawFilename = req.params.filename || '';
+        const filename = path.basename(rawFilename);
+        if (!filename || filename === '.' || filename === '..' || /[\\/]/.test(rawFilename)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FILE_FORBIDDEN,
+                [definds.txt.MSG]: '文件名无效',
+            });
+        }
+
+        const filePath = path.join(screenDatasDir, filename);
+        // 再次确认最终路径仍在数据目录内
+        if (!filePath.startsWith(screenDatasDir + path.sep)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FILE_FORBIDDEN,
+                [definds.txt.MSG]: '文件名无效',
+            });
+        }
+
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FILE_NOT_EXISTS,
+                [definds.txt.MSG]: '文件不存在',
+            });
+        }
+
+        // 文本类文件按 UTF-8 返回，其余按扩展名推断
+        const ext = path.extname(filename).toLowerCase();
+        const textTypes = {
+            '.txt': 'text/plain; charset=utf-8',
+            '.m3u': 'application/vnd.apple.mpegurl; charset=utf-8',
+            '.m3u8': 'application/vnd.apple.mpegurl; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.xml': 'application/xml; charset=utf-8',
+            '.html': 'text/html; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.svg': 'image/svg+xml',
+        };
+        const contentType = textTypes[ext];
+
+        // 内容会不定期更新，避免客户端/代理缓存旧内容
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Content-Type', contentType || 'application/octet-stream');
+
+        // 成功时直接返回文件内容，仍为 200
+        res.sendFile(filePath, (error) => {
+            if (!error) {
+                console.log(`[screen] ${username} 获取文件: ${filename}`);
+                return;
+            }
+            console.error(`[screen] 发送文件失败: ${filename}`, error.message);
+            if (res.headersSent) return;
+            res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: error.message,
+            });
+        });
+    } catch (error) {
+        console.error('获取 screen 文件错误:', error);
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
 
 // 获取App和语言配置
 app.get('/api/translation_config', (req, res) => {
@@ -1499,9 +1587,9 @@ app.post('/api/clipboard', (req, res) => {
 
         console.log(`剪贴板已创建: ${username}/${filename}`);
 
-        // 按时间排序，最新的放在最前面，每个用户最多只能有20条，旧的则删除文件
+        // 按时间排序，最新的放在最前面，每个用户最多只能有1000条，旧的则删除文件
         const files = fs.readdirSync(saveDir).filter(file => file.endsWith('.txt'));
-        while (files.length > 20) {
+        while (files.length > 1000) {
             const oldestFile = files.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0];
             const filePath = path.join(saveDir, oldestFile);
             if (fs.existsSync(filePath)) {
@@ -1578,6 +1666,9 @@ app.get('/api/clipboards', (req, res) => {
             clipboards = clipboards.filter(clipboard => clipboard.id > fromId);
         }
 
+        // 最多返回20条
+        clipboards = clipboards.slice(0, 20);
+
         res.json({
             [definds.txt.CODE]: definds.code.SUCCESS,
             [definds.txt.MSG]: '获取剪贴板列表成功',
@@ -1624,6 +1715,7 @@ app.listen(PORT, () => {
     console.log('- GET /api/files - 获取文件列表');
     console.log('- DELETE /api/files/:filename - 删除文件');
     console.log('- GET /api/download/:filename - 下载文件');
+    console.log('- GET /api/screen/:filename - 获取 screen 数据文件（需登录）');
     console.log('- POST /api/notes - 创建笔记');
     console.log('- GET /api/notes - 获取用户笔记列表');
     console.log('- DELETE /api/notes/:noteId - 删除笔记');

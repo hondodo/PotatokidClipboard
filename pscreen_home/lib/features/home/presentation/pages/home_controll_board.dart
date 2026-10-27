@@ -62,6 +62,14 @@ import 'package:pscreen_screen/features/weather/application/bloc/weather_state.d
 import 'package:pscreen_screen/features/weather/data/weather_data_convert.dart';
 import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
 
+/// 打开设备详情并上报「点击卡片」；卡片本身不直接下发 HA 指令。
+void _openDeviceDetail(BuildContext context, HaDeviceGroup group) {
+  final String? deviceId = group.deviceId;
+  if (deviceId == null) return;
+  context.read<HomeBloc>().reportCardOpened(group);
+  Injection.get<AppRouter>().push(RouteNames.deviceDetailPath(deviceId));
+}
+
 /// 主页面：中控台。
 ///
 /// 布局（对应原构想注释）：
@@ -983,9 +991,7 @@ class _ControlGridState extends State<_ControlGrid> {
               summary: lock,
               areaLabel: areaLabel,
               showAreaInTitle: state.selectedAreaId.isEmpty,
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1002,9 +1008,7 @@ class _ControlGridState extends State<_ControlGrid> {
               onToggleGang: (String entityId) => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: entityId),
               ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1030,9 +1034,7 @@ class _ControlGridState extends State<_ControlGrid> {
               onToggle: () => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: socket.powerEntityId),
               ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1051,9 +1053,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: hood.powerEntityId!),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1066,9 +1066,7 @@ class _ControlGridState extends State<_ControlGrid> {
               summary: purifier,
               areaLabel: areaLabel,
               showAreaInTitle: state.selectedAreaId.isEmpty,
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1094,9 +1092,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       PressEntityButton(entityId: riceCooker.stopEntityId!),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1119,9 +1115,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       PressEntityButton(entityId: airFryer.stopEntityId!),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1134,9 +1128,7 @@ class _ControlGridState extends State<_ControlGrid> {
               summary: fridge,
               areaLabel: areaLabel,
               showAreaInTitle: state.selectedAreaId.isEmpty,
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1153,9 +1145,7 @@ class _ControlGridState extends State<_ControlGrid> {
               onToggle: () => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: fan.entity.entityId),
               ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1173,9 +1163,7 @@ class _ControlGridState extends State<_ControlGrid> {
               onToggleMaster: () => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: toggleId),
               ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1200,9 +1188,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       PressEntityButton(entityId: powerId),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1228,9 +1214,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       PressEntityButton(entityId: kettle.stopEntityId!),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
           // 热水器：状态 / 当前水温 + 目标温度加减
@@ -1272,9 +1256,7 @@ class _ControlGridState extends State<_ControlGrid> {
                   : () => context.read<HomeBloc>().add(
                       ToggleEntity(entityId: preheatId),
                     ),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1294,9 +1276,7 @@ class _ControlGridState extends State<_ControlGrid> {
               isToggling: state.togglingIds.contains(powerId),
               onToggle: () =>
                   context.read<HomeBloc>().add(ToggleEntity(entityId: powerId)),
-              onOpenDetail: () => Injection.get<AppRouter>().push(
-                RouteNames.deviceDetailPath(group.deviceId!),
-              ),
+              onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1332,9 +1312,7 @@ class _ControlGridState extends State<_ControlGrid> {
               onDecrease: () => adjust(-1),
               onOpenDetail: group.deviceId == null
                   ? null
-                  : () => Injection.get<AppRouter>().push(
-                      RouteNames.deviceDetailPath(group.deviceId!),
-                    ),
+                  : () => _openDeviceDetail(context, group),
             );
           }
 
@@ -1393,9 +1371,7 @@ class _ControlGridState extends State<_ControlGrid> {
                 );
               }
             },
-            onOpenDetail: () => Injection.get<AppRouter>().push(
-              RouteNames.deviceDetailPath(group.deviceId!),
-            ),
+            onOpenDetail: () => _openDeviceDetail(context, group),
             onBrightnessChanged:
                 primary != null && primary.isLight && primary.supportsBrightness
                 ? (int percent) => context.read<HomeBloc>().add(

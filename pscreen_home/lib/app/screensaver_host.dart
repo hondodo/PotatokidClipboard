@@ -74,11 +74,20 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     }
   }
 
-  void _onRouteChanged() => _schedule();
+  void _onRouteChanged() {
+    if (widget.router.currentPath != RouteNames.clockPath) {
+      widget.controller.active = false;
+    }
+    _schedule();
+  }
 
   void _onSettingsChanged() => _schedule();
 
-  void _onPointerDown(PointerDownEvent event) => _schedule();
+  void _onPointerDown(PointerDownEvent event) {
+    // 点击时钟页返回时，先退出屏保语义，再按新路由重新计时。
+    widget.controller.active = false;
+    _schedule();
+  }
 
   void _schedule() {
     _timer?.cancel();
@@ -100,6 +109,7 @@ class _ScreensaverHostState extends State<ScreensaverHost>
       _schedule();
       return;
     }
+    widget.controller.active = true;
     widget.router.push(RouteNames.clockPath);
   }
 

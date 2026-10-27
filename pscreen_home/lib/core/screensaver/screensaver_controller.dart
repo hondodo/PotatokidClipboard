@@ -10,9 +10,22 @@ class ScreensaverController extends ChangeNotifier {
 
   final SettingsStore _store;
   int _minutes;
+  bool _active = false;
 
   /// 当前屏保空闲时长（分钟）。
   int get minutes => _minutes;
+
+  /// 当前是否由空闲计时自动进入了屏保。
+  ///
+  /// `/clock` 同时被手动时钟入口使用，场景上报必须靠这个标志区分
+  /// 「屏保」和「时钟」。
+  bool get active => _active;
+
+  set active(bool value) {
+    if (_active == value) return;
+    _active = value;
+    notifyListeners();
+  }
 
   /// 更新屏保时长；非法值或未变化时忽略。
   Future<void> setMinutes(int minutes) async {

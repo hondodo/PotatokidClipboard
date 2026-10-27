@@ -1,5 +1,6 @@
 // test/features/msg/reporting_service_test.dart
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -10,11 +11,23 @@ import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 /// 假发送器：记录目标与文本。
 class FakeSender implements MessageSender {
   final List<(String, String)> sent = <(String, String)>[];
+  final List<(String, String, Map<String, Object?>?)> events =
+      <(String, String, Map<String, Object?>?)>[];
   bool ok = true;
 
   @override
   Future<bool> sendText({required String toAccount, required String text}) async {
     sent.add((toAccount, text));
+    return ok;
+  }
+
+  @override
+  Future<bool> sendEvent({
+    required String toAccount,
+    required String event,
+    Map<String, Object?>? data,
+  }) async {
+    events.add((toAccount, event, data));
     return ok;
   }
 }
@@ -30,6 +43,31 @@ class _FakeSceneProvider extends CurrentSceneProvider {
 
   @override
   String describe() => text;
+}
+
+/// 可手动触发场景变化的结构化场景提供者。
+class _MutableSceneProvider extends CurrentSceneProvider {
+  _MutableSceneProvider(this._value);
+
+  SceneSnapshot _value;
+  final _TestNotifier _notifier = _TestNotifier();
+
+  @override
+  SceneSnapshot snapshot() => _value;
+
+  @override
+  Listenable get changes => _notifier;
+
+  void update(SceneSnapshot value) {
+    _value = value;
+    _notifier.notify();
+  }
+
+  void dispose() => _notifier.dispose();
+}
+
+class _TestNotifier extends ChangeNotifier {
+  void notify() => notifyListeners();
 }
 
 void main() {
@@ -87,6 +125,65 @@ void main() {
     expect(sender.sent.length, 1);
     expect(sender.sent[0].$2, '切换频道：CCTV-1');
     service.stop();
+  });
+
+  test('结构化场景变化：上报 scene_changed，切台补 channel_changed', () {
+    fakeAsync((FakeAsync async) {
+      service.dispose();
+      final _MutableSceneProvider provider = _MutableSceneProvider(
+        const SceneSnapshot(kind: SceneKind.home, route: '/', title: '主页'),
+      );
+      service = ReportingService(
+        sender: sender,
+        deviceModel: () async => 'MiBOX 4',
+        channelInfo: ChannelInfoProvider.instance,
+        liveChannel: LiveChannelController.instance,
+        sceneProvider: provider,
+        now: () => DateTime(2026, 10, 15, 20, 30),
+      );
+
+      service.start('TV_001');
+      async.flushMicrotasks();
+      sender.sent.clear();
+      sender.events.clear();
+
+      provider.update(
+        const SceneSnapshot(
+          kind: SceneKind.live,
+          route: '/live',
+          title: '直播-CCTV-1',
+          channelName: 'CCTV-1',
+        ),
+      );
+      async.elapse(
+        ReportingService.sceneDebounce + const Duration(milliseconds: 20),
+      );
+      async.flushMicrotasks();
+      expect(sender.sent.single.$2, '场景切换：直播-CCTV-1');
+      expect(sender.events.single.$2, 'scene_changed');
+      expect(sender.events.single.$3?['kind'], 'live');
+      expect(sender.events.single.$3?['channelName'], 'CCTV-1');
+
+      provider.update(
+        const SceneSnapshot(
+          kind: SceneKind.live,
+          route: '/live',
+          title: '直播-CCTV-5',
+          channelName: 'CCTV-5',
+        ),
+      );
+      async.elapse(
+        ReportingService.sceneDebounce + const Duration(milliseconds: 20),
+      );
+      async.flushMicrotasks();
+      expect(sender.sent.last.$2, '场景切换：直播-CCTV-5');
+      expect(sender.events[sender.events.length - 2].$2, 'scene_changed');
+      expect(sender.events.last.$2, 'channel_changed');
+      expect(sender.events.last.$3?['channelName'], 'CCTV-5');
+
+      service.stop();
+      provider.dispose();
+    });
   });
 
   test('stop 后不再发送', () async {

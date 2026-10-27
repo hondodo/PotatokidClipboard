@@ -33,6 +33,39 @@ class RealtimeMessage {
       );
 }
 
+/// 一条结构化事件（场景变化 / HA 操作等）。
+class RealtimeEvent {
+  const RealtimeEvent({
+    required this.id,
+    required this.from,
+    required this.to,
+    required this.event,
+    required this.data,
+    required this.ts,
+  });
+
+  final String id;
+  final String from;
+  final String to;
+  final String event;
+  final Map<String, dynamic> data;
+  final int ts;
+
+  factory RealtimeEvent.fromJson(Map<String, dynamic> json) {
+    final dynamic rawData = json['data'];
+    return RealtimeEvent(
+      id: '${json['id'] ?? ''}',
+      from: '${json['from'] ?? ''}',
+      to: '${json['to'] ?? ''}',
+      event: '${json['event'] ?? ''}',
+      data: rawData is Map<String, dynamic>
+          ? Map<String, dynamic>.unmodifiable(rawData)
+          : const <String, dynamic>{},
+      ts: (json['ts'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// 在线状态变更。
 class RealtimePresence {
   const RealtimePresence({required this.account, required this.online});
@@ -70,9 +103,10 @@ class RealtimeException implements Exception {
 /// 自建 WebSocket 网关的客户端：负责连接、重连、收发、历史与在线状态。
 ///
 /// 协议（JSON）：
-/// - 客户端 → 服务端：`msg` / `history` / `conversations` / `read` / `ping`
-/// - 服务端 → 客户端：`ready` / `msg` / `result` / `presence` / `history`
-///   / `conversations` / `error` / `pong`
+/// - 客户端 → 服务端：`msg` / `event` / `events` / `history` / `conversations`
+///   / `read` / `ping`
+/// - 服务端 → 客户端：`ready` / `msg` / `event` / `events` / `result` / `presence`
+///   / `history` / `conversations` / `error` / `pong`
 class RealtimeChannel {
   RealtimeChannel({String? url}) : _url = url ?? AppConstants.realtimeWsUrl;
 
@@ -91,6 +125,8 @@ class RealtimeChannel {
       StreamController<RealtimeConnectionState>.broadcast();
   final StreamController<RealtimeMessage> _messageController =
       StreamController<RealtimeMessage>.broadcast();
+  final StreamController<RealtimeEvent> _eventController =
+      StreamController<RealtimeEvent>.broadcast();
   final StreamController<RealtimePresence> _presenceController =
       StreamController<RealtimePresence>.broadcast();
   final StreamController<String> _errorController =
@@ -113,6 +149,7 @@ class RealtimeChannel {
 
   Stream<RealtimeConnectionState> get connectionState => _stateController.stream;
   Stream<RealtimeMessage> get messages => _messageController.stream;
+  Stream<RealtimeEvent> get events => _eventController.stream;
   Stream<RealtimePresence> get presence => _presenceController.stream;
   Stream<String> get fatalErrors => _errorController.stream;
   Stream<void> get conversationsChanged => _conversationController.stream;
@@ -199,6 +236,33 @@ class RealtimeChannel {
     }
   }
 
+  /// 上报一条结构化事件；[to] 为空时只落库不投递。
+  Future<bool> sendEvent({
+    required String event,
+    Map<String, dynamic>? data,
+    String? to,
+  }) async {
+    if (!isConnected) return false;
+    final String id = _nextId();
+    final Completer<Map<String, dynamic>> completer =
+        Completer<Map<String, dynamic>>();
+    _pending[id] = completer;
+    _send(<String, dynamic>{
+      't': 'event',
+      'id': id,
+      'event': event,
+      if (to != null && to.isNotEmpty) 'to': to,
+      'data': ?data,
+    });
+    try {
+      final Map<String, dynamic> result = await completer.future
+          .timeout(const Duration(seconds: 8), onTimeout: () => <String, dynamic>{});
+      return result['ok'] == true;
+    } finally {
+      _pending.remove(id);
+    }
+  }
+
   /// 拉取与 [peer] 的历史消息（按时间升序）。
   Future<List<RealtimeMessage>> fetchHistory(String peer, {int limit = 50}) async {
     final Map<String, dynamic>? reply = await _request(
@@ -226,6 +290,26 @@ class RealtimeChannel {
     }).toList(growable: false);
   }
 
+  /// 拉取当前账号可见的结构化事件（按时间升序）。
+  Future<List<RealtimeEvent>> fetchEvents({
+    String? event,
+    int? since,
+    int limit = 100,
+  }) async {
+    final Map<String, dynamic>? reply = await _request(<String, dynamic>{
+      't': 'events',
+      if (event != null && event.isNotEmpty) 'event': event,
+      'since': ?since,
+      'limit': limit,
+    });
+    final List<dynamic> list =
+        (reply?['items'] as List<dynamic>?) ?? const <dynamic>[];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(RealtimeEvent.fromJson)
+        .toList(growable: false);
+  }
+
   /// 标记与 [peer] 的会话已读（fire-and-forget）。
   void markRead(String peer) {
     if (!isConnected) return;
@@ -237,6 +321,7 @@ class RealtimeChannel {
     await disconnect();
     await _stateController.close();
     await _messageController.close();
+    await _eventController.close();
     await _presenceController.close();
     await _errorController.close();
     await _conversationController.close();
@@ -301,7 +386,14 @@ class RealtimeChannel {
         _conversationController.add(null);
         break;
 
+      case 'event':
+        final RealtimeEvent event = RealtimeEvent.fromJson(frame);
+        if (event.event.isEmpty) return;
+        _eventController.add(event);
+        break;
+
       case 'result':
+      case 'events':
       case 'history':
       case 'conversations':
         final String id = '${frame['id'] ?? ''}';
@@ -324,6 +416,9 @@ class RealtimeChannel {
       case 'error':
         final int code = (frame['code'] as num?)?.toInt() ?? 0;
         final String msg = '${frame['msg'] ?? '未知错误'}';
+        final String requestId = '${frame['id'] ?? ''}';
+        final Completer<Map<String, dynamic>>? pending = _pending[requestId];
+        if (pending != null && !pending.isCompleted) pending.complete(frame);
         _lastError = msg;
         Log.warn('[RealtimeChannel] 服务端错误 $code：$msg');
         if (code == 401 || code == 403 || code == 400) {

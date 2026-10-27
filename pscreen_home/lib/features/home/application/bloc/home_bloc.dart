@@ -14,6 +14,7 @@ import 'package:pscreen_home/features/connection/domain/repositories/connection_
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/card_order_planner.dart';
+import 'package:pscreen_home/features/home/application/ha_action_report.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
@@ -24,6 +25,7 @@ import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_state_cache.dart';
 import 'package:pscreen_home/features/home/domain/repositories/registry_cache.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 
 /// 主页状态机：加载实体状态 → 订阅实时变更 → 响应快捷控件操作。
 ///
@@ -39,11 +41,15 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeStateCache? stateCache,
     RegistryCache? registryCache,
     ConnectionRepository? connection,
+    HaActionReporter? actionReporter,
+    CurrentSceneProvider? sceneProvider,
   }) : _sampler = sampler,
        _settingsStore = settingsStore,
        _stateCache = stateCache,
        _registryCache = registryCache,
        _connection = connection,
+       _actionReporter = actionReporter,
+       _sceneProvider = sceneProvider,
        _loadRetryDelays =
            loadRetryDelays ??
            const <Duration>[
@@ -101,10 +107,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   final HomeStateCache? _stateCache;
   final RegistryCache? _registryCache;
   final ConnectionRepository? _connection;
+  final HaActionReporter? _actionReporter;
+  final CurrentSceneProvider? _sceneProvider;
   final List<Duration> _loadRetryDelays;
   StreamSubscription<HaEntityStateModel>? _subscription;
   Timer? _loadRetryTimer;
   int _loadRetryAttempt = 0;
+  int _actionSeq = 0;
 
   /// 快照写入节流：重连可能很频繁，序列化一千多个实体会卡一帧，
   /// 首次加载立即写，之后最多每 5 分钟刷新一次。
@@ -374,6 +383,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           togglingIds: <String>{...state.togglingIds}..remove(event.entityId),
         ),
       );
+      _reportAction(
+        entity: current,
+        action: turnOn ? 'turn_on' : 'turn_off',
+        success: true,
+        value: turnOn ? 'on' : 'off',
+        previousValue: current.state,
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error(
@@ -392,6 +408,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),
+      );
+      _reportAction(
+        entity: current,
+        action: turnOn ? 'turn_on' : 'turn_off',
+        success: false,
+        value: turnOn ? 'on' : 'off',
+        previousValue: current.state,
+        error: mapHaErrorToMessage(e),
       );
       completeBlocEvent(event.completer, success: false);
     }
@@ -480,6 +504,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         percent: percent,
       ),
+      actionCode: 'set_brightness',
+      value: percent,
+      previousValue: current.brightnessPercent,
       completer: event.completer,
     );
   }
@@ -509,6 +536,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         kelvin: kelvin,
       ),
+      actionCode: 'set_color_temperature',
+      value: kelvin,
+      previousValue: current.colorTempKelvin,
       completer: event.completer,
     );
   }
@@ -535,6 +565,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         effect: event.effect,
       ),
+      actionCode: 'set_effect',
+      value: event.effect,
+      previousValue: current.effect,
       completer: event.completer,
     );
   }
@@ -564,6 +597,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         temperature: temperature,
       ),
+      actionCode: 'set_temperature',
+      value: temperature,
+      previousValue: current.targetTemperature,
       completer: event.completer,
     );
   }
@@ -588,6 +624,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         mode: event.mode,
       ),
+      actionCode: 'set_hvac_mode',
+      value: event.mode,
+      previousValue: current.state,
       completer: event.completer,
     );
   }
@@ -614,6 +653,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         mode: event.mode,
       ),
+      actionCode: 'set_fan_mode',
+      value: event.mode,
+      previousValue: current.fanMode,
       completer: event.completer,
     );
   }
@@ -640,6 +682,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         mode: event.mode,
       ),
+      actionCode: 'set_swing_mode',
+      value: event.mode,
+      previousValue: current.swingMode,
       completer: event.completer,
     );
   }
@@ -666,6 +711,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         mode: event.mode,
       ),
+      actionCode: 'set_preset_mode',
+      value: event.mode,
+      previousValue: current.presetMode,
       completer: event.completer,
     );
   }
@@ -691,6 +739,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         percentage: percentage,
       ),
+      actionCode: 'set_percentage',
+      value: percentage,
+      previousValue: current.fanPercentage,
       completer: event.completer,
     );
   }
@@ -715,6 +766,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         oscillating: event.oscillating,
       ),
+      actionCode: 'set_oscillating',
+      value: event.oscillating,
+      previousValue: current.isOscillating,
       completer: event.completer,
     );
   }
@@ -733,6 +787,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
     try {
       await repository.pressButton(entityId: current.entityId);
+      _reportAction(
+        entity: current,
+        action: 'press',
+        success: true,
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error(
@@ -745,6 +804,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),
+      );
+      _reportAction(
+        entity: current,
+        action: 'press',
+        success: false,
+        error: mapHaErrorToMessage(e),
       );
       completeBlocEvent(event.completer, success: false);
     }
@@ -771,6 +836,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         option: event.option,
       ),
+      actionCode: 'select_option',
+      value: event.option,
+      previousValue: current.state,
       completer: event.completer,
     );
   }
@@ -800,6 +868,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         temperature: temperature,
       ),
+      actionCode: 'set_temperature',
+      value: temperature,
+      previousValue: current.targetTemperature,
       completer: event.completer,
     );
   }
@@ -824,6 +895,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         mode: event.mode,
       ),
+      actionCode: 'set_operation_mode',
+      value: event.mode,
+      previousValue: current.operationMode,
       completer: event.completer,
     );
   }
@@ -846,6 +920,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         value: event.value,
       ),
+      actionCode: 'set_text',
+      value: event.value,
+      previousValue: current.state,
       completer: event.completer,
     );
   }
@@ -871,6 +948,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         value: event.value,
       ),
+      actionCode: 'set_number',
+      value: event.value,
+      previousValue: current.state,
       completer: event.completer,
     );
   }
@@ -892,6 +972,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         entityId: current.entityId,
         message: event.message,
       );
+      _reportAction(
+        entity: current,
+        action: 'notify',
+        success: true,
+        value: event.message,
+      );
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error(
@@ -905,8 +991,105 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           errorType: e.toNetErrorType(),
         ),
       );
+      _reportAction(
+        entity: current,
+        action: 'notify',
+        success: false,
+        value: event.message,
+        error: mapHaErrorToMessage(e),
+      );
       completeBlocEvent(event.completer, success: false);
     }
+  }
+
+  /// 统一生成 HA 操作事件；没有注入上报器时静默跳过。
+  ///
+  /// 上报失败不能影响控制链路，因此这里吞掉采集/序列化异常。
+  void _reportAction({
+    required HaEntityStateModel entity,
+    required String action,
+    required bool success,
+    Object? value,
+    Object? previousValue,
+    String? error,
+    String? entityName,
+    String? cardName,
+    String? buttonId,
+  }) {
+    final HaActionReporter? reporter = _actionReporter;
+    if (reporter == null) return;
+    SceneSnapshot? scene;
+    try {
+      scene = _sceneProvider?.snapshot();
+    } catch (_) {
+      // 场景采集失败不影响 HA 操作本身的上报。
+    }
+    try {
+      final DateTime now = DateTime.now();
+      final String? deviceId = state.registry.deviceIdOf(entity.entityId);
+      final String? areaId = state.registry.areaIdOf(entity.entityId);
+      reporter.report(
+        HaActionReport(
+          eventId: '${now.microsecondsSinceEpoch}-${_actionSeq++}',
+          at: now,
+          action: action,
+          entityId: entity.entityId,
+          entityName: entityName ?? entity.displayName,
+          deviceId: deviceId,
+          deviceName:
+              deviceId == null ? null : state.registry.devices[deviceId]?.name,
+          areaId: areaId,
+          areaName: areaId == null ? null : _areaNameOf(areaId),
+          value: _trimReportValue(value),
+          previousValue: _trimReportValue(previousValue),
+          success: success,
+          error: error,
+          cardName: cardName,
+          buttonId:
+              buttonId ?? (action == 'press' ? entity.entityId : null),
+          trigger: _actionTrigger(scene),
+          scene: scene,
+        ),
+      );
+    } catch (_) {
+      // 上报不可用（例如通道未启动/序列化失败）时不打断控制。
+    }
+  }
+
+  /// 卡片点击进入详情时调用；路由跳转本身不经过 HA，因此单独上报。
+  void reportCardOpened(HaDeviceGroup group) {
+    if (group.deviceId == null) return;
+    final HaEntityStateModel entity = group.primary ?? group.entities.first;
+    _reportAction(
+      entity: entity,
+      action: 'open_device_detail',
+      success: true,
+      value: group.title,
+      entityName: group.title,
+      cardName: group.title,
+    );
+  }
+
+  String? _areaNameOf(String areaId) {
+    for (final HaArea area in state.registry.areas) {
+      if (area.areaId == areaId) return area.name;
+    }
+    return null;
+  }
+
+  String _actionTrigger(SceneSnapshot? scene) {
+    if (scene == null) return 'unknown';
+    if (scene.kind == SceneKind.deviceDetail) return 'device_detail';
+    if (scene.kind == SceneKind.home) return 'home_card';
+    return 'unknown';
+  }
+
+  /// 文本类设置值可能很长/含隐私内容，上报时截断。
+  Object? _trimReportValue(Object? value) {
+    if (value is String && value.length > 120) {
+      return '${value.substring(0, 117)}...';
+    }
+    return value;
   }
 
   /// 乐观更新单个实体属性，失败时回滚并写入错误。
@@ -915,6 +1098,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     required HaEntityStateModel current,
     required HaEntityStateModel patched,
     required Future<void> Function() action,
+    required String actionCode,
+    Object? value,
+    Object? previousValue,
     Completer<bool>? completer,
   }) async {
     emit(
@@ -928,6 +1114,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
     try {
       await action();
+      _reportAction(
+        entity: current,
+        action: actionCode,
+        success: true,
+        value: value,
+        previousValue: previousValue,
+      );
       completeBlocEvent(completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error(
@@ -944,6 +1137,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           errorMessage: mapHaErrorToMessage(e),
           errorType: e.toNetErrorType(),
         ),
+      );
+      _reportAction(
+        entity: current,
+        action: actionCode,
+        success: false,
+        value: value,
+        previousValue: previousValue,
+        error: mapHaErrorToMessage(e),
       );
       completeBlocEvent(completer, success: false);
     }

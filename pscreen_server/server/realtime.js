@@ -7,10 +7,13 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const MAX_HISTORY = 20000;
+const MAX_EVENTS = 5000;
 const MAX_BODY_LENGTH = 16 * 1024;
+const MAX_EVENT_DATA_LENGTH = 16 * 1024;
 const MAX_OUTBOX = 200;
 const HEARTBEAT_MS = 30000;
 const ACCOUNT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+const EVENT_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 /** 逐帧调试日志开关：REALTIME_DEBUG=1 时打印每个入站帧及请求类命令。 */
 const DEBUG = process.env.REALTIME_DEBUG === '1';
@@ -69,6 +72,23 @@ function loadHistory(file) {
     return records.length > MAX_HISTORY ? records.slice(records.length - MAX_HISTORY) : records;
 }
 
+/** 读取结构化事件 JSONL，仅保留尾部最近 MAX_EVENTS 条。 */
+function loadEvents(file) {
+    const records = [];
+    if (!fs.existsSync(file)) return records;
+    for (const line of readTail(file, MAX_EVENTS).split('\n')) {
+        const raw = line.trim();
+        if (!raw) continue;
+        try {
+            const item = JSON.parse(raw);
+            if (item && item.id && item.from && item.event) records.push(item);
+        } catch (_) {
+            // 跳过损坏行
+        }
+    }
+    return records.length > MAX_EVENTS ? records.slice(records.length - MAX_EVENTS) : records;
+}
+
 function readJson(file, fallback) {
     try {
         if (!fs.existsSync(file)) return fallback;
@@ -88,6 +108,7 @@ function attachRealtime(httpServer, options = {}) {
     const token = options.token || '12345678';
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
     const historyFile = path.join(dataDir, 'history.jsonl');
+    const eventsFile = path.join(dataDir, 'events.jsonl');
     const outboxDir = path.join(dataDir, 'outbox');
     const readsDir = path.join(dataDir, 'reads');
 
@@ -97,6 +118,7 @@ function attachRealtime(httpServer, options = {}) {
     /** account -> Set<WebSocket> */
     const connections = new Map();
     const history = loadHistory(historyFile);
+    const events = loadEvents(eventsFile);
 
     const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 });
 
@@ -173,6 +195,28 @@ function attachRealtime(httpServer, options = {}) {
         } catch (error) {
             console.error('[realtime] persist history failed:', error.message);
         }
+    }
+
+    /** 结构化事件与聊天历史分开存放，避免动作/场景上报污染会话列表。 */
+    function persistEvent(record) {
+        events.push(record);
+        if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+        try {
+            fs.appendFileSync(eventsFile, `${JSON.stringify(record)}\n`);
+        } catch (error) {
+            console.error('[realtime] persist event failed:', error.message);
+        }
+    }
+
+    function eventsFor(account, frame) {
+        const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 100, 1), 200);
+        const eventName = typeof frame.event === 'string' ? frame.event.trim() : '';
+        const since = Math.max(parseInt(frame.since, 10) || 0, 0);
+        return events
+            .filter((item) => item.from === account || item.to === account)
+            .filter((item) => !eventName || item.event === eventName)
+            .filter((item) => !since || item.ts > since)
+            .slice(-limit);
     }
 
     /** account -> 已读游标，启动后只在内存更新，不再每次读盘 */
@@ -374,6 +418,92 @@ function attachRealtime(httpServer, options = {}) {
                     break;
                 }
 
+                case 'event': {
+                    const eventName = typeof frame.event === 'string' ? frame.event.trim() : '';
+                    const clientId = typeof frame.id === 'string' ? frame.id : '';
+                    const to = typeof frame.to === 'string' ? frame.to.trim() : '';
+                    const reject = (reason) => {
+                        console.warn(`[realtime] bad event from ${account}: ${reason}`);
+                        sendJson(ws, {
+                            t: 'result',
+                            id: clientId,
+                            ok: false,
+                            error: reason,
+                            ts: Date.now(),
+                        });
+                    };
+                    if (!EVENT_NAME_PATTERN.test(eventName)) {
+                        reject(`invalid name "${eventName}"`);
+                        return;
+                    }
+                    if (to && !ACCOUNT_PATTERN.test(to)) {
+                        reject(`invalid target "${to}"`);
+                        return;
+                    }
+                    if (frame.data !== undefined && (frame.data === null || typeof frame.data !== 'object' || Array.isArray(frame.data))) {
+                        reject('data must be an object');
+                        return;
+                    }
+                    const data = frame.data || {};
+                    let dataText;
+                    try {
+                        dataText = JSON.stringify(data);
+                    } catch (_) {
+                        reject('data is not serializable');
+                        return;
+                    }
+                    if (dataText.length > MAX_EVENT_DATA_LENGTH) {
+                        reject(`data too large len=${dataText.length}`);
+                        return;
+                    }
+
+                    const record = {
+                        id: clientId || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                        from: account,
+                        to,
+                        event: eventName,
+                        data,
+                        ts: Date.now(),
+                    };
+                    persistEvent(record);
+
+                    let delivered = false;
+                    if (to) {
+                        const targets = connections.get(to);
+                        if (targets) {
+                            for (const target of targets) {
+                                sendJson(target, { t: 'event', ...record });
+                                delivered = true;
+                            }
+                        }
+                    }
+                    console.log(
+                        `[realtime] event ${account} event=${eventName} to=${to || '-'} id=${record.id} ` +
+                        `bytes=${dataText.length} delivered=${delivered}`,
+                    );
+
+                    sendJson(ws, {
+                        t: 'result',
+                        id: clientId,
+                        eventId: record.id,
+                        ok: true,
+                        delivered,
+                        ts: record.ts,
+                    });
+                    break;
+                }
+
+                case 'events': {
+                    const items = eventsFor(account, frame);
+                    sendJson(ws, {
+                        t: 'events',
+                        id: frame.id,
+                        items,
+                    });
+                    log(`events ${account} count=${items.length}`);
+                    break;
+                }
+
                 case 'history': {
                     const peer = typeof frame.peer === 'string' ? frame.peer.trim() : '';
                     const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 50, 1), 200);
@@ -466,7 +596,7 @@ function attachRealtime(httpServer, options = {}) {
     const stats = setInterval(() => {
         console.log(
             `[realtime] stats clients=${wss.clients.size} accounts=${connections.size} ` +
-            `history=${history.length} online=[${onlineAccounts().join(',')}]`,
+            `history=${history.length} events=${events.length} online=[${onlineAccounts().join(',')}]`,
         );
     }, 60000);
     stats.unref();

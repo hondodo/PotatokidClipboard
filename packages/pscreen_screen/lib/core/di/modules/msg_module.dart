@@ -25,6 +25,18 @@ class RealtimeMessageSender implements MessageSender {
     required String text,
   }) =>
       _channel.sendText(to: toAccount, body: text);
+
+  @override
+  Future<bool> sendEvent({
+    required String toAccount,
+    required String event,
+    Map<String, Object?>? data,
+  }) =>
+      _channel.sendEvent(
+        to: toAccount,
+        event: event,
+        data: data == null ? null : Map<String, dynamic>.from(data),
+      );
 }
 
 /// 消息模块：收消息路由 + 上报服务（依赖 RemoteModule 的 [RemoteLoginBloc]
@@ -72,11 +84,17 @@ class MsgModule {
     // 连接态边沿驱动上报启停。
     _stateSub = it<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
       if (state.status == RemoteLoginStatus.loggedIn) {
-        if (_lastStartedAccount != state.account) {
+        // 中控屏以 ControlSettings 账号（controller）连接主通道，
+        // 但 RemoteLoginBloc 可能没有账号；优先使用通道实际账号。
+        final String channelAccount = it<RealtimeChannel>().account.trim();
+        final String account =
+            channelAccount.isNotEmpty ? channelAccount : state.account;
+        if (account.isEmpty) return;
+        if (_lastStartedAccount != account) {
           reporting.stop();
-          _lastStartedAccount = state.account;
+          _lastStartedAccount = account;
         }
-        unawaited(reporting.start(state.account));
+        unawaited(reporting.start(account));
       } else if (state.status == RemoteLoginStatus.notConfigured ||
           state.status == RemoteLoginStatus.error) {
         reporting.stop();

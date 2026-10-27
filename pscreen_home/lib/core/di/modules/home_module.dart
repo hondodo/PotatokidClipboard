@@ -5,8 +5,11 @@ import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/domain/repositories/connection_repository.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
+import 'package:pscreen_home/features/home/application/ha_action_report.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_home/features/home/data/cache/file_home_state_cache.dart';
 import 'package:pscreen_home/features/home/data/cache/settings_registry_cache.dart';
 import 'package:pscreen_home/features/home/data/repositories/home_repository_impl.dart';
@@ -53,6 +56,9 @@ class HomeModule {
         store: getIt<MetricHistoryStore>(),
       ),
     );
+    getIt.registerLazySingleton<HaActionReporter>(
+      () => ReportingHaActionReporter(getIt<ReportingService>()),
+    );
     // HomeBloc 用单例：主页是唯一消费方，连接恢复后由页面重新 LoadHome。
     getIt.registerLazySingleton<HomeBloc>(
       () => HomeBloc(
@@ -62,12 +68,15 @@ class HomeModule {
         stateCache: getIt<HomeStateCache>(),
         registryCache: getIt<RegistryCache>(),
         connection: getIt<ConnectionRepository>(),
+        actionReporter: getIt<HaActionReporter>(),
+        sceneProvider: getIt<CurrentSceneProvider>(),
       ),
     );
   }
 
   static Future<void> unregister() async {
     await getIt.unregister<HomeBloc>();
+    await getIt.unregister<HaActionReporter>();
     await getIt.unregister<HistoryService>();
     await getIt.unregister<MetricSampler>();
     await getIt.unregister<MetricHistoryStore>();
