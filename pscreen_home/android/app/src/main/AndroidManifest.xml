@@ -13,10 +13,14 @@
         android:usesCleartextTraffic="true">
         <!-- Android 9+ 默认禁止明文流量，而墙控面板连接的局域网 Home Assistant
              通常是 http://192.168.x.x:8123 → ws:// 明文 WebSocket，必须放行 -->
+        <!-- 本应用同时注册了 HOME 和 LAUNCHER。singleTop 只保证同一任务栈顶部
+             不重复，从桌面图标再启动仍可能新建 Task/FlutterActivity，进而产生
+             第二个 FlutterEngine 和第二个 RealtimeChannel；必须使用 singleTask
+             保证进程内只有一个界面实例。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
