@@ -146,6 +146,13 @@ class RealtimeChannel {
   int _attempt = 0;
   int _seq = 0;
   String? _lastError;
+  DateTime _lastFrameAt = DateTime.now();
+
+  /// 连续这么久没有收到任何服务端帧，就认为连接已半开，主动重连。
+  ///
+  /// 客户端每 25 秒发一次应用层 ping，服务端会回 pong；60 秒相当于
+  /// 连续错过两次 pong，避免把偶发延迟误判为断线。
+  static const Duration _pongTimeout = Duration(seconds: 60);
 
   Stream<RealtimeConnectionState> get connectionState => _stateController.stream;
   Stream<RealtimeMessage> get messages => _messageController.stream;
@@ -208,6 +215,9 @@ class RealtimeChannel {
     _subscription = null;
     _channel = null;
     _online.clear();
+    // 主动断开意味着退出当前账号；保留账号会让上报模块把“手动退出”
+    // 误判成临时断线，继续向旧账号发送心跳。
+    _account = '';
     await sub?.cancel();
     try {
       await channel?.sink.close();
@@ -349,6 +359,7 @@ class RealtimeChannel {
         cancelOnError: false,
       );
       _attempt = 0;
+      _lastFrameAt = DateTime.now();
       _startPing();
       Log.i('[RealtimeChannel] 已连接 $_url（$_account / $_role）');
       return true;
@@ -367,6 +378,8 @@ class RealtimeChannel {
   void _handleFrame(dynamic raw) {
     final Map<String, dynamic>? frame = _decode(raw);
     if (frame == null) return;
+    // 任何服务端帧（包括 pong / presence）都说明链路有响应。
+    _lastFrameAt = DateTime.now();
     switch (frame['t']) {
       case 'ready':
         final List<dynamic> online =
@@ -398,7 +411,9 @@ class RealtimeChannel {
       case 'conversations':
         final String id = '${frame['id'] ?? ''}';
         final Completer<Map<String, dynamic>>? completer = _pending[id];
-        if (completer != null && !completer.isCompleted) completer.complete(frame);
+        if (completer != null && !completer.isCompleted) {
+          completer.complete(frame);
+        }
         break;
 
       case 'presence':
@@ -464,6 +479,17 @@ class RealtimeChannel {
     _scheduleReconnect();
   }
 
+  /// 半开连接兜底：socket 还没触发 onDone，但已经收不到任何 pong/帧。
+  void _handlePongTimeout() {
+    if (_manualClose) return;
+    _lastError = 'pong timeout';
+    Log.warn('[RealtimeChannel] ${_pongTimeout.inSeconds}s 未收到服务端帧，主动重连');
+    _readyGate?.complete(false);
+    _setState(RealtimeConnectionState.disconnected);
+    _closeSocket();
+    _scheduleReconnect();
+  }
+
   void _scheduleReconnect() {
     if (_manualClose || _account.isEmpty) return;
     if (_reconnectTimer?.isActive ?? false) return;
@@ -479,6 +505,12 @@ class RealtimeChannel {
   void _startPing() {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      // 连接还没 ready 时由握手超时处理；不要在 connecting 状态误判。
+      if (!isConnected) return;
+      if (DateTime.now().difference(_lastFrameAt) >= _pongTimeout) {
+        _handlePongTimeout();
+        return;
+      }
       _send(<String, dynamic>{'t': 'ping'});
     });
   }

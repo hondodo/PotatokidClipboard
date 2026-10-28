@@ -95,8 +95,12 @@ class MsgModule {
           _lastStartedAccount = account;
         }
         unawaited(reporting.start(account));
-      } else if (state.status == RemoteLoginStatus.notConfigured ||
-          state.status == RemoteLoginStatus.error) {
+      } else if (state.status == RemoteLoginStatus.error ||
+          (state.status == RemoteLoginStatus.notConfigured &&
+              it<RealtimeChannel>().account.trim().isEmpty)) {
+        // 中控屏的 RemoteLoginBloc 可能没有 AppSettings 账号，断线时会先变成
+        // notConfigured。只要通道仍保留账号，这就是临时断线，不能停上报；
+        // 否则重连后 start() 会重新发送「登录成功」。
         reporting.stop();
         _lastStartedAccount = '';
       }
