@@ -150,6 +150,25 @@ function attachRealtime(httpServer, options = {}) {
         return Array.from(connections.keys());
     }
 
+    // 当前在线端明细（账号 + 设备号 + app/version/build）：
+    // presence 只在对方新连接时广播，页面刷新后拿不到已有在线端的标识，
+    // 故在 ready 帧附带 roster，加载即填充。
+    function onlineRoster() {
+        const roster = [];
+        for (const [account, sockets] of connections.entries()) {
+            const sock = Array.from(sockets).find((s) => s.deviceId || s.app) || Array.from(sockets)[0];
+            if (!sock) continue;
+            roster.push({
+                account,
+                deviceId: sock.deviceId || '',
+                app: sock.app || '',
+                version: sock.version || '',
+                build: sock.build || '',
+            });
+        }
+        return roster;
+    }
+
     function outboxPath(account) {
         return path.join(outboxDir, `${account}.json`);
     }
@@ -328,10 +347,11 @@ function attachRealtime(httpServer, options = {}) {
         ws.version = version;
         ws.build = build;
 
-        // ws 握手带 deviceId 时，把当前通信账号回写到 admin 设备表（machines.json.commAccount）。
-        if (deviceId && typeof options.setCommAccount === 'function') {
+        // ws 握手带 deviceId 时，把通信账号与客户端标识（app/version/build）
+        // 一并回写到 admin 设备表（machines.json.commAccount/commApp/…）。
+        if (deviceId && typeof options.setCommInfo === 'function') {
             try {
-                options.setCommAccount(deviceId, account);
+                options.setCommInfo(deviceId, { account, app, version, build });
             } catch (error) {
                 console.warn('[realtime] 记录通信账号失败:', error.message);
             }
@@ -358,6 +378,7 @@ function attachRealtime(httpServer, options = {}) {
             version,
             build,
             online: onlineAccounts(),
+            roster: onlineRoster(),
             serverTime: Date.now(),
         });
         flushOffline(account);

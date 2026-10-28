@@ -338,6 +338,12 @@
       background: var(--accent-soft);
     }
 
+    /* app/版本标识独立行：与账号行分开，避免右侧拥挤截断。 */
+    .account-client {
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+
     .account-preview {
       margin-top: 3px;
       color: var(--muted-2);
@@ -1226,6 +1232,17 @@
             }
             rememberClientInfo(state.account, frame);
             state.online = new Set((Array.isArray(frame.online) ? frame.online : []).map(String));
+            // roster：服务端下发的在线端明细（设备号 + app/version/build）。
+            // presence 只在对方新连接时广播，刷新页面后靠它补齐已有在线端标识。
+            if (Array.isArray(frame.roster)) {
+              for (const item of frame.roster) {
+                if (!item || typeof item.account !== 'string' || !item.account) continue;
+                if (typeof item.deviceId === 'string' && item.deviceId) {
+                  state.deviceIds.set(item.account, item.deviceId);
+                }
+                rememberClientInfo(item.account, item);
+              }
+            }
             setStatus('connected', `已连接 · ${onlineCount()} 个在线`);
             renderAll();
             refreshAll();
@@ -1533,12 +1550,15 @@
           line.append(chip);
         }
         const client = isAll ? '' : clientLabel(peer.account);
+        main.append(line);
+        // app/版本标识较长，独立一行，避免与账号/设备 chip 挤在右侧被截断。
         if (client) {
+          const clientLine = el('div', 'account-line account-client');
           const chip = el('span', 'tag', client);
           chip.title = client;
-          line.append(chip);
+          clientLine.append(chip);
+          main.append(clientLine);
         }
-        main.append(line);
         main.append(el('div', 'account-preview', peer.last || '暂无消息'));
 
         const side = el('div', 'account-side');

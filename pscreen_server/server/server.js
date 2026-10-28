@@ -1738,7 +1738,7 @@ realtimeHandle = attachRealtime(httpServer, {
     path: config.realtime.path,
     accountStore,
     dataDir: path.join(__dirname, config.realtime.dataDir),
-    setCommAccount: adminHandle.setCommAccount,
+    setCommInfo: adminHandle.setCommInfo,
 });
 httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);

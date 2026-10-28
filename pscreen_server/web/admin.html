@@ -580,6 +580,24 @@
     return '未配置';
   }
 
+  // 通信账号列：第一行账号，第二行 ws 握手回写的客户端标识（app v版本+构建）。
+  function commCell(machine) {
+    if (!machine.commAccount && !machine.commApp) return '<span class="muted">—</span>';
+    let label = '';
+    if (machine.commApp) {
+      label = esc(machine.commApp);
+      if (machine.commVersion) {
+        label += ` v${esc(machine.commVersion)}`;
+        if (machine.commBuild) label += `+${esc(machine.commBuild)}`;
+      }
+    }
+    return `
+      <div class="cell-stack">
+        ${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">—</span>'}
+        ${label ? `<span class="muted">${label}</span>` : ''}
+      </div>`;
+  }
+
   function renderMachines() {
     const body = $('machines-body');
     const machines = state.overview.machines || [];
@@ -604,7 +622,7 @@
             </div>
           </td>
           <td><select data-action="owner">${ownerOptions}</select></td>
-          <td>${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">—</span>'}</td>
+          <td>${commCell(machine)}</td>
           <td>
             <div class="cell-stack">
               ${homesBadges(machine.effectiveHomes, machine.homesSource)}

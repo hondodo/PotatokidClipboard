@@ -301,6 +301,10 @@ function attachAdmin(app, options = {}) {
                 : [],
             haConnected: machine.haConnected === true,
             commAccount: typeof machine.commAccount === 'string' ? machine.commAccount.slice(0, 64) : '',
+            // ws 握手回写的客户端标识（包名 / 版本 / 构建号），区分控制端形态。
+            commApp: typeof machine.commApp === 'string' ? machine.commApp.slice(0, 64) : '',
+            commVersion: typeof machine.commVersion === 'string' ? machine.commVersion.slice(0, 32) : '',
+            commBuild: typeof machine.commBuild === 'string' ? machine.commBuild.slice(0, 32) : '',
             firstSeen: Number(machine.firstSeen) || 0,
             lastSeen: Number(machine.lastSeen) || 0,
         };
@@ -866,24 +870,31 @@ function attachAdmin(app, options = {}) {
     });
 
     console.log(`[admin] Admin 页面: /admin（管理员账号: ${ADMIN_USERNAME}）`);
-    // ws 握手成功后由 realtime 回写设备的通信账号（仅更新已注册设备，不新建）。
+    // ws 握手成功后由 realtime 回写设备的通信账号与客户端标识
+    // （app / version / build，仅更新已注册设备，不新建）。
     // 客户端 ws 上报的是 16hex 设备号；admin 表主键可能是 `android_<hex>` /
     // `gen_<hex>` 这类带前缀形式，故先精确匹配再按后缀匹配。
-    function setCommAccount(deviceId, account) {
+    function setCommInfo(deviceId, comm) {
         const id = safeDeviceId(deviceId);
-        const next = typeof account === 'string' ? account.trim().slice(0, 64) : '';
-        if (!id || !next) return;
+        const info = comm && typeof comm === 'object' ? comm : {};
+        const next = {
+            commAccount: typeof info.account === 'string' ? info.account.trim().slice(0, 64) : '',
+            commApp: typeof info.app === 'string' ? info.app.trim().slice(0, 64) : '',
+            commVersion: typeof info.version === 'string' ? info.version.trim().slice(0, 32) : '',
+            commBuild: typeof info.build === 'string' ? info.build.trim().slice(0, 32) : '',
+        };
+        if (!id || !Object.values(next).some((value) => value)) return;
         const machines = readMachines();
         const key = machines[id]
             ? id
             : Object.keys(machines).find((candidate) => candidate.endsWith(id));
         const machine = key ? machines[key] : null;
-        if (!machine || machine.commAccount === next) return;
-        machine.commAccount = next;
+        if (!machine || Object.entries(next).every(([field, value]) => machine[field] === value)) return;
+        Object.assign(machine, next);
         machines[key] = normalizeMachine(key, machine);
         saveMachines(machines);
     }
-    return { adminDir, ADMIN_USERNAME, setCommAccount };
+    return { adminDir, ADMIN_USERNAME, setCommInfo };
 }
 
 module.exports = { attachAdmin, ADMIN_USERNAME };
