@@ -59,6 +59,9 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 天气城市（空串 = 自动，按出口 IP 定位）。
   String _weatherCity = AppSettings.instance.weatherCity;
 
+  /// 播放器解码方式：true = 硬解（HWDEC），false = 软解（默认，与电视端一致）。
+  bool _hwdecEnabled = AppSettings.instance.hwdecEnabled;
+
   @override
   void initState() {
     super.initState();
@@ -82,7 +85,10 @@ class _SettingsPageState extends State<SettingsPage> {
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
       if (!mounted) return;
-      setState(() => _weatherCity = AppSettings.instance.weatherCity);
+      setState(() {
+        _weatherCity = AppSettings.instance.weatherCity;
+        _hwdecEnabled = AppSettings.instance.hwdecEnabled;
+      });
     });
   }
 
@@ -289,6 +295,13 @@ class _SettingsPageState extends State<SettingsPage> {
     await AppSettings.instance.setWeatherCity(city);
     if (!mounted) return;
     context.read<WeatherBloc>().add(const LoadWeather());
+  }
+
+  /// 播放器解码方式：持久化到共享包 [AppSettings]（与电视端同一份设置）。
+  /// 直播页每次打开流前读取该值设置 mpv 的 hwdec，切换后下次换台/换源生效。
+  Future<void> _applyHwdec(bool enabled) async {
+    setState(() => _hwdecEnabled = enabled);
+    await AppSettings.instance.setHwdecEnabled(enabled);
   }
 
   /// 界面缩放：松手后应用（拖动过程中实时改倍数会让滑块在手指下变大变小，
@@ -524,6 +537,30 @@ class _SettingsPageState extends State<SettingsPage> {
                   onSelected: (_) => _applyWallpaperMinutes(minutes),
                 ),
             ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '播放器解码',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '直播播放器的视频解码方式。默认软解（FFmpeg），兼容性最好、与电视端一致；'
+            '硬解由 GPU 解码，CPU 占用低但部分机型兼容性差，播放异常时切回软解即可。切换后下次换台/换源生效。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.memory_rounded),
+            title: const Text('硬件解码（硬解）'),
+            subtitle: const Text('关闭为软解（默认）'),
+            value: _hwdecEnabled,
+            onChanged: _applyHwdec,
           ),
           const SizedBox(height: 24),
           Text(

@@ -20,6 +20,9 @@ import 'package:pscreen_screen/features/iptv/application/channel_number_input_co
 import 'package:pscreen_screen/features/iptv/application/channel_source_cache.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
+import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/data/datasources/remote/proxy_pool_service.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
@@ -28,12 +31,6 @@ import 'package:potatokid_screen/features/iptv/presentation/components/direction
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
-
-/// 当前源的媒体类型（**只在运行时按真实轨道判定**，不看地址/名称）：
-/// - [unknown]：刚打开，尚未判定，一律按**视频**的严格标准要求（默认视频）；
-/// - [video]：确认存在真实视频轨（或已出画面）；
-/// - [audio]：确认无视频轨，只有音频（广播台），看门狗改用宽松标准。
-enum _MediaKind { unknown, video, audio }
 
 /// 全屏直播播放组件：持有 [Player]/[VideoController]，进入自动播放首个频道。
 ///
@@ -62,51 +59,52 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 打开频道请求的序号（见 `_openChannel`）：用于丢弃 await 期间已过期的打开请求。
   int _openSeq = 0;
 
-  /// 当前频道正使用的源序号（同频道多源，失败时递增回退）。
-  int _currentSource = 0;
-  bool _handleFailureBusy = false;
   DateTime _lastOpenAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 本轮已试过的源序号：集齐该频道所有源即「一轮失败」，需要退避后再进下一轮。
-  final Set<int> _triedSourcesThisRound = <int>{};
+  /// 播放失败重试状态机（共享包 `PlaybackRetryController`）：700ms 冷却、
+  /// 多源循环回退、一轮判定与 1→2→4→8s 退避都在它内部；换路由（代理）
+  /// 经 `retryWithRoute` 回调注入，失败现场上报经 `onEnterRetry` 注入。
+  late final PlaybackRetryController _retry;
 
-  /// 连续失败到「一整轮都没打开」的轮数：决定回到第一个源之前等多久。
-  int _failedRounds = 0;
+  /// 媒体类型判定（共享包 `MediaKindProbe`）：只看真实轨道区分音频台/视频台，
+  /// 结论与证据（[_playedVideo] / [_audioParamsReady]）都读它。
+  late final MediaKindProbe _probe;
 
-  /// 一整轮（该频道所有源都试过）都打不开后，回到第一个源之前的基础等待。
-  static const Duration _roundRetryBaseDelay = Duration(seconds: 1);
+  /// 「打开后长时间无画面」看门狗（共享包 `PlaybackWatchdog`）：
+  /// 超时取 [_hangTimeoutNow]，到期按媒体类型分流结算，
+  /// 坏源经 [_onPlaybackIssue] 进入重试。
+  late final PlaybackWatchdog _watchdog;
 
-  /// 退避的翻倍上限：1s → 2s → 4s → 8s。设为 0 即固定 1 秒不翻倍。
-  static const int _maxRoundRetryShift = 3;
+  /// 当前正在播放的源序号（真值在重试状态机里，见 `PlaybackRetryController.sourceIndex`）。
+  int get _currentSource => _retry.sourceIndex;
+
+  /// 媒体类型判定结论（见 `MediaKindProbe.kind`）。
+  MediaKind get _mediaKind => _probe.kind;
+
+  /// 黑屏判定：是否出现过真实视频帧（width>0）。
+  bool get _playedVideo => _probe.playedVideo;
+
+  /// 音频输出参数是否已就绪（音频节目「已出声音」的证据）。
+  bool get _audioParamsReady => _probe.audioParamsReady;
 
   StreamSubscription<String>? _errorSub;
   StreamSubscription<bool>? _completedSub;
 
-  /// 打开某源后若迟迟未进入播放的超时看门狗（解决“连了很久没反应”）。
-  Timer? _hangWatchdog;
+  /// 打开源后迟迟无画面/无声音的看门狗超时（解决“连了很久没反应”）。
   static const Duration _hangTimeout = Duration(seconds: 60);
 
   /// 代理重试时的对应超时：免费代理普遍慢/不通，缩短以便尽快换下一个。
   static const Duration _proxyHangTimeout = Duration(seconds: 20);
 
-  /// 当前生效的看门狗超时（代理模式更短）。
+  /// 当前生效的看门狗超时（代理模式更短），供 [PlaybackWatchdog] 取值。
   Duration get _hangTimeoutNow => _proxyUrl == null ? _hangTimeout : _proxyHangTimeout;
 
-  /// 进入播放即取消看门狗。
+  /// 进入播放即推进看门狗结算。
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<int?>? _widthSub;
 
-  /// 黑屏判定：是否出现过真实视频帧（width>0）。
-  bool _playedVideo = false;
-
   /// 当前源是否已记录过一次「忽略音频解码错误」，避免同一错误反复刷日志。
   bool _audioDecodeErrorLogged = false;
-
-  /// 当前源的媒体类型判定结果。默认 [_MediaKind.unknown] → 按视频（严格）处理。
-  ///
-  /// 注意：**界面显示**不只看它是否为 audio —— [unknown]（还在连接）也显示音频界面，
-  /// 见下方 `_AudioNowPlaying` 的 `visible`；它只决定「声条跳不跳」和看门狗标准。
-  _MediaKind _mediaKind = _MediaKind.unknown;
 
   /// 声条是否跳动（只由 [_syncBarsActive] 更新）。
   ///
@@ -114,35 +112,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// [Video] 一起重建，切台时画面会闪。
   final ValueNotifier<bool> _barsActiveVN = ValueNotifier<bool>(false);
 
-  /// 是否已收到过「真实视频轨」（排除 `auto`/`no` 以及封面图 albumart）。
-  bool _hasVideoTrack = false;
-
-  /// 当前源是否已上报过「播放成功」（音频源靠看门狗确认时去重）。
-  bool _kindSuccessRecorded = false;
-
-  /// 媒体类型判定的**兜底**计时器。
-  ///
-  /// 正常路径由轨道表立刻定论（见 `_tracksSub`），这个计时器只在
-  /// 「轨道表一直没给出可用结论」时兜一下，避免 [unknown] 永远悬着 ——
-  /// 那会让看门狗到期后无法结算，坏源就卡在黑屏上不切走了。
-  Timer? _kindProbeTimer;
-
-  /// 兜底判定窗口：这么久了轨道表还没结论，就按音频处理（宽松标准）。
-  static const Duration _kindProbeTimeout = Duration(seconds: 8);
-  static const Duration _proxyKindProbeTimeout = Duration(seconds: 8);
-
-  /// 等待判定时挂起的完成回调（供「看门狗到期」时按最终判定处理）。
-  VoidCallback? _pendingKindResolve;
-
-  /// 轨道 / 音频参数订阅（用于运行时区分音频与视频节目）。
+  /// 轨道 / 音频参数订阅（供共享判定器 [_probe] 取证）。
   StreamSubscription<Tracks>? _tracksSub;
   StreamSubscription<AudioParams>? _audioParamsSub;
-
-  /// 音频输出参数是否已就绪（音频节目「已出声音」的证据）。
-  bool _audioParamsReady = false;
-
-  /// 当前生效的判定窗口。
-  Duration get _kindProbeTimeoutNow => _proxyUrl == null ? _kindProbeTimeout : _proxyKindProbeTimeout;
 
   /// 「持续缓冲卡死」检测：playing 且 buffering 连续累计超阈值才回退。
   Timer? _bufferStallWatch;
@@ -192,6 +164,51 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     // 硬件解码：默认关闭（TV 设备兼容性考虑），用户可在「我的」页开启。
     // 需等 AppSettings 加载完成后再设置，确保值正确；_playCurrentSource 会等 _hwdecReady。
     _hwdecReady = _applyHwdecSetting(player);
+    // ---- 共享包三件套（媒体判定 / 看门狗 / 重试状态机），先建再挂订阅 ----
+    _probe = MediaKindProbe(onChanged: _onProbeChanged);
+    _watchdog = PlaybackWatchdog(
+      probe: _probe,
+      isPlaying: () => _player?.state.playing ?? false,
+      onIssue: (String reason) => _onPlaybackIssue(reason: reason),
+      timeoutOf: () => _hangTimeoutNow,
+      onTimeout: () {
+        // 到期现场最有诊断价值：一并记下播放器状态。
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 看门狗到期 频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1}) '
+          '媒体类型=${_mediaKind.name} playing=${_player?.state.playing ?? false} '
+          'buffering=${_player?.state.buffering} width=${_player?.state.width}',
+        );
+      },
+      onAudioEstablished: () {
+        // 音频节目确有输出 = 该频道可用：清理失效源的连续失败计数清零。
+        final IptvChannel? channel = _currentChannel();
+        if (channel != null) ChannelFailureGuard.instance.recordSuccess(channel.name);
+      },
+    );
+    _retry = PlaybackRetryController(
+      sourceCount: () => _currentChannel()?.sources.length ?? 0,
+      open: (int sourceIndex) => _playCurrentSource(),
+      // 失败现场（必须在换源 / 换代理之前）：上报 play_retry + 统计失效源。
+      onEnterRetry: (String reason) {
+        _reportPlayback('play_retry', reason: reason);
+        _recordInvalidSourceFailure(reason);
+      },
+      // 换路由 = 代理池重试同一源（见 [_retryWithRoute]）。
+      retryWithRoute: _retryWithRoute,
+      onBackoff: _onRoundBackoff,
+      onSourceChanged: (int sourceIndex, String reason) {
+        final IptvChannel? channel = _currentChannel();
+        if (channel != null) {
+          Injection.get<LogService>().info(
+            '[LivePlayerWidget] 切换频道:${channel.name},源'
+            '(${sourceIndex + 1}/${channel.sources.length})，原因: $reason',
+          );
+        }
+        // 已换到下一个源：刷新左下角的源序号提示。
+        if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
+      },
+      isActive: () => mounted,
+    );
     // 源播放失败/结束（completed=true）时尝试回退到下一个源。
     _errorSub = player.stream.error.listen((String msg) {
       final String trimmed = msg.trim();
@@ -224,11 +241,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _playingSub = player.stream.playing.listen((value) {
       if (value) {
         // 真的开始播放了：本轮退避清零，下次再坏重新从 1 秒起算。
-        _resetRound();
+        _retry.resetRound();
         _rememberCurrentSource();
       }
       // 音频节目的「已出声」证据之一；判定挂起时据此立即结算看门狗。
-      _resolveMediaKindIfDecided();
+      _watchdog.notifyState();
       // 真的进入播放了 → 声条可以开始跳。
       _syncBarsActive();
       // 进入播放是成功证据之一（视频仍需画面帧配合，见方法内判据）。
@@ -237,11 +254,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
     _widthSub = player.stream.width.listen((w) {
       if (w != null && w > 0) {
-        _playedVideo = true;
-        // 有画面即确认是视频节目（音频判定到此推翻，居中的音频封面随之淡出）。
-        _applyMediaKind(_MediaKind.video);
-        _kindProbeTimer?.cancel();
-        _hangWatchdog?.cancel();
+        // 出画面：判定为视频节目（音频判定到此推翻、兜底窗口取消），
+        // 并解除「打开后无画面」看门狗。
+        _probe.handleWidth(w);
+        _watchdog.cancel();
         // 出画面说明该频道可用：本轮「清理失效源」的连续失败计数清零。
         final IptvChannel? channel = _currentChannel();
         if (channel != null) {
@@ -252,54 +268,23 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       }
     });
     // 运行时区分「音频节目 / 视频节目」：只看真实轨道，不看地址与名称。
-    // mpv 的 tracks 恒含 `auto`/`no` 两条伪轨，必须排除；
-    // 纯音频文件常带封面图（albumart/image），这类也不算视频轨。
-    //
-    // 这里是**主要的判定入口**：轨道表在打开的瞬间就是完整的，
-    // 「有音频轨、没有视频轨」即可立刻断定是音频台，不用再干等判定窗口。
+    // 判定规则（排除 auto/no 伪轨与封面图、空表不作数、音频立即下结论、
+    // 兜底窗口）都在共享包 [MediaKindProbe] 里；结论变化经 [_onProbeChanged]
+    // 刷新界面并记日志。轨道表是判定主入口。
     _tracksSub = player.stream.tracks.listen((Tracks tracks) {
-      final bool hasRealVideo = tracks.video.any((VideoTrack t) {
-        if (t.id == 'auto' || t.id == 'no') return false;
-        return !(t.image ?? false) && !(t.albumart ?? false);
-      });
-      if (hasRealVideo) {
-        _hasVideoTrack = true;
-        if (_mediaKind != _MediaKind.video) {
-          _applyMediaKind(_MediaKind.video);
-          Injection.get<LogService>().info(
-            '[LivePlayerWidget] 媒体类型判定:视频节目(有真实视频轨) '
-            '频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1})',
-          );
-        }
-        _kindProbeTimer?.cancel();
-        _resolveMediaKindIfDecided();
-        return;
-      }
-      // 没有视频轨，但有真实音频轨 → 音频节目，立即下结论。
-      //
-      // 要求「得有音频轨」是为了排掉刚 open 时那张空轨道表：
-      // 若拿空表当依据，视频源会被误判成音频、闪一下广播界面。
-      final bool hasRealAudio = tracks.audio.any((AudioTrack t) => t.id != 'auto' && t.id != 'no');
-      if (hasRealAudio && _mediaKind != _MediaKind.audio) {
-        _applyMediaKind(_MediaKind.audio);
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] 媒体类型判定:音频节目(无视频轨) '
-          '频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1})',
-        );
-        // 结论已出，兜底窗口没用了。
-        _kindProbeTimer?.cancel();
-      }
-      _resolveMediaKindIfDecided();
+      _probe.handleTracks(tracks);
+      // 判定可能刚落定 → 推进挂起的看门狗结算。
+      _watchdog.notifyState();
     });
     // 音频输出参数就绪 → 音频节目的「确实出声了」证据。
     _audioParamsSub = player.stream.audioParams.listen((AudioParams p) {
       if (p.channelCount != null || p.sampleRate != null || p.format != null) {
-        _audioParamsReady = true;
-        _resolveMediaKindIfDecided();
+        _probe.handleAudioParams(p);
+        _watchdog.notifyState();
         // 音频输出参数就绪 → 确实在出声，声条开始跳。
         _syncBarsActive();
         // 音频节目「已出声」的成功证据之一。
-        if (_mediaKind == _MediaKind.audio) _maybeReportPlaybackOk();
+        if (_mediaKind == MediaKind.audio) _maybeReportPlaybackOk();
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
@@ -392,7 +377,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool hasFrame = (s.width ?? 0) > 0;
     final bool advanced = (s.position - resumePos) >= const Duration(milliseconds: 500);
     // 只有「判定为音频」才放宽视频帧要求；unknown 仍按视频严格处理（默认视频）。
-    final bool healthy = playing && advanced && (_mediaKind == _MediaKind.audio || hasFrame);
+    final bool healthy = playing && advanced && (_mediaKind == MediaKind.audio || hasFrame);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
       '媒体类型=${_mediaKind.name} '
@@ -467,9 +452,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool changed = index != _currentIndex;
     if (!force && !changed) return;
     _currentIndex = index;
-    _currentSource = 0;
-    // 换台是全新一轮试源：退避从 1 秒重新起算。
-    _resetRound();
+    // 换台是全新一轮试源：源序号回 0、退避从 1 秒重新起算，
+    // 并推进世代号，让退避中的过期回退自动作废。
+    _retry.resetForChannel(0);
     // 本次打开请求的序号：await 期间若又切了台，过期请求直接丢弃，
     // 避免两次 open 交错（重复 open/stop 正是长按卡顿的成因）。
     final int seq = ++_openSeq;
@@ -481,14 +466,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (!mounted || seq != _openSeq) return;
     if (preferred != null) {
       final int idx = widget.channels[index].sources.indexOf(preferred);
-      if (idx >= 0) _currentSource = idx;
+      if (idx >= 0) _retry.sourceIndex = idx;
     }
     if (mounted) setState(() {});
     if (changed || force) {
       // 切台时抑制旧流的 error/completing 干扰。
-      _handleFailureBusy = true;
+      _retry.setBusy(true);
       await _playCurrentSource();
-      _handleFailureBusy = false;
+      _retry.setBusy(false);
       _showChannelToast(_channelSourceLabel(withNumber: true));
     }
   }
@@ -557,8 +542,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         sourceTotal: channel.sources.length,
         sourceUrl: channel.sources[idx],
         reason: reason,
-        // _failedRounds 从 0 计：对外语义是「正在尝试第几轮」（1 起）。
-        round: _failedRounds + 1,
+        // failedRounds 从 0 计：对外语义是「正在尝试第几轮」（1 起）。
+        round: _retry.failedRounds + 1,
         viaProxy: _proxyUrl != null,
         elapsed: DateTime.now().difference(_lastOpenAt),
       );
@@ -571,7 +556,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 视频要出过真实画面帧（width>0），音频要已进入播放且类型已判定为音频。
   void _maybeReportPlaybackOk() {
     final bool playing = _player?.state.playing ?? false;
-    if (_playedVideo || (_mediaKind == _MediaKind.audio && playing)) {
+    if (_playedVideo || (_mediaKind == MediaKind.audio && playing)) {
       _reportPlayback('play_ok');
     }
   }
@@ -597,7 +582,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 交给看门狗与回退机制处理，避免「音轨坏 = 整个源不可用」的误判反过来漏掉真坏源。
   bool _isPlaybackHealthy() =>
       _playedVideo ||
-      _mediaKind == _MediaKind.video ||
+      _mediaKind == MediaKind.video ||
       (_player?.state.playing ?? false);
 
   /// 打开当前频道的当前源。
@@ -610,12 +595,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await _applyProxySetting(_proxyUrl);
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
+    // 刷新重试状态机的 700ms 冷却基准。
+    _retry.markOpen();
     // 每次 open 重新允许记录一次「忽略音频解码错误」。
     _audioDecodeErrorLogged = false;
     _bufferingAccum = Duration.zero; // 新源从零开始累计缓冲
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道。
-    _resetMediaKindProbe();
-    _startHangWatchdog();
+    _probe.reset();
+    // 此刻 playing 还是上一个源的值，声条直接停掉（新源真正出声再跳）。
+    _barsActiveVN.value = false;
+    _watchdog.arm();
     try {
       String source = channel.sources[idx];
       Injection.get<LogService>().info(
@@ -631,16 +620,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     }
   }
 
-  /// 更新媒体类型判定结果并刷新界面（音频界面要显示/淡出收音机层）。
+  /// 媒体类型判定结论变化（共享判定器 [_probe] 的 onChanged 回调）：
+  /// 刷新界面（音频界面要显示/淡出收音机层）并记一条判定日志。
   ///
-  /// 必须在轨道/判定回调里 setState：这些回调不经过 build，
+  /// 必须在判定回调里 setState：这些回调不经过 build，
   /// 不 setState 的话音频界面要等到别的重建时机才出现。
-  void _applyMediaKind(_MediaKind kind) {
-    if (_mediaKind != kind) {
-      _mediaKind = kind;
-      if (mounted) setState(() {});
+  void _onProbeChanged(MediaKind kind) {
+    if (mounted) setState(() {});
+    if (kind != MediaKind.unknown) {
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 媒体类型判定:${kind == MediaKind.audio ? '音频' : '视频'}节目 '
+        '频道${_currentChannel()?.name ?? '?'}源(${_currentSource + 1})',
+      );
     }
-    // 类型没变时也可能要更新声条（例如换源后重置回 unknown、或音频参数就绪）。
     _syncBarsActive();
   }
 
@@ -653,59 +645,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 音频的判定由轨道表立刻给出，所以这里基本不会出现「画面在播、声条却不跳」的延迟。
   void _syncBarsActive() {
     final bool outputReady = _audioParamsReady || (_player?.state.playing ?? false);
-    final bool active = _mediaKind == _MediaKind.audio && outputReady;
+    final bool active = _mediaKind == MediaKind.audio && outputReady;
     if (_barsActiveVN.value != active) _barsActiveVN.value = active;
-  }
-
-  /// 换源/换台后重置媒体类型判定，并挂上兜底计时器。
-  ///
-  /// 默认回到 [_MediaKind.unknown]（按视频的严格标准要求）：只有拿到确凿证据
-  /// （真实视频轨 / 真实音频轨 / 已出画面）才改变结论。
-  /// 重置同时会淡出音频封面（新源可能是视频，不能让收音机图标压在画面上）；
-  /// 声条也一并停掉，等新源真正出声的信号到了再跳。
-  void _resetMediaKindProbe() {
-    _kindProbeTimer?.cancel();
-    _hasVideoTrack = false;
-    _audioParamsReady = false;
-    _kindSuccessRecorded = false;
-    _pendingKindResolve = null;
-    _applyMediaKind(_MediaKind.unknown);
-    // 直接关掉声条：此刻 _player.state.playing 很可能还是**上一个源**的值
-    // （新源正在连接），靠 _syncBarsActive 的判据会误判成「已经在播」。
-    _barsActiveVN.value = false;
-    _kindProbeTimer = Timer(_kindProbeTimeoutNow, _onKindProbeTimeout);
-  }
-
-  /// 兜底判定：这么久了轨道表仍未给出结论，就按音频处理（宽松标准）。
-  ///
-  /// 正常情况走不到这里 —— 音频台在轨道表一到就判成音频了。
-  /// 兜底是为了让看门狗到期能结算：坏源（既没轨道也没出声）据此走
-  /// `_onPlaybackIssue` 回退下一个源，而不是一直卡在黑屏。
-  void _onKindProbeTimeout() {
-    if (!mounted) return;
-    if (_mediaKind != _MediaKind.unknown) return;
-    if (_hasVideoTrack || _playedVideo) return;
-    _applyMediaKind(_MediaKind.audio);
-    Injection.get<LogService>().info(
-      '[LivePlayerWidget] 媒体类型判定:音频节目(无视频轨) 频道${_currentChannel()?.name ?? '?'}'
-      '源(${_currentSource + 1})',
-    );
-    _resolveMediaKindIfDecided();
-  }
-
-  /// 判定已落定（音频且已出声 / 已确认视频）时，结算挂起的完成回调。
-  ///
-  /// 音频节目「确实在播」的证据是**已进入播放状态或音频输出参数就绪**，
-  /// 不能用 width>0（纯音频永远没有视频帧）。
-  void _resolveMediaKindIfDecided() {
-    if (_pendingKindResolve == null) return;
-    final bool decided =
-        _mediaKind == _MediaKind.video ||
-        (_mediaKind == _MediaKind.audio && (_audioParamsReady || _player?.state.playing == true));
-    if (!decided) return;
-    final VoidCallback? done = _pendingKindResolve;
-    _pendingKindResolve = null;
-    done?.call();
   }
 
   /// 设置/清除 mpv 的 HTTP 代理（`http-proxy`）。
@@ -767,178 +708,84 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     return '$name\n源 1/${channel.sources.length}';
   }
 
-  /// 启动“打开后长时间无画面”看门狗。
-  ///
-  /// 打开源后 [_hangTimeout]（直连 60 秒 / 代理 20 秒）内若既未开始播放、
-  /// 或一直没出现视频帧（黑屏），则回退下一个源。出现视频帧(width>0)即取消。
-  /// 特别注意：黑屏时 stream 的 position 仍可能推进，故**不用 position 作健康信号**。
-  ///
-  /// **音频节目分流**：判定为音频的源（广播台）本就没有视频帧，只要求
-  /// 「已进入播放或已出声」，不做「必须有视频帧」的断言；判定未定时
-  /// 先按视频严格处理（默认视频），判定窗口到期后自动改写类型再结算。
-  void _startHangWatchdog() {
-    // 重置健康信号，等待视频帧。
-    _playedVideo = false;
-    _hangWatchdog?.cancel();
-    final Duration timeout = _hangTimeoutNow;
-    _hangWatchdog = Timer(timeout, () {
-      if (!mounted) return;
-      // 已在使用其它源则忽略。
-      if (_player?.state.playlist.index != _currentSource) return;
-      final bool playing = _player?.state.playing ?? false;
-      final String name = _currentChannel()?.name ?? '?';
-      Injection.get<LogService>().info(
-        '[LivePlayerWidget] 看门狗到期 频道$name源(${_currentSource + 1}) '
-        '媒体类型=${_mediaKind.name} playing=$playing '
-        'buffering=${_player?.state.buffering} width=${_player?.state.width}',
-      );
-      if (_mediaKind == _MediaKind.unknown) {
-        // 判定还没落定：先按最终判定收尾（换源立即结算；音频等出声后结算）。
-        _pendingKindResolve = _finishHangWatchdog;
-        _resolveMediaKindIfDecided();
-        return;
-      }
-      _finishHangWatchdog();
-    });
-  }
-
-  /// 看门狗到期的实际结算（按已确定的媒体类型给不同标准）。
-  void _finishHangWatchdog() {
-    if (!mounted) return;
-    final bool playing = _player?.state.playing ?? false;
-    final int timeoutSec = _hangTimeoutNow.inSeconds;
-    if (_mediaKind == _MediaKind.audio) {
-      // 音频节目：确有音频输出（播放状态 / 已解码出音频参数）即视为成功。
-      final bool audioAlive = playing || _audioParamsReady;
-      if (audioAlive) {
-        final IptvChannel? channel = _currentChannel();
-        if (channel != null && !_kindSuccessRecorded) {
-          _kindSuccessRecorded = true;
-          ChannelFailureGuard.instance.recordSuccess(channel.name);
-        }
-        return;
-      }
-      _onPlaybackIssue(reason: '音频源打开${timeoutSec}s后仍无音频输出');
-      return;
-    }
-    if (!playing) {
-      _onPlaybackIssue(reason: '打开${timeoutSec}s后未进入播放');
-    } else if (!_playedVideo) {
-      _onPlaybackIssue(reason: '打开${timeoutSec}s后无视频帧(黑屏)');
-    }
-  }
-
   /// 左/右键手动切换当前频道的源（循环换向）。
   void _switchSource(int delta) {
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
     final int n = channel.sources.length;
-    _currentSource = (_currentSource + delta + n) % n;
-    // 手动换源是用户主动重试：本轮退避清零。
-    _resetRound();
+    // 手动换源是用户主动重试：换源 + 本轮退避清零，并作废退避中的过期回退。
+    _retry.setSource((_currentSource + delta + n) % n);
     Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
     if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
   }
 
-  /// 播放失败/结束：先用代理重试同一个源，再循环回退到下一个源。
-  ///
-  /// 多源时按 1-2-3-4-1-2-… 循环；单源时反复重试同一源 1-1-1-…。
-  /// [bypassCooldown] 供真实的 open 失败（如 `Failed to open`）跳过 700ms 冷却，
-  /// 使连续打不开的源能一路回退下去，而不是被冷却卡停在当前源。
-  Future<void> _onPlaybackIssue({String reason = '', bool bypassCooldown = false}) async {
-    if (_handleFailureBusy || !mounted) return;
-    final IptvChannel? channel = _currentChannel();
-    if (channel == null || channel.sources.isEmpty) return;
-    // 刚 open 后立刻来的事件多为旧源残留，忽略，避免误回退。
-    if (!bypassCooldown && DateTime.now().difference(_lastOpenAt).inMilliseconds < 700) {
-      return;
-    }
-    _handleFailureBusy = true;
-    // 上报「进入重试」（只读观测，防刷屏由上报服务限流；须在换源/换代理之前，
-    // 这样读到的源号/代理/轮次正是本次失败的现场）。
-    _reportPlayback('play_retry', reason: reason);
-    // 本次失败对应的源（自增回退前），供「清理失效源」统计失效地址。
-    final int failedIndex = _currentSource.clamp(0, channel.sources.length - 1);
-    final String failedUrl = channel.sources[failedIndex];
+  /// 播放失败/结束/看门狗到期：交给共享重试状态机
+  /// （冷却过滤 → 失败现场上报 → 换路由[代理]重试同一源 → 一轮退避 → 循环换源，
+  /// 见 [PlaybackRetryController]）。
+  void _onPlaybackIssue({String reason = '', bool bypassCooldown = false}) {
+    unawaited(_retry.handleIssue(reason: reason, bypassCooldown: bypassCooldown));
+  }
 
-    // 「代理重试」第一段：这次失败发生在代理上 → 换下一个代理继续试同一个源。
+  /// 「换路由重试同一个源」= 代理池（状态机的 `retryWithRoute` 回调）：
+  /// 失败发生在代理上先换下一个代理；直连失败或代理还没试满则挑一个
+  /// **探测可用**的代理重开**同一个源**（探测能挡住「代理能连上但对这个源
+  /// 返回错误页」这类无效代理）。
+  ///
+  /// 返回 true = 已换代理重开同一源（状态机到此为止）；
+  /// 返回 false = 没有可用代理，由状态机继续走换源回退。
+  Future<bool> _retryWithRoute(int failedIndex, String reason) async {
+    final IptvChannel? channel = _currentChannel();
+    if (channel == null || channel.sources.isEmpty) return false;
+    final int idx = failedIndex.clamp(0, channel.sources.length - 1);
+    final String failedUrl = channel.sources[idx];
+    // 第一段：这次失败发生在代理上 → 换下一个代理继续试同一个源。
     if (_proxyUrl != null) {
       Injection.get<LogService>().info('[LivePlayerWidget] 代理未成功，换下一个: $_proxyUrl，原因: $reason');
       _proxyUrl = null;
     }
-
-    // 「代理重试」第二段：直连失败，或代理失败但还没试满 → 挑一个**探测可用**的代理
-    // 重试**同一个源**（探测能挡住「代理能连上但对这个源返回错误页」这类无效代理）。
+    // 第二段：挑一个探测可用的代理重试同一个源。
     if (AppSettings.instance.proxyRetryEnabled && _proxyAttempts < _maxProxyAttempts) {
       final String? proxy = await ProxyPoolService.instance.nextUsableProxy(targetUrl: failedUrl);
       // 等待探测期间可能已切台/切源，需复核。
       if (proxy != null && mounted && _currentChannel()?.name == channel.name) {
         _proxyAttempts++;
         _proxyUrl = proxy;
-        _currentSource = failedIndex;
+        _retry.sourceIndex = idx;
         Injection.get<LogService>().info(
           '[LivePlayerWidget] 改用代理重试(第$_proxyAttempts次):${channel.name},'
-          '源(${failedIndex + 1}/${channel.sources.length}) 代理=$proxy，原因: $reason',
+          '源(${idx + 1}/${channel.sources.length}) 代理=$proxy，原因: $reason',
         );
         await _playCurrentSource();
-        _handleFailureBusy = false;
-        _recordInvalidFailure(channel, failedUrl, reason);
         if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
-        return;
+        return true;
       }
       Injection.get<LogService>().info('[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源');
     }
-
-    // 代理都没救活（或未开启）→ 回退到下一个源，重新从直连开始。
+    // 代理都没救活（或未开启）→ 交给状态机回退到下一个源，重新从直连开始。
     _proxyAttempts = 0;
-    // 该频道所有源都各试过一次 = 一轮结束：回到第一个源之前先退避一会儿。
-    // 否则「全源都打不开」时会以 mpv 报错的速度（实测 20~140ms）不停 open/失败，
-    // 每个 open 都要重建解码器与 Surface，盒子会持续抖动、日志也会被刷爆。
-    _triedSourcesThisRound.add(failedIndex);
-    if (_triedSourcesThisRound.length >= channel.sources.length) {
-      _triedSourcesThisRound.clear();
-      _failedRounds++;
-      final Duration wait = _roundRetryDelay();
-      Injection.get<LogService>().info(
-        '[LivePlayerWidget] 频道${channel.name} 全部 ${channel.sources.length} 个源都打不开，'
-        '第$_failedRounds轮，${wait.inMilliseconds}ms 后重试',
-      );
-      final int failedSource = _currentSource;
-      await Future<void>.delayed(wait);
-      // 等待期间可能已换台 / 手动换源 / 退出：过期就放弃这次回退，
-      // 否则会把用户刚选好的源又顶掉。
-      if (!mounted || _currentChannel()?.name != channel.name || _currentSource != failedSource) {
-        _handleFailureBusy = false;
-        return;
-      }
-    }
-    _currentSource = (_currentSource + 1) % channel.sources.length;
+    return false;
+  }
+
+  /// 该频道所有源都各试过一次 = 一轮失败（状态机的 `onBackoff` 回调）：
+  /// 退避 1→2→4→8s 后再进下一轮，避免「全源都打不开」时以 mpv 报错的速度
+  /// （实测 20~140ms）不停 open/失败，每个 open 都要重建解码器，盒子会持续抖动。
+  void _onRoundBackoff(int round, Duration wait) {
+    final IptvChannel? channel = _currentChannel();
     Injection.get<LogService>().info(
-      '[LivePlayerWidget] 切换频道:${channel.name},源'
-      '(${_currentSource + 1}/${channel.sources.length})，原因: $reason',
+      '[LivePlayerWidget] 频道${channel?.name ?? '?'} 全部 ${channel?.sources.length ?? 0} 个源都打不开，'
+      '第$round轮，${wait.inMilliseconds}ms 后重试',
     );
-    await _playCurrentSource();
-    _handleFailureBusy = false;
-    _recordInvalidFailure(channel, failedUrl, reason);
-    // 刷新左下角里的源序号提示。
-    if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
   }
 
-  /// 本轮退避时长：1s、2s、4s、8s（上限）。
-  ///
-  /// 坏台会一直重试，固定 1 秒虽然远好过空转，但长期看仍是每分钟 60 次 open；
-  /// 递增后逐步降到每分钟 7~8 次，持续不可用时不至于拖累盒子。
-  Duration _roundRetryDelay() {
-    final int shift = (_failedRounds - 1).clamp(0, _maxRoundRetryShift);
-    return Duration(milliseconds: _roundRetryBaseDelay.inMilliseconds << shift);
-  }
-
-  /// 开始新的一轮试源（换台 / 手动换源 / 播放成功后调用）：退避重新从 1 秒起算。
-  void _resetRound() {
-    _triedSourcesThisRound.clear();
-    _failedRounds = 0;
+  /// 失败现场统计入口（状态机 `onEnterRetry` 回调）：在换源/换路由之前调用，
+  /// 读到的正是本次失败的源。
+  void _recordInvalidSourceFailure(String reason) {
+    final IptvChannel? channel = _currentChannel();
+    if (channel == null || channel.sources.isEmpty) return;
+    final int idx = _currentSource.clamp(0, channel.sources.length - 1);
+    _recordInvalidFailure(channel, channel.sources[idx], reason);
   }
 
   /// 「清理失效源」开启时统计连续失败：达阈值会先探测确认（区分网络原因），
@@ -975,8 +822,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _toastNameVN.dispose();
     _barsActiveVN.dispose();
     _channelsHideTimer?.cancel();
-    _hangWatchdog?.cancel();
-    _kindProbeTimer?.cancel();
+    _watchdog.dispose();
+    _probe.dispose();
     _bufferStallWatch?.cancel();
     _errorSub?.cancel();
     _completedSub?.cancel();
@@ -1037,7 +884,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                 label: _channelSourceLabel(),
                 // 只在下结论为音频时显示：[unknown]（还在连接/未判定）保持黑屏，
                 // 结论由轨道表立刻给出（见 _tracksSub），不等判定窗口。
-                visible: _mediaKind == _MediaKind.audio,
+                visible: _mediaKind == MediaKind.audio,
                 barsActive: _barsActiveVN,
               ),
             ),

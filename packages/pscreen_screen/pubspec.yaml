@@ -10,6 +10,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # 播放重试 / 媒体类型判定（见 features/iptv/application）直接消费
+  # media_kit 的 Tracks / AudioParams 事件，与两个宿主使用同一版本。
+  media_kit: ^1.2.6
+
   flutter_bloc: ^9.1.1
   get_it: ^9.3.0
   dio: ^5.11.1

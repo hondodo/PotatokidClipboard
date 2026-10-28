@@ -254,10 +254,22 @@ class _ChannelNameBadge extends StatelessWidget {
         if (index < 0 || index >= channels.length) {
           return const SizedBox.shrink();
         }
+        // 序号从 1 开始，按频道总数的位数左侧补零（与电视端规则一致：
+        // 8 个频道→`1`，120 个→`001`）。
+        final int total = channels.length;
+        final int width = total <= 1 ? 1 : total.toString().length;
+        final String number = (index + 1).toString().padLeft(width, '0');
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-          child: Text(channels[index].name, style: const TextStyle(color: Colors.white, fontSize: 20)),
+          child: Text(
+            '$number ${channels[index].name}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+            ),
+          ),
         );
       },
     );
@@ -403,8 +415,26 @@ class _ChannelListPanelState extends State<_ChannelListPanel> {
         itemBuilder: (BuildContext context, int index) {
           final IptvChannel channel = widget.channels[index];
           final bool selected = index == current;
+          // 序号从 1 开始，按频道总数的位数左侧补零（与电视端频道条一致）。
+          final int total = widget.channels.length;
+          final int numberWidth = total <= 1 ? 1 : total.toString().length;
           return ListTile(
             dense: true,
+            // 序号列（右对齐、等宽数字），便于对照台号直选。
+            leading: SizedBox(
+              width: 34,
+              child: Text(
+                (index + 1).toString().padLeft(numberWidth, '0'),
+                maxLines: 1,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white60,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                  fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
             title: Text(
               channel.name,
               maxLines: 1,
