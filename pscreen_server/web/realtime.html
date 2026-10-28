@@ -338,10 +338,20 @@
       background: var(--accent-soft);
     }
 
-    /* app/版本标识独立行：与账号行分开，避免右侧拥挤截断。 */
-    .account-client {
+    /* 设备号 / app版本标识独立行：与账号名分开，避免右侧拥挤截断。 */
+    .account-sub {
       margin-top: 4px;
       flex-wrap: wrap;
+    }
+
+    /* 长 chip（gen_ 设备号 / 包名版本）允许压缩并省略号，
+       防止溢出压到右侧状态点与时间列。 */
+    .account-sub .tag {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .account-preview {
@@ -359,6 +369,14 @@
       flex-direction: column;
       align-items: flex-end;
       gap: 4px;
+    }
+
+    /* 右上角版本号：拆自 app 标识，无边框节省空间，用独立色调区分。 */
+    .account-version {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--blue);
+      white-space: nowrap;
     }
 
     .online-dot {
@@ -1016,13 +1034,18 @@
         }
       }
 
+      // 版本号文案：`v1.0.0+2`（未知时为空串）。
+      function clientVersionLabel(account) {
+        const info = state.clientInfo.get(account);
+        if (!info || !info.version) return '';
+        return `v${info.version}${info.build ? `+${info.build}` : ''}`;
+      }
+
       // 客户端标识文案：`com.x.y v1.0.0+2`（未知时为空串）。
       function clientLabel(account) {
         const info = state.clientInfo.get(account);
         if (!info) return '';
-        const ver = info.version
-          ? `v${info.version}${info.build ? `+${info.build}` : ''}`
-          : '';
+        const ver = clientVersionLabel(account);
         return [info.app, ver].filter(Boolean).join(' ');
       }
 
@@ -1538,30 +1561,39 @@
         avatar.style.background = avatarColor(peer.account);
 
         const main = el('div', 'account-main');
+        // 第一行拆分：账号名 / 设备号 / app版本 各占一行，状态（预览）行不变。
         const line = el('div', 'account-line');
         line.append(el('span', 'account-name', isAll ? '全部事件' : peer.account));
         if (!isAll && ACCOUNT_LABELS[peer.account]) {
           line.append(el('span', 'tag', ACCOUNT_LABELS[peer.account]));
         }
+        main.append(line);
         const device = !isAll ? state.deviceIds.get(peer.account) : '';
         if (device) {
+          const deviceLine = el('div', 'account-line account-sub');
           const chip = el('span', 'tag', `设备 ${device}`);
           chip.title = device;
-          line.append(chip);
+          deviceLine.append(chip);
+          main.append(deviceLine);
         }
-        const client = isAll ? '' : clientLabel(peer.account);
-        main.append(line);
-        // app/版本标识较长，独立一行，避免与账号/设备 chip 挤在右侧被截断。
-        if (client) {
-          const clientLine = el('div', 'account-line account-client');
-          const chip = el('span', 'tag', client);
-          chip.title = client;
+        const info = isAll ? null : state.clientInfo.get(peer.account);
+        // app 名称独立一行；版本号拆到右上角（状态点上方），避免长标识被省略。
+        if (info && info.app) {
+          const clientLine = el('div', 'account-line account-sub');
+          const chip = el('span', 'tag', info.app);
+          chip.title = info.app;
           clientLine.append(chip);
           main.append(clientLine);
         }
         main.append(el('div', 'account-preview', peer.last || '暂无消息'));
 
         const side = el('div', 'account-side');
+        const version = info ? clientVersionLabel(peer.account) : '';
+        if (version) {
+          const verEl = el('span', 'account-version', version);
+          verEl.title = `${info.app} ${version}`.trim();
+          side.append(verEl);
+        }
         if (!isAll) {
           const dot = el('span', `online-dot${state.online.has(peer.account) ? ' on' : ''}`);
           side.append(dot);

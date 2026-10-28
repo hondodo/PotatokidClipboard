@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
@@ -183,7 +184,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .connect(
             account: await DeviceCredentials.account(),
             token: DeviceCredentials.passwordMd5(),
-            deviceId: await DeviceCredentials.deviceId(),
+            // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
+            deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
             name: '中控台',
             app: info.app,
