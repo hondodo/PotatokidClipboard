@@ -736,6 +736,7 @@
       row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
         title: `可见家庭 · ${user.displayName || user.name}`,
         homes: user.homes,
+        level: 'user',
         onSave: (homes) => api(`/api/admin/users/${encodeURIComponent(name)}`, {
           method: 'PUT',
           body: JSON.stringify({ homes }),
@@ -784,7 +785,7 @@
     });
   }
 
-  function editHomes({ title, homes, onSave }) {
+  function editHomes({ title, homes, onSave, level = 'machine' }) {
     const known = Array.from(new Set([
       ...(state.overview.homes || []),
       ...(Array.isArray(homes) ? homes : []),
@@ -797,8 +798,20 @@
 
     const modes = document.createElement('div');
     modes.className = 'radio-row';
+    // 「跟随…」的名称与描述按入口区分：设备层的下一层是所属用户，用户层的下一层是 App 的 .env。
+    const inheritLabel = level === 'user' ? '跟随.env' : '跟随绑定用户/.env';
+    const inheritNote = level === 'user'
+      ? '以App的.env的HONE_MANE为准'
+      : '表示本层不限制，如果绑定了用户，且在用户里设置指定家庭则以用户设置为准，否则以App的.env的HONE_MANE为准';
+    // 用户页选「全部/指定家庭」时提示：设备单独设置会覆盖本页。
+    const deviceOverrideNote = '注意：若某台设备在设备状态页单独设置了可见家庭，则本页设置对该设备不生效';
+    const notes = {
+      inherit: inheritNote,
+      all: level === 'user' ? deviceOverrideNote : '',
+      custom: level === 'user' ? deviceOverrideNote : '',
+    };
     const modeDefs = [
-      ['inherit', '跟随上层 / .env'],
+      ['inherit', inheritLabel],
       ['all', '全部家庭'],
       ['custom', '指定家庭'],
     ];
@@ -841,9 +854,15 @@
     custom.appendChild(extraLabel);
     wrap.appendChild(custom);
 
+    // 提示随选中项切换：跟随→回落说明；用户页的全部/指定→设备覆盖提醒。
     const note = document.createElement('p');
     note.className = 'field-note';
-    note.textContent = '「跟随上层 / .env」表示本层不限制，继续看所属用户或 App 的 HONE_MANE；「全部家庭」会显式覆盖上层。';
+    const syncNote = (value) => {
+      const text = notes[value] || '';
+      note.textContent = text;
+      note.hidden = !text;
+    };
+    syncNote(mode);
     wrap.appendChild(note);
 
     wrap.querySelectorAll('input[name="home-mode"]').forEach((input) => {
@@ -851,7 +870,9 @@
         wrap.querySelectorAll('.radio-chip').forEach((chip) => {
           chip.classList.toggle('active', chip.querySelector('input').checked);
         });
-        custom.hidden = wrap.querySelector('input[name="home-mode"]:checked').value !== 'custom';
+        const checked = wrap.querySelector('input[name="home-mode"]:checked').value;
+        custom.hidden = checked !== 'custom';
+        syncNote(checked);
       });
     });
 
