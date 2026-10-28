@@ -43,4 +43,7 @@ class Injection {
   }
 
   static T get<T extends Object>() => getIt<T>();
+
+  /// 判断某个类型是否已注册（不触发懒加载构造）。
+  static bool isRegistered<T extends Object>() => getIt.isRegistered<T>();
 }

@@ -341,11 +341,13 @@ class _PinnedHomeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String pinnedHome = HaConfig.pinnedHomeName;
-    if (pinnedHome.isEmpty) return const SizedBox.shrink();
-
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
+        final String pinnedHome = state.allowedHomes.length == 1
+            ? state.allowedHomes.first
+            : '';
+        if (pinnedHome.isEmpty) return const SizedBox.shrink();
+
         if (!state.availableHomes.contains(pinnedHome)) {
           return const SizedBox.shrink();
         }
@@ -610,11 +612,11 @@ class _HomeOverviewBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (BuildContext context, HomeState state) {
-        // .env 指定了固定家庭：主页只展示该家庭，概览条里的家庭名 /
+        // 只允许一个家庭：主页只展示该家庭，概览条里的家庭名 /
         // 「全部」按钮不再有意义，直接隐藏，给设备网格腾出空间。
-        final String pinnedHome = HaConfig.pinnedHomeName;
-        if (pinnedHome.isNotEmpty &&
-            state.availableHomes.contains(pinnedHome)) {
+        final List<String> allowed = state.allowedHomes;
+        if (allowed.length == 1 &&
+            state.availableHomes.contains(allowed.first)) {
           return const SizedBox.shrink();
         }
 

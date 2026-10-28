@@ -22,6 +22,7 @@ class SettingsStore {
   /// 覆盖值的 SharedPreferences 键
   static const String hostKey = 'ha_host_override';
   static const String tokenKey = 'ha_token_override';
+  static const String serverBaseUrlKey = 'server_base_url_override';
   static const String powerSampleSecondsKey = 'power_sample_seconds';
 
   /// 功率采样间隔默认值（秒）。
@@ -107,6 +108,9 @@ class SettingsStore {
   /// 房间不单独存：房间视图直接过滤所属家庭的顺序。
   static const String cardOrderByHomeKey = 'home_card_order_by_home_v1';
 
+  /// 卡片顺序最后一次本地修改时间（毫秒），用于与服务端布局做新旧比较。
+  static const String cardOrderUpdatedAtKey = 'home_card_order_updated_at_v1';
+
   /// HA 注册表快照（房间 / 设备 / 实体归属），用于拉取失败时兜底。
   ///
   /// 值由 data 层编码为 JSON；这里只负责原样存取，避免存储层依赖领域模型。
@@ -138,6 +142,10 @@ class SettingsStore {
 
   /// 持久化的令牌覆盖值（空 = 未覆盖，使用 .env）
   String get tokenOverride => _prefs?.getString(tokenKey) ?? '';
+
+  /// 持久化的管理服务端地址覆盖值（空 = 未覆盖，使用 .env）。
+  String get serverBaseUrlOverride =>
+      _prefs?.getString(serverBaseUrlKey) ?? '';
 
   /// 功率采样间隔（秒）。未设置或非法值时回落 [defaultPowerSampleSeconds]。
   int get powerSampleSeconds {
@@ -194,6 +202,9 @@ class SettingsStore {
   /// 「全部」视图的卡片顺序（未设置时为空，界面回落默认排序）。
   List<String> get cardOrderAll =>
       _prefs?.getStringList(cardOrderAllKey) ?? const <String>[];
+
+  /// 卡片顺序最后一次修改时间（毫秒；0 = 从未保存）。
+  int get cardOrderUpdatedAt => _prefs?.getInt(cardOrderUpdatedAtKey) ?? 0;
 
   /// 注册表缓存的原始 JSON（空串 = 尚未缓存）。
   String get registryCacheRaw => _prefs?.getString(registryCacheKey) ?? '';
@@ -254,6 +265,22 @@ class SettingsStore {
     }
   }
 
+  /// 持久化管理服务端地址；空字符串表示删除覆盖（回落 .env）。
+  Future<void> saveServerBaseUrl(String url) async {
+    final SharedPreferences? prefs = _prefs;
+    if (prefs == null) return;
+    try {
+      final String value = url.trim();
+      if (value.isEmpty) {
+        await prefs.remove(serverBaseUrlKey);
+      } else {
+        await prefs.setString(serverBaseUrlKey, value);
+      }
+    } catch (e) {
+      Injection.get<LogService>().warn('写入服务端地址失败：$e');
+    }
+  }
+
   /// 持久化上次观看的直播频道名；空串表示清除。
   Future<void> saveLastLiveChannel(String name) async {
     final SharedPreferences? prefs = _prefs;
@@ -272,15 +299,21 @@ class SettingsStore {
   /// 持久化主页卡片顺序（「全部」+ 每个家庭）。
   ///
   /// 空列表写为空数组；下次读取时界面会按默认排序补齐。
+  /// [updatedAt] 用于与服务端布局比较新旧，缺省取当前时间。
   Future<void> saveCardOrders({
     required List<String> all,
     required Map<String, List<String>> byHome,
+    int? updatedAt,
   }) async {
     final SharedPreferences? prefs = _prefs;
     if (prefs == null) return;
     try {
       await prefs.setStringList(cardOrderAllKey, all);
       await prefs.setString(cardOrderByHomeKey, jsonEncode(byHome));
+      await prefs.setInt(
+        cardOrderUpdatedAtKey,
+        updatedAt ?? DateTime.now().millisecondsSinceEpoch,
+      );
     } catch (e) {
       Injection.get<LogService>().warn('写入卡片顺序失败：$e');
     }

@@ -65,6 +65,22 @@ class ReorderCards extends HomeEvent {
   final String homeName;
 }
 
+/// 服务端下发的家庭白名单变化（Admin 修改后由心跳触发）。
+class ApplyHomeVisibility extends HomeEvent {
+  const ApplyHomeVisibility(this.homes);
+
+  /// 空列表表示不限制；非空表示只显示这些家庭。
+  final List<String> homes;
+}
+
+/// 服务端布局比本地新时，用远端顺序覆盖当前状态。
+class ApplyCardOrder extends HomeEvent {
+  const ApplyCardOrder({required this.all, required this.byHome});
+
+  final List<String> all;
+  final Map<String, List<String>> byHome;
+}
+
 /// 调整灯光亮度（percent：0-100）。
 class SetLightBrightness extends HomeEvent {
   const SetLightBrightness({

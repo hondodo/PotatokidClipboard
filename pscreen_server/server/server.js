@@ -8,6 +8,7 @@ const cookieParser = require('cookie-parser');
 const config = require('./config');
 const definds = require('./definds');
 const { attachRealtime } = require('./realtime');
+const { attachAdmin } = require('./admin');
 
 const app = express();
 const PORT = config.port;
@@ -1687,6 +1688,16 @@ app.get('/api/clipboards', (req, res) => {
     }
 });
 
+// Admin 管理接口 / 设备配置与布局同步接口。
+// 必须在 SPA 兜底路由之前注册，否则 /api/admin/* 会被 index.html 接管。
+let realtimeHandle = null;
+attachAdmin(app, {
+    datasDir,
+    registerUsersDir,
+    webAppPath,
+    onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
+});
+
 // 处理所有其他路由，返回Flutter应用（SPA支持）
 app.use((req, res) => {
     const indexPath = path.resolve(webAppPath, 'index.html');
@@ -1707,7 +1718,7 @@ app.use((req, res) => {
 
 // 启动服务器（HTTP + WebSocket 共用同一端口）
 const httpServer = http.createServer(app);
-attachRealtime(httpServer, {
+realtimeHandle = attachRealtime(httpServer, {
     path: config.realtime.path,
     token: config.realtime.token,
     dataDir: path.join(__dirname, config.realtime.dataDir),

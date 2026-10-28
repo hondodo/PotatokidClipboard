@@ -7,6 +7,7 @@ import 'package:pscreen_home/app/app.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
@@ -62,10 +63,17 @@ void main() {
       HaConfig.applyOverrides(
         host: Injection.get<SettingsStore>().hostOverride,
         token: Injection.get<SettingsStore>().tokenOverride,
+        serverBaseUrl: Injection.get<SettingsStore>().serverBaseUrlOverride,
       );
+
+      // 3.1 向 Admin 服务端注册设备并拉取「可见家庭 + 首页布局」。
+      //     与路由初始化并行，服务端不可达时超时降级，不阻塞启动。
+      final DeviceReporter deviceReporter = Injection.get<DeviceReporter>();
+      final Future<void> serverSync = deviceReporter.initialize();
 
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();
+      await serverSync;
 
       // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
       //     账号 / 口令来自本地持久化，未配置时跳过；断线由通道自动重连。
@@ -106,6 +114,9 @@ void main() {
           child: const App(),
         ),
       );
+
+      // 6. 心跳上报（在线状态 / 当前家庭），并持续接收 Admin 的配置变更。
+      deviceReporter.start();
     },
     (Object error, StackTrace stack) {
       FlutterError.presentError(FlutterErrorDetails(exception: error, stack: stack));

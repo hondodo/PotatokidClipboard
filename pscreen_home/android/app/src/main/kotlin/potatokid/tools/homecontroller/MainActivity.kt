@@ -3,6 +3,7 @@ package potatokid.tools.homecontroller
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -53,6 +54,18 @@ class MainActivity : FlutterActivity() {
                     }
                     "getDeviceModel" -> {
                         result.success(Build.MODEL ?: "Android TV")
+                    }
+                    "getAndroidId" -> {
+                        // 卸载重装后 ANDROID_ID 不变，用它作为设备唯一标识。
+                        val androidId = try {
+                            Settings.Secure.getString(
+                                contentResolver,
+                                Settings.Secure.ANDROID_ID
+                            )
+                        } catch (e: Exception) {
+                            null
+                        }
+                        result.success(androidId)
                     }
                     else -> result.notImplemented()
                 }

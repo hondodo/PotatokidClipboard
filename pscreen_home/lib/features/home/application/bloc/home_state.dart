@@ -31,6 +31,7 @@ class HomeState {
     required this.registry,
     required this.selectedHomeName,
     required this.selectedAreaId,
+    required this.allowedHomes,
     required this.cardOrderAll,
     required this.cardOrderByHome,
     this.loadedAt,
@@ -48,6 +49,7 @@ class HomeState {
     registry: HaRegistry.empty,
     selectedHomeName: '',
     selectedAreaId: '',
+    allowedHomes: <String>[],
     cardOrderAll: <String>[],
     cardOrderByHome: <String, List<String>>{},
     loadedAt: null,
@@ -82,6 +84,12 @@ class HomeState {
 
   /// 当前选中的房间 id，`''` 表示「全部」
   final String selectedAreaId;
+
+  /// 允许显示的家庭白名单（空列表表示不限制）。
+  ///
+  /// 来源：服务端下发的机器/用户配置，未配置时回落 .env 的 HONE_MANE。
+  /// 只影响主页可见范围，不改注册表本身。
+  final List<String> allowedHomes;
 
   /// 「全部」视图的卡片顺序（`HaDeviceGroup.orderKey`）。
   final List<String> cardOrderAll;
@@ -152,19 +160,26 @@ class HomeState {
   /// 当前应展示的房间列表（受家庭筛选）。
   List<HaArea> get visibleAreas {
     final String home = effectiveHomeName;
-    if (home.isEmpty) return availableAreas;
+    if (home.isNotEmpty) {
+      return availableAreas
+          .where((HaArea area) => area.homeName == home)
+          .toList(growable: false);
+    }
+    if (allowedHomes.isEmpty) return availableAreas;
     return availableAreas
-        .where((HaArea area) => area.homeName == home)
+        .where((HaArea area) => allowedHomes.contains(area.homeName))
         .toList(growable: false);
   }
 
   /// 可筛选家庭：含有任意实体的家庭，按注册表首次出现顺序；
   /// 未分配家庭的房间不参与家庭标签（仅在「全部」下可见）。
+  /// 配置了 [allowedHomes] 时只返回白名单内的家庭。
   List<String> get availableHomes {
     final List<String> homes = <String>[];
     for (final HaArea area in availableAreas) {
       final String home = area.homeName;
       if (home.isEmpty || homes.contains(home)) continue;
+      if (allowedHomes.isNotEmpty && !allowedHomes.contains(home)) continue;
       homes.add(home);
     }
     return homes;
@@ -173,9 +188,33 @@ class HomeState {
   /// 家庭标签展示名。
   String homeLabel(String homeName) => homeName.isEmpty ? '未分配家庭' : homeName;
 
-  /// 生效的家庭筛选：所选家庭失效时自动回退「全部」。
-  String get effectiveHomeName =>
-      availableHomes.contains(selectedHomeName) ? selectedHomeName : '';
+  /// 生效的家庭筛选：只允许一个家庭时固定为该家庭；
+  /// 多家庭白名单下沿用用户选择，所选家庭失效时回退「全部」。
+  String get effectiveHomeName {
+    if (allowedHomes.length == 1) {
+      final String only = allowedHomes.first;
+      return availableHomes.contains(only) ? only : '';
+    }
+    return availableHomes.contains(selectedHomeName) ? selectedHomeName : '';
+  }
+
+  /// 家庭 / 房间筛选后的区域 id 集合；空集合表示不限制。
+  Set<String> get _scopeAreaIds {
+    final String home = effectiveHomeName;
+    if (home.isNotEmpty) {
+      return <String>{
+        for (final HaArea area in availableAreas)
+          if (area.homeName == home) area.areaId,
+      };
+    }
+    if (allowedHomes.isNotEmpty) {
+      return <String>{
+        for (final HaArea area in availableAreas)
+          if (allowedHomes.contains(area.homeName)) area.areaId,
+      };
+    }
+    return const <String>{};
+  }
 
   /// 生效的房间筛选：房间不在当前家庭/集合内时自动回退「全部」。
   String get effectiveAreaId {
@@ -637,16 +676,10 @@ class HomeState {
 
   /// 按家庭 + 房间两级筛选后的可控实体表（key 为 entity_id）。
   Map<String, HaEntityStateModel> get _filteredSwitchable {
-    final String home = effectiveHomeName;
     final String areaId = effectiveAreaId;
-    final Set<String> allowedAreaIds = <String>{};
-    if (areaId.isNotEmpty) {
-      allowedAreaIds.add(areaId);
-    } else if (home.isNotEmpty) {
-      for (final HaArea area in availableAreas) {
-        if (area.homeName == home) allowedAreaIds.add(area.areaId);
-      }
-    }
+    final Set<String> allowedAreaIds = areaId.isNotEmpty
+        ? <String>{areaId}
+        : _scopeAreaIds;
     return <String, HaEntityStateModel>{
       for (final HaEntityStateModel e in entities.values)
         if (e.isSwitchable &&
@@ -658,16 +691,10 @@ class HomeState {
 
   /// 按家庭 + 房间两级筛选后的全部实体表（不过滤 domain / 可用性）。
   Map<String, HaEntityStateModel> get _filteredEntities {
-    final String home = effectiveHomeName;
     final String areaId = effectiveAreaId;
-    final Set<String> allowedAreaIds = <String>{};
-    if (areaId.isNotEmpty) {
-      allowedAreaIds.add(areaId);
-    } else if (home.isNotEmpty) {
-      for (final HaArea area in availableAreas) {
-        if (area.homeName == home) allowedAreaIds.add(area.areaId);
-      }
-    }
+    final Set<String> allowedAreaIds = areaId.isNotEmpty
+        ? <String>{areaId}
+        : _scopeAreaIds;
     return <String, HaEntityStateModel>{
       for (final HaEntityStateModel e in entities.values)
         if (allowedAreaIds.isEmpty ||
@@ -685,6 +712,7 @@ class HomeState {
     HaRegistry? registry,
     String? selectedHomeName,
     String? selectedAreaId,
+    List<String>? allowedHomes,
     List<String>? cardOrderAll,
     Map<String, List<String>>? cardOrderByHome,
     DateTime? loadedAt,
@@ -701,6 +729,7 @@ class HomeState {
       registry: registry ?? this.registry,
       selectedHomeName: selectedHomeName ?? this.selectedHomeName,
       selectedAreaId: selectedAreaId ?? this.selectedAreaId,
+      allowedHomes: allowedHomes ?? this.allowedHomes,
       cardOrderAll: cardOrderAll ?? this.cardOrderAll,
       cardOrderByHome: cardOrderByHome ?? this.cardOrderByHome,
       loadedAt: loadedAt ?? this.loadedAt,

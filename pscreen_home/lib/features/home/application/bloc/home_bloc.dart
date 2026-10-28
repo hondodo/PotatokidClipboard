@@ -7,6 +7,7 @@ import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_connection_label.dart';
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_screen/core/utils/bloc_event.dart';
 import 'package:pscreen_home/core/utils/ha_error_message.dart';
@@ -57,10 +58,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
              Duration(seconds: 10),
              Duration(seconds: 30),
            ],
-       // .env 指定了固定家庭时，进入主页即选中它（只显示该家庭的数据）。
+       // .env / 服务端指定了固定家庭时，进入主页即选中它（只显示该家庭的数据）。
        super(
          HomeState.initial().copyWith(
-           selectedHomeName: HaConfig.pinnedHomeName,
+           selectedHomeName: HaConfig.visibleHomes.length == 1
+               ? HaConfig.visibleHomes.first
+               : '',
+           allowedHomes: HaConfig.visibleHomes,
            cardOrderAll: settingsStore?.cardOrderAll ?? const <String>[],
            cardOrderByHome:
                settingsStore?.cardOrderByHome ?? const <String, List<String>>{},
@@ -75,6 +79,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeSelected>(_onHomeSelected);
     on<AreaSelected>(_onAreaSelected);
     on<ReorderCards>(_onReorderCards);
+    on<ApplyHomeVisibility>(_onApplyHomeVisibility);
+    on<ApplyCardOrder>(_onApplyCardOrder);
     on<SetLightBrightness>(_onSetLightBrightness);
     on<SetLightColorTemperature>(_onSetLightColorTemperature);
     on<SetLightEffect>(_onSetLightEffect);
@@ -261,13 +267,20 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         completeBlocEvent(event.completer, success: false);
         return;
       }
-      // .env 固定家庭优先于用户选择；未配置时沿用当前选择。
-      final String pinnedHome = HaConfig.pinnedHomeName;
-      // 所选家庭/房间若已不存在（改归属 / 消失），回退「全部」
-      String selectedHome = pinnedHome.isNotEmpty
-          ? pinnedHome
+      // 服务端 / .env 的家庭白名单优先于用户选择；未配置时沿用当前选择。
+      final List<String> allowedHomes = HaConfig.visibleHomes;
+      String selectedHome = allowedHomes.length == 1
+          ? allowedHomes.first
           : state.selectedHomeName;
       String selectedArea = state.selectedAreaId;
+      // 所选家庭/房间若已不存在（改归属 / 消失 / 被移出白名单），回退「全部」
+      if (selectedHome.isNotEmpty &&
+          (!registry.areas.any((HaArea a) => a.homeName == selectedHome) ||
+              (allowedHomes.isNotEmpty &&
+                  !allowedHomes.contains(selectedHome)))) {
+        selectedHome = allowedHomes.length == 1 ? allowedHomes.first : '';
+        selectedArea = '';
+      }
       if (selectedHome.isNotEmpty &&
           !registry.areas.any((HaArea a) => a.homeName == selectedHome)) {
         selectedHome = '';
@@ -289,6 +302,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           registry: registry,
           selectedHomeName: selectedHome,
           selectedAreaId: selectedArea,
+          allowedHomes: allowedHomes,
           loadedAt: DateTime.now(),
         ),
       );
@@ -443,13 +457,57 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   void _onHomeSelected(HomeSelected event, Emitter<HomeState> emit) {
-    // .env 固定家庭时忽略切换（概览条已隐藏，这里防御其他入口）。
-    final String pinnedHome = HaConfig.pinnedHomeName;
+    final List<String> allowed = state.allowedHomes;
+    // 只允许一个家庭时，主页的家庭切换入口已隐藏，这里再兜底一次。
+    if (allowed.length == 1) {
+      emit(
+        state.copyWith(
+          selectedHomeName: allowed.first,
+          selectedAreaId: '',
+        ),
+      );
+      return;
+    }
+    // 多家庭白名单：拒绝切到白名单外的家庭。
+    if (allowed.isNotEmpty &&
+        event.homeName.isNotEmpty &&
+        !allowed.contains(event.homeName)) {
+      return;
+    }
     // 切换家庭后房间行会重新计算，清空已选房间避免无效筛选
     emit(
       state.copyWith(
-        selectedHomeName: pinnedHome.isNotEmpty ? pinnedHome : event.homeName,
+        selectedHomeName: event.homeName,
         selectedAreaId: '',
+      ),
+    );
+  }
+
+  void _onApplyHomeVisibility(
+    ApplyHomeVisibility event,
+    Emitter<HomeState> emit,
+  ) {
+    final List<String> homes = event.homes;
+    String selected = state.selectedHomeName;
+    if (homes.length == 1) {
+      selected = homes.first;
+    } else if (selected.isNotEmpty && !homes.contains(selected)) {
+      selected = '';
+    }
+    emit(
+      state.copyWith(
+        allowedHomes: homes,
+        selectedHomeName: selected,
+        selectedAreaId: '',
+      ),
+    );
+  }
+
+  void _onApplyCardOrder(ApplyCardOrder event, Emitter<HomeState> emit) {
+    emit(
+      state.copyWith(
+        cardOrderAll: event.all,
+        cardOrderByHome: event.byHome,
       ),
     );
   }
@@ -490,10 +548,20 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         cardOrderByHome: plan.homeOrders,
       ),
     );
+    final int updatedAt = DateTime.now().millisecondsSinceEpoch;
     await _settingsStore?.saveCardOrders(
       all: plan.allOrder,
       byHome: plan.homeOrders,
+      updatedAt: updatedAt,
     );
+    // 本地保存后异步推送到服务端；未配置服务端时自动跳过。
+    if (Injection.isRegistered<DeviceReporter>()) {
+      Injection.get<DeviceReporter>().pushLayout(
+        all: plan.allOrder,
+        byHome: plan.homeOrders,
+        updatedAt: updatedAt,
+      );
+    }
   }
 
   void _onClearHomeError(ClearHomeError event, Emitter<HomeState> emit) {

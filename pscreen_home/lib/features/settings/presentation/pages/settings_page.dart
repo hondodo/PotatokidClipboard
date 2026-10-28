@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
+import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
 import 'package:pscreen_home/core/wallpaper/wallpaper_controller.dart';
@@ -38,6 +41,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _hostController;
   late final TextEditingController _tokenController;
+  late final TextEditingController _serverController;
   late final TextEditingController _remoteAccountController;
   late final TextEditingController _remoteTokenController;
   bool _tokenVisible = false;
@@ -59,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final SettingsStore store = Injection.get<SettingsStore>();
     _hostController = TextEditingController(text: HaConfig.haHost);
     _tokenController = TextEditingController(text: HaConfig.haToken);
+    _serverController = TextEditingController(text: HaConfig.serverBaseUrl);
     _sampleSeconds = store.powerSampleSeconds;
     _screensaverMinutes = Injection.get<ScreensaverController>().minutes;
     _uiScale = store.uiScale;
@@ -83,6 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _hostController.dispose();
     _tokenController.dispose();
+    _serverController.dispose();
     _remoteAccountController.dispose();
     _remoteTokenController.dispose();
     _wallpaperApiController.dispose();
@@ -93,6 +99,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _save() async {
     final String hostInput = _hostController.text.trim();
     final String tokenInput = _tokenController.text.trim();
+    final String serverInput = _serverController.text.trim();
 
     // 覆盖语义：与 .env 默认值相同（或清空）= 不覆盖，保持跟随 .env；
     // 不同才存持久化。生效值据此归一化后与当前生效值比较，判定是否刷新。
@@ -100,20 +107,26 @@ class _SettingsPageState extends State<SettingsPage> {
     final String tokenPersist = tokenInput == HaConfig.envToken
         ? ''
         : tokenInput;
+    final String serverPersist = serverInput == HaConfig.envServerBaseUrl
+        ? ''
+        : serverInput;
     final String newHost = hostPersist.isEmpty ? HaConfig.envHost : hostPersist;
     final String newToken = tokenPersist.isEmpty
         ? HaConfig.envToken
         : tokenPersist;
     final bool changed =
         newHost != HaConfig.haHost || newToken != HaConfig.haToken;
+    final bool serverChanged = serverPersist != HaConfig.serverBaseUrl;
 
     setState(() => _saving = true);
     final SettingsStore store = Injection.get<SettingsStore>();
     await store.save(host: hostPersist, token: tokenPersist);
+    await store.saveServerBaseUrl(serverPersist);
     // 从存储回读（保证与实际持久化结果一致，失败时自动回落）
     HaConfig.applyOverrides(
       host: store.hostOverride,
       token: store.tokenOverride,
+      serverBaseUrl: store.serverBaseUrlOverride,
     );
     if (!mounted) return;
     setState(() => _saving = false);
@@ -121,15 +134,24 @@ class _SettingsPageState extends State<SettingsPage> {
     // 回显生效值：清空保存后输入框显示回落的 .env 值
     _hostController.text = HaConfig.haHost;
     _tokenController.text = HaConfig.haToken;
+    _serverController.text = HaConfig.serverBaseUrl;
 
     if (changed) {
       context.read<ConnectionBloc>().add(const Reconnect());
+    }
+    if (serverChanged && mounted) {
+      // 重新注册设备并同步布局；失败只记日志，不阻塞设置页。
+      unawaited(Injection.get<DeviceReporter>().reinitialize());
     }
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(changed ? '已保存，正在用新配置重新连接…' : '已保存'),
+          content: Text(
+            changed
+                ? '已保存，正在用新配置重新连接…'
+                : (serverChanged ? '已保存，正在重新同步设备配置…' : '已保存'),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -306,6 +328,36 @@ class _SettingsPageState extends State<SettingsPage> {
                 onPressed: () => setState(() => _tokenVisible = !_tokenVisible),
               ),
             ),
+            maxLines: 1,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Admin 服务端（可选）',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '填写运行 Admin 管理页的服务器地址（如 http://192.168.31.2:3000）。'
+            '配置后由 Admin 决定本机可见家庭，并把首页卡片顺序同步到服务端；'
+            '留空则完全按 .env 的 HONE_MANE 运行。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _serverController,
+            decoration: InputDecoration(
+              labelText: 'Admin 服务端地址',
+              hintText: 'http://192.168.31.2:3000',
+              helperText: HaConfig.hasServerBaseUrlOverride
+                  ? '已手动设置，优先于 .env（清空保存可恢复）'
+                  : '当前使用 .env 的 SERVER_BASE_URL',
+              border: const OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.url,
             maxLines: 1,
           ),
           const SizedBox(height: 24),

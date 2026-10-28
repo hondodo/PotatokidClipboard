@@ -48,6 +48,7 @@ class _FakeCardOrderStore extends SettingsStore {
   Future<void> saveCardOrders({
     required List<String> all,
     required Map<String, List<String>> byHome,
+    int? updatedAt,
   }) async {
     this.all = List<String>.of(all);
     this.byHome = <String, List<String>>{
@@ -803,8 +804,13 @@ void main() {
       );
       expect(
         bloc.state.availableHomes,
-        contains('棠德304'),
-        reason: '数据仍全量加载，只是首屏筛选被固定',
+        <String>['金科1204'],
+        reason: '固定家庭后其他家庭不再出现在家庭标签中',
+      );
+      expect(
+        bloc.state.entities.length,
+        4,
+        reason: '数据仍全量加载，只是可见范围被固定',
       );
     });
 

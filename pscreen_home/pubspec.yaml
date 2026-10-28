@@ -46,6 +46,10 @@ dependencies:
   web_socket_channel: ^3.0.0
   # 本地持久化（手动设置的 HA 地址 / 令牌，优先于 .env）
   shared_preferences: ^2.3.0
+  # 中控管理服务端（设备注册 / 心跳 / 可见家庭 / 首页布局同步）
+  http: ^1.6.0
+  # 读取应用版本号（心跳上报给 Admin 展示）
+  package_info_plus: ^10.2.2
   # 屏幕能力共享包（IPTV / 天气 / 时钟 / 消息协议 / 网络基础设施）
   pscreen_screen:
     path: ../packages/pscreen_screen
