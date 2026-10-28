@@ -16,12 +16,15 @@
         <!-- 本应用同时注册了 HOME 和 LAUNCHER。singleTop 只保证同一任务栈顶部
              不重复，从桌面图标再启动仍可能新建 Task/FlutterActivity，进而产生
              第二个 FlutterEngine 和第二个 RealtimeChannel；必须使用 singleTask
-             保证进程内只有一个界面实例。 -->
+             保证进程内只有一个界面实例。
+             注意：taskAffinity 不能为空。空 affinity 会让 singleTask 找不到
+             已有 Task，HOME 与 LAUNCHER 仍会各建一个 Task；使用包名让两个入口
+             都能命中同一个 Task。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:taskAffinity=""
+            android:taskAffinity="potatokid.tools.homecontroller"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
