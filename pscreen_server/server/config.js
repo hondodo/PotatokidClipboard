@@ -28,8 +28,7 @@ module.exports = {
     // 实时消息网关（WebSocket）
     realtime: {
         path: '/ws',
-        // 各端共用同一口令；生产环境请通过环境变量覆盖默认值。
-        token: process.env.REALTIME_TOKEN || '12345678',
+        // 鉴权与 HTTP 登录共用账号体系（datas/register/users），不再使用全局口令。
         dataDir: process.env.REALTIME_DATA_DIR || '../datas/realtime'
     }
 };

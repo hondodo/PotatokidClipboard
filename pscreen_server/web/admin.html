@@ -290,6 +290,7 @@
               <th style="width:86px">状态</th>
               <th>设备</th>
               <th style="width:150px">所属用户</th>
+              <th style="width:130px">通信账号</th>
               <th style="width:280px">可见家庭</th>
               <th style="width:120px">当前家庭</th>
               <th style="width:170px">最后心跳</th>
@@ -584,7 +585,7 @@
     const machines = state.overview.machines || [];
     const users = state.overview.users || [];
     if (!machines.length) {
-      body.innerHTML = '<tr><td colspan="7"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="8"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
       return;
     }
     body.innerHTML = machines.map((machine) => {
@@ -603,6 +604,7 @@
             </div>
           </td>
           <td><select data-action="owner">${ownerOptions}</select></td>
+          <td>${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">—</span>'}</td>
           <td>
             <div class="cell-stack">
               ${homesBadges(machine.effectiveHomes, machine.homesSource)}

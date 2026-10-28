@@ -32,6 +32,7 @@ class AppSettings {
   static const String _keyProxyRetry = 'app_proxy_retry_v1';
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
   static const String _keyRemoteAccount = 'app_remote_account_v1';
+  static const String _keyRemotePassword = 'app_remote_password_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -65,6 +66,9 @@ class AppSettings {
   /// 实时通道「远程」账号；**空串表示未设置**。
   String _remoteAccount = '';
 
+  /// 实时通道「远程」口令（明文，提交前做 MD5）；**空串表示未设置**（用默认口令）。
+  String _remotePassword = '';
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -87,6 +91,9 @@ class AppSettings {
 
   /// 实时通道「远程」账号：空串表示未设置。
   String get remoteAccount => _remoteAccount;
+
+  /// 实时通道「远程」口令：空串表示未设置（回落默认口令）。
+  String get remotePassword => _remotePassword;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -126,6 +133,7 @@ class AppSettings {
       // 后台播放
       _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
+      _remotePassword = prefs.getString(_keyRemotePassword) ?? '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -241,6 +249,17 @@ class AppSettings {
     }
   }
 
+  /// 保存实时通道「远程」口令（空串表示清除，回落默认口令）。
+  Future<void> setRemotePassword(String password) async {
+    _remotePassword = password;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyRemotePassword, password);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
   /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
   ///
   /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
@@ -270,6 +289,7 @@ class AppSettings {
     _proxyRetryEnabled = false;
     _backgroundPlayback = false;
     _remoteAccount = '';
+    _remotePassword = '';
   }
 
   static String _themeModeToString(ThemeMode mode) {

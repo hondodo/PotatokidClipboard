@@ -14,13 +14,13 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_blo
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
-import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
-import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_credentials.dart';
+import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
@@ -72,10 +72,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _wallpaperMinutes = _wallpaper.minutes;
     _wallpaperApiController = TextEditingController(text: _wallpaper.apiUrl);
     _remoteAccountController = TextEditingController(
-      text: ControlSettings.instance.account,
+      text: AppSettings.instance.remoteAccount,
     );
     _remoteTokenController = TextEditingController(
-      text: ControlSettings.instance.token,
+      text: AppSettings.instance.remotePassword,
     );
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
@@ -158,36 +158,39 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 保存实时通道账号 / 口令，并立即重连（失败仅提示，不阻断中控台）。
+  ///
+  /// 账号留空 = 回落本机设备号（16hex）；口令留空 = 默认 123456。
+  /// 重连顺序与启动一致：先 HTTP 登录（账号不存在时按默认口令自动建档），
+  /// 再连 ws，否则 ws 握手会因「账号不存在」被拒。
   Future<void> _saveRemoteCredentials() async {
     final String account = _remoteAccountController.text.trim();
-    final String token = _remoteTokenController.text.trim().isEmpty
-        ? ControlConfig.defaultRealtimeToken
+    final String password = _remoteTokenController.text.trim().isEmpty
+        ? DeviceCredentials.defaultPassword
         : _remoteTokenController.text.trim();
-    await ControlSettings.instance.setAccount(account);
-    await ControlSettings.instance.setToken(token);
+    await AppSettings.instance.setRemoteAccount(account);
+    await AppSettings.instance.setRemotePassword(password);
 
     // 立即用新凭据重连，让当前会话生效（失败只提示，不阻断中控台）。
     final RealtimeChannel channel = Injection.get<RealtimeChannel>();
     bool ok = false;
-    if (account.isEmpty) {
-      await channel.disconnect();
-    } else {
-      await channel.disconnect();
-      try {
-        await channel
-            .connect(
-              account: account,
-              token: token,
-              role: 'controller',
-              name: '中控台',
-            )
-            .timeout(const Duration(seconds: 25), onTimeout: () {
-          throw const RealtimeException(-3, '连接超时');
-        });
-        ok = true;
-      } catch (e) {
-        ControlLog.e('[实时通道] 连接失败: $e');
-      }
+    await channel.disconnect();
+    try {
+      // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
+      await PtoolsUtil.loginWithSaved();
+      await channel
+          .connect(
+            account: await DeviceCredentials.account(),
+            token: DeviceCredentials.passwordMd5(),
+            deviceId: await DeviceCredentials.deviceId(),
+            role: 'controller',
+            name: '中控台',
+          )
+          .timeout(const Duration(seconds: 25), onTimeout: () {
+        throw const RealtimeException(-3, '连接超时');
+      });
+      ok = true;
+    } catch (e) {
+      ControlLog.e('[实时通道] 连接失败: $e');
     }
 
     if (!mounted) return;
@@ -197,7 +200,7 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(
           content: Text(
             account.isEmpty
-                ? '已清除遥控账号'
+                ? (ok ? '已恢复默认设备号账号' : '已恢复默认设备号，暂未连接成功')
                 : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
           ),
           behavior: SnackBarBehavior.floating,
@@ -585,7 +588,7 @@ class _SettingsPageState extends State<SettingsPage> {
             controller: _remoteAccountController,
             decoration: const InputDecoration(
               labelText: '实时账号',
-              helperText: '管理员账号见遥控面板（默认 1000001）',
+              helperText: '留空则用本机设备号（16位）；管理员账号见遥控面板',
               border: OutlineInputBorder(),
             ),
             maxLines: 1,
@@ -595,7 +598,7 @@ class _SettingsPageState extends State<SettingsPage> {
             controller: _remoteTokenController,
             decoration: InputDecoration(
               labelText: '实时口令',
-              helperText: '默认 ${ControlConfig.defaultRealtimeToken}',
+              helperText: '默认 ${DeviceCredentials.defaultPassword}',
               border: const OutlineInputBorder(),
             ),
             maxLines: 1,

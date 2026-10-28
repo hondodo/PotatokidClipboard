@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
 const definds = require('./definds');
+const { createAccountStore } = require('./accounts');
 const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
 
@@ -71,6 +72,9 @@ const registerUsersDir = path.join(datasDir, 'register', 'users');
 if (!fs.existsSync(registerUsersDir)) {
     fs.mkdirSync(registerUsersDir, { recursive: true });
 }
+
+// 账号存储：HTTP 登录与 WebSocket 握手共用同一校验（见 accounts.js）
+const accountStore = createAccountStore(registerUsersDir);
 
 // 确保 screen 数据目录存在（../datas/screen/datas）
 const screenDatasDir = path.join(datasDir, 'screen', 'datas');
@@ -260,6 +264,31 @@ app.post('/api/register', (req, res) => {
     }
 });
 
+// 口令 MD5 计算接口：供 realtime.html 在登录表单本地闭环获取握手摘要
+// （浏览器 WebCrypto 不支持 MD5，页面又不引入外网 CDN / 内嵌算法）。
+// 返回的仅是提交方自己口令的 MD5，不泄露任何其他账号信息。
+app.post('/api/password_md5', (req, res) => {
+    try {
+        const { password } = req.body;
+        if (typeof password !== 'string' || password.length === 0) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '口令不能为空',
+            });
+        }
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: 'ok',
+            [definds.txt.DATA]: { md5: crypto.createHash('md5').update(password).digest('hex') },
+        });
+    } catch (error) {
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
 // 用户登录接口
 app.post('/api/login', (req, res) => {
     try {
@@ -272,33 +301,23 @@ app.post('/api/login', (req, res) => {
             });
         }
 
-        // 检查用户文件是否存在
-        const userFilePath = path.join(registerUsersDir, username);
-        if (!fs.existsSync(userFilePath)) {
-            console.log(`登录失败: ${username} - 用户不存在`);
+        const account = String(username).trim();
+        const clientIp = req.ip || req.socket.remoteAddress || 'Unknown';
+
+        // 与 WebSocket 握手共用同一校验：账号文件存在且 MD5 一致；
+        // 账号不存在且口令为默认口令（123456）时自动建档（设备首次登录即开通）。
+        const verdict = accountStore.verifyOrProvision(account, password);
+        if (!verdict.ok) {
+            const reasonText = verdict.reason === 'not_exists' ? '用户不存在' : '密码错误';
+            console.log(`登录失败: ${account} - ${reasonText} from ${clientIp}`);
             return res.status(200).json({
                 [definds.txt.CODE]: definds.code.FAILED,
-                [definds.txt.MSG]: '用户不存在',
-            });
-        }
-
-        // 读取用户文件中的密码哈希
-        const storedPasswordHash = fs.readFileSync(userFilePath, 'utf8').trim();
-
-        // 计算输入密码的MD5哈希
-        const inputPasswordHash = password;  // 改成在客户端做加密了，传入的就是加密后的密码 //crypto.createHash('md5').update(password).digest('hex');
-
-        // 验证密码
-        if (storedPasswordHash !== inputPasswordHash) {
-            console.log(`登录失败: ${username} - 密码错误`);
-            return res.status(200).json({
-                [definds.txt.CODE]: definds.code.FAILED,
-                [definds.txt.MSG]: '密码错误',
+                [definds.txt.MSG]: reasonText,
             });
         }
 
         // 密码验证成功，设置cookie
-        res.cookie('username', username, {
+        res.cookie('username', account, {
             maxAge: 14 * 24 * 60 * 60 * 1000, // 14天
             httpOnly: false, // 允许前端访问
             secure: false, // 开发环境设为false
@@ -306,22 +325,19 @@ app.post('/api/login', (req, res) => {
         });
 
         // 记录这个用户信息到用户文件 users/username_info.txt
-        const userInfoFilePath = path.join(registerUsersDir, username + '_info.txt');
-        if (!fs.existsSync(userInfoFilePath)) {
-            console.log(`登录失败: ${username} - 用户信息文件不存在`);
+        const userInfo = accountStore.readInfo(account);
+        if (!userInfo) {
+            console.log(`登录失败: ${account} - 用户信息文件不存在 from ${clientIp}`);
             return res.status(200).json({
                 [definds.txt.CODE]: definds.code.FAILED,
                 [definds.txt.MSG]: '用户信息文件不存在，请重新注册',
             });
         }
-        // 读取用户信息
-        const userInfo = JSON.parse(fs.readFileSync(userInfoFilePath, 'utf8'));
         // 更新登录时间
         userInfo.loginTime = new Date().toISOString();
-        // 保存用户信息
-        fs.writeFileSync(userInfoFilePath, JSON.stringify(userInfo, null, 2), 'utf8');
+        accountStore.writeInfo(account, userInfo);
 
-        console.log(`用户登录成功: ${username}`);
+        console.log(`用户登录成功: ${account} from ${clientIp}`);
 
         const userData = {
             user: userInfo,
@@ -1691,7 +1707,7 @@ app.get('/api/clipboards', (req, res) => {
 // Admin 管理接口 / 设备配置与布局同步接口。
 // 必须在 SPA 兜底路由之前注册，否则 /api/admin/* 会被 index.html 接管。
 let realtimeHandle = null;
-attachAdmin(app, {
+const adminHandle = attachAdmin(app, {
     datasDir,
     registerUsersDir,
     webAppPath,
@@ -1720,8 +1736,9 @@ app.use((req, res) => {
 const httpServer = http.createServer(app);
 realtimeHandle = attachRealtime(httpServer, {
     path: config.realtime.path,
-    token: config.realtime.token,
+    accountStore,
     dataDir: path.join(__dirname, config.realtime.dataDir),
+    setCommAccount: adminHandle.setCommAccount,
 });
 httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);

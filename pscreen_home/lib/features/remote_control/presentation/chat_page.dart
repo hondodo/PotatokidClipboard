@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/core/control_config.dart';
-import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 
 /// 聊天页：消息流（实时通道） + 底部输入（文本/命令）。
 class ChatPage extends StatefulWidget {
@@ -28,7 +28,7 @@ class _ChatPageState extends State<ChatPage> {
   RealtimeChannel get _channel => Injection.get<RealtimeChannel>();
 
   bool get _isAdminSelf =>
-      ControlSettings.instance.account == ControlConfig.adminAccount && widget.account == ControlConfig.adminAccount;
+      AppSettings.instance.remoteAccount == ControlConfig.adminAccount && widget.account == ControlConfig.adminAccount;
 
   @override
   void initState() {

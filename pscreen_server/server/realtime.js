@@ -1,7 +1,8 @@
 // 实时消息网关（WebSocket）。
 //
-// 与 server.js 共用同一个 HTTP 服务：客户端连接 `/ws?account=..&token=..&role=..&name=..`，
-// 鉴权通过后按账号路由消息、广播在线状态，并把离线消息与历史落到 datas/realtime。
+// 与 server.js 共用同一个 HTTP 服务：客户端连接 `/ws?account=..&token=..&deviceId=..&role=..&name=..`，
+// 鉴权与 HTTP 登录共用同一账号体系（datas/register/users，token 为密码 MD5），
+// 通过后按账号路由消息、广播在线状态，并把离线消息与历史落到 datas/realtime。
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
@@ -105,7 +106,8 @@ function writeJson(file, value) {
 
 function attachRealtime(httpServer, options = {}) {
     const wsPath = options.path || '/ws';
-    const token = options.token || '12345678';
+    // 账号存储（datas/register/users）：与 HTTP 登录同一校验；未传时拒绝所有连接。
+    const accountStore = options.accountStore || null;
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
     const historyFile = path.join(dataDir, 'history.jsonl');
     const eventsFile = path.join(dataDir, 'events.jsonl');
@@ -291,6 +293,7 @@ function attachRealtime(httpServer, options = {}) {
     wss.on('connection', (ws, request, url) => {
         const account = (url.searchParams.get('account') || '').trim();
         const clientToken = url.searchParams.get('token') || '';
+        const deviceId = (url.searchParams.get('deviceId') || '').trim().slice(0, 64);
         const role = url.searchParams.get('role') || 'tv';
         const name = (url.searchParams.get('name') || '').slice(0, 64);
 
@@ -300,18 +303,31 @@ function attachRealtime(httpServer, options = {}) {
             ws.close(4001, 'invalid account');
             return;
         }
-        if (clientToken !== token) {
-            console.warn(`[realtime] reject token for ${account} from ${request.socket.remoteAddress}`);
-            sendJson(ws, { t: 'error', code: 401, msg: 'invalid token' });
-            ws.close(4001, 'invalid token');
+        // 与 HTTP /api/login 同一校验：账号文件存在且 token（密码 MD5）一致。
+        const verdict = accountStore ? accountStore.verify(account, clientToken) : { ok: false };
+        if (!verdict.ok) {
+            const msg = verdict.reason === 'not_exists' ? 'unknown account' : 'invalid token';
+            console.warn(`[realtime] reject ${msg} for ${account} from ${request.socket.remoteAddress}`);
+            sendJson(ws, { t: 'error', code: 401, msg });
+            ws.close(4001, msg);
             return;
         }
 
         ws.isAlive = true;
         ws.connectedAt = Date.now();
         ws.account = account;
+        ws.deviceId = deviceId;
         ws.role = role;
         ws.name = name;
+
+        // ws 握手带 deviceId 时，把当前通信账号回写到 admin 设备表（machines.json.commAccount）。
+        if (deviceId && typeof options.setCommAccount === 'function') {
+            try {
+                options.setCommAccount(deviceId, account);
+            } catch (error) {
+                console.warn('[realtime] 记录通信账号失败:', error.message);
+            }
+        }
 
         let sockets = connections.get(account);
         const firstConnection = !sockets || sockets.size === 0;
@@ -321,19 +337,20 @@ function attachRealtime(httpServer, options = {}) {
         }
         sockets.add(ws);
         console.log(
-            `[realtime] online ${account} role=${role} name=${name || '-'} ip=${request.socket.remoteAddress} ` +
-            `sockets=${sockets.size} total=${wss.clients.size}`,
+            `[realtime] online ${account} device=${deviceId || '-'} role=${role} name=${name || '-'} ` +
+            `ip=${request.socket.remoteAddress} sockets=${sockets.size} total=${wss.clients.size}`,
         );
 
         sendJson(ws, {
             t: 'ready',
             account,
+            deviceId,
             online: onlineAccounts(),
             serverTime: Date.now(),
         });
         flushOffline(account);
         if (firstConnection) {
-            broadcast({ t: 'presence', account, online: true }, ws);
+            broadcast({ t: 'presence', account, deviceId, online: true }, ws);
         }
 
         ws.on('pong', () => {
@@ -561,7 +578,7 @@ function attachRealtime(httpServer, options = {}) {
                 set.delete(ws);
                 if (set.size === 0) {
                     connections.delete(account);
-                    broadcast({ t: 'presence', account, online: false });
+                    broadcast({ t: 'presence', account, deviceId: ws.deviceId || '', online: false });
                 }
             }
             const alive = ws.connectedAt ? Math.round((Date.now() - ws.connectedAt) / 1000) : 0;

@@ -139,6 +139,7 @@ class RealtimeChannel {
 
   String _account = '';
   String _token = '';
+  String _deviceId = '';
   String _role = 'tv';
   String _name = '';
   bool _manualClose = false;
@@ -169,15 +170,20 @@ class RealtimeChannel {
 
   /// 连接并完成鉴权握手。失败抛 [RealtimeException]。
   ///
+  /// [token] 为口令 MD5（与 HTTP 登录同一校验）；[deviceId] 供服务端
+  /// 在在线日志/presence 中关联物理设备，可为空。
+  ///
   /// 非鉴权类失败（网络/超时）会同时启动后台重连，恢复后自动转已连接。
   Future<void> connect({
     required String account,
     required String token,
+    String deviceId = '',
     String role = 'tv',
     String? name,
   }) async {
     _account = account.trim();
     _token = token;
+    _deviceId = deviceId.trim();
     _role = role;
     _name = name ?? '';
     if (_account.isEmpty) {
@@ -347,6 +353,7 @@ class RealtimeChannel {
         'account': _account,
         'token': _token,
         'role': _role,
+        if (_deviceId.isNotEmpty) 'deviceId': _deviceId,
         if (_name.isNotEmpty) 'name': _name,
       });
       final WebSocketChannel channel = WebSocketChannel.connect(uri);

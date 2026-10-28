@@ -78,13 +78,15 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
-      // 4.05 设备唯一编号作为默认「远程」账号：仅当用户从未设置过账号时写入一次
-      //      （编号形如 xxxx-xxxx-xxxx-xxxx，卸载重装后不变）。必须在 4.1 派发
-      //      自动连接之前完成，否则 RemoteLoginBloc 的初始 State 读不到该账号。
-      if (AppSettings.instance.remoteAccount.isEmpty) {
-        final String deviceId = await DeviceIdentity.instance.resolve();
-        if (deviceId.isNotEmpty) {
-          await AppSettings.instance.setRemoteAccount(deviceId);
+      // 4.05 默认「远程」账号 = 本机设备号（16hex，去连字符）：仅当用户从未
+      //      设置过账号、或残留旧版带连字符的设备号时写入一次（卸载重装后不变）。
+      //      必须在 4.1 派发自动连接之前完成，否则 RemoteLoginBloc 的初始 State
+      //      读不到该账号；全新情况下 DeviceCredentials 也会自动回落设备号。
+      final String savedAccount = AppSettings.instance.remoteAccount;
+      if (savedAccount.isEmpty || _isLegacyDeviceAccount(savedAccount)) {
+        final String hexId = (await DeviceIdentity.instance.resolve()).replaceAll('-', '');
+        if (hexId.isNotEmpty && savedAccount != hexId) {
+          await AppSettings.instance.setRemoteAccount(hexId);
         }
       }
 
@@ -140,3 +142,8 @@ void main() {
     },
   );
 }
+
+/// 是否为旧版默认账号（DeviceIdentity 原格式 `xxxx-xxxx-xxxx-xxxx`）。
+/// 这类值不是用户自定义账号，启动时迁移为 16hex 设备号。
+bool _isLegacyDeviceAccount(String value) =>
+    RegExp(r'^[0-9a-fA-F]{4}(-[0-9a-fA-F]{4}){3}$').hasMatch(value);

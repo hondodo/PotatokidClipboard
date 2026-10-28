@@ -712,8 +712,8 @@
         <label class="field">账号
           <input id="account-input" autocomplete="username" spellcheck="false" value="1000001">
         </label>
-        <label class="field">Token
-          <input id="token-input" type="password" autocomplete="current-password" spellcheck="false" value="12345678">
+        <label class="field">口令
+          <input id="token-input" type="password" autocomplete="current-password" spellcheck="false" value="123456">
         </label>
         <button type="submit" class="btn primary" id="connect-btn">连接</button>
         <button type="button" class="btn ghost" id="disconnect-btn">断开</button>
@@ -771,9 +771,9 @@
 
       const ALL = '__all__';
       const DEFAULT_ACCOUNT = '1000001';
-      const DEFAULT_TOKEN = '12345678';
+      const DEFAULT_PASSWORD = '123456';
       const STORAGE_ACCOUNT = 'potatokid.realtime.account';
-      const STORAGE_TOKEN = 'potatokid.realtime.token';
+      const STORAGE_PASSWORD = 'potatokid.realtime.password';
       const POLL_MS = 20000;
 
       const ACCOUNT_LABELS = {
@@ -824,6 +824,8 @@
         pollTimer: null,
         online: new Set(),
         peers: new Map(),
+        // 账号 -> 设备号（presence/ready 带回，用于把自定义账号对回物理设备）
+        deviceIds: new Map(),
         messages: new Map(),
         events: new Map(),
         currentPeer: ALL,
@@ -992,6 +994,21 @@
         return `${protocol}//${host}/ws?${params.toString()}`;
       }
 
+      // 浏览器 WebCrypto 不支持 MD5，也不引外网 CDN，
+      // 口令摘要统一由服务端 /api/password_md5 下发。
+      async function fetchPasswordMd5(password) {
+        const resp = await fetch('/api/password_md5', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const body = await resp.json();
+        if (body.code !== 0 || !body.data || typeof body.data.md5 !== 'string') {
+          throw new Error(body.msg || '获取口令摘要失败');
+        }
+        return body.data.md5;
+      }
+
       function isOpen() {
         return state.socket && state.socket.readyState === WebSocket.OPEN;
       }
@@ -1056,22 +1073,41 @@
         renderAll();
       }
 
-      function connect() {
+      async function connect() {
         const account = accountInput.value.trim();
-        const token = tokenInput.value;
+        const password = tokenInput.value;
         if (!account) {
           setStatus('error', '账号不能为空');
           accountInput.focus();
           return;
         }
-        if (!token) {
-          setStatus('error', 'Token 不能为空');
+        if (!password) {
+          setStatus('error', '口令不能为空');
           tokenInput.focus();
           return;
         }
 
+        setStatus('connecting', '获取口令摘要…');
+        let token;
+        try {
+          token = await fetchPasswordMd5(password);
+        } catch (error) {
+          setStatus('error', `获取口令摘要失败：${error.message || error}`);
+          return;
+        }
+
+        // 与各端一致：先 HTTP 登录（账号不存在且口令为默认时服务端自动建档），
+        // 否则 ws 握手会因「账号不存在」被拒；登录失败不阻断，由 ws 侧独立报错。
+        try {
+          await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: account, password: token }),
+          });
+        } catch (_) { /* 网络失败交由 ws 连接报错 */ }
+
         localStorage.setItem(STORAGE_ACCOUNT, account);
-        localStorage.setItem(STORAGE_TOKEN, token);
+        localStorage.setItem(STORAGE_PASSWORD, password);
 
         if (state.reconnectTimer) {
           clearTimeout(state.reconnectTimer);
@@ -1159,6 +1195,9 @@
         switch (frame.t) {
           case 'ready': {
             if (typeof frame.account === 'string' && frame.account) state.account = frame.account;
+            if (state.account && typeof frame.deviceId === 'string' && frame.deviceId) {
+              state.deviceIds.set(state.account, frame.deviceId);
+            }
             state.online = new Set((Array.isArray(frame.online) ? frame.online : []).map(String));
             setStatus('connected', `已连接 · ${onlineCount()} 个在线`);
             renderAll();
@@ -1168,6 +1207,9 @@
           case 'presence': {
             const account = String(frame.account || '');
             if (!account) return;
+            if (typeof frame.deviceId === 'string' && frame.deviceId) {
+              state.deviceIds.set(account, frame.deviceId);
+            }
             if (frame.online === true) {
               state.online.add(account);
               ensurePeer(account);
@@ -1386,7 +1428,8 @@
         peerTitle.textContent = accountLabel(peer);
         const online = state.online.has(peer);
         const last = peerState?.last ? ` · ${truncate(peerState.last, 56)}` : '';
-        peerSubtitle.textContent = `${online ? '在线' : '离线'}${last}`;
+        const device = state.deviceIds.get(peer);
+        peerSubtitle.textContent = `${online ? '在线' : '离线'}${device ? ` · 设备 ${device}` : ''}${last}`;
       }
 
       function renderAccounts() {
@@ -1453,6 +1496,12 @@
         line.append(el('span', 'account-name', isAll ? '全部事件' : peer.account));
         if (!isAll && ACCOUNT_LABELS[peer.account]) {
           line.append(el('span', 'tag', ACCOUNT_LABELS[peer.account]));
+        }
+        const device = !isAll ? state.deviceIds.get(peer.account) : '';
+        if (device) {
+          const chip = el('span', 'tag', `设备 ${device}`);
+          chip.title = device;
+          line.append(chip);
         }
         main.append(line);
         main.append(el('div', 'account-preview', peer.last || '暂无消息'));
@@ -1666,11 +1715,11 @@
 
       function boot() {
         const savedAccount = localStorage.getItem(STORAGE_ACCOUNT);
-        const savedToken = localStorage.getItem(STORAGE_TOKEN);
+        const savedPassword = localStorage.getItem(STORAGE_PASSWORD);
         accountInput.value = savedAccount || DEFAULT_ACCOUNT;
-        tokenInput.value = savedToken || DEFAULT_TOKEN;
+        tokenInput.value = savedPassword || DEFAULT_PASSWORD;
         state.account = accountInput.value.trim();
-        state.token = tokenInput.value;
+        state.token = '';
         setWsLabel();
         bindEvents();
         renderAll();

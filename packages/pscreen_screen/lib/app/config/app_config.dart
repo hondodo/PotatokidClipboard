@@ -24,13 +24,11 @@ class AppConfig {
   static String seniverseIpGeoHost = 'https://ipwho.is/';
   static String seniverseIpGeoHostB = 'https://ipapi.co/json/';
 
-  /// 实时消息网关口令（各端统一，服务端用 REALTIME_TOKEN 校验）。
-  static String realtimeToken = '';
-
-  /// ptools 服务端登录账号（`TOOLS_TOKEN`），用于拉取 screen 数据文件与频道列表。
+  /// `.env` 兜底的 ptools 账号（`TOOLS_TOKEN`）；正常情况下账号用设备号或
+  /// 设置页自定义值，见 [DeviceCredentials]（core/utils/device_credentials.dart）。
   static String toolsToken = '';
 
-  /// ptools 服务端登录密码（`TOOLS_PASSWORD`，明文；提交前客户端做 MD5）。
+  /// `.env` 兜底的 ptools 口令（`TOOLS_PASSWORD`，明文；提交前客户端做 MD5）。
   static String toolsPassword = '';
 
   /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
@@ -72,8 +70,6 @@ class AppConfig {
     seniverseWeatherHost = _readString('SENIVERSE_WEATHER_HOST', seniverseWeatherHost);
     seniverseIpGeoHost = _readString('SENIVERSE_IP_GEO_HOST', seniverseIpGeoHost);
     seniverseIpGeoHostB = _readString('SENIVERSE_IP_GEO_HOST_B', seniverseIpGeoHostB);
-
-    realtimeToken = _readString('REALTIME_TOKEN', realtimeToken);
 
     toolsToken = _readString('TOOLS_TOKEN', toolsToken);
     toolsPassword = _readString('TOOLS_PASSWORD', toolsPassword);

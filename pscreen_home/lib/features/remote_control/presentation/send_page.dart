@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
-import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_home/features/remote_control/application/send_cubit.dart';
 import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/target_picker.dart';
 import 'package:pscreen_home/features/remote_control/presentation/qr_scan_page.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 
 /// 发送端主页：按账号分叉。
 class SendPage extends StatelessWidget {
@@ -18,7 +18,8 @@ class SendPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String account = ControlSettings.instance.account;
+    // 自定义账号为空 = 用设备号上报，天然不是管理员。
+    final String account = AppSettings.instance.remoteAccount;
     final bool isAdmin = account == ControlConfig.adminAccount;
     return BlocProvider<SendCubit>(
       create: (_) => SendCubit(

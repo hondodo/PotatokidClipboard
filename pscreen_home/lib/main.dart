@@ -19,6 +19,9 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_credentials.dart';
+import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -76,17 +79,39 @@ void main() {
       await serverSync;
 
       // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
-      //     账号 / 口令来自本地持久化，未配置时跳过；断线由通道自动重连。
+      //     凭据统一走共享包 DeviceCredentials（自定义账号 > .env > 本机设备号；
+      //     口令自定义 > .env > 123456）。连接前先 HTTP 登录完成账号建档，
+      //     再发起 ws，避免握手因「账号不存在」被拒。断线由通道自动重连。
       unawaited(() async {
-        final String account = ControlSettings.instance.account;
-        if (account.isEmpty) {
-          ControlLog.i('[实时通道] 未配置账号，跳过自动连接');
-          return;
-        }
         try {
+          // 旧版遥控账号/口令存在 ControlSettings，迁移一次到 AppSettings
+          //（之后以 AppSettings 为准，ControlSettings 只保留已勾选目标）。
+          await AppSettings.instance.ensureLoaded();
+          if (AppSettings.instance.remoteAccount.isEmpty) {
+            final String legacyAccount = ControlSettings.instance.account;
+            if (legacyAccount.isNotEmpty) {
+              await AppSettings.instance.setRemoteAccount(legacyAccount);
+            }
+          }
+          if (AppSettings.instance.remotePassword.isEmpty) {
+            final String legacyToken = ControlSettings.instance.token;
+            // 旧默认 '12345678' 是已废弃的全局口令，不迁移（回落 123456）。
+            if (legacyToken.isNotEmpty && legacyToken != '12345678') {
+              await AppSettings.instance.setRemotePassword(legacyToken);
+            }
+          }
+
+          final String account = await DeviceCredentials.account();
+          if (account.isEmpty) {
+            ControlLog.i('[实时通道] 无法确定账号，跳过自动连接');
+            return;
+          }
+          // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
+          await PtoolsUtil.loginWithSaved();
           await Injection.get<RealtimeChannel>().connect(
             account: account,
-            token: ControlSettings.instance.token,
+            token: DeviceCredentials.passwordMd5(),
+            deviceId: await DeviceCredentials.deviceId(),
             role: 'controller',
             name: '中控台',
           );

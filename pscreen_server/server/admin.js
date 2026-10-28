@@ -300,6 +300,7 @@ function attachAdmin(app, options = {}) {
                     .map((home) => home.trim().slice(0, MAX_HOME_NAME)).slice(0, MAX_HOMES)
                 : [],
             haConnected: machine.haConnected === true,
+            commAccount: typeof machine.commAccount === 'string' ? machine.commAccount.slice(0, 64) : '',
             firstSeen: Number(machine.firstSeen) || 0,
             lastSeen: Number(machine.lastSeen) || 0,
         };
@@ -737,6 +738,10 @@ function attachAdmin(app, options = {}) {
         if (typeof body.haConnected === 'boolean') {
             machine.haConnected = body.haConnected;
         }
+        // 当前生效的通信账号（ptools 登录 / ws 上报用的账号，可能被自定义覆盖）
+        if (typeof body.commAccount === 'string') {
+            machine.commAccount = body.commAccount.trim().slice(0, 64);
+        }
         machine.ip = normalizeIp(req.ip || req.socket.remoteAddress);
         machine.lastSeen = now;
         machines[id] = normalizeMachine(id, machine);
@@ -861,7 +866,24 @@ function attachAdmin(app, options = {}) {
     });
 
     console.log(`[admin] Admin 页面: /admin（管理员账号: ${ADMIN_USERNAME}）`);
-    return { adminDir, ADMIN_USERNAME };
+    // ws 握手成功后由 realtime 回写设备的通信账号（仅更新已注册设备，不新建）。
+    // 客户端 ws 上报的是 16hex 设备号；admin 表主键可能是 `android_<hex>` /
+    // `gen_<hex>` 这类带前缀形式，故先精确匹配再按后缀匹配。
+    function setCommAccount(deviceId, account) {
+        const id = safeDeviceId(deviceId);
+        const next = typeof account === 'string' ? account.trim().slice(0, 64) : '';
+        if (!id || !next) return;
+        const machines = readMachines();
+        const key = machines[id]
+            ? id
+            : Object.keys(machines).find((candidate) => candidate.endsWith(id));
+        const machine = key ? machines[key] : null;
+        if (!machine || machine.commAccount === next) return;
+        machine.commAccount = next;
+        machines[key] = normalizeMachine(key, machine);
+        saveMachines(machines);
+    }
+    return { adminDir, ADMIN_USERNAME, setCommAccount };
 }
 
 module.exports = { attachAdmin, ADMIN_USERNAME };
