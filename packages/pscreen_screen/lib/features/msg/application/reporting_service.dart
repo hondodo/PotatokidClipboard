@@ -45,6 +45,10 @@ class ReportingService {
   /// 切台确认防抖。
   static const Duration channelDebounce = Duration(seconds: 1);
 
+  /// 播放失败重试上报的限流窗口：坏台按 1~8s 反复重试，
+  /// 连续 `play_retry` 至少间隔这段时间才发一条（首条不受限）。
+  static const Duration playbackRetryThrottle = Duration(seconds: 30);
+
   final MessageSender sender;
   final Future<String> Function() deviceModel;
   final ChannelInfoProvider channelInfo;
@@ -69,6 +73,20 @@ class ReportingService {
   DateTime? _loginAt;
   bool _started = false;
   String? _model;
+
+  // ---- 播放状态上报（play_*）的本地去重状态 ----
+  /// 上次涉及的频道：换台即清空下面的去重记录（新频道重新开始）。
+  String? _pbChannel;
+
+  /// 本频道已报过 `play_start` 的源（同频道每源只报首次，代理重试不重复报）。
+  final Set<String> _pbStartedKeys = <String>{};
+
+  /// 上次已发送的播放状态：同频道连续重复的 `play_ok`/`play_fail` 直接丢弃
+  /// （视频帧与 playing 可能先后各触发一次成功，只报第一条）。
+  String _pbLastState = '';
+
+  /// 上次发送 `play_retry` 的时间（限流用）。
+  DateTime? _pbRetryAt;
 
   /// 场景切换防抖：路由 push/pop 常连续触发，只上报最终落点。
   static const Duration sceneDebounce = Duration(milliseconds: 250);
@@ -123,6 +141,11 @@ class ReportingService {
     _sceneChanges = null;
     _lastSceneKey = null;
     _lastChannelName = null;
+    // 重新登录后播放去重记录从头开始（避免旧频道的去重状态吞掉新事件）。
+    _pbChannel = null;
+    _pbStartedKeys.clear();
+    _pbLastState = '';
+    _pbRetryAt = null;
   }
 
   /// 切台确认（onPlayCommit 钩子）：防抖后发「切换频道」。
@@ -151,6 +174,88 @@ class ReportingService {
         'scene': current.toJson(),
       });
     });
+  }
+
+  /// 上报播放状态（纯观测：宿主在播放器的 open/成功/失败回调处调用）。
+  ///
+  /// [state] 取值：
+  /// - `play_start`：选中某源并 open（同频道同源只报首次）；
+  /// - `play_ok`：确认进入可播状态（连续重复丢弃）；
+  /// - `play_retry`：播放失败进入重试（限流 [playbackRetryThrottle]，首条立即）；
+  /// - `play_fail`：终态失败（宿主无重试时用，连续重复丢弃）。
+  ///
+  /// 去重/限流全部在本方法内完成，宿主无需关心防刷屏；
+  /// 任何异常自行吞掉，绝不影响调用方的播放链路。
+  void notifyPlayback(
+    String state, {
+    required String channel,
+    int sourceIndex = 0,
+    int sourceTotal = 0,
+    String sourceUrl = '',
+    String reason = '',
+    int round = 0,
+    bool viaProxy = false,
+    Duration? elapsed,
+  }) {
+    if (!_started || channel.isEmpty) return;
+    try {
+      // 换台 = 全新上下文：源去重表与限流记录一并重置。
+      if (channel != _pbChannel) {
+        _pbChannel = channel;
+        _pbStartedKeys.clear();
+        _pbLastState = '';
+        _pbRetryAt = null;
+      }
+      if (state == 'play_start') {
+        // 每个源在本频道内只报首次 open：退避后重开同源、同一代理的重复尝试
+        // 都不重复；但「直连 → 改代理重试」算一条新信息，单独放行一次。
+        if (!_pbStartedKeys.add('$sourceIndex/$sourceTotal/$sourceUrl${viaProxy ? '@proxy' : ''}')) {
+          // 重开已报过的源 = 新一轮尝试：允许随后的 ok/fail 再次上报
+          //（否则「失败 → 重新打开同源 → 再失败」的后续失败会被当成连续重复吞掉）。
+          _pbLastState = '';
+          return;
+        }
+      } else if (state == 'play_retry') {
+        // 坏台会以 1~8s 的节奏无限重试：首条立即发（让人知道在重试），
+        // 之后按限流窗口发，恢复（play_ok）会重置状态使下一条立即可发。
+        final DateTime now = _now();
+        if (_pbRetryAt != null && now.difference(_pbRetryAt!) < playbackRetryThrottle) {
+          return;
+        }
+        _pbRetryAt = now;
+      } else if (state == _pbLastState) {
+        return; // play_ok / play_fail 同频道连续重复
+      }
+      // 恢复/终态后，下一次失败的首条 retry 不再受上次限流影响（立刻可报）。
+      if (state == 'play_ok' || state == 'play_fail') _pbRetryAt = null;
+      _pbLastState = state;
+      reportEvent(state, <String, Object?>{
+        'channelName': channel,
+        'sourceIndex': sourceIndex,
+        'sourceTotal': sourceTotal,
+        'source': _shortSource(sourceUrl),
+        'round': round,
+        if (viaProxy) 'viaProxy': true,
+        if (reason.isNotEmpty) 'reason': reason.length > 120 ? '${reason.substring(0, 120)}…' : reason,
+        if (elapsed != null) 'elapsedMs': elapsed.inMilliseconds,
+      });
+    } catch (e) {
+      Log.error('[ReportingService] 播放状态上报异常: $e');
+    }
+  }
+
+  /// 源地址脱敏截断：只留 `scheme://host/path`（丢弃可能带 token 的 query），
+  /// 无法解析时截到 128 字符——够用来认出「哪个源」，又不至于刷屏。
+  static String _shortSource(String url) {
+    final String trimmed = url.trim();
+    if (trimmed.isEmpty) return '';
+    try {
+      final Uri uri = Uri.parse(trimmed);
+      if (uri.host.isNotEmpty) {
+        return '${uri.scheme}://${uri.host}${uri.path}';
+      }
+    } catch (_) {}
+    return trimmed.length > 128 ? '${trimmed.substring(0, 128)}…' : trimmed;
   }
 
   /// 当前位置文本：由注入的场景描述器决定（各宿主自行决定「频道名还是页名」）。

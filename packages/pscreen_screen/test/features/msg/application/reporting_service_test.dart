@@ -297,4 +297,124 @@ void main() {
       expect(sender.sent.last.$2, '已收看4分钟，当前频道是测试场景');
     });
   });
+
+  group('播放状态上报（notifyPlayback）', () {
+    /// 可拨动的时钟：retry 限流窗口测试用。
+    late DateTime nowValue;
+
+    ReportingService buildPlaybackService() => ReportingService(
+          sender: sender,
+          deviceModel: () async => 'MiBOX 4',
+          channelInfo: ChannelInfoProvider.instance,
+          liveChannel: LiveChannelController.instance,
+          sceneProvider: const _FakeSceneProvider('测试场景'),
+          now: () => nowValue,
+        );
+
+    /// 重建并登录，清空历史事件，返回可直接调 notifyPlayback 的服务。
+    Future<ReportingService> startedService() async {
+      service.dispose();
+      nowValue = DateTime(2026, 10, 15, 20, 30);
+      service = buildPlaybackService();
+      service.start('TV_001');
+      await pumpEventQueue();
+      sender.events.clear();
+      return service;
+    }
+
+    test('play_start：同频道同源只报一次，不同源与换频道可再报', () async {
+      final ReportingService svc = await startedService();
+
+      svc.notifyPlayback('play_start',
+          channel: 'CCTV-5',
+          sourceIndex: 1,
+          sourceTotal: 2,
+          sourceUrl: 'http://a.com/1.m3u8?token=secret');
+      svc.notifyPlayback('play_start',
+          channel: 'CCTV-5',
+          sourceIndex: 1,
+          sourceTotal: 2,
+          sourceUrl: 'http://a.com/1.m3u8?token=secret'); // 同源重复 → 丢弃
+      svc.notifyPlayback('play_start',
+          channel: 'CCTV-5',
+          sourceIndex: 2,
+          sourceTotal: 2,
+          sourceUrl: 'http://b.com/2.m3u8',
+          round: 1); // 新源 → 放行
+      expect(sender.events.length, 2);
+
+      // 源地址脱敏：只留 scheme://host/path，query 里的 token 不上报。
+      final Map<String, Object?> data = sender.events.last.$3!;
+      expect(data['source'], 'http://b.com/2.m3u8');
+      expect(data['channelName'], 'CCTV-5');
+      expect(data['sourceIndex'], 2);
+      expect(data['sourceTotal'], 2);
+      expect(data['round'], 1);
+
+      // 换频道 = 新上下文：同源可再次上报。
+      svc.notifyPlayback('play_start',
+          channel: 'CCTV-1',
+          sourceIndex: 1,
+          sourceTotal: 2,
+          sourceUrl: 'http://a.com/1.m3u8?token=secret');
+      expect(sender.events.length, 3);
+    });
+
+    test('play_retry：首条立即，窗口内限流，超窗再发，恢复后立刻可发', () async {
+      final ReportingService svc = await startedService();
+
+      svc.notifyPlayback('play_retry',
+          channel: 'CCTV-5', round: 1, reason: 'error: timeout', elapsed: const Duration(seconds: 2));
+      expect(sender.events.length, 1);
+      final Map<String, Object?> first = sender.events.last.$3!;
+      expect(first['reason'], 'error: timeout');
+      expect(first['round'], 1);
+      expect(first['elapsedMs'], 2000);
+
+      // 窗口内（10s 后）的连续重试 → 丢弃。
+      nowValue = nowValue.add(const Duration(seconds: 10));
+      svc.notifyPlayback('play_retry', channel: 'CCTV-5', round: 2, reason: 'error: timeout');
+      expect(sender.events.length, 1);
+
+      // 超过 30s 限流窗口 → 再发一条（带上最新轮次）。
+      nowValue = nowValue.add(const Duration(seconds: 21));
+      svc.notifyPlayback('play_retry', channel: 'CCTV-5', round: 5, reason: 'error: timeout');
+      expect(sender.events.length, 2);
+      expect((sender.events.last.$3!)['round'], 5);
+
+      // 恢复（play_ok）后，下一次失败首条不受旧窗口限制。
+      svc.notifyPlayback('play_ok', channel: 'CCTV-5', sourceIndex: 2, sourceTotal: 2);
+      expect(sender.events.length, 3);
+      nowValue = nowValue.add(const Duration(seconds: 1));
+      svc.notifyPlayback('play_retry', channel: 'CCTV-5', round: 6, reason: 'error: reset');
+      expect(sender.events.length, 4);
+    });
+
+    test('play_ok：连续重复只报一次，失败后恢复可再报', () async {
+      final ReportingService svc = await startedService();
+
+      svc.notifyPlayback('play_ok',
+          channel: 'CCTV-5', sourceIndex: 1, sourceTotal: 2, elapsed: const Duration(seconds: 3));
+      expect(sender.events.length, 1);
+
+      // 视频帧与 playing 先后各触发一次成功 → 第二条丢弃。
+      svc.notifyPlayback('play_ok', channel: 'CCTV-5', sourceIndex: 1, sourceTotal: 2);
+      expect(sender.events.length, 1);
+
+      // 失败后恢复 → 作为新的状态变化放行。
+      svc.notifyPlayback('play_retry', channel: 'CCTV-5', round: 2, reason: 'error: network');
+      svc.notifyPlayback('play_ok', channel: 'CCTV-5', sourceIndex: 2, sourceTotal: 2);
+      expect(sender.events.length, 3);
+      expect(sender.events.last.$2, 'play_ok');
+    });
+
+    test('未 start（未登录）时静默不发', () {
+      service.dispose();
+      nowValue = DateTime(2026, 10, 15, 20, 30);
+      service = buildPlaybackService();
+      sender.events.clear();
+      service.notifyPlayback('play_start', channel: 'CCTV-5', sourceIndex: 1, sourceTotal: 1);
+      expect(sender.events, isEmpty);
+    });
+  });
 }

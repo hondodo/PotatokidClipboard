@@ -22,6 +22,7 @@ import 'package:pscreen_screen/features/iptv/application/home_now_playing_contro
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/data/datasources/remote/proxy_pool_service.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
+import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
@@ -230,6 +231,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       _resolveMediaKindIfDecided();
       // 真的进入播放了 → 声条可以开始跳。
       _syncBarsActive();
+      // 进入播放是成功证据之一（视频仍需画面帧配合，见方法内判据）。
+      if (value) _maybeReportPlaybackOk();
     });
     // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
     _widthSub = player.stream.width.listen((w) {
@@ -244,6 +247,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         if (channel != null) {
           ChannelFailureGuard.instance.recordSuccess(channel.name);
         }
+        // 有真实画面 = 视频节目播放成功。
+        _maybeReportPlaybackOk();
       }
     });
     // 运行时区分「音频节目 / 视频节目」：只看真实轨道，不看地址与名称。
@@ -293,6 +298,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         _resolveMediaKindIfDecided();
         // 音频输出参数就绪 → 确实在出声，声条开始跳。
         _syncBarsActive();
+        // 音频节目「已出声」的成功证据之一。
+        if (_mediaKind == _MediaKind.audio) _maybeReportPlaybackOk();
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
@@ -533,6 +540,42 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     return widget.channels[_currentIndex];
   }
 
+  /// 播放状态上报（**纯观测**：只读播放器当前状态，不参与 open/回退/重试决策；
+  /// DI 未就绪等任何异常自行吞掉，绝不影响播放链路）。
+  ///
+  /// 防刷屏（每源去重 / retry 限流 / ok 连发丢弃）由
+  /// [ReportingService.notifyPlayback] 内部完成，这里只负责如实调用。
+  void _reportPlayback(String state, {String reason = ''}) {
+    try {
+      final IptvChannel? channel = _currentChannel();
+      if (channel == null || channel.sources.isEmpty) return;
+      final int idx = _currentSource.clamp(0, channel.sources.length - 1);
+      Injection.get<ReportingService>().notifyPlayback(
+        state,
+        channel: channel.name,
+        sourceIndex: idx + 1,
+        sourceTotal: channel.sources.length,
+        sourceUrl: channel.sources[idx],
+        reason: reason,
+        // _failedRounds 从 0 计：对外语义是「正在尝试第几轮」（1 起）。
+        round: _failedRounds + 1,
+        viaProxy: _proxyUrl != null,
+        elapsed: DateTime.now().difference(_lastOpenAt),
+      );
+    } catch (_) {
+      // 上报不可用不影响播放。
+    }
+  }
+
+  /// 播放成功判定（按节目类型区分标准，与看门狗一致）：
+  /// 视频要出过真实画面帧（width>0），音频要已进入播放且类型已判定为音频。
+  void _maybeReportPlaybackOk() {
+    final bool playing = _player?.state.playing ?? false;
+    if (_playedVideo || (_mediaKind == _MediaKind.audio && playing)) {
+      _reportPlayback('play_ok');
+    }
+  }
+
   /// 从持久化读取硬解设置并应用到播放器。
   ///
   /// media_kit v1.x 中 setProperty 是 NativePlayer 的方法，需通过 platform 访问。
@@ -580,6 +623,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         '${_proxyUrl == null ? '' : '（代理 $_proxyUrl）'}',
       );
       await _player?.open(Media(channel.sources[idx]));
+      _reportPlayback('play_start');
     } catch (e) {
       Injection.get<LogService>().error(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) 失败: $e',
@@ -812,6 +856,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       return;
     }
     _handleFailureBusy = true;
+    // 上报「进入重试」（只读观测，防刷屏由上报服务限流；须在换源/换代理之前，
+    // 这样读到的源号/代理/轮次正是本次失败的现场）。
+    _reportPlayback('play_retry', reason: reason);
     // 本次失败对应的源（自增回退前），供「清理失效源」统计失效地址。
     final int failedIndex = _currentSource.clamp(0, channel.sources.length - 1);
     final String failedUrl = channel.sources[failedIndex];
