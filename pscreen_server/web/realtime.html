@@ -1622,15 +1622,17 @@
           ...messages.map((message) => ({ kind: 'message', ts: message.ts, id: message.id, value: message })),
           ...events.map((event) => ({ kind: 'event', ts: event.ts, id: event.id, value: event })),
         ];
+        // 倒序：最新的排最前，打开即见，无需每次滑到底部。
         items.sort((a, b) => {
-          if ((a.ts || 0) !== (b.ts || 0)) return (a.ts || 0) - (b.ts || 0);
+          if ((a.ts || 0) !== (b.ts || 0)) return (b.ts || 0) - (a.ts || 0);
           return a.id.localeCompare(b.id);
         });
         return items;
       }
 
-      function renderTimeline(forceBottom = false) {
-        const nearBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
+      function renderTimeline(forceTop = false) {
+        // 是否停在顶部（最新消息处）：在顶部时新事件到达后保持吸顶。
+        const nearTop = timeline.scrollTop < 80;
         const items = collectTimeline();
         timeline.replaceChildren();
 
@@ -1645,7 +1647,7 @@
         timeline.hidden = isEmpty;
         if (!isEmpty && !state.initialScrollDone) {
           state.initialScrollDone = true;
-          timeline.scrollTop = timeline.scrollHeight;
+          timeline.scrollTop = 0;
         }
         if (isEmpty) {
           const title = emptyEl.querySelector('h3');
@@ -1662,8 +1664,8 @@
           }
         }
 
-        if (forceBottom || nearBottom) {
-          timeline.scrollTop = timeline.scrollHeight;
+        if (forceTop || nearTop) {
+          timeline.scrollTop = 0;
         }
       }
 
