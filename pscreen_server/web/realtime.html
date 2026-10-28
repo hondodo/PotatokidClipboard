@@ -830,7 +830,14 @@
         scene_changed: '场景变化',
         channel_changed: '频道变化',
         ha_action: 'HA 操作',
+        play_start: '播放开始',
+        play_ok: '播放成功',
+        play_retry: '播放重试',
+        play_fail: '播放失败',
       };
+
+      // 播放状态事件（ReportingService.notifyPlayback 上报的一组）。
+      const PLAYBACK_EVENTS = new Set(['play_start', 'play_ok', 'play_retry', 'play_fail']);
 
       const TRIGGER_LABELS = {
         home_card: '主页卡片',
@@ -1693,6 +1700,8 @@
           renderSceneChanged(body, data);
         } else if (event.event === 'channel_changed') {
           renderChannelChanged(body, data);
+        } else if (PLAYBACK_EVENTS.has(event.event)) {
+          renderPlayback(body, event, data);
         } else {
           body.append(el('h3', 'event-title', event.event || '未命名事件'));
           body.append(el('p', 'event-line', '未知事件类型，展开原始 JSON 查看。'));
@@ -1758,6 +1767,34 @@
         if (data.index !== undefined) chips.append(el('span', 'chip', `序号 ${data.index}`));
         if (data.scene && data.scene.title) chips.append(el('span', 'chip', `场景 ${data.scene.title}`));
         body.append(chips);
+      }
+
+      // 播放状态事件（play_start / play_ok / play_retry / play_fail）：
+      // 字段来自 ReportingService.notifyPlayback（sourceIndex/round 均从 1 起，
+      // source 为脱敏截断后的源地址）。
+      function renderPlayback(body, event, data) {
+        body.append(el('h3', 'event-title', `频道：${data.channelName || '未知频道'}`));
+        const chips = el('div', 'chips');
+        if (data.sourceIndex > 0 && data.sourceTotal > 0) {
+          chips.append(el('span', 'chip', `源 ${data.sourceIndex}/${data.sourceTotal}`));
+        }
+        if (data.round > 0) chips.append(el('span', 'chip', `第 ${data.round} 轮`));
+        if (data.viaProxy) chips.append(el('span', 'chip', '经代理'));
+        if (typeof data.elapsedMs === 'number') {
+          chips.append(el('span', 'chip', `耗时 ${(data.elapsedMs / 1000).toFixed(1)}s`));
+        }
+        if (data.source) {
+          const source = el('span', 'chip', data.source);
+          source.title = data.source;
+          chips.append(source);
+        }
+        if (event.event === 'play_ok') {
+          chips.append(el('span', 'chip ok', '成功'));
+        } else if (event.event === 'play_fail') {
+          chips.append(el('span', 'chip fail', '失败'));
+        }
+        body.append(chips);
+        if (data.reason) body.append(el('p', 'event-line', `原因：${data.reason}`));
       }
 
       function renderRaw(event) {
