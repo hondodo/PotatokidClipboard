@@ -142,6 +142,9 @@ class RealtimeChannel {
   String _deviceId = '';
   String _role = 'tv';
   String _name = '';
+  String _app = '';
+  String _version = '';
+  String _build = '';
   bool _manualClose = false;
   bool _connecting = false;
   int _attempt = 0;
@@ -172,6 +175,9 @@ class RealtimeChannel {
   ///
   /// [token] 为口令 MD5（与 HTTP 登录同一校验）；[deviceId] 供服务端
   /// 在在线日志/presence 中关联物理设备，可为空。
+  /// [app] / [version] / [build] 为客户端标识（包名与版本构建号，见
+  /// [ClientInfo]），随握手上报，服务端在线日志与 realtime.html 据此
+  /// 区分不同控制端；断线重连时自动复用。
   ///
   /// 非鉴权类失败（网络/超时）会同时启动后台重连，恢复后自动转已连接。
   Future<void> connect({
@@ -180,12 +186,18 @@ class RealtimeChannel {
     String deviceId = '',
     String role = 'tv',
     String? name,
+    String app = '',
+    String version = '',
+    String build = '',
   }) async {
     _account = account.trim();
     _token = token;
     _deviceId = deviceId.trim();
     _role = role;
     _name = name ?? '';
+    _app = app.trim();
+    _version = version.trim();
+    _build = build.trim();
     if (_account.isEmpty) {
       throw const RealtimeException(400, '账号为空');
     }
@@ -355,6 +367,9 @@ class RealtimeChannel {
         'role': _role,
         if (_deviceId.isNotEmpty) 'deviceId': _deviceId,
         if (_name.isNotEmpty) 'name': _name,
+        if (_app.isNotEmpty) 'app': _app,
+        if (_version.isNotEmpty) 'version': _version,
+        if (_build.isNotEmpty) 'build': _build,
       });
       final WebSocketChannel channel = WebSocketChannel.connect(uri);
       await channel.ready.timeout(const Duration(seconds: 12));

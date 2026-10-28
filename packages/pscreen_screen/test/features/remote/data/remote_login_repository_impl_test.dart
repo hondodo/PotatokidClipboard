@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/remote/data/repositories/remote_login_repository_impl.dart';
 import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
@@ -34,11 +35,22 @@ class FakeRealtimeChannel implements RealtimeChannel {
     String deviceId = '',
     String role = 'tv',
     String? name,
+    String app = '',
+    String version = '',
+    String build = '',
   }) async {
     calls.add('connect:$account:$token:$deviceId:$role');
+    lastApp = app;
+    lastVersion = version;
+    lastBuild = build;
     final RealtimeException? error = connectError;
     if (error != null) throw error;
   }
+
+  /// 最近一次 connect 上报的客户端标识（包名/版本/构建号）。
+  String lastApp = '';
+  String lastVersion = '';
+  String lastBuild = '';
 
   @override
   Future<void> disconnect() async => calls.add('disconnect');
@@ -149,5 +161,19 @@ void main() {
   test('DeviceCredentials 口令与 MD5 自洽', () {
     expect(DeviceCredentials.password(), DeviceCredentials.defaultPassword);
     expect(DeviceCredentials.passwordMd5(), defaultMd5);
+  });
+
+  test('连接随握手上报 app/version/build（客户端标识）', () async {
+    repository = RemoteLoginRepositoryImpl(
+      channel: channel,
+      httpLogin: () async => true,
+      clientInfo: () async =>
+          const ClientInfo(app: 'com.test.tv', version: '1.0.0', build: '2'),
+    );
+    await repository.ensureLoaded();
+    await repository.autoLogin();
+    expect(channel.lastApp, 'com.test.tv');
+    expect(channel.lastVersion, '1.0.0');
+    expect(channel.lastBuild, '2');
   });
 }

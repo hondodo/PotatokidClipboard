@@ -20,6 +20,7 @@ import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
@@ -108,12 +109,16 @@ void main() {
           }
           // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
           await PtoolsUtil.loginWithSaved();
+          final ClientInfo info = await ClientInfo.current();
           await Injection.get<RealtimeChannel>().connect(
             account: account,
             token: DeviceCredentials.passwordMd5(),
             deviceId: await DeviceCredentials.deviceId(),
             role: 'controller',
             name: '中控台',
+            app: info.app,
+            version: info.version,
+            build: info.build,
           );
           ControlLog.i('[实时通道] 已连接 $account');
         } catch (e) {

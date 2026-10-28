@@ -826,6 +826,8 @@
         peers: new Map(),
         // 账号 -> 设备号（presence/ready 带回，用于把自定义账号对回物理设备）
         deviceIds: new Map(),
+        // 账号 -> {app, version, build}（presence/ready 带回，区分控制端形态）
+        clientInfo: new Map(),
         messages: new Map(),
         events: new Map(),
         currentPeer: ALL,
@@ -990,8 +992,32 @@
           token,
           role: 'viewer',
           name: 'web-realtime',
+          app: 'web',
         });
         return `${protocol}//${host}/ws?${params.toString()}`;
+      }
+
+      // 记录客户端标识（app/version/build），供账号行与会话头展示。
+      function rememberClientInfo(account, frame) {
+        if (!account || typeof frame.app !== 'string') return;
+        const info = {
+          app: String(frame.app || ''),
+          version: String(frame.version || ''),
+          build: String(frame.build || ''),
+        };
+        if (info.app || info.version || info.build) {
+          state.clientInfo.set(account, info);
+        }
+      }
+
+      // 客户端标识文案：`com.x.y v1.0.0+2`（未知时为空串）。
+      function clientLabel(account) {
+        const info = state.clientInfo.get(account);
+        if (!info) return '';
+        const ver = info.version
+          ? `v${info.version}${info.build ? `+${info.build}` : ''}`
+          : '';
+        return [info.app, ver].filter(Boolean).join(' ');
       }
 
       // 浏览器 WebCrypto 不支持 MD5，也不引外网 CDN，
@@ -1198,6 +1224,7 @@
             if (state.account && typeof frame.deviceId === 'string' && frame.deviceId) {
               state.deviceIds.set(state.account, frame.deviceId);
             }
+            rememberClientInfo(state.account, frame);
             state.online = new Set((Array.isArray(frame.online) ? frame.online : []).map(String));
             setStatus('connected', `已连接 · ${onlineCount()} 个在线`);
             renderAll();
@@ -1210,6 +1237,7 @@
             if (typeof frame.deviceId === 'string' && frame.deviceId) {
               state.deviceIds.set(account, frame.deviceId);
             }
+            rememberClientInfo(account, frame);
             if (frame.online === true) {
               state.online.add(account);
               ensurePeer(account);
@@ -1429,7 +1457,8 @@
         const online = state.online.has(peer);
         const last = peerState?.last ? ` · ${truncate(peerState.last, 56)}` : '';
         const device = state.deviceIds.get(peer);
-        peerSubtitle.textContent = `${online ? '在线' : '离线'}${device ? ` · 设备 ${device}` : ''}${last}`;
+        const client = clientLabel(peer);
+        peerSubtitle.textContent = `${online ? '在线' : '离线'}${device ? ` · 设备 ${device}` : ''}${client ? ` · ${client}` : ''}${last}`;
       }
 
       function renderAccounts() {
@@ -1501,6 +1530,12 @@
         if (device) {
           const chip = el('span', 'tag', `设备 ${device}`);
           chip.title = device;
+          line.append(chip);
+        }
+        const client = isAll ? '' : clientLabel(peer.account);
+        if (client) {
+          const chip = el('span', 'tag', client);
+          chip.title = client;
           line.append(chip);
         }
         main.append(line);

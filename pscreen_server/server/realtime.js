@@ -1,6 +1,6 @@
 // 实时消息网关（WebSocket）。
 //
-// 与 server.js 共用同一个 HTTP 服务：客户端连接 `/ws?account=..&token=..&deviceId=..&role=..&name=..`，
+// 与 server.js 共用同一个 HTTP 服务：客户端连接 `/ws?account=..&token=..&deviceId=..&role=..&name=..&app=..&version=..&build=..`，
 // 鉴权与 HTTP 登录共用同一账号体系（datas/register/users，token 为密码 MD5），
 // 通过后按账号路由消息、广播在线状态，并把离线消息与历史落到 datas/realtime。
 const fs = require('fs');
@@ -296,6 +296,11 @@ function attachRealtime(httpServer, options = {}) {
         const deviceId = (url.searchParams.get('deviceId') || '').trim().slice(0, 64);
         const role = url.searchParams.get('role') || 'tv';
         const name = (url.searchParams.get('name') || '').slice(0, 64);
+        // 客户端标识（包名 / 版本 / 构建号）：用于区分不同控制端，
+        // 回显到 ready、presence 与在线日志，realtime.html 据此展示。
+        const app = (url.searchParams.get('app') || '').trim().slice(0, 64);
+        const version = (url.searchParams.get('version') || '').trim().slice(0, 32);
+        const build = (url.searchParams.get('build') || '').trim().slice(0, 32);
 
         if (!ACCOUNT_PATTERN.test(account)) {
             console.warn(`[realtime] reject account "${account}" from ${request.socket.remoteAddress}`);
@@ -319,6 +324,9 @@ function attachRealtime(httpServer, options = {}) {
         ws.deviceId = deviceId;
         ws.role = role;
         ws.name = name;
+        ws.app = app;
+        ws.version = version;
+        ws.build = build;
 
         // ws 握手带 deviceId 时，把当前通信账号回写到 admin 设备表（machines.json.commAccount）。
         if (deviceId && typeof options.setCommAccount === 'function') {
@@ -338,6 +346,7 @@ function attachRealtime(httpServer, options = {}) {
         sockets.add(ws);
         console.log(
             `[realtime] online ${account} device=${deviceId || '-'} role=${role} name=${name || '-'} ` +
+            `app=${app || '-'} version=${version || '-'} build=${build || '-'} ` +
             `ip=${request.socket.remoteAddress} sockets=${sockets.size} total=${wss.clients.size}`,
         );
 
@@ -345,12 +354,15 @@ function attachRealtime(httpServer, options = {}) {
             t: 'ready',
             account,
             deviceId,
+            app,
+            version,
+            build,
             online: onlineAccounts(),
             serverTime: Date.now(),
         });
         flushOffline(account);
         if (firstConnection) {
-            broadcast({ t: 'presence', account, deviceId, online: true }, ws);
+            broadcast({ t: 'presence', account, deviceId, app, version, build, online: true }, ws);
         }
 
         ws.on('pong', () => {
@@ -578,7 +590,15 @@ function attachRealtime(httpServer, options = {}) {
                 set.delete(ws);
                 if (set.size === 0) {
                     connections.delete(account);
-                    broadcast({ t: 'presence', account, deviceId: ws.deviceId || '', online: false });
+                    broadcast({
+                        t: 'presence',
+                        account,
+                        deviceId: ws.deviceId || '',
+                        app: ws.app || '',
+                        version: ws.version || '',
+                        build: ws.build || '',
+                        online: false,
+                    });
                 }
             }
             const alive = ws.connectedAt ? Math.round((Date.now() - ws.connectedAt) / 1000) : 0;

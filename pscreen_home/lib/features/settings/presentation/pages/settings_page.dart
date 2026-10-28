@@ -19,6 +19,7 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -177,6 +178,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
       await PtoolsUtil.loginWithSaved();
+      final ClientInfo info = await ClientInfo.current();
       await channel
           .connect(
             account: await DeviceCredentials.account(),
@@ -184,6 +186,9 @@ class _SettingsPageState extends State<SettingsPage> {
             deviceId: await DeviceCredentials.deviceId(),
             role: 'controller',
             name: '中控台',
+            app: info.app,
+            version: info.version,
+            build: info.build,
           )
           .timeout(const Duration(seconds: 25), onTimeout: () {
         throw const RealtimeException(-3, '连接超时');
