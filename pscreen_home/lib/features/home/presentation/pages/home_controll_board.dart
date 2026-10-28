@@ -84,10 +84,20 @@ class HomeControllBoard extends StatefulWidget {
   State<HomeControllBoard> createState() => _HomeControllBoardState();
 }
 
-class _HomeControllBoardState extends State<HomeControllBoard> {
+class _HomeControllBoardState extends State<HomeControllBoard>
+    with WidgetsBindingObserver, RouteAware {
+  /// 返回首页 / 回到前台时，距上次成功加载超过这个时长就补一次全量加载。
+  ///
+  /// 直播页是 push 上去的，首页一直挂在下面：`initState` 不会重跑，
+  /// 连接状态也一直是 ready，所以从直播页返回时不会有任何自动刷新。
+  static const Duration _reloadStaleAfter = Duration(seconds: 60);
+
+  ModalRoute<void>? _route;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 连接可能在页面挂载前就已就绪（例如从其他页面返回 / 热重启），
     // BlocListener 只监听后续状态变化，这里补一次初始检查。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -101,6 +111,55 @@ class _HomeControllBoardState extends State<HomeControllBoard> {
         context.read<HomeBloc>().add(const LoadHome());
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ModalRoute<void>? route = ModalRoute.of(context);
+    if (route == _route) return;
+    if (_route != null) {
+      Injection.get<AppRouter>().routeObserver.unsubscribe(this);
+    }
+    _route = route;
+    if (route != null) {
+      Injection.get<AppRouter>().routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_route != null) {
+      Injection.get<AppRouter>().routeObserver.unsubscribe(this);
+    }
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// 从直播 / 时钟 / 天气 / 设置等页面返回首页：数据过旧或为空就补加载。
+  @override
+  void didPopNext() => _reloadIfStale();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reloadIfStale();
+  }
+
+  void _reloadIfStale() {
+    if (!mounted) return;
+    // didPopNext 也可能来自首页上的弹窗 / 底部抽屉，只有首页确实在最上层
+    // 时才刷新，避免关一个面板就发一次全量请求。
+    if (_route?.isCurrent != true) return;
+    if (!context.read<ConnectionBloc>().state.isReady) return;
+    final HomeState home = context.read<HomeBloc>().state;
+    if (home.isLoading) return;
+    final DateTime? loadedAt = home.loadedAt;
+    final bool stale =
+        loadedAt == null ||
+        DateTime.now().difference(loadedAt) > _reloadStaleAfter;
+    if (!home.hasLoaded || home.entities.isEmpty || stale) {
+      context.read<HomeBloc>().add(const LoadHome());
+    }
   }
 
   @override

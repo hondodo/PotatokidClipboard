@@ -433,6 +433,60 @@ void main() {
       expect(state.isLoading, isFalse);
       expect(state.errorMessage, isNull);
     });
+
+    test('get_states 返回空列表：保留已有实体并自动重试恢复', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('switch.plug', 'on')],
+      );
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+        loadRetryDelays: const <Duration>[Duration(milliseconds: 20)],
+      );
+      addTearDown(bloc.close);
+
+      expect(await _load(bloc), isTrue);
+      expect(bloc.state.entities.length, 1);
+
+      // HA 重启窗口内 WebSocket 已就绪但实体尚未加载完：get_states 返回空。
+      repo.states = <HaEntityStateModel>[];
+      expect(await _load(bloc), isFalse);
+      expect(bloc.state.hasLoaded, isTrue);
+      expect(bloc.state.entities.length, 1, reason: '空响应不能清空已有卡片');
+      expect(bloc.state.errorMessage, isNotNull);
+
+      // 自动重试期间 HA 完成启动，下一轮拿到完整实体后恢复正常。
+      final Future<HomeState> recovered = bloc.stream.firstWhere(
+        (HomeState s) =>
+            s.errorMessage == null && s.entities.containsKey('light.bedroom'),
+      );
+      repo.states = <HaEntityStateModel>[
+        _entity('switch.plug', 'on'),
+        _entity('light.bedroom', 'off'),
+      ];
+      final HomeState state = await recovered.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(state.entities.length, 2);
+      expect(state.errorMessage, isNull);
+    });
+
+    test('加载完成前的实时事件被忽略，避免把列表打脏', () async {
+      final _FakeHomeRepository repo = _FakeHomeRepository(
+        states: <HaEntityStateModel>[_entity('light.bedroom', 'on')],
+      );
+      final HomeBloc bloc = HomeBloc(
+        repository: repo,
+        sampler: _powerSampler(),
+      );
+      addTearDown(bloc.close);
+
+      repo.emitChange(_entity('light.early', 'on'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bloc.state.hasLoaded, isFalse);
+      expect(bloc.state.entities, isEmpty);
+    });
   });
 
   group('HomeBloc 开关控制', () {
@@ -481,7 +535,7 @@ void main() {
       expect(repo.toggleCalls, isEmpty);
     });
 
-    test('实时事件：更新已加载实体，忽略未加载实体', () async {
+    test('实时事件：更新已加载实体，补齐未加载实体', () async {
       repo.emitChange(_entity('light.bedroom', 'off'));
       await bloc.stream.firstWhere(
         (HomeState s) => s.entities['light.bedroom']?.state == 'off',
@@ -490,8 +544,12 @@ void main() {
 
       final int before = bloc.state.entities.length;
       repo.emitChange(_entity('light.not_loaded', 'on'));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(bloc.state.entities.length, before);
+      // 加载完成后未知实体要被补进来，否则空 / 不完整加载后无法自愈。
+      await bloc.stream.firstWhere(
+        (HomeState s) => s.entities.containsKey('light.not_loaded'),
+      );
+      expect(bloc.state.entities.length, before + 1);
+      expect(bloc.state.entities['light.not_loaded']!.isOn, isTrue);
     });
 
     test('ClearHomeError 清除错误提示', () async {

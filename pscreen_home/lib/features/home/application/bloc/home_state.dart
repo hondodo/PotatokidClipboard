@@ -33,6 +33,7 @@ class HomeState {
     required this.selectedAreaId,
     required this.cardOrderAll,
     required this.cardOrderByHome,
+    this.loadedAt,
     this.errorMessage,
     this.errorType,
   });
@@ -49,6 +50,7 @@ class HomeState {
     selectedAreaId: '',
     cardOrderAll: <String>[],
     cardOrderByHome: <String, List<String>>{},
+    loadedAt: null,
     errorMessage: null,
     errorType: null,
   );
@@ -86,6 +88,12 @@ class HomeState {
 
   /// 每个家庭各自的卡片顺序；房间不单独存，直接过滤家庭顺序。
   final Map<String, List<String>> cardOrderByHome;
+
+  /// 最近一次成功加载（在线或本地快照）的时间。
+  ///
+  /// 页面在返回首页 / 回到前台时据此判断数据是否已经过旧，过旧就补一次
+  /// [LoadHome]；为空表示还没有成功加载过。
+  final DateTime? loadedAt;
 
   final String? errorMessage;
   final HaErrorType? errorType;
@@ -679,6 +687,7 @@ class HomeState {
     String? selectedAreaId,
     List<String>? cardOrderAll,
     Map<String, List<String>>? cardOrderByHome,
+    DateTime? loadedAt,
     String? errorMessage,
     HaErrorType? errorType,
     bool clearError = false,
@@ -694,6 +703,7 @@ class HomeState {
       selectedAreaId: selectedAreaId ?? this.selectedAreaId,
       cardOrderAll: cardOrderAll ?? this.cardOrderAll,
       cardOrderByHome: cardOrderByHome ?? this.cardOrderByHome,
+      loadedAt: loadedAt ?? this.loadedAt,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       errorType: clearError ? null : (errorType ?? this.errorType),
     );

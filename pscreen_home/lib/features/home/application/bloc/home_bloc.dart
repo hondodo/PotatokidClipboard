@@ -186,6 +186,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           registry: registry,
           selectedHomeName: selectedHome,
           selectedAreaId: '',
+          loadedAt: DateTime.now(),
           clearError: true,
         ),
       );
@@ -243,6 +244,23 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final List<HaEntityStateModel> states =
           results[0] as List<HaEntityStateModel>;
       final HaRegistry registry = results[1] as HaRegistry;
+      // HA 重启时 WebSocket API 可能先于实体平台就绪，`get_states` 会成功
+      // 返回空列表。这不能当成「家里确实没有设备」：保留已有卡片并自动
+      // 重试，否则页面会停在「没有找到实体」且再也没有恢复入口。
+      if (states.isEmpty) {
+        const String message = '暂时没有获取到设备（Home Assistant 可能正在启动），正在自动重试…';
+        Injection.get<LogService>().warn('get_states 返回空列表，保留现有数据并重试');
+        emit(
+          state.copyWith(
+            isLoading: false,
+            errorMessage: message,
+            errorType: HaErrorType.requestError,
+          ),
+        );
+        _scheduleLoadRetry();
+        completeBlocEvent(event.completer, success: false);
+        return;
+      }
       // .env 固定家庭优先于用户选择；未配置时沿用当前选择。
       final String pinnedHome = HaConfig.pinnedHomeName;
       // 所选家庭/房间若已不存在（改归属 / 消失），回退「全部」
@@ -271,6 +289,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           registry: registry,
           selectedHomeName: selectedHome,
           selectedAreaId: selectedArea,
+          loadedAt: DateTime.now(),
         ),
       );
       _saveStates(states);
@@ -320,8 +339,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     EntityStateChanged event,
     Emitter<HomeState> emit,
   ) {
-    // 仅更新已加载过的实体，避免加载前的推送把列表"打脏"
-    if (!state.entities.containsKey(event.entity.entityId)) return;
+    // 加载完成前不接收推送，避免全量数据到达前把列表"打脏"；
+    // 加载完成后允许补入未知实体：空/不完整加载（例如 HA 重启窗口内
+    // 只拿到部分实体）可以靠后续 state_changed 自动补齐，不必等手动刷新。
+    if (!state.hasLoaded) return;
     emit(
       state.copyWith(
         entities: <String, HaEntityStateModel>{
