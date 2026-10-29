@@ -297,9 +297,17 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
   static const Duration searchDebounce = Duration(milliseconds: 300);
 
   final TextEditingController _search = TextEditingController();
+  final ScrollController _listScroll = ScrollController();
+
+  /// 当前播放频道行：用于打开弹窗后把它滚到视口中间。
+  final GlobalKey _currentKey = GlobalKey();
   Timer? _debounce;
   String _query = '';
   Set<String> _favorites = <String>{};
+
+  /// 已经定位过的「行号 + 搜索词」，避免每帧重复滚动。
+  int? _revealedRow;
+  String _revealedQuery = '';
 
   String get _account => widget.panel.account;
 
@@ -322,7 +330,45 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
   void dispose() {
     _debounce?.cancel();
     _search.dispose();
+    _listScroll.dispose();
     super.dispose();
+  }
+
+  /// 先把当前频道粗跳到视口附近，再用真实行位置精修。
+  ///
+  /// 列表用 `ListView.builder` 懒加载，行高一致，所以按比例跳转误差小于一屏，
+  /// 跳转后目标行已被构建，[Scrollable.ensureVisible] 即可精确对齐。
+  void _revealCurrent(int row, int total) {
+    if (_revealedRow == row && _revealedQuery == _query) return;
+    _revealedRow = row;
+    _revealedQuery = _query;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToRow(row, total));
+  }
+
+  void _jumpToRow(int row, int total, [int attempts = 2]) {
+    if (!mounted || !_listScroll.hasClients) return;
+    if (attempts == 2) {
+      final ScrollPosition position = _listScroll.position;
+      final double offset = total <= 0
+          ? 0
+          : (row / total * position.maxScrollExtent)
+              .clamp(0.0, position.maxScrollExtent);
+      _listScroll.jumpTo(offset);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_listScroll.hasClients) return;
+      final BuildContext? target = _currentKey.currentContext;
+      if (target == null) {
+        // 粗跳偏了仍在视口外：再跳一次（最多重试一次）。
+        if (attempts > 0) _jumpToRow(row, total, attempts - 1);
+        return;
+      }
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.4,
+        duration: const Duration(milliseconds: 120),
+      );
+    });
   }
 
   void _onQueryChanged(String value) {
@@ -371,6 +417,11 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
     final String current =
         widget.panel.online ? (widget.panel.device?.channelName ?? '') : '';
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    // 当前频道在（收藏置顶后的）展示列表中的行号，用于打开即定位。
+    final int currentRow = current.isEmpty
+        ? -1
+        : ordered.indexWhere((int i) => names[i] == current);
+    if (currentRow >= 0) _revealCurrent(currentRow, ordered.length);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -391,6 +442,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
           child: ordered.isEmpty
               ? const Center(child: Text('没有匹配的频道'))
               : ListView.builder(
+                  controller: _listScroll,
                   itemCount: ordered.length,
                   itemBuilder: (BuildContext context, int i) {
                     final int index = ordered[i];
@@ -398,6 +450,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
                     final bool favorite = _favorites.contains(name);
                     final bool active = name == current;
                     return ListTile(
+                      key: active ? _currentKey : null,
                       dense: true,
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 8),
