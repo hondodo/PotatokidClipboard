@@ -66,6 +66,50 @@ class RealtimeEvent {
   }
 }
 
+/// 合并会话线程的一条记录：聊天消息或结构化事件。
+///
+/// 用于控制端查看「当前账号 + 管理员」与某台设备之间的完整往来：
+/// `kind == 'msg'` 时取 [text]，`kind == 'event'` 时取 [event] 与 [data]。
+class RealtimeThreadItem {
+  const RealtimeThreadItem({
+    required this.kind,
+    required this.id,
+    required this.from,
+    required this.to,
+    required this.ts,
+    this.text = '',
+    this.event = '',
+    this.data = const <String, Object?>{},
+  });
+
+  final String kind;
+  final String id;
+  final String from;
+  final String to;
+  final int ts;
+  final String text;
+  final String event;
+  final Map<String, Object?> data;
+
+  bool get isEvent => kind == 'event';
+
+  factory RealtimeThreadItem.fromJson(Map<String, dynamic> json) {
+    final dynamic rawData = json['data'];
+    return RealtimeThreadItem(
+      kind: '${json['kind'] ?? 'msg'}',
+      id: '${json['id'] ?? ''}',
+      from: '${json['from'] ?? ''}',
+      to: '${json['to'] ?? ''}',
+      ts: (json['ts'] as num?)?.toInt() ?? 0,
+      text: '${json['text'] ?? ''}',
+      event: '${json['event'] ?? ''}',
+      data: rawData is Map<String, dynamic>
+          ? Map<String, Object?>.unmodifiable(rawData)
+          : const <String, Object?>{},
+    );
+  }
+}
+
 /// 在线状态变更。
 class RealtimePresence {
   const RealtimePresence({required this.account, required this.online});
@@ -226,6 +270,9 @@ class RealtimeChannel {
 
   /// 正在订阅状态的账号（重连后自动重发 watch）。
   final Set<String> _watched = <String>{};
+
+  /// 正在订阅的合并会话线程：peer -> 额外参与账号（管理员）（重连后补发）。
+  final Map<String, List<String>> _watchedThreads = <String, List<String>>{};
 
   String _account = '';
   String _token = '';
@@ -468,6 +515,44 @@ class RealtimeChannel {
     _send(<String, dynamic>{'t': 'unwatch', 'to': target});
   }
 
+  /// 订阅与 [peer] 的合并会话线程（含 [also] 账号参与的往来）。
+  ///
+  /// 服务端立即回推快照（消息 + 事件混排，按时间升序），之后把匹配的新
+  /// `msg`/`event` 帧推到 [messages]/[events] 流；重连成功后自动补发订阅。
+  Future<List<RealtimeThreadItem>> watchThread(
+    String peer, {
+    List<String> also = const <String>[],
+    int limit = 100,
+  }) async {
+    final String target = peer.trim();
+    if (target.isEmpty) return const <RealtimeThreadItem>[];
+    _watchedThreads[target] = also
+        .map((String account) => account.trim())
+        .where((String account) => account.isNotEmpty)
+        .toList(growable: false);
+    final Map<String, dynamic>? reply = await _request(<String, dynamic>{
+      't': 'thread_watch',
+      'peer': target,
+      'also': also,
+      'limit': limit,
+    });
+    final List<dynamic> list =
+        (reply?['items'] as List<dynamic>?) ?? const <dynamic>[];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(RealtimeThreadItem.fromJson)
+        .toList(growable: false);
+  }
+
+  /// 取消合并会话线程订阅（离开会话页时调用）。
+  void unwatchThread(String peer) {
+    final String target = peer.trim();
+    if (target.isEmpty) return;
+    _watchedThreads.remove(target);
+    if (!isConnected) return;
+    _send(<String, dynamic>{'t': 'thread_unwatch', 'peer': target});
+  }
+
   /// 被控端上报自身状态：场景快照 + （仅变化时）完整频道列表。
   ///
   /// 服务端按账号缓存并转发给 watch 中的控制端；离线时无需重试，
@@ -578,6 +663,15 @@ class RealtimeChannel {
         for (final String target in _watched) {
           _send(<String, dynamic>{'t': 'watch', 'to': target});
         }
+        for (final MapEntry<String, List<String>> entry
+            in _watchedThreads.entries) {
+          _send(<String, dynamic>{
+            't': 'thread_watch',
+            'peer': entry.key,
+            'also': entry.value,
+            'limit': 100,
+          });
+        }
         break;
 
       case 'state':
@@ -621,6 +715,7 @@ class RealtimeChannel {
       case 'events':
       case 'history':
       case 'conversations':
+      case 'thread':
         final String id = '${frame['id'] ?? ''}';
         final Completer<Map<String, dynamic>>? completer = _pending[id];
         if (completer != null && !completer.isCompleted) {

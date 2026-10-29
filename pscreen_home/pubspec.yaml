@@ -90,7 +90,6 @@ flutter:
 
   assets:
     - .env
-    - assets/tvs.json
     - assets/weather/white/
     - assets/weather/black/
 

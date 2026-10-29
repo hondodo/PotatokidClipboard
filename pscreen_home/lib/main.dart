@@ -15,7 +15,6 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_eve
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
-import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
@@ -55,14 +54,6 @@ void main() {
 
       // 2. 依赖注入（含网络、本地持久化、路由、业务模块）
       await Injection.init();
-
-      // 2.1 遥控目标电视目录（assets/tvs.json）：启动时加载一次，
-      //      避免每次进入遥控页重复读资产。
-      try {
-        await Injection.get<TvDirectory>().loadFromAssets();
-      } catch (e) {
-        ControlLog.e('[遥控] 目标电视目录加载失败: $e');
-      }
 
       // 3. 应用上次手动设置的连接配置（持久化优先，空则回落 .env）
       HaConfig.applyOverrides(
