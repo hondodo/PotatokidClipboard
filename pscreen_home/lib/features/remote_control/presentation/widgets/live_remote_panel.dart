@@ -110,19 +110,9 @@ class _SleepTimerSheet extends StatelessWidget {
   final RemotePanelContext panel;
 
   void _pick(BuildContext context, int? minutes) {
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     panel.onCommand(buildSleepTimerCommand(minutes));
     Navigator.of(context).maybePop();
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            minutes == null ? '已发送：取消定时关闭' : '已发送：$minutes 分钟后自动关闭',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    panel.onHint?.call(minutes == null ? '已发送：取消定时关闭' : '已发送：$minutes 分钟后自动关闭');
   }
 
   @override
@@ -245,6 +235,7 @@ class _ChannelSheetState extends State<_ChannelSheet> {
         widget.panel.onCommand(command);
         Navigator.of(context).maybePop();
       },
+      onHint: widget.panel.onHint,
     );
 
     return Padding(

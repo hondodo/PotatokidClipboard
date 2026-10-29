@@ -11,6 +11,7 @@ class RemotePanelContext {
     required this.online,
     required this.onCommand,
     this.onSendMessage,
+    this.onHint,
   });
 
   final String account;
@@ -24,6 +25,10 @@ class RemotePanelContext {
 
   /// 打开「发送消息」入口；为空时不显示该按钮。
   final VoidCallback? onSendMessage;
+
+  /// 轻提示（如「已发送」）：由宿主页在时间线上方浮一个小胶囊，
+  /// 不占布局、不遮挡面板；为空时不提示。
+  final void Function(String message, {bool error})? onHint;
 
   /// 面板类型：`home` / `tv` / 空串（未知）。
   String get kind => device?.kind ?? '';

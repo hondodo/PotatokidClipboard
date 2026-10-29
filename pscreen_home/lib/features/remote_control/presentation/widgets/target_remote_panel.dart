@@ -16,6 +16,7 @@ class TargetRemotePanel extends StatefulWidget {
     required this.account,
     required this.onCommand,
     this.onSendMessage,
+    this.onHint,
     this.title,
     this.showHeader = true,
   });
@@ -25,6 +26,9 @@ class TargetRemotePanel extends StatefulWidget {
 
   /// 面板内「发送消息」按钮的回调；为空时不显示该按钮。
   final VoidCallback? onSendMessage;
+
+  /// 轻提示（如「已发送」），由宿主页展示成不遮挡的小胶囊。
+  final void Function(String message, {bool error})? onHint;
 
   /// 显示名（默认用账号）。
   final String? title;
@@ -91,6 +95,7 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
       online: online,
       onCommand: widget.onCommand,
       onSendMessage: widget.onSendMessage,
+      onHint: widget.onHint,
     );
     // 离线时场景与播放状态都是上一次上报的旧值，继续展示会误导
     // （例如设备已关机却仍写「正在播放」），这里只显示「离线」。

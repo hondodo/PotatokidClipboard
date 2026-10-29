@@ -28,6 +28,11 @@ class _ChatPageState extends State<ChatPage> {
   StreamSubscription<RealtimeConnectionState>? _stateSub;
   bool _loading = true;
 
+  /// 轻提示：浮在时间线底部一行，2 秒后自动消失，不占布局也不挡面板。
+  String? _hint;
+  bool _hintError = false;
+  Timer? _hintTimer;
+
   RealtimeChannel get _channel => Injection.get<RealtimeChannel>();
 
   /// 当前登录账号（连接握手账号，可能是设备号）。
@@ -52,6 +57,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    _hintTimer?.cancel();
     _msgSub?.cancel();
     _eventSub?.cancel();
     _stateSub?.cancel();
@@ -143,11 +149,24 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  /// 显示轻提示：不用 SnackBar，避免占一条底部横条并遮挡遥控面板。
+  void _showHint(String message, {bool error = false}) {
+    if (!mounted) return;
+    _hintTimer?.cancel();
+    setState(() {
+      _hint = message;
+      _hintError = error;
+    });
+    _hintTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _hint = null);
+    });
+  }
+
   Future<void> _send(String body) async {
     final String text = body.trim();
     if (text.isEmpty) return;
     if (_isAdminSelf) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('不能给自己发消息')));
+      _showHint('不能给自己发消息', error: true);
       return;
     }
     // 先插入本地乐观消息，再等服务端回显：服务端的 msg 帧与 ack 顺序不定，
@@ -170,7 +189,7 @@ class _ChatPageState extends State<ChatPage> {
         _items = _items.where((RealtimeThreadItem item) => item.id != localId).toList(growable: false);
       });
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? '已发送' : '发送失败')));
+    _showHint(ok ? '已发送' : '发送失败', error: !ok);
   }
 
   /// 发送消息：底部弹窗输入，确认后发送。
@@ -191,7 +210,15 @@ class _ChatPageState extends State<ChatPage> {
       appBar: AppBar(title: Text(widget.title)),
       body: Column(
         children: <Widget>[
-          Expanded(child: _buildTimeline()),
+          // 轻提示浮在时间线左下角，不占布局、不遮面板，2 秒自动淡出。
+          Expanded(
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(child: _buildTimeline()),
+                Positioned(left: 16, bottom: 8, child: _buildHintPill()),
+              ],
+            ),
+          ),
           // 遥控面板常驻底部（替换原输入行）：按钮行始终可见，
           // 频道列表与发送消息都走弹窗，避免小屏被内容撑爆。
           ConstrainedBox(
@@ -204,10 +231,47 @@ class _ChatPageState extends State<ChatPage> {
                 account: widget.account,
                 onCommand: _send,
                 onSendMessage: _openSendSheet,
+                onHint: _showHint,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHintPill() {
+    final String? hint = _hint;
+    if (hint == null) return const SizedBox.shrink();
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final Color color = _hintError ? scheme.error : scheme.primary;
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              _hintError ? Icons.error_outline : Icons.check_circle_outline,
+              size: 14,
+              color: color,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              hint,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
