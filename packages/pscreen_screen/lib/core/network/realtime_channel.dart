@@ -74,6 +74,87 @@ class RealtimePresence {
   final bool online;
 }
 
+/// 面板类型推断：旧服务端/旧客户端不回显 `kind` 时按包名兜底。
+///
+/// 返回值：`home`（中控屏）、`tv`（电视端）、空串（未知）。
+String kindOfApp(String app) {
+  switch (app) {
+    case 'potatokid.tools.homecontroller':
+      return 'home';
+    case 'screen.potatokid.tools':
+    case 'screen.potatokid.potatokid_screen':
+    case 'potatokid_screen':
+      return 'tv';
+    default:
+      return '';
+  }
+}
+
+/// 一台被控设备的已知状态（由 ready.roster / presence / state 帧累积）。
+///
+/// 控制端据此决定显示哪种遥控面板（[kind]）以及当前场景/频道列表。
+class RealtimeDeviceState {
+  const RealtimeDeviceState({
+    required this.account,
+    this.kind = '',
+    this.app = '',
+    this.version = '',
+    this.build = '',
+    this.scene = const <String, Object?>{},
+    this.channels = const <String>[],
+    this.listVersion = '',
+    this.ts = 0,
+  });
+
+  final String account;
+
+  /// 面板类型：`home` / `tv` / 空串。
+  final String kind;
+  final String app;
+  final String version;
+  final String build;
+
+  /// 最新场景快照（[SceneSnapshot.toJson] 的结构）。
+  final Map<String, Object?> scene;
+
+  /// 完整频道名列表（首次连接/列表变化时才下发）。
+  final List<String> channels;
+
+  /// 频道列表版本（FNV-1a 摘要），列表未变时复用。
+  final String listVersion;
+
+  /// 服务端收到该状态的本地时间戳。
+  final int ts;
+
+  /// 场景类型名（如 `live` / `home` / `screensaver`）。
+  String get sceneKind => '${scene['kind'] ?? ''}';
+
+  /// 当前播放频道名（直播场景才有）。
+  String get channelName => '${scene['channelName'] ?? ''}';
+
+  RealtimeDeviceState copyWith({
+    String? kind,
+    String? app,
+    String? version,
+    String? build,
+    Map<String, Object?>? scene,
+    List<String>? channels,
+    String? listVersion,
+    int? ts,
+  }) =>
+      RealtimeDeviceState(
+        account: account,
+        kind: kind ?? this.kind,
+        app: app ?? this.app,
+        version: version ?? this.version,
+        build: build ?? this.build,
+        scene: scene ?? this.scene,
+        channels: channels ?? this.channels,
+        listVersion: listVersion ?? this.listVersion,
+        ts: ts ?? this.ts,
+      );
+}
+
 /// 会话摘要（服务端按历史消息聚合）。
 class RealtimeConversation {
   const RealtimeConversation({
@@ -133,14 +214,24 @@ class RealtimeChannel {
       StreamController<String>.broadcast();
   final StreamController<void> _conversationController =
       StreamController<void>.broadcast();
+  final StreamController<RealtimeDeviceState> _deviceController =
+      StreamController<RealtimeDeviceState>.broadcast();
 
   RealtimeConnectionState _state = RealtimeConnectionState.disconnected;
   final Set<String> _online = <String>{};
+
+  /// account → 已累积的设备状态（roster / presence / state）。
+  final Map<String, RealtimeDeviceState> _devices =
+      <String, RealtimeDeviceState>{};
+
+  /// 正在订阅状态的账号（重连后自动重发 watch）。
+  final Set<String> _watched = <String>{};
 
   String _account = '';
   String _token = '';
   String _deviceId = '';
   String _role = 'tv';
+  String _kind = '';
   String _name = '';
   String _app = '';
   String _version = '';
@@ -165,11 +256,20 @@ class RealtimeChannel {
   Stream<String> get fatalErrors => _errorController.stream;
   Stream<void> get conversationsChanged => _conversationController.stream;
 
+  /// 被控设备状态变化（roster / presence / state 任一更新时推送）。
+  Stream<RealtimeDeviceState> get deviceStates => _deviceController.stream;
+
   RealtimeConnectionState get state => _state;
   bool get isConnected => _state == RealtimeConnectionState.connected;
   String get account => _account;
   String? get lastError => _lastError;
   Set<String> get onlineAccounts => Set<String>.unmodifiable(_online);
+
+  /// 某设备当前已知状态；未知返回 null。
+  RealtimeDeviceState? deviceInfoOf(String account) => _devices[account.trim()];
+
+  /// 某账号是否在线。
+  bool isOnline(String account) => _online.contains(account.trim());
 
   /// 连接并完成鉴权握手。失败抛 [RealtimeException]。
   ///
@@ -185,6 +285,7 @@ class RealtimeChannel {
     required String token,
     String deviceId = '',
     String role = 'tv',
+    String kind = '',
     String? name,
     String app = '',
     String version = '',
@@ -194,6 +295,7 @@ class RealtimeChannel {
     _token = token;
     _deviceId = deviceId.trim();
     _role = role;
+    _kind = kind.trim();
     _name = name ?? '';
     _app = app.trim();
     _version = version.trim();
@@ -345,6 +447,49 @@ class RealtimeChannel {
     _conversationController.add(null);
   }
 
+  /// 订阅某设备的实时状态；重连成功后自动补发 watch。
+  ///
+  /// 服务端会把该设备最近一次 `state` 立即回推，控制端无需再向设备要数据。
+  Future<bool> watch(String account) async {
+    final String target = account.trim();
+    if (target.isEmpty) return false;
+    _watched.add(target);
+    if (!isConnected) return false;
+    _send(<String, dynamic>{'t': 'watch', 'to': target});
+    return true;
+  }
+
+  /// 取消订阅（离开遥控面板/会话时调用）。
+  void unwatch(String account) {
+    final String target = account.trim();
+    if (target.isEmpty) return;
+    _watched.remove(target);
+    if (!isConnected) return;
+    _send(<String, dynamic>{'t': 'unwatch', 'to': target});
+  }
+
+  /// 被控端上报自身状态：场景快照 + （仅变化时）完整频道列表。
+  ///
+  /// 服务端按账号缓存并转发给 watch 中的控制端；离线时无需重试，
+  /// 重连后由上报方整体重发。
+  Future<bool> sendState({
+    required Map<String, Object?> scene,
+    List<String>? channels,
+    String? listVersion,
+  }) async {
+    if (!isConnected) return false;
+    _send(<String, dynamic>{
+      't': 'state',
+      'scene': scene,
+      if (channels != null)
+        'channels': <String, dynamic>{
+          'version': listVersion ?? '',
+          'names': channels,
+        },
+    });
+    return true;
+  }
+
   Future<void> dispose() async {
     await disconnect();
     await _stateController.close();
@@ -353,6 +498,7 @@ class RealtimeChannel {
     await _presenceController.close();
     await _errorController.close();
     await _conversationController.close();
+    await _deviceController.close();
   }
 
   Future<bool> _open() async {
@@ -365,6 +511,7 @@ class RealtimeChannel {
         'account': _account,
         'token': _token,
         'role': _role,
+        if (_kind.isNotEmpty) 'kind': _kind,
         if (_deviceId.isNotEmpty) 'deviceId': _deviceId,
         if (_name.isNotEmpty) 'name': _name,
         if (_app.isNotEmpty) 'app': _app,
@@ -409,9 +556,52 @@ class RealtimeChannel {
         _online
           ..clear()
           ..addAll(online.map((dynamic e) => '$e'));
+        // 在线端明细（含 kind）：刷新后首屏就能拿到各设备的类型与版本。
+        final List<dynamic> roster =
+            (frame['roster'] as List<dynamic>?) ?? const <dynamic>[];
+        for (final dynamic raw in roster) {
+          if (raw is! Map<String, dynamic>) continue;
+          final String account = '${raw['account'] ?? ''}'.trim();
+          if (account.isEmpty) continue;
+          _upsertDevice(
+            account,
+            kind: '${raw['kind'] ?? ''}',
+            app: '${raw['app'] ?? ''}',
+            version: '${raw['version'] ?? ''}',
+            build: '${raw['build'] ?? ''}',
+          );
+        }
         _lastError = null;
         _setState(RealtimeConnectionState.connected);
         if (!(_readyGate?.isCompleted ?? true)) _readyGate?.complete(true);
+        // 重连后补发订阅：服务端会立即回推这些设备的缓存状态。
+        for (final String target in _watched) {
+          _send(<String, dynamic>{'t': 'watch', 'to': target});
+        }
+        break;
+
+      case 'state':
+        final String from = '${frame['from'] ?? ''}'.trim();
+        if (from.isEmpty) return;
+        final dynamic rawScene = frame['scene'];
+        final dynamic rawChannels = frame['channels'];
+        List<String>? channels;
+        String? listVersion;
+        if (rawChannels is Map<String, dynamic>) {
+          final dynamic names = rawChannels['names'];
+          if (names is List) {
+            channels = names.map((dynamic e) => '$e').toList(growable: false);
+          }
+          listVersion = '${rawChannels['version'] ?? ''}';
+        }
+        _upsertDevice(
+          from,
+          scene: rawScene is Map<String, dynamic>
+              ? Map<String, Object?>.from(rawScene)
+              : null,
+          channels: channels,
+          listVersion: listVersion,
+        );
         break;
 
       case 'msg':
@@ -447,6 +637,14 @@ class RealtimeChannel {
         } else {
           _online.remove(account);
         }
+        // presence 也带设备标识：上下线时同步刷新 kind，面板类型不会滞后。
+        _upsertDevice(
+          account,
+          kind: '${frame['kind'] ?? ''}',
+          app: '${frame['app'] ?? ''}',
+          version: '${frame['version'] ?? ''}',
+          build: '${frame['build'] ?? ''}',
+        );
         _presenceController.add(RealtimePresence(account: account, online: online));
         break;
 
@@ -585,6 +783,40 @@ class RealtimeChannel {
       Log.warn('[RealtimeChannel] 非法帧：$e');
       return null;
     }
+  }
+
+  /// 合并一台设备的已知状态并广播给面板。
+  ///
+  /// 空字段一律沿用旧值（presence 可能只带 app，state 可能只带 scene）；
+  /// 服务端未回显 kind 时用包名兜底（见 [kindOfApp]）。
+  void _upsertDevice(
+    String account, {
+    String? kind,
+    String? app,
+    String? version,
+    String? build,
+    Map<String, Object?>? scene,
+    List<String>? channels,
+    String? listVersion,
+  }) {
+    final String target = account.trim();
+    if (target.isEmpty) return;
+    final RealtimeDeviceState prev =
+        _devices[target] ?? RealtimeDeviceState(account: target);
+    final String nextApp = (app == null || app.isEmpty) ? prev.app : app;
+    String nextKind = (kind == null || kind.isEmpty) ? prev.kind : kind;
+    if (nextKind.isEmpty) nextKind = kindOfApp(nextApp);
+    final RealtimeDeviceState next = prev.copyWith(
+      kind: nextKind,
+      app: nextApp,
+      version: version == null || version.isEmpty ? null : version,
+      build: build == null || build.isEmpty ? null : build,
+      scene: scene,
+      channels: channels,
+      listVersion: listVersion == null || listVersion.isEmpty ? null : listVersion,
+    );
+    _devices[target] = next;
+    if (!_deviceController.isClosed) _deviceController.add(next);
   }
 
   String _nextId() => '$_account-${DateTime.now().microsecondsSinceEpoch}-${++_seq}';

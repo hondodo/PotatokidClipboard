@@ -73,6 +73,8 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
         token: DeviceCredentials.passwordMd5(),
         deviceId: await DeviceCredentials.deviceId(),
         role: 'tv',
+        // 目标设备类型：电视（服务端在 roster/presence 回显，控制端据此选面板）。
+        kind: 'tv',
         app: info.app,
         version: info.version,
         build: info.build,

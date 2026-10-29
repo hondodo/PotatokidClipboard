@@ -6,6 +6,7 @@ import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+import 'package:pscreen_screen/features/msg/application/device_state_reporter.dart';
 import 'package:pscreen_screen/features/msg/application/message_command_executor.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_router.dart';
@@ -46,6 +47,7 @@ class MsgModule {
 
   static StreamSubscription<RealtimeMessage>? _sub;
   static StreamSubscription<RemoteLoginState>? _stateSub;
+  static DeviceStateReporter? _stateReporter;
   static String _lastStartedAccount = '';
 
   static Future<void> register(GetIt it) async {
@@ -53,6 +55,8 @@ class MsgModule {
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
+    _stateReporter?.stop();
+    _stateReporter = null;
 
     final MessageRouter router = MessageRouter(
       overlay: MessageOverlayController.instance,
@@ -60,6 +64,8 @@ class MsgModule {
         volume: PlatformChannelService.instance,
         liveChannel: LiveChannelController.instance,
         channelInfo: ChannelInfoProvider.instance,
+        // 宿主导航能力（中控屏/电视端各自注册；未注册时 nav 命令按未支持处理）。
+        navigator: it.isRegistered<HostNavigator>() ? it<HostNavigator>() : null,
       ),
     );
     final ReportingService reporting = ReportingService(
@@ -72,6 +78,18 @@ class MsgModule {
     it.registerLazySingleton<ReportingService>(
       () => reporting,
       dispose: (_) async => reporting.dispose(),
+    );
+
+    // 状态上报：被控端场景/频道列表 → 服务端缓存 → watch 中的控制端。
+    // 与上报服务相互独立（不依赖登录状态），连接成功即开始工作。
+    final DeviceStateReporter stateReporter = DeviceStateReporter(
+      channel: it<RealtimeChannel>(),
+      sceneProvider: it<CurrentSceneProvider>(),
+    )..start();
+    _stateReporter = stateReporter;
+    it.registerLazySingleton<DeviceStateReporter>(
+      () => stateReporter,
+      dispose: (_) async => stateReporter.stop(),
     );
 
     // 收消息：服务端只投递寻址到本账号的消息，直接交给路由。
@@ -112,7 +130,12 @@ class MsgModule {
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
+    _stateReporter?.stop();
+    _stateReporter = null;
     _lastStartedAccount = '';
+    if (it.isRegistered<DeviceStateReporter>()) {
+      await it.unregister<DeviceStateReporter>();
+    }
     if (it.isRegistered<ReportingService>()) {
       await it.unregister<ReportingService>();
     }

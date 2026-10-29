@@ -34,18 +34,23 @@ class FakeRealtimeChannel implements RealtimeChannel {
     required String token,
     String deviceId = '',
     String role = 'tv',
+    String kind = '',
     String? name,
     String app = '',
     String version = '',
     String build = '',
   }) async {
     calls.add('connect:$account:$token:$deviceId:$role');
+    lastKind = kind;
     lastApp = app;
     lastVersion = version;
     lastBuild = build;
     final RealtimeException? error = connectError;
     if (error != null) throw error;
   }
+
+  /// 最近一次 connect 上报的设备类型（home/tv）。
+  String lastKind = '';
 
   /// 最近一次 connect 上报的客户端标识（包名/版本/构建号）。
   String lastApp = '';

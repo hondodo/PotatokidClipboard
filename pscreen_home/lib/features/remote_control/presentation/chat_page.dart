@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/core/control_config.dart';
 import 'package:pscreen_home/features/remote_control/domain/chat_message_item.dart';
-import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/target_remote_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 
@@ -113,7 +113,8 @@ class _ChatPageState extends State<ChatPage> {
                   )
                 : const Center(child: Text('暂无消息')),
           ),
-          CommandPanel(onCommand: (String body) => _send(body)),
+          // 与对方会话时展示其设备对应的遥控面板（进入会话即 watch 状态）。
+          TargetRemotePanel(account: widget.account, onCommand: _send),
           Padding(
             padding: const EdgeInsets.all(8),
             child: Row(
