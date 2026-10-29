@@ -5,6 +5,86 @@ import 'package:pscreen_home/features/remote_control/data/favorite_store.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
+/// 直播遥控的通用操作行：音量± / 静音 + 可展开的频道列表。
+///
+/// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
+/// 频道列表默认收起，点按钮后展开 [LiveRemotePanel]（搜索 + 收藏 + 全量名单）。
+class LiveControlsPanel extends StatefulWidget {
+  const LiveControlsPanel({
+    super.key,
+    required this.panel,
+    required this.channelsLabel,
+  });
+
+  final RemotePanelContext panel;
+
+  /// 频道展开按钮的文案（电视端「选择频道」／中控端「频道列表」）。
+  final String channelsLabel;
+
+  @override
+  State<LiveControlsPanel> createState() => _LiveControlsPanelState();
+}
+
+class _LiveControlsPanelState extends State<LiveControlsPanel> {
+  bool _channelsOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final int count = widget.panel.device?.channels.length ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            _CmdButton(
+              label: '音量+',
+              onTap: () =>
+                  widget.panel.onCommand(buildCommandEnvelope('volume_up')),
+            ),
+            _CmdButton(
+              label: '音量-',
+              onTap: () =>
+                  widget.panel.onCommand(buildCommandEnvelope('volume_down')),
+            ),
+            _CmdButton(
+              label: '静音',
+              onTap: () => widget.panel.onCommand(buildCommandEnvelope('mute')),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _channelsOpen = !_channelsOpen),
+              icon: Icon(
+                _channelsOpen ? Icons.expand_less : Icons.expand_more,
+                size: 20,
+              ),
+              label: Text(
+                count > 0 ? '${widget.channelsLabel}（$count）' : widget.channelsLabel,
+              ),
+            ),
+          ],
+        ),
+        if (_channelsOpen) ...<Widget>[
+          const SizedBox(height: 12),
+          LiveRemotePanel(panel: widget.panel),
+        ],
+      ],
+    );
+  }
+}
+
+class _CmdButton extends StatelessWidget {
+  const _CmdButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(onPressed: onTap, child: Text(label));
+  }
+}
+
 /// 直播遥控：搜索 + 收藏置顶 + 全量频道列表。
 ///
 /// 频道名单来自设备上报的 `state.channels`（启动时一次性下发，列表变化才刷新），

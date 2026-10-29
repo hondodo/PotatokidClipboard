@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/home_remote_panel.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/live_remote_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 面板构建上下文：被控设备 + 发送回调。
@@ -29,15 +29,16 @@ typedef RemotePanelBuilder = Widget Function(RemotePanelContext context);
 
 /// 面板注册表：被控设备类型 → 遥控面板。
 ///
-/// 默认注册 `home`（中控屏：场景按钮 + 直播遥控）与 `tv`（电视端：命令面板）；
-/// 未知类型回落命令面板，保证旧设备仍可操作。
+/// 默认注册 `home`（中控屏：场景按钮 + 直播遥控）与 `tv`（电视端：音量/静音 +
+/// 「选择频道」展开）；未知类型回落电视面板，保证旧设备仍可操作。
 class RemotePanelRegistry {
   RemotePanelRegistry._();
 
   static final Map<String, RemotePanelBuilder> _builders =
       <String, RemotePanelBuilder>{
     'home': (RemotePanelContext ctx) => HomeRemotePanel(panel: ctx),
-    'tv': (RemotePanelContext ctx) => CommandPanel(onCommand: ctx.onCommand),
+    'tv': (RemotePanelContext ctx) =>
+        LiveControlsPanel(panel: ctx, channelsLabel: '选择频道'),
   };
 
   /// 注册/覆盖某类型的面板（宿主可扩展）。

@@ -59,7 +59,7 @@ class HomeRemotePanel extends StatelessWidget {
         ),
         if (sceneKind == 'live') ...<Widget>[
           const Divider(height: 24),
-          LiveRemotePanel(panel: panel),
+          LiveControlsPanel(panel: panel, channelsLabel: '频道列表'),
         ],
       ],
     );
