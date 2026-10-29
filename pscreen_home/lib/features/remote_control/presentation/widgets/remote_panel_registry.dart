@@ -10,6 +10,7 @@ class RemotePanelContext {
     required this.device,
     required this.online,
     required this.onCommand,
+    this.onSendMessage,
   });
 
   final String account;
@@ -20,6 +21,9 @@ class RemotePanelContext {
 
   /// 发送已构造好的命令信封（发到当前这台设备）。
   final ValueChanged<String> onCommand;
+
+  /// 打开「发送消息」入口；为空时不显示该按钮。
+  final VoidCallback? onSendMessage;
 
   /// 面板类型：`home` / `tv` / 空串（未知）。
   String get kind => device?.kind ?? '';

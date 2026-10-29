@@ -1,15 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/data/favorite_store.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 直播遥控的通用操作行：音量± / 静音 + 可展开的频道列表。
+/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 发送消息。
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
-/// 频道列表默认收起，点按钮后展开 [LiveRemotePanel]（搜索 + 收藏 + 全量名单）。
-class LiveControlsPanel extends StatefulWidget {
+/// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
+class LiveControlsPanel extends StatelessWidget {
   const LiveControlsPanel({
     super.key,
     required this.panel,
@@ -18,57 +20,50 @@ class LiveControlsPanel extends StatefulWidget {
 
   final RemotePanelContext panel;
 
-  /// 频道展开按钮的文案（电视端「选择频道」／中控端「频道列表」）。
+  /// 频道按钮的文案（电视端「选择频道」／中控端「频道列表」）。
   final String channelsLabel;
 
   @override
-  State<LiveControlsPanel> createState() => _LiveControlsPanelState();
-}
-
-class _LiveControlsPanelState extends State<LiveControlsPanel> {
-  bool _channelsOpen = false;
-
-  @override
   Widget build(BuildContext context) {
-    final int count = widget.panel.device?.channels.length ?? 0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final int count = panel.device?.channels.length ?? 0;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: <Widget>[
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            _CmdButton(
-              label: '音量+',
-              onTap: () =>
-                  widget.panel.onCommand(buildCommandEnvelope('volume_up')),
-            ),
-            _CmdButton(
-              label: '音量-',
-              onTap: () =>
-                  widget.panel.onCommand(buildCommandEnvelope('volume_down')),
-            ),
-            _CmdButton(
-              label: '静音',
-              onTap: () => widget.panel.onCommand(buildCommandEnvelope('mute')),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _channelsOpen = !_channelsOpen),
-              icon: Icon(
-                _channelsOpen ? Icons.expand_less : Icons.expand_more,
-                size: 20,
-              ),
-              label: Text(
-                count > 0 ? '${widget.channelsLabel}（$count）' : widget.channelsLabel,
-              ),
-            ),
-          ],
+        _CmdButton(
+          label: '音量+',
+          onTap: () => panel.onCommand(buildCommandEnvelope('volume_up')),
         ),
-        if (_channelsOpen) ...<Widget>[
-          const SizedBox(height: 12),
-          LiveRemotePanel(panel: widget.panel),
-        ],
+        _CmdButton(
+          label: '音量-',
+          onTap: () => panel.onCommand(buildCommandEnvelope('volume_down')),
+        ),
+        _CmdButton(
+          label: '静音',
+          onTap: () => panel.onCommand(buildCommandEnvelope('mute')),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => _openChannels(context),
+          icon: const Icon(Icons.list, size: 20),
+          label: Text(count > 0 ? '$channelsLabel（$count）' : channelsLabel),
+        ),
+        if (panel.onSendMessage != null)
+          FilledButton.tonalIcon(
+            onPressed: panel.onSendMessage,
+            icon: const Icon(Icons.send_outlined, size: 20),
+            label: const Text('发送消息'),
+          ),
       ],
+    );
+  }
+
+  void _openChannels(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (BuildContext context) =>
+          _ChannelSheet(panel: panel, title: channelsLabel),
     );
   }
 }
@@ -82,6 +77,86 @@ class _CmdButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton(onPressed: onTap, child: Text(label));
+  }
+}
+
+/// 频道选择弹窗：跟随设备状态刷新（当前频道高亮），选中后发送命令并关闭。
+class _ChannelSheet extends StatefulWidget {
+  const _ChannelSheet({required this.panel, required this.title});
+
+  final RemotePanelContext panel;
+  final String title;
+
+  @override
+  State<_ChannelSheet> createState() => _ChannelSheetState();
+}
+
+class _ChannelSheetState extends State<_ChannelSheet> {
+  StreamSubscription<RealtimeDeviceState>? _sub;
+
+  RealtimeChannel get _channel => Injection.get<RealtimeChannel>();
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = _channel.deviceStates
+        .where((RealtimeDeviceState state) => state.account == widget.panel.account)
+        .listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final RealtimeDeviceState? device = _channel.deviceInfoOf(widget.panel.account);
+    final int count = device?.channels.length ?? 0;
+    final RemotePanelContext panel = RemotePanelContext(
+      account: widget.panel.account,
+      device: device,
+      online: widget.panel.online,
+      // 选中频道后发送并关闭弹窗。
+      onCommand: (String command) {
+        widget.panel.onCommand(command);
+        Navigator.of(context).maybePop();
+      },
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+            child: Row(
+              children: <Widget>[
+                Text(
+                  count > 0 ? '${widget.title}（$count）' : widget.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: '关闭',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: LiveRemotePanel(panel: panel),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -151,7 +226,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
     if (names.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('等待电视上报频道列表…'),
+        child: Text('等待设备上报频道列表…'),
       );
     }
 

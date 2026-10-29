@@ -22,7 +22,6 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final TextEditingController _text = TextEditingController();
   List<RealtimeThreadItem> _items = <RealtimeThreadItem>[];
   StreamSubscription<RealtimeMessage>? _msgSub;
   StreamSubscription<RealtimeEvent>? _eventSub;
@@ -56,7 +55,6 @@ class _ChatPageState extends State<ChatPage> {
     _msgSub?.cancel();
     _eventSub?.cancel();
     _stateSub?.cancel();
-    _text.dispose();
     _channel.unwatchThread(widget.account);
     super.dispose();
   }
@@ -175,64 +173,38 @@ class _ChatPageState extends State<ChatPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? '已发送' : '发送失败')));
   }
 
-  /// 遥控面板放在底部弹层里，避免挤占消息区（中控屏屏幕较矮）。
-  void _openRemotePanel() {
-    showModalBottomSheet<void>(
+  /// 发送消息：底部弹窗输入，确认后发送。
+  Future<void> _openSendSheet() async {
+    final String? body = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (BuildContext context) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          child: TargetRemotePanel(
-            account: widget.account,
-            showHeader: true,
-            onCommand: _send,
-          ),
-        );
-      },
+      builder: (BuildContext context) => const _SendMessageSheet(),
     );
+    if (body == null || body.trim().isEmpty) return;
+    await _send(body);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '遥控面板',
-            icon: const Icon(Icons.settings_remote),
-            onPressed: _openRemotePanel,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(widget.title)),
       body: Column(
         children: <Widget>[
           Expanded(child: _buildTimeline()),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextField(
-                    controller: _text,
-                    decoration: const InputDecoration(hintText: '输入消息'),
-                    onSubmitted: (String value) {
-                      _text.clear();
-                      _send(value);
-                    },
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () {
-                    final String body = _text.text;
-                    _text.clear();
-                    _send(body);
-                  },
-                ),
-              ],
+          // 遥控面板常驻底部（替换原输入行）：按钮行始终可见，
+          // 频道列表与发送消息都走弹窗，避免小屏被内容撑爆。
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: TargetRemotePanel(
+                account: widget.account,
+                onCommand: _send,
+                onSendMessage: _openSendSheet,
+              ),
             ),
           ),
         ],
@@ -256,6 +228,72 @@ class _ChatPageState extends State<ChatPage> {
           me: _me,
         );
       },
+    );
+  }
+}
+
+/// 发送消息弹窗：输入后把文本返回给会话页，由会话页负责发送。
+class _SendMessageSheet extends StatefulWidget {
+  const _SendMessageSheet();
+
+  @override
+  State<_SendMessageSheet> createState() => _SendMessageSheetState();
+}
+
+class _SendMessageSheetState extends State<_SendMessageSheet> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final String text = _controller.text.trim();
+    if (text.isEmpty) return;
+    Navigator.of(context).pop(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('发送消息', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              minLines: 1,
+              maxLines: 4,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                hintText: '输入消息内容',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text('取消'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: _submit, child: const Text('发送')),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

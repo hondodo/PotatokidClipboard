@@ -15,12 +15,16 @@ class TargetRemotePanel extends StatefulWidget {
     super.key,
     required this.account,
     required this.onCommand,
+    this.onSendMessage,
     this.title,
     this.showHeader = true,
   });
 
   final String account;
   final ValueChanged<String> onCommand;
+
+  /// 面板内「发送消息」按钮的回调；为空时不显示该按钮。
+  final VoidCallback? onSendMessage;
 
   /// 显示名（默认用账号）。
   final String? title;
@@ -86,6 +90,7 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
       device: info,
       online: online,
       onCommand: widget.onCommand,
+      onSendMessage: widget.onSendMessage,
     );
     final String sceneTitle = '${info?.scene['title'] ?? ''}';
     final String kind = info?.kind ?? '';

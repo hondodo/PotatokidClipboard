@@ -55,6 +55,13 @@ class HomeRemotePanel extends StatelessWidget {
               active: screensaver,
               onTap: () => panel.onCommand(buildNavCommand('screensaver')),
             ),
+            if (panel.onSendMessage != null)
+              _SceneButton(
+                label: '发送消息',
+                icon: Icons.send_outlined,
+                active: false,
+                onTap: panel.onSendMessage!,
+              ),
           ],
         ),
         if (sceneKind == 'live') ...<Widget>[
