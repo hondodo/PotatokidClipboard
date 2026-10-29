@@ -102,17 +102,28 @@ class LiveControlsPanel extends StatelessWidget {
 
 /// 定时关闭弹窗：选择倒计时时长后发命令给被控设备（0 = 取消）。
 ///
-/// 时长档位与两端本机「定时关闭」共用 [SleepTimerController.presetMinutes]，
-/// 被控端到点自动退出应用。
+/// 时长档位与两端本机「定时关闭」共用 [SleepTimerController.presetMinutes]；
+/// 到点动作由被控端宿主决定：中控屏关闭直播回主页，电视端退出应用。
 class _SleepTimerSheet extends StatelessWidget {
   const _SleepTimerSheet({required this.panel});
 
   final RemotePanelContext panel;
 
+  /// 中控屏的定时关闭只是关直播回主页，电视端才是退出应用。
+  String get _expireText => panel.kind == 'home'
+      ? '倒计时结束后关闭被控中控屏的直播并返回主页；「关闭」= 取消当前定时。'
+      : '倒计时结束后被控电视端自动退出应用；「关闭」= 取消当前定时。';
+
   void _pick(BuildContext context, int? minutes) {
     panel.onCommand(buildSleepTimerCommand(minutes));
     Navigator.of(context).maybePop();
-    panel.onHint?.call(minutes == null ? '已发送：取消定时关闭' : '已发送：$minutes 分钟后自动关闭');
+    panel.onHint?.call(
+      minutes == null
+          ? '已发送：取消定时关闭'
+          : panel.kind == 'home'
+          ? '已发送：$minutes 分钟后关闭直播'
+          : '已发送：$minutes 分钟后自动退出',
+    );
   }
 
   @override
@@ -143,10 +154,10 @@ class _SleepTimerSheet extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
-              '倒计时结束后被控设备自动退出应用；「关闭」= 取消当前定时。',
+              _expireText,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ),
           Flexible(
@@ -210,10 +221,12 @@ class _ChannelSheetState extends State<_ChannelSheet> {
   void initState() {
     super.initState();
     _sub = _channel.deviceStates
-        .where((RealtimeDeviceState state) => state.account == widget.panel.account)
+        .where(
+          (RealtimeDeviceState state) => state.account == widget.panel.account,
+        )
         .listen((_) {
-      if (mounted) setState(() {});
-    });
+          if (mounted) setState(() {});
+        });
   }
 
   @override
@@ -224,7 +237,9 @@ class _ChannelSheetState extends State<_ChannelSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final RealtimeDeviceState? device = _channel.deviceInfoOf(widget.panel.account);
+    final RealtimeDeviceState? device = _channel.deviceInfoOf(
+      widget.panel.account,
+    );
     final int count = device?.channels.length ?? 0;
     final RemotePanelContext panel = RemotePanelContext(
       account: widget.panel.account,
@@ -342,8 +357,10 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
       final ScrollPosition position = _listScroll.position;
       final double offset = total <= 0
           ? 0
-          : (row / total * position.maxScrollExtent)
-              .clamp(0.0, position.maxScrollExtent);
+          : (row / total * position.maxScrollExtent).clamp(
+              0.0,
+              position.maxScrollExtent,
+            );
       _listScroll.jumpTo(offset);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -405,8 +422,9 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
     ];
     final List<int> ordered = <int>[...favorites, ...others];
     // 离线时上报的频道是旧值，不标「正在播放」。
-    final String current =
-        widget.panel.online ? (widget.panel.device?.channelName ?? '') : '';
+    final String current = widget.panel.online
+        ? (widget.panel.device?.channelName ?? '')
+        : '';
     final ColorScheme scheme = Theme.of(context).colorScheme;
     // 当前频道在（收藏置顶后的）展示列表中的行号，用于打开即定位。
     final int currentRow = current.isEmpty
@@ -443,8 +461,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
                     return ListTile(
                       key: active ? _currentKey : null,
                       dense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                       leading: Icon(
                         favorite ? Icons.star : Icons.star_border,
                         size: 20,

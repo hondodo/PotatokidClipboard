@@ -18,6 +18,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
+import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -212,7 +213,7 @@ class _HomeControllBoardState extends State<HomeControllBoard>
               tooltip: '直播',
               icon: const Icon(Icons.live_tv_rounded),
               onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.livePath),
+                  Injection.get<LiveStageController>().openFullscreen(),
             ),
             IconButton(
               tooltip: '天气',
@@ -486,7 +487,7 @@ class _SleepTimerBadge extends StatelessWidget {
         final SleepTimerController timer = SleepTimerController.instance;
         if (!timer.active) return const SizedBox.shrink();
         return Tooltip(
-          message: '定时关闭中',
+          message: '直播定时关闭中',
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Row(

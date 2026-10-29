@@ -66,7 +66,10 @@ class MessageCommandExecutor {
     }
   }
 
-  /// 定时关闭：`minutes` ≤ 0 或缺失 = 取消；否则开始倒计时，到点退出应用。
+  /// 定时关闭：`minutes` ≤ 0 或缺失 = 取消；否则开始倒计时。
+  ///
+  /// 到点动作由宿主注入的 [SleepTimerController.onExpire] 决定：
+  /// 中控屏关闭直播回主页，电视端默认退出应用。
   ///
   /// 复用本机「我的/设置」页同一个 [SleepTimerController]，
   /// 因此遥控设置的时长与本地 UI 显示的剩余时间始终一致。

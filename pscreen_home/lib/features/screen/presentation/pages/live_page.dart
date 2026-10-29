@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_player_view.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
@@ -23,12 +24,23 @@ import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 ///   列表停靠右边不会遮住它们；
 /// - 全屏时隐藏 AppBar，让播放器铺满整个页面；左上角保留一个
 ///   [Stack] 内的返回按钮，仍可退出直播页回主控页；
-/// - 点「恢复」→ 重新显示 AppBar。
+/// - 点「恢复」→ 重新显示 AppBar；
+/// - [floating] 为 true 时只渲染播放器（全局宿主负责小窗尺寸、拖动和单击
+///   回全屏），底部控制条隐藏，但播放器仍是同一个 State，不会中断。
 class LivePage extends StatefulWidget {
-  const LivePage({super.key, this.enablePlayer = true});
+  const LivePage({super.key, this.enablePlayer = true, this.floating = false, this.onFloat, this.onClose});
 
   /// 是否实例化真实播放器（测试环境置 false）。
   final bool enablePlayer;
+
+  /// 是否处于应用内悬浮小窗形态。
+  final bool floating;
+
+  /// 点击「悬浮」按钮：交给全局直播宿主缩小成小窗。
+  final VoidCallback? onFloat;
+
+  /// 关闭直播；为空时退回路由返回（保留 LivePage 单独使用的兼容性）。
+  final VoidCallback? onClose;
 
   @override
   State<LivePage> createState() => _LivePageState();
@@ -133,9 +145,11 @@ class _LivePageState extends State<LivePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       // 全屏模式下不传 appBar：body 直接铺到页面顶部，视频画面更大。
       // 左上角的返回按钮由 body 内的 [Stack] 提供，仍可退出直播页。
-      appBar: _fullscreen
+      // 悬浮小窗也不需要 AppBar / 刷新按钮。
+      appBar: widget.floating || _fullscreen
           ? null
           : AppBar(
               title: const Text('直播'),
@@ -168,15 +182,20 @@ class _LivePageState extends State<LivePage> {
             );
           }
           final List<IptvChannel> channels = state.channels;
+          final bool floating = widget.floating;
           // 点「列表与底部按钮之外」的播放器空白区，切换浮层显隐。
           // 列表面板 / 切台按钮自带点击处理，会吃掉各自区域的点按，
           // 不会冒泡到这里触发切换。
+          //
+          // 悬浮小窗不再吃 tap：单击由全局宿主接管（回全屏），
+          // 拖动也由宿主处理；这里只负责把播放器画出来。
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _toggleOverlay,
+            onTap: floating ? null : _toggleOverlay,
             child: Stack(
               children: <Widget>[
-                // 播放器铺满整个区域。
+                // 播放器铺满整个区域，始终是 Stack 的第 0 个 child；
+                // 全屏 ⇄ 悬浮切换时位置/尺寸变化，但播放器 State 不重建。
                 Positioned.fill(
                   child: widget.enablePlayer && channels.isNotEmpty
                       ? LivePlayerView(channels: channels)
@@ -187,49 +206,67 @@ class _LivePageState extends State<LivePage> {
                           ),
                         ),
                 ),
-                // 全屏模式左上角返回按钮：AppBar 已隐藏，仍可退出直播页回主控页。
-                if (_fullscreen)
+                // 悬浮小窗空间小，倒计时收紧凑挂右上角；不拦截拖动/单击。
+                if (floating) const Positioned(top: 8, right: 8, child: LiveSleepTimerBadge(compact: true)),
+                // 悬浮小窗只显示画面 + 当前频道名；徽标不拦截手势，
+                // 拖动 / 单击回全屏仍由全局宿主处理。
+                if (floating && channels.isNotEmpty)
                   Positioned(
-                    top: 12,
-                    left: 12,
-                    child: Material(
-                      color: Colors.black54,
-                      shape: const CircleBorder(),
-                      clipBehavior: Clip.antiAlias,
-                      child: IconButton(
-                        tooltip: '返回',
-                        iconSize: 32,
-                        color: Colors.white,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        onPressed: () => Navigator.of(context).maybePop(),
+                    left: 8,
+                    bottom: 8,
+                    child: IgnorePointer(child: _ChannelNameBadge(channels: channels, compact: true)),
+                  ),
+                if (!floating) ...<Widget>[
+                  // 定时关闭倒计时：直播页没有 AppBar，单独挂在左上角
+                  // （返回按钮右侧），且不跟随频道浮层自动隐藏。
+                  Positioned(top: 12, left: _fullscreen ? 64 : 12, child: const LiveSleepTimerBadge()),
+                  // 全屏模式左上角返回按钮：AppBar 已隐藏，仍可退出直播页回主控页。
+                  if (_fullscreen)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Material(
+                        color: Colors.black54,
+                        shape: const CircleBorder(),
+                        clipBehavior: Clip.antiAlias,
+                        child: IconButton(
+                          tooltip: '返回',
+                          iconSize: 32,
+                          color: Colors.white,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          onPressed: widget.onClose ?? () => Navigator.of(context).maybePop(),
+                        ),
                       ),
                     ),
-                  ),
-                // 左下角当前频道名（始终显示，便于关掉浮层后仍知道在看什么）。
-                if (channels.isNotEmpty) Positioned(left: 12, bottom: 12, child: _ChannelNameBadge(channels: channels)),
-                // 底部居中「全屏 / 恢复」「上一台 / 下一台」，与列表同层，跟随显隐。
-                if (_overlayVisible && channels.isNotEmpty)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 12,
-                    child: Center(
-                      child: _ChannelSwitchControls(
-                        onInteract: _scheduleHide,
-                        fullscreen: _fullscreen,
-                        onToggleFullscreen: _toggleFullscreen,
+                  // 左下角当前频道名（始终显示，便于关掉浮层后仍知道在看什么）。
+                  if (channels.isNotEmpty)
+                    Positioned(left: 12, bottom: 12, child: _ChannelNameBadge(channels: channels)),
+                  // 底部居中「悬浮」「全屏 / 恢复」「上一台 / 下一台」，
+                  // 与列表同层，跟随显隐。
+                  if (_overlayVisible && channels.isNotEmpty)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 12,
+                      child: Center(
+                        child: _ChannelSwitchControls(
+                          onInteract: _scheduleHide,
+                          fullscreen: _fullscreen,
+                          onToggleFullscreen: _toggleFullscreen,
+                          onFloat: widget.onFloat,
+                        ),
                       ),
                     ),
-                  ),
-                // 右侧频道列表浮层，跟随显隐。
-                if (_overlayVisible && channels.isNotEmpty)
-                  Positioned(
-                    top: 12,
-                    bottom: 12,
-                    right: 12,
-                    width: _listWidth,
-                    child: _ChannelListPanel(channels: channels, onSelect: _scheduleHide),
-                  ),
+                  // 右侧频道列表浮层，跟随显隐。
+                  if (_overlayVisible && channels.isNotEmpty)
+                    Positioned(
+                      top: 12,
+                      bottom: 12,
+                      right: 12,
+                      width: _listWidth,
+                      child: _ChannelListPanel(channels: channels, onSelect: _scheduleHide),
+                    ),
+                ],
               ],
             ),
           );
@@ -239,11 +276,59 @@ class _LivePageState extends State<LivePage> {
   }
 }
 
+/// 直播定时关闭倒计时角标（`⏱ 直播定时关闭 mm:ss`），未开启时隐藏。
+///
+/// 直播页没有 AppBar，无法复用首页的角标；这里直接监听全局
+/// [SleepTimerController]，本机设置页或遥控下发都能立即看到剩余时间。
+class LiveSleepTimerBadge extends StatelessWidget {
+  const LiveSleepTimerBadge({super.key, this.compact = false});
+
+  /// 悬浮小窗中使用更紧凑的字号/间距。
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SleepTimerController.instance,
+      builder: (BuildContext context, Widget? _) {
+        final SleepTimerController timer = SleepTimerController.instance;
+        if (!timer.active) return const SizedBox.shrink();
+        return IgnorePointer(
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 4 : 6),
+            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.timer_outlined, size: compact ? 14 : 18, color: Colors.white70),
+                const SizedBox(width: 6),
+                Text(
+                  //直播定时关闭
+                  timer.remainingLabel,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 12 : 14,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// 左下角当前频道名（始终显示）。
 class _ChannelNameBadge extends StatelessWidget {
-  const _ChannelNameBadge({required this.channels});
+  const _ChannelNameBadge({required this.channels, this.compact = false});
 
   final List<IptvChannel> channels;
+
+  /// 悬浮小窗中使用更紧凑的字号/间距。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -260,14 +345,14 @@ class _ChannelNameBadge extends StatelessWidget {
         final int width = total <= 1 ? 1 : total.toString().length;
         final String number = (index + 1).toString().padLeft(width, '0');
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 4 : 6),
           decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
           child: Text(
             '$number ${channels[index].name}',
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 20,
-              fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+              fontSize: compact ? 13 : 20,
+              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
             ),
           ),
         );
@@ -276,12 +361,14 @@ class _ChannelNameBadge extends StatelessWidget {
   }
 }
 
-/// 底部居中「全屏 / 恢复」「上一台 / 下一台」：点击除了执行操作，还重置自动隐藏计时。
+/// 底部居中「悬浮」「全屏 / 恢复」「上一台 / 下一台」：
+/// 点击除了执行操作，还重置自动隐藏计时。
 class _ChannelSwitchControls extends StatelessWidget {
   const _ChannelSwitchControls({
     required this.onInteract,
     required this.fullscreen,
     required this.onToggleFullscreen,
+    this.onFloat,
   });
 
   /// 有操作时回调（用于重置自动隐藏计时）。
@@ -293,6 +380,9 @@ class _ChannelSwitchControls extends StatelessWidget {
   /// 切换全屏 / 恢复。
   final VoidCallback onToggleFullscreen;
 
+  /// 缩小成应用内悬浮小窗；为空时不显示按钮（单独使用 LivePage 的测试）。
+  final VoidCallback? onFloat;
+
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -301,6 +391,17 @@ class _ChannelSwitchControls extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          if (onFloat != null)
+            IconButton(
+              tooltip: '悬浮',
+              iconSize: 36,
+              color: Colors.white,
+              icon: const Icon(Icons.picture_in_picture_alt_rounded),
+              onPressed: () {
+                onFloat!();
+                onInteract();
+              },
+            ),
           IconButton(
             tooltip: fullscreen ? '恢复' : '全屏',
             iconSize: 36,

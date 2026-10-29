@@ -4,8 +4,8 @@ import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/features/home/presentation/pages/device_detail_page.dart';
 import 'package:pscreen_home/features/home/presentation/pages/home_controll_board.dart';
 import 'package:pscreen_home/features/remote_control/presentation/remote_control_page.dart';
+import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/clock_page.dart';
-import 'package:pscreen_home/features/screen/presentation/pages/live_page.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/weather_page.dart';
 import 'package:pscreen_home/features/settings/presentation/pages/settings_page.dart';
 
@@ -93,7 +93,9 @@ class AppRouter {
           GoRoute(
             path: RouteNames.live,
             name: RouteNames.live,
-            builder: (context, state) => const LivePage(),
+            // 播放器由全局 LiveStageHost 渲染；这里只是路由占位，
+            // 避免 Navigator 里再创建第二个播放器。
+            builder: (context, state) => const LiveRouteEntry(),
           ),
           GoRoute(
             path: RouteNames.weather,

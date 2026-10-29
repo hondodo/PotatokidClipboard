@@ -3,6 +3,9 @@ package screen.potatokid.tools
 import android.media.AudioManager
 import android.media.MediaDrm
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -11,6 +14,7 @@ import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "potatokid/volume"
+    private val APP_CHANNEL = "potatokid/app"
 
     /** Widevine 的 UUID：MediaDrm 设备唯一 ID 只在 Widevine 下可取。 */
     private val WIDEVINE_UUID = UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)
@@ -58,6 +62,27 @@ class MainActivity : FlutterActivity() {
                                     ),
                                 "mediaDrmId" to mediaDrmDeviceId()
                             )
+                        )
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    // 定时关闭：先移除整个 task，再结束进程。
+                    // 仅 finish() 在多 task / home 栈场景里可能只关掉前台实例，
+                    // 用户会看到 App「没退」；这里确保同进程的实例全部结束。
+                    "exitApp" -> {
+                        result.success(null)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            finishAndRemoveTask()
+                        } else {
+                            finish()
+                        }
+                        Handler(Looper.getMainLooper()).postDelayed(
+                            { Process.killProcess(Process.myPid()) },
+                            300L,
                         )
                     }
                     else -> result.notImplemented()

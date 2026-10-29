@@ -199,9 +199,12 @@ class _SettingsPageState extends State<SettingsPage> {
             version: info.version,
             build: info.build,
           )
-          .timeout(const Duration(seconds: 25), onTimeout: () {
-        throw const RealtimeException(-3, '连接超时');
-      });
+          .timeout(
+            const Duration(seconds: 25),
+            onTimeout: () {
+              throw const RealtimeException(-3, '连接超时');
+            },
+          );
       ok = true;
     } catch (e) {
       ControlLog.e('[实时通道] 连接失败: $e');
@@ -476,14 +479,14 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 24),
           Text(
-            '定时关闭',
+            '直播定时关闭',
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
-            '倒计时结束后本机自动退出应用；仅本次运行有效，重启后不保留。'
+            '倒计时结束后关闭本机直播并返回主页，不会退出中控台；仅本次运行有效，重启后不保留。'
             '要给电视端/其它中控屏设置，请到「遥控会话」页用「定时关闭」按钮。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
@@ -724,47 +727,59 @@ class _RealtimeStatusLine extends StatelessWidget {
     return StreamBuilder<RealtimeConnectionState>(
       stream: channel.connectionState,
       initialData: channel.state,
-      builder: (BuildContext context, AsyncSnapshot<RealtimeConnectionState> snapshot) {
-        final RealtimeConnectionState state =
-            snapshot.data ?? RealtimeConnectionState.disconnected;
-        final (String label, Color color) = switch (state) {
-          RealtimeConnectionState.connected => (
-            '已连接（${channel.account}）',
-            Colors.greenAccent,
-          ),
-          RealtimeConnectionState.connecting => ('连接中…', Colors.orangeAccent),
-          RealtimeConnectionState.disconnected => ('未连接', Colors.redAccent),
-          RealtimeConnectionState.error => ('连接错误', Colors.redAccent),
-        };
-        final TextStyle? hint = Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.outline,
-        );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 8),
-                Text('遥控通道：$label', style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-            if (channel.lastError != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text('最近错误：${channel.lastError}', style: hint),
+      builder:
+          (
+            BuildContext context,
+            AsyncSnapshot<RealtimeConnectionState> snapshot,
+          ) {
+            final RealtimeConnectionState state =
+                snapshot.data ?? RealtimeConnectionState.disconnected;
+            final (String label, Color color) = switch (state) {
+              RealtimeConnectionState.connected => (
+                '已连接（${channel.account}）',
+                Colors.greenAccent,
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
-            ),
-          ],
-        );
-      },
+              RealtimeConnectionState.connecting => (
+                '连接中…',
+                Colors.orangeAccent,
+              ),
+              RealtimeConnectionState.disconnected => ('未连接', Colors.redAccent),
+              RealtimeConnectionState.error => ('连接错误', Colors.redAccent),
+            };
+            final TextStyle? hint = Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: Theme.of(context).colorScheme.outline);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '遥控通道：$label',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                if (channel.lastError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('最近错误：${channel.lastError}', style: hint),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
+                ),
+              ],
+            );
+          },
     );
   }
 }

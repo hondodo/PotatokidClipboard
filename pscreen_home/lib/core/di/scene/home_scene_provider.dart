@@ -4,6 +4,7 @@ import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
+import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
@@ -18,13 +19,16 @@ class HomeSceneProvider extends CurrentSceneProvider {
     required AppRouter Function() router,
     required ScreensaverController Function() screensaver,
     required HomeBloc Function() homeBloc,
-  })  : _router = router,
-        _screensaver = screensaver,
-        _homeBloc = homeBloc;
+    required LiveStageController Function() live,
+  }) : _router = router,
+       _screensaver = screensaver,
+       _homeBloc = homeBloc,
+       _live = live;
 
   final AppRouter Function() _router;
   final ScreensaverController Function() _screensaver;
   final HomeBloc Function() _homeBloc;
+  final LiveStageController Function() _live;
 
   final _SceneNotifier _notifier = _SceneNotifier();
   bool _bound = false;
@@ -38,9 +42,68 @@ class HomeSceneProvider extends CurrentSceneProvider {
 
   @override
   SceneSnapshot snapshot() {
-    final String path = _router().currentPath;
-    final bool screensaverActive = _screensaver().active;
+    final LiveStageController live = _live();
 
+    // 直播播放器现在挂在 Navigator 之上：
+    // - 全屏仍上报 /live，遥控端继续显示直播控制面板；
+    // - 悬浮时路由已经回到 underlyingRoute，用 extra 把底层页面和
+    //   直播标题一起带过去，遥控端仍能识别这是直播。
+    if (live.isActive) {
+      final int index = LiveChannelController.instance.index;
+      final String? name = ChannelInfoProvider.instance.nameAt(index);
+      final String liveTitle = name == null || name.isEmpty ? '直播' : '直播-$name';
+
+      final String underlyingPath = _underlyingPath(live);
+      final SceneSnapshot underlying = _snapshotForPath(
+        underlyingPath,
+        screensaverActive: _screensaver().active,
+      );
+
+      if (live.isFloating) {
+        return SceneSnapshot(
+          kind: SceneKind.live,
+          route: underlyingPath,
+          title: liveTitle,
+          channelName: name,
+          extra: <String, Object?>{
+            'channelIndex': index,
+            'floating': true,
+            'underlyingTitle': underlying.title,
+            'underlyingRoute': underlyingPath,
+          },
+        );
+      }
+
+      return SceneSnapshot(
+        kind: SceneKind.live,
+        route: RouteNames.livePath,
+        title: liveTitle,
+        channelName: name,
+        extra: <String, Object?>{
+          'channelIndex': index,
+          'floating': false,
+          'underlyingTitle': underlying.title,
+          'underlyingRoute': underlyingPath,
+        },
+      );
+    }
+
+    return _snapshotForPath(
+      _router().currentPath,
+      screensaverActive: _screensaver().active,
+    );
+  }
+
+  /// 直播底层页；`/live` 本身不能作为底层页，回主页兜底。
+  String _underlyingPath(LiveStageController live) {
+    final String path = live.underlyingRoute;
+    return path == RouteNames.livePath || path.isEmpty ? RouteNames.home : path;
+  }
+
+  SceneSnapshot _snapshotForPath(
+    String path, {
+    required bool screensaverActive,
+  }) {
     if (path == RouteNames.clockPath) {
       return SceneSnapshot(
         kind: screensaverActive ? SceneKind.screensaver : SceneKind.clock,
@@ -50,11 +113,11 @@ class HomeSceneProvider extends CurrentSceneProvider {
       );
     }
 
+    // 兜底：/live 路由刚挂上、但控制器还没来得及切全屏的极短窗口。
     if (path == RouteNames.livePath) {
       final int index = LiveChannelController.instance.index;
       final String? name = ChannelInfoProvider.instance.nameAt(index);
-      final String title =
-          name == null || name.isEmpty ? '直播' : '直播-$name';
+      final String title = name == null || name.isEmpty ? '直播' : '直播-$name';
       return SceneSnapshot(
         kind: SceneKind.live,
         route: path,
@@ -65,27 +128,15 @@ class HomeSceneProvider extends CurrentSceneProvider {
     }
 
     if (path == RouteNames.settingsPath) {
-      return SceneSnapshot(
-        kind: SceneKind.settings,
-        route: path,
-        title: '设置',
-      );
+      return SceneSnapshot(kind: SceneKind.settings, route: path, title: '设置');
     }
 
     if (path == RouteNames.weatherPath) {
-      return SceneSnapshot(
-        kind: SceneKind.weather,
-        route: path,
-        title: '天气',
-      );
+      return SceneSnapshot(kind: SceneKind.weather, route: path, title: '天气');
     }
 
     if (path == RouteNames.remoteControlPath) {
-      return SceneSnapshot(
-        kind: SceneKind.other,
-        route: path,
-        title: '遥控',
-      );
+      return SceneSnapshot(kind: SceneKind.other, route: path, title: '遥控');
     }
 
     if (path.startsWith('/${RouteNames.deviceDetail}/')) {
@@ -117,18 +168,10 @@ class HomeSceneProvider extends CurrentSceneProvider {
     }
 
     if (path == RouteNames.home) {
-      return SceneSnapshot(
-        kind: SceneKind.home,
-        route: path,
-        title: '主页',
-      );
+      return SceneSnapshot(kind: SceneKind.home, route: path, title: '主页');
     }
 
-    return SceneSnapshot(
-      kind: SceneKind.other,
-      route: path,
-      title: '中控台',
-    );
+    return SceneSnapshot(kind: SceneKind.other, route: path, title: '中控台');
   }
 
   void _bind() {
@@ -136,6 +179,7 @@ class HomeSceneProvider extends CurrentSceneProvider {
     try {
       _router().routeChanges.addListener(_notify);
       _screensaver().addListener(_notify);
+      _live().addListener(_notify);
       LiveChannelController.instance.addListener(_notify);
       LiveChannelController.instance.onPlayCommit.addListener(_notify);
       _bound = true;
@@ -143,9 +187,11 @@ class HomeSceneProvider extends CurrentSceneProvider {
       // 依赖尚未注册时降级：下次取 changes 再重试，不能阻塞上报启动。
       _safe(() => _router().routeChanges.removeListener(_notify));
       _safe(() => _screensaver().removeListener(_notify));
+      _safe(() => _live().removeListener(_notify));
       _safe(() => LiveChannelController.instance.removeListener(_notify));
       _safe(
-        () => LiveChannelController.instance.onPlayCommit.removeListener(_notify),
+        () =>
+            LiveChannelController.instance.onPlayCommit.removeListener(_notify),
       );
       _bound = false;
     }
@@ -164,9 +210,11 @@ class HomeSceneProvider extends CurrentSceneProvider {
     if (_bound) {
       _safe(() => _router().routeChanges.removeListener(_notify));
       _safe(() => _screensaver().removeListener(_notify));
+      _safe(() => _live().removeListener(_notify));
       _safe(() => LiveChannelController.instance.removeListener(_notify));
       _safe(
-        () => LiveChannelController.instance.onPlayCommit.removeListener(_notify),
+        () =>
+            LiveChannelController.instance.onPlayCommit.removeListener(_notify),
       );
       _bound = false;
     }

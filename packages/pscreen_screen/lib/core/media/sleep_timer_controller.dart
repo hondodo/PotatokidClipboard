@@ -7,7 +7,8 @@ import 'package:pscreen_screen/app/app_log.dart';
 /// 定时关闭控制器（全局单例，[ChangeNotifier]）。
 ///
 /// 「我的」页选择时长后开始按秒倒计时，首页左上角实时显示剩余时间；
-/// 倒计时归零即退出应用（与返回键退出同款 [SystemNavigator.pop]）。
+/// 倒计时归零默认退出应用（与返回键退出同款 [SystemNavigator.pop]）；
+/// 宿主可通过 [onExpire] 覆盖为「关闭直播回主页」等动作（中控屏）。
 ///
 /// 只在本次运行期间有效，**不做持久化**：它是一次性的会话定时器，
 /// 若持久化，重启应用后会莫名其妙地继续倒数并自动退出。
@@ -19,7 +20,19 @@ class SleepTimerController extends ChangeNotifier {
 
   /// 可选时长（分钟）：5~60 每 5 分钟一档，外加 90 分钟。
   static const List<int> presetMinutes = <int>[
-    5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 90,
+    5,
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    55,
+    60,
+    90,
   ];
 
   /// 设置行的可选值：首项 null 代表「关闭」，其余为 [presetMinutes]。
@@ -95,7 +108,7 @@ class SleepTimerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 定时到点：退出应用。
+  /// 定时到点的默认动作：退出应用（电视端；宿主未注入 [onExpire] 时）。
   Future<void> _shutdown() async {
     Log.i('[SleepTimer] 定时关闭生效，退出应用');
     // 复用返回键退出的方式：结束 Activity（与系统返回最终效果一致）。

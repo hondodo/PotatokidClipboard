@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
+import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 
 /// 全局屏保宿主：无触摸操作达到设定时长后进入时钟页。
 ///
@@ -17,11 +18,16 @@ class ScreensaverHost extends StatefulWidget {
     super.key,
     required this.router,
     required this.controller,
+    this.live,
     required this.child,
   });
 
   final AppRouter router;
   final ScreensaverController controller;
+
+  /// 直播全屏或悬浮时跳过屏保，避免打断播放。
+  final LiveStageController? live;
+
   final Widget child;
 
   @override
@@ -38,6 +44,7 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     WidgetsBinding.instance.addObserver(this);
     widget.router.routeChanges.addListener(_onRouteChanged);
     widget.controller.addListener(_onSettingsChanged);
+    widget.live?.addListener(_onLiveChanged);
     _schedule();
   }
 
@@ -52,6 +59,10 @@ class _ScreensaverHostState extends State<ScreensaverHost>
       oldWidget.controller.removeListener(_onSettingsChanged);
       widget.controller.addListener(_onSettingsChanged);
     }
+    if (oldWidget.live != widget.live) {
+      oldWidget.live?.removeListener(_onLiveChanged);
+      widget.live?.addListener(_onLiveChanged);
+    }
     _schedule();
   }
 
@@ -60,6 +71,7 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     _timer?.cancel();
     widget.router.routeChanges.removeListener(_onRouteChanged);
     widget.controller.removeListener(_onSettingsChanged);
+    widget.live?.removeListener(_onLiveChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -83,6 +95,8 @@ class _ScreensaverHostState extends State<ScreensaverHost>
 
   void _onSettingsChanged() => _schedule();
 
+  void _onLiveChanged() => _schedule();
+
   void _onPointerDown(PointerDownEvent event) {
     // 点击时钟页返回时，先退出屏保语义，再按新路由重新计时。
     widget.controller.active = false;
@@ -96,6 +110,8 @@ class _ScreensaverHostState extends State<ScreensaverHost>
 
     final String path = widget.router.currentPath;
     if (path == RouteNames.livePath || path == RouteNames.clockPath) return;
+    // 悬浮直播时底层仍可操作，但屏保会盖住小窗/打断观看，同样跳过。
+    if (widget.live?.isActive ?? false) return;
 
     final int minutes = widget.controller.minutes;
     if (minutes <= 0) return;
@@ -105,7 +121,9 @@ class _ScreensaverHostState extends State<ScreensaverHost>
   void _enterScreensaver() {
     if (!mounted) return;
     final String path = widget.router.currentPath;
-    if (path == RouteNames.livePath || path == RouteNames.clockPath) {
+    if (path == RouteNames.livePath ||
+        path == RouteNames.clockPath ||
+        (widget.live?.isActive ?? false)) {
       _schedule();
       return;
     }

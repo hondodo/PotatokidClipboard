@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/live_page.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
@@ -12,17 +13,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeIptvRepository implements IptvRepository {
   @override
-  Future<List<IptvChannel>> fetchRemoteChannels() async =>
-      const <IptvChannel>[
-        IptvChannel(
-          name: 'CCTV-1',
-          sources: <String>['http://example.com/1.m3u8'],
-        ),
-        IptvChannel(
-          name: 'CCTV-5',
-          sources: <String>['http://example.com/5.m3u8'],
-        ),
-      ];
+  Future<List<IptvChannel>> fetchRemoteChannels() async => const <IptvChannel>[
+    IptvChannel(name: 'CCTV-1', sources: <String>['http://example.com/1.m3u8']),
+    IptvChannel(name: 'CCTV-5', sources: <String>['http://example.com/5.m3u8']),
+  ];
 
   @override
   Future<List<IptvChannel>> loadDefaultRemoteChannels() async =>
@@ -34,7 +28,11 @@ class _FakeIptvRepository implements IptvRepository {
 }
 
 /// 搭起 [LivePage] 并加载频道，直到首个频道出现在右侧浮层列表里。
-Future<void> _pumpLivePage(WidgetTester tester, {required Size size}) async {
+Future<void> _pumpLivePage(
+  WidgetTester tester, {
+  required Size size,
+  bool floating = false,
+}) async {
   // IptvBloc 落缓存要读写 SharedPreferences：flutter test 里平台通道不会
   // 回调，必须用内存实现替身，否则频道加载会卡在 await 上。
   SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -53,7 +51,7 @@ Future<void> _pumpLivePage(WidgetTester tester, {required Size size}) async {
     MaterialApp(
       home: BlocProvider<IptvBloc>.value(
         value: bloc,
-        child: const LivePage(enablePlayer: false),
+        child: LivePage(enablePlayer: false, floating: floating),
       ),
     ),
   );
@@ -61,9 +59,24 @@ Future<void> _pumpLivePage(WidgetTester tester, {required Size size}) async {
   // 频道加载是异步的（默认兜底 + 假仓库返回 + 规则/设置读取），逐步 pump 直到
   // 右侧列表出现频道条目；不用 pumpAndSettle——列表出现后若有后台刷新会一直无法 settle。
   // 注意：左下角频道名徽标也会显示当前频道名（index=0 时同为「CCTV-1」），
-  // 故用 ListTile 而非裸文本判断「频道已加载」。
+  // 故用 ListTile 而非裸文本判断「频道已加载」。悬浮态没有列表，只能等频道名徽标。
   for (int i = 0; i < 30 && find.byType(ListTile).evaluate().isEmpty; i++) {
     await tester.pump();
+  }
+  if (floating) {
+    for (
+      int i = 0;
+      i < 30 && find.textContaining('CCTV-1').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.pump();
+    }
+    expect(
+      find.textContaining('CCTV-1'),
+      findsWidgets,
+      reason: '悬浮小窗应在有限次 pump 内显示当前频道名',
+    );
+    return;
   }
   expect(
     find.byType(ListTile),
@@ -90,8 +103,7 @@ void main() {
     LiveChannelController.instance.setCount(0);
   });
 
-  testWidgets('进入后右侧频道列表与底部切台按钮自动显示，点选切台后列表保持显示',
-      (WidgetTester tester) async {
+  testWidgets('进入后右侧频道列表与底部切台按钮自动显示，点选切台后列表保持显示', (WidgetTester tester) async {
     await _pumpLivePage(tester, size: const Size(1200, 900));
 
     // 浮层自动显示：右侧列表 + 底部「上一台/下一台」按钮都在。
@@ -150,7 +162,9 @@ void main() {
     expect(find.byType(ListView), findsNothing);
   });
 
-  testWidgets('默认全屏隐藏 AppBar 并显示左上角返回按钮，点恢复/全屏可切换', (WidgetTester tester) async {
+  testWidgets('默认全屏隐藏 AppBar 并显示左上角返回按钮，点恢复/全屏可切换', (
+    WidgetTester tester,
+  ) async {
     await _pumpLivePage(tester, size: const Size(1200, 900));
 
     // 进入直播页默认全屏：没有 AppBar，底部是「恢复」，左上角有返回按钮。
@@ -173,8 +187,9 @@ void main() {
     expect(find.byTooltip('返回'), findsOneWidget);
   });
 
-  testWidgets('16:9 面板上右侧频道列表浮层完整可见（回归：列表不再被播放器挤成 0 高度）',
-      (WidgetTester tester) async {
+  testWidgets('16:9 面板上右侧频道列表浮层完整可见（回归：列表不再被播放器挤成 0 高度）', (
+    WidgetTester tester,
+  ) async {
     // 15 寸触屏面板的 1920x1080（16:9）逻辑分辨率。
     // 旧布局（Column + Expanded 列表）在全宽播放器下会把列表挤成 0 高度；
     // 新布局列表是 Stack 浮层，纵向不参与空间分配，结构上不可能被挤没。
@@ -189,5 +204,39 @@ void main() {
     // 列表停靠右侧：其左边界应在屏幕右半边。
     final Rect listRect = tester.getRect(find.byType(ListView));
     expect(listRect.left, greaterThan(1920 / 2));
+  });
+
+  testWidgets('直播定时关闭时左上角显示按秒倒计时', (WidgetTester tester) async {
+    SleepTimerController.instance.setMinutes(5);
+    addTearDown(() => SleepTimerController.instance.setMinutes(null));
+
+    await _pumpLivePage(tester, size: const Size(1200, 900));
+
+    expect(find.text('直播定时关闭 05:00'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('直播定时关闭 04:59'), findsOneWidget);
+
+    // 关闭定时后角标消失。
+    SleepTimerController.instance.setMinutes(null);
+    await tester.pump();
+    expect(find.textContaining('直播定时关闭'), findsNothing);
+  });
+
+  testWidgets('悬浮小窗只显示画面和频道名，不显示列表/切台/全屏/返回按钮', (WidgetTester tester) async {
+    await _pumpLivePage(tester, size: const Size(1200, 900), floating: true);
+
+    // 只有频道名（紧凑徽标），没有 AppBar。
+    expect(find.textContaining('CCTV-1'), findsWidgets);
+    expect(find.byType(AppBar), findsNothing);
+
+    // 不显示频道列表、切台、全屏、悬浮、返回按钮。
+    expect(find.byType(ListView), findsNothing);
+    expect(find.byTooltip('上一台'), findsNothing);
+    expect(find.byTooltip('下一台'), findsNothing);
+    expect(find.byTooltip('全屏'), findsNothing);
+    expect(find.byTooltip('恢复'), findsNothing);
+    expect(find.byTooltip('悬浮'), findsNothing);
+    expect(find.byTooltip('返回'), findsNothing);
   });
 }

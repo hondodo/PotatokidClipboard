@@ -4,6 +4,8 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
+import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
+import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
 
 /// 应用根组件：MaterialApp.router + GoRouter 路由配置。
 /// 中控屏场景固定使用暗色主题。
@@ -16,6 +18,7 @@ class App extends StatelessWidget {
     final UiScaleController uiScale = Injection.get<UiScaleController>();
     final ScreensaverController screensaver =
         Injection.get<ScreensaverController>();
+    final LiveStageController liveStage = Injection.get<LiveStageController>();
     return MaterialApp.router(
       title: '薯仔的中控台',
       debugShowCheckedModeBanner: false,
@@ -31,7 +34,11 @@ class App extends StatelessWidget {
           child: ScreensaverHost(
             router: appRouter,
             controller: screensaver,
-            child: child ?? const SizedBox.shrink(),
+            live: liveStage,
+            child: LiveStageHost(
+              controller: liveStage,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         ),
       ),
