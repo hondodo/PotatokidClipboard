@@ -67,6 +67,9 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   /// 打开后多久没进入播放 / 没出画面即判坏源回退（与电视端直连一致）。
   static const Duration _watchdogTimeout = Duration(seconds: 60);
 
+  /// 是否已应用 Android 音频输出后端（全局选项，只需在首次 open 前设一次）。
+  bool _audioOutputApplied = false;
+
   /// 当前源的媒体类型判定结果（真值在共享判定器里，见 [MediaKindProbe.kind]）。
   /// 默认 [MediaKind.unknown] → 按视频（严格）处理，拿到确凿证据才改结论。
   MediaKind get _mediaKind => _probe.kind;
@@ -293,6 +296,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     try {
       // 确保解码方式（软解/硬解）已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
       await _applyHwdecSetting();
+      await _applyAudioOutput();
       await _player.open(Media(url));
       _report('play_start', index: index);
     } catch (_) {
@@ -310,6 +314,24 @@ class _LivePlayerViewState extends State<LivePlayerView> {
       await (_player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
     } catch (_) {
       // 设置失败不阻断播放（回落 mpv 默认解码方式）。
+    }
+  }
+
+  /// 切换 Android 音频输出后端（仅 Android，且只在首次 open 前设一次）。
+  ///
+  /// media_kit 在 Android 默认用 OpenSL ES（`ao=opensles`），部分设备上对
+  /// URL 直播源的输出电平偏低 / 音质偏差；改走 AudioTrack（`ao=audiotrack`）
+  /// 可直接改善这一现象。写成 `audiotrack,opensles` 的驱动列表：audiotrack
+  /// 在个别设备上初始化失败时 mpv 会自动回退到 opensles，不会变成无声。
+  Future<void> _applyAudioOutput() async {
+    if (_audioOutputApplied) return;
+    _audioOutputApplied = true;
+    try {
+      if (defaultTargetPlatform != TargetPlatform.android) return;
+      if (_player.platform is! NativePlayer) return;
+      await (_player.platform as NativePlayer).setProperty('ao', 'audiotrack,opensles');
+    } catch (_) {
+      // 设置失败不阻断播放（回落 media_kit 默认的 opensles）。
     }
   }
 
