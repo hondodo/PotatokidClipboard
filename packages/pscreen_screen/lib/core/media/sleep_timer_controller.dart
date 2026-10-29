@@ -29,6 +29,12 @@ class SleepTimerController extends ChangeNotifier {
   Duration _remaining = Duration.zero;
   Timer? _ticker;
 
+  /// 到点后的动作；为空时默认退出应用（电视端）。
+  ///
+  /// 中控屏注入「关闭直播回到主页」：它的定时关闭只是关掉屏幕上的内容，
+  /// 不能把整台中控台退出。
+  VoidCallback? onExpire;
+
   /// 当前选中的时长（分钟）；null 表示未开启。
   int? get minutes => _minutes;
 
@@ -66,13 +72,19 @@ class SleepTimerController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    // 到点：先复位状态，再退出应用。
+    // 到点：先复位状态，再执行到点动作（宿主未注入时退出应用）。
     _ticker?.cancel();
     _ticker = null;
     _minutes = null;
     _remaining = Duration.zero;
     notifyListeners();
-    _shutdown();
+    final VoidCallback? expire = onExpire;
+    if (expire == null) {
+      _shutdown();
+    } else {
+      Log.i('[SleepTimer] 定时关闭生效，执行宿主自定义动作');
+      expire();
+    }
   }
 
   void _stop() {
