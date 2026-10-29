@@ -94,6 +94,9 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
     );
     final String sceneTitle = '${info?.scene['title'] ?? ''}';
     final String kind = info?.kind ?? '';
+    // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
+    final String playbackLabel =
+        (info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,6 +133,13 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
                       color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
+                ),
+              ],
+              if (playbackLabel.isNotEmpty) ...<Widget>[
+                const SizedBox(width: 8),
+                _PlaybackBadge(
+                  label: playbackLabel,
+                  state: info?.playbackState ?? '',
                 ),
               ],
             ],
@@ -172,6 +182,38 @@ class _OnlineDot extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: online ? const Color(0xFF34C759) : const Color(0xFFBDBDBD),
+      ),
+    );
+  }
+}
+
+/// 播放状态徽标：正常绿 / 起播蓝 / 重试橙 / 失败红。
+class _PlaybackBadge extends StatelessWidget {
+  const _PlaybackBadge({required this.label, required this.state});
+
+  final String label;
+  final String state;
+
+  Color get _color => switch (state) {
+        'play_ok' => const Color(0xFF34C759),
+        'play_start' => const Color(0xFF4F8CFF),
+        'play_retry' => const Color(0xFFFFB020),
+        'play_fail' => const Color(0xFFFF5A5F),
+        _ => const Color(0xFF9AA4B2),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: _color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: _color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 11, color: _color, height: 1.4),
       ),
     );
   }

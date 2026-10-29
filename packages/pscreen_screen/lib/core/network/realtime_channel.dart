@@ -147,6 +147,7 @@ class RealtimeDeviceState {
     this.scene = const <String, Object?>{},
     this.channels = const <String>[],
     this.listVersion = '',
+    this.playback = const <String, Object?>{},
     this.ts = 0,
   });
 
@@ -167,6 +168,11 @@ class RealtimeDeviceState {
   /// 频道列表版本（FNV-1a 摘要），列表未变时复用。
   final String listVersion;
 
+  /// 当前直播播放状态（`channel`/`state`/`label`/`ts`）；空 map = 未在播放。
+  ///
+  /// 只有直播场景才会带值，离开直播后服务端会收到 null 并被清空。
+  final Map<String, Object?> playback;
+
   /// 服务端收到该状态的本地时间戳。
   final int ts;
 
@@ -176,6 +182,15 @@ class RealtimeDeviceState {
   /// 当前播放频道名（直播场景才有）。
   String get channelName => '${scene['channelName'] ?? ''}';
 
+  /// 播放状态文案（如「播放正常」）；未直播/未上报时为空串。
+  String get playbackLabel => '${playback['label'] ?? ''}';
+
+  /// 播放状态原始名（`play_ok` / `play_retry` / `play_fail` / `play_start`）。
+  String get playbackState => '${playback['state'] ?? ''}';
+
+  /// 播放状态所属频道（可能与 [channelName] 短暂不一致）。
+  String get playbackChannel => '${playback['channel'] ?? ''}';
+
   RealtimeDeviceState copyWith({
     String? kind,
     String? app,
@@ -184,6 +199,7 @@ class RealtimeDeviceState {
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
+    Map<String, Object?>? playback,
     int? ts,
   }) =>
       RealtimeDeviceState(
@@ -195,6 +211,7 @@ class RealtimeDeviceState {
         scene: scene ?? this.scene,
         channels: channels ?? this.channels,
         listVersion: listVersion ?? this.listVersion,
+        playback: playback ?? this.playback,
         ts: ts ?? this.ts,
       );
 }
@@ -561,11 +578,14 @@ class RealtimeChannel {
     required Map<String, Object?> scene,
     List<String>? channels,
     String? listVersion,
+    Map<String, Object?>? playback,
   }) async {
     if (!isConnected) return false;
     _send(<String, dynamic>{
       't': 'state',
       'scene': scene,
+      // null = 当前没有播放（非直播场景/播放器已销毁），服务端据此清空缓存。
+      'playback': playback,
       if (channels != null)
         'channels': <String, dynamic>{
           'version': listVersion ?? '',
@@ -679,6 +699,12 @@ class RealtimeChannel {
         if (from.isEmpty) return;
         final dynamic rawScene = frame['scene'];
         final dynamic rawChannels = frame['channels'];
+        // playback：键存在时必须处理（null = 已离开直播，清空）；
+        // 键缺失视为「沿用上次」（旧服务端/旧设备不会带这个字段）。
+        Map<String, Object?>? playback;
+        if (frame.containsKey('playback')) {
+          playback = _parsePlayback(frame['playback']);
+        }
         List<String>? channels;
         String? listVersion;
         if (rawChannels is Map<String, dynamic>) {
@@ -695,6 +721,7 @@ class RealtimeChannel {
               : null,
           channels: channels,
           listVersion: listVersion,
+          playback: playback,
         );
         break;
 
@@ -893,6 +920,7 @@ class RealtimeChannel {
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
+    Map<String, Object?>? playback,
   }) {
     final String target = account.trim();
     if (target.isEmpty) return;
@@ -909,9 +937,16 @@ class RealtimeChannel {
       scene: scene,
       channels: channels,
       listVersion: listVersion == null || listVersion.isEmpty ? null : listVersion,
+      playback: playback,
     );
     _devices[target] = next;
     if (!_deviceController.isClosed) _deviceController.add(next);
+  }
+
+  /// 解析 `state.playback`：null / 非对象一律当作「无播放」（空 map）。
+  static Map<String, Object?> _parsePlayback(Object? raw) {
+    if (raw is! Map) return const <String, Object?>{};
+    return Map<String, Object?>.from(raw);
   }
 
   String _nextId() => '$_account-${DateTime.now().microsecondsSinceEpoch}-${++_seq}';

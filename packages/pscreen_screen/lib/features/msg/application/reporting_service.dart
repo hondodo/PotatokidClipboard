@@ -5,6 +5,7 @@ import 'package:pscreen_screen/app/app_log.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+import 'package:pscreen_screen/features/msg/application/playback_state_provider.dart';
 
 /// 上行发送抽象（生产为实时通道；测试用 Fake）。
 abstract class MessageSender {
@@ -205,7 +206,11 @@ class ReportingService {
         _pbStartedKeys.clear();
         _pbLastState = '';
         _pbRetryAt = null;
+        // 新频道尚未出结果：清掉上一频道的播放状态。
+        PlaybackStateProvider.instance.clear();
       }
+      // 播放状态以「最新一次」为准（事件上报有去重/限流，状态不该被一并丢弃）。
+      PlaybackStateProvider.instance.update(channel, state);
       if (state == 'play_start') {
         // 每个源在本频道内只报首次 open：退避后重开同源、同一代理的重复尝试
         // 都不重复；但「直连 → 改代理重试」算一条新信息，单独放行一次。
@@ -270,8 +275,21 @@ class ReportingService {
     if (scene.kind == SceneKind.unknown) {
       _send('已收看$minutes分钟，当前频道是${scene.title}');
     } else {
-      _send('已在线$minutes分钟，当前场景：${scene.title}');
+      _send('已在线$minutes分钟，当前场景：${scene.title}${_playbackSuffix(scene)}');
     }
+  }
+
+  /// 心跳里的播放状态后缀：只有直播场景才有（其它页面没有播放器）。
+  ///
+  /// 状态来自本机最新一次 `notifyPlayback`，且必须属于当前频道，
+  /// 否则说明还没开始播或数据已过期，按「未知」处理。
+  String _playbackSuffix(SceneSnapshot scene) {
+    if (scene.kind != SceneKind.live) return '';
+    final PlaybackSnapshot? playback = PlaybackStateProvider.instance.current;
+    if (playback == null || playback.channel != scene.channelName) {
+      return '，播放：未知';
+    }
+    return '，播放：${playback.label}';
   }
 
   /// 上报任意结构化事件（HA 操作、场景变化等）。
@@ -330,6 +348,8 @@ class ReportingService {
       }
     } else if (scene.kind != SceneKind.live) {
       _lastChannelName = null;
+      // 离开直播（播放器已销毁）：播放状态作废，避免控制端显示过期状态。
+      PlaybackStateProvider.instance.clear();
     }
   }
 

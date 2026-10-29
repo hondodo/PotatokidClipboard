@@ -16,12 +16,16 @@ class LiveControlsPanel extends StatelessWidget {
     super.key,
     required this.panel,
     required this.channelsLabel,
+    this.showSendMessage = true,
   });
 
   final RemotePanelContext panel;
 
   /// 频道按钮的文案（电视端「选择频道」／中控端「频道列表」）。
   final String channelsLabel;
+
+  /// 是否内嵌「发送消息」按钮；中控端把它放在场景按钮行末尾，这里传 false 避免重复。
+  final bool showSendMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +51,7 @@ class LiveControlsPanel extends StatelessWidget {
           icon: const Icon(Icons.list, size: 20),
           label: Text(count > 0 ? '$channelsLabel（$count）' : channelsLabel),
         ),
-        if (panel.onSendMessage != null)
+        if (showSendMessage && panel.onSendMessage != null)
           FilledButton.tonalIcon(
             onPressed: panel.onSendMessage,
             icon: const Icon(Icons.send_outlined, size: 20),

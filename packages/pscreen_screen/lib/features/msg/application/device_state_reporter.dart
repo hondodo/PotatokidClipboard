@@ -6,6 +6,7 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
+import 'package:pscreen_screen/features/msg/application/playback_state_provider.dart';
 
 /// 被控端状态上报（`state` 帧）。
 ///
@@ -60,6 +61,9 @@ class DeviceStateReporter {
       // 宿主尚未初始化时降级为仅列表变化时上报，不能影响连接。
       Log.i('[DeviceStateReporter] 场景订阅失败: $e');
     }
+    // 播放状态变化（起播/正常/重试/失败）也要立刻推一次，否则设备头
+    // 要等到下次场景变化才更新。
+    PlaybackStateProvider.instance.notifier.addListener(_onPlaybackChanged);
     // 注册时通道可能已经连上（错过 connectionState 事件）。
     if (channel.isConnected) {
       _push(full: true);
@@ -76,6 +80,7 @@ class DeviceStateReporter {
     _stopListWatch();
     _sceneChanges?.removeListener(_onSceneChanged);
     _sceneChanges = null;
+    PlaybackStateProvider.instance.notifier.removeListener(_onPlaybackChanged);
     _lastListVersion = null;
   }
 
@@ -83,6 +88,12 @@ class DeviceStateReporter {
     if (!_started) return;
     _debounce?.cancel();
     _debounce = Timer(sceneDebounce, () => _push());
+  }
+
+  /// 播放状态变化：只在直播场景才有意义，非直播由 [_push] 统一发 null。
+  void _onPlaybackChanged() {
+    if (!_started || !channel.isConnected) return;
+    _push();
   }
 
   void _startListWatch() {
@@ -112,6 +123,10 @@ class DeviceStateReporter {
         scene: scene.toJson(),
         channels: sendList ? names : null,
         listVersion: sendList ? version : null,
+        // 播放状态只在直播场景有意义；其它场景显式发 null，让控制端清空。
+        playback: scene.kind == SceneKind.live
+            ? PlaybackStateProvider.instance.current?.toJson()
+            : null,
       );
     } catch (e) {
       Log.warn('[DeviceStateReporter] 状态上报异常: $e');
