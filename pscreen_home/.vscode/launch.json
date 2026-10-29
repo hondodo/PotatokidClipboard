@@ -81,5 +81,12 @@
             "deviceId": "100.73.19.98:5555",
             "flutterMode": "release"
         },
+        {
+            "name": "potatokid_home mi10s wifi (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.70.14:5555"
+        },
     ]
 }
