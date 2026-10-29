@@ -38,6 +38,14 @@ class SleepTimerController extends ChangeNotifier {
   /// 剩余时间（每秒刷新）。
   Duration get remaining => _remaining;
 
+  /// 剩余时间的 `mm:ss` 文案（≥1 小时为 `H:mm:ss`）。
+  String get remainingLabel {
+    final String mm = (_remaining.inMinutes % 60).toString().padLeft(2, '0');
+    final String ss = (_remaining.inSeconds % 60).toString().padLeft(2, '0');
+    if (_remaining.inHours > 0) return '${_remaining.inHours}:$mm:$ss';
+    return '$mm:$ss';
+  }
+
   /// 设置定时：传 null 关闭，传分钟数则重新开始倒计时。
   void setMinutes(int? minutes) {
     if (minutes == null) {

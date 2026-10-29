@@ -39,3 +39,9 @@ String buildCommandEnvelope(String name, [Map<String, dynamic>? args]) =>
 /// 场景导航命令：`home` / `live` / `weather` / `settings` / `screensaver`。
 String buildNavCommand(String page) =>
     buildCommandEnvelope('nav', <String, dynamic>{'page': page});
+
+/// 定时关闭命令：`minutes` 为分钟数，0 = 取消（被控端到点退出应用）。
+String buildSleepTimerCommand(int? minutes) => buildCommandEnvelope(
+      'sleep_timer',
+      <String, dynamic>{'minutes': minutes ?? 0},
+    );

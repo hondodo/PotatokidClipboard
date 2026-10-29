@@ -57,6 +57,7 @@ import 'package:pscreen_home/features/home/presentation/components/value_widget.
 import 'package:pscreen_home/features/home/presentation/components/washer_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_heater_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/water_purifier_widget.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_state.dart';
 import 'package:pscreen_screen/features/weather/data/weather_data_convert.dart';
@@ -199,6 +200,7 @@ class _HomeControllBoardState extends State<HomeControllBoard>
           title: const _HomeTitle(),
           actions: <Widget>[
             const _ConnectionStatus(),
+            const _SleepTimerBadge(),
             const _RefreshAction(),
             IconButton(
               tooltip: '时钟',
@@ -469,8 +471,53 @@ class _NowWeather extends StatelessWidget {
   }
 }
 
-/// AppBar 右侧的 HA 连接状态：固定宽度的状态点 + 文案。
+/// AppBar 的定时关闭倒计时角标（`⏱ mm:ss`），未开启时隐藏。
 ///
+/// 与电视端首页角标同一套语义：监听全局 [SleepTimerController]，
+/// 无论是本机设置页还是遥控下发，都能在这里看到剩余时间。
+class _SleepTimerBadge extends StatelessWidget {
+  const _SleepTimerBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SleepTimerController.instance,
+      builder: (BuildContext context, Widget? _) {
+        final SleepTimerController timer = SleepTimerController.instance;
+        if (!timer.active) return const SizedBox.shrink();
+        return Tooltip(
+          message: '定时关闭中',
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.timer_outlined,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  timer.remainingLabel,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// AppBar 右侧的 HA 连接状态：固定宽度的状态点 + 文案。
 /// 只做展示，不再内嵌重试按钮：断线时若这里再出现一个刷新图标，
 /// 会和右侧固定的「刷新」并排，既重复又会让整排图标左右跳动。
 /// 固定宽度保证文案（已连接 / 重连中 / 认证失败）变化时其余图标不位移。

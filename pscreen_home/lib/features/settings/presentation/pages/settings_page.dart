@@ -18,6 +18,7 @@ import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
@@ -472,6 +473,56 @@ class _SettingsPageState extends State<SettingsPage> {
                   onSelected: (_) => _applyScreensaverMinutes(minutes),
                 ),
             ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '定时关闭',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '倒计时结束后本机自动退出应用；仅本次运行有效，重启后不保留。'
+            '要给电视端/其它中控屏设置，请到「遥控会话」页用「定时关闭」按钮。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ListenableBuilder(
+            listenable: SleepTimerController.instance,
+            builder: (BuildContext context, Widget? _) {
+              final SleepTimerController timer = SleepTimerController.instance;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      for (final int? minutes in SleepTimerController.options)
+                        ChoiceChip(
+                          label: Text(minutes == null ? '关闭' : '$minutes 分钟'),
+                          selected: timer.minutes == minutes,
+                          onSelected: (_) => timer.setMinutes(minutes),
+                        ),
+                    ],
+                  ),
+                  if (timer.active)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '倒计时剩余 ${timer.remainingLabel}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 24),
           Text(

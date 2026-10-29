@@ -62,6 +62,12 @@ class HomeRemotePanel extends StatelessWidget {
                 active: false,
                 onTap: panel.onSendMessage!,
               ),
+            _SceneButton(
+              label: '定时关闭',
+              icon: Icons.timer_outlined,
+              active: false,
+              onTap: () => showSleepTimerSheet(context, panel),
+            ),
           ],
         ),
         if (sceneKind == 'live') ...<Widget>[
@@ -70,6 +76,7 @@ class HomeRemotePanel extends StatelessWidget {
             panel: panel,
             channelsLabel: '频道列表',
             showSendMessage: false,
+            showSleepTimer: false,
           ),
         ],
       ],

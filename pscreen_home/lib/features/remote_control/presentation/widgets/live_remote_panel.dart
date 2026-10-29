@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/data/favorite_store.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 发送消息。
+/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 定时关闭 / 发送消息。
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
 /// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
@@ -17,6 +18,7 @@ class LiveControlsPanel extends StatelessWidget {
     required this.panel,
     required this.channelsLabel,
     this.showSendMessage = true,
+    this.showSleepTimer = true,
   });
 
   final RemotePanelContext panel;
@@ -26,6 +28,9 @@ class LiveControlsPanel extends StatelessWidget {
 
   /// 是否内嵌「发送消息」按钮；中控端把它放在场景按钮行末尾，这里传 false 避免重复。
   final bool showSendMessage;
+
+  /// 是否内嵌「定时关闭」按钮；中控端的场景按钮行已有一个，这里传 false 避免重复。
+  final bool showSleepTimer;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +62,12 @@ class LiveControlsPanel extends StatelessWidget {
             icon: const Icon(Icons.send_outlined, size: 20),
             label: const Text('发送消息'),
           ),
+        if (showSleepTimer)
+          OutlinedButton.icon(
+            onPressed: () => _openSleepTimer(context),
+            icon: const Icon(Icons.timer_outlined, size: 20),
+            label: const Text('定时关闭'),
+          ),
       ],
     );
   }
@@ -68,6 +79,104 @@ class LiveControlsPanel extends StatelessWidget {
       useSafeArea: true,
       builder: (BuildContext context) =>
           _ChannelSheet(panel: panel, title: channelsLabel),
+    );
+  }
+
+  void _openSleepTimer(BuildContext context) => showSleepTimerSheet(context, panel);
+}
+
+/// 打开定时关闭弹窗：中控端也把它放在场景按钮行，故抽成公共入口。
+void showSleepTimerSheet(BuildContext context, RemotePanelContext panel) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (BuildContext context) => _SleepTimerSheet(panel: panel),
+  );
+}
+
+/// 定时关闭弹窗：选择倒计时时长后发命令给被控设备（0 = 取消）。
+///
+/// 时长档位与两端本机「定时关闭」共用 [SleepTimerController.presetMinutes]，
+/// 被控端到点自动退出应用。
+class _SleepTimerSheet extends StatelessWidget {
+  const _SleepTimerSheet({required this.panel});
+
+  final RemotePanelContext panel;
+
+  void _pick(BuildContext context, int? minutes) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    panel.onCommand(buildSleepTimerCommand(minutes));
+    Navigator.of(context).maybePop();
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            minutes == null ? '已发送：取消定时关闭' : '已发送：$minutes 分钟后自动关闭',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+            child: Row(
+              children: <Widget>[
+                const Text(
+                  '定时关闭',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: '关闭',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              '倒计时结束后被控设备自动退出应用；「关闭」= 取消当前定时。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+            ),
+          ),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: <Widget>[
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.timer_off_outlined, size: 20),
+                  title: const Text('关闭（取消定时）'),
+                  onTap: () => _pick(context, null),
+                ),
+                for (final int minutes in SleepTimerController.presetMinutes)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.timer_outlined, size: 20),
+                    title: Text('$minutes 分钟'),
+                    onTap: () => _pick(context, minutes),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

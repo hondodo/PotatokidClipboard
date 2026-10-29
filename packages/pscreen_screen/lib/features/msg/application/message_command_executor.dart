@@ -1,3 +1,4 @@
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/channel_name_normalizer.dart';
@@ -17,7 +18,7 @@ abstract class HostNavigator {
   Future<bool> open(String page);
 }
 
-/// 命令执行器：音量/切台/导航（text 命令由 Router 直接走浮层，不进这里）。
+/// 命令执行器：音量/切台/导航/定时关闭（text 命令由 Router 直接走浮层，不进这里）。
 class MessageCommandExecutor {
   MessageCommandExecutor({
     required this.volume,
@@ -58,9 +59,22 @@ class MessageCommandExecutor {
         return _channel(args);
       case 'nav':
         return _nav(args);
+      case 'sleep_timer':
+        return _sleepTimer(args);
       default:
         return false;
     }
+  }
+
+  /// 定时关闭：`minutes` ≤ 0 或缺失 = 取消；否则开始倒计时，到点退出应用。
+  ///
+  /// 复用本机「我的/设置」页同一个 [SleepTimerController]，
+  /// 因此遥控设置的时长与本地 UI 显示的剩余时间始终一致。
+  bool _sleepTimer(Map<String, dynamic>? args) {
+    final dynamic raw = args?['minutes'];
+    final int minutes = raw is num ? raw.toInt() : 0;
+    SleepTimerController.instance.setMinutes(minutes <= 0 ? null : minutes);
+    return true;
   }
 
   bool _nav(Map<String, dynamic>? args) {
