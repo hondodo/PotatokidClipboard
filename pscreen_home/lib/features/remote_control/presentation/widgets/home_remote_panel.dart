@@ -29,25 +29,29 @@ class HomeRemotePanel extends StatelessWidget {
               label: '主页',
               icon: Icons.home_outlined,
               active: sceneKind == 'home',
-              onTap: () => panel.onCommand(buildNavCommand('home')),
+              onTap: online ? () => panel.onCommand(buildNavCommand('home')) : null,
             ),
             _SceneButton(
               label: '直播',
               icon: Icons.live_tv_outlined,
               active: sceneKind == 'live',
-              onTap: () => panel.onCommand(buildNavCommand('live')),
+              onTap: online ? () => panel.onCommand(buildNavCommand('live')) : null,
             ),
             _SceneButton(
               label: '天气',
               icon: Icons.wb_sunny_outlined,
               active: sceneKind == 'weather',
-              onTap: () => panel.onCommand(buildNavCommand('weather')),
+              onTap: online
+                  ? () => panel.onCommand(buildNavCommand('weather'))
+                  : null,
             ),
             _SceneButton(
               label: '设置',
               icon: Icons.settings_outlined,
               active: sceneKind == 'settings',
-              onTap: () => panel.onCommand(buildNavCommand('settings')),
+              onTap: online
+                  ? () => panel.onCommand(buildNavCommand('settings'))
+                  : null,
             ),
             _SceneButton(
               label: screensaver ? '退出屏保' : '屏保',
@@ -55,21 +59,17 @@ class HomeRemotePanel extends StatelessWidget {
                   ? Icons.visibility_outlined
                   : Icons.wallpaper_outlined,
               active: screensaver,
-              onTap: () => panel.onCommand(buildNavCommand('screensaver')),
+              onTap: online
+                  ? () => panel.onCommand(buildNavCommand('screensaver'))
+                  : null,
             ),
             if (panel.onSendMessage != null)
               _SceneButton(
                 label: '发送消息',
                 icon: Icons.send_outlined,
                 active: false,
-                onTap: panel.onSendMessage!,
+                onTap: online ? panel.onSendMessage : null,
               ),
-            _SceneButton(
-              label: '定时关闭',
-              icon: Icons.timer_outlined,
-              active: false,
-              onTap: () => showSleepTimerSheet(context, panel),
-            ),
           ],
         ),
         if (sceneKind == 'live') ...<Widget>[
@@ -78,7 +78,7 @@ class HomeRemotePanel extends StatelessWidget {
             panel: panel,
             channelsLabel: '频道列表',
             showSendMessage: false,
-            showSleepTimer: false,
+            showSleepTimer: true,
           ),
         ],
       ],
@@ -97,7 +97,9 @@ class _SceneButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final bool active;
-  final VoidCallback onTap;
+
+  /// 为空表示禁用（设备离线）。
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

@@ -35,38 +35,46 @@ class LiveControlsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final int count = panel.device?.channels.length ?? 0;
+    // 离线时一律禁用（服务端虽会排队，但按钮点了没反馈，容易误以为已生效）。
+    final bool enabled = panel.online;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
         _CmdButton(
           label: '音量+',
-          onTap: () => panel.onCommand(buildCommandEnvelope('volume_up')),
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('volume_up'))
+              : null,
         ),
         _CmdButton(
           label: '音量-',
-          onTap: () => panel.onCommand(buildCommandEnvelope('volume_down')),
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('volume_down'))
+              : null,
         ),
         _CmdButton(
           label: '静音',
-          onTap: () => panel.onCommand(buildCommandEnvelope('mute')),
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('mute'))
+              : null,
         ),
         OutlinedButton.icon(
-          onPressed: () => _openChannels(context),
+          onPressed: enabled ? () => _openChannels(context) : null,
           icon: const Icon(Icons.list, size: 20),
           label: Text(count > 0 ? '$channelsLabel（$count）' : channelsLabel),
         ),
-        if (showSendMessage && panel.onSendMessage != null)
-          FilledButton.tonalIcon(
-            onPressed: panel.onSendMessage,
-            icon: const Icon(Icons.send_outlined, size: 20),
-            label: const Text('发送消息'),
-          ),
         if (showSleepTimer)
           OutlinedButton.icon(
-            onPressed: () => _openSleepTimer(context),
+            onPressed: enabled ? () => _openSleepTimer(context) : null,
             icon: const Icon(Icons.timer_outlined, size: 20),
             label: const Text('定时关闭'),
+          ),
+        if (showSendMessage && panel.onSendMessage != null)
+          FilledButton.tonalIcon(
+            onPressed: enabled ? panel.onSendMessage : null,
+            icon: const Icon(Icons.send_outlined, size: 20),
+            label: const Text('发送消息'),
           ),
       ],
     );
@@ -82,17 +90,14 @@ class LiveControlsPanel extends StatelessWidget {
     );
   }
 
-  void _openSleepTimer(BuildContext context) => showSleepTimerSheet(context, panel);
-}
-
-/// 打开定时关闭弹窗：中控端也把它放在场景按钮行，故抽成公共入口。
-void showSleepTimerSheet(BuildContext context, RemotePanelContext panel) {
-  showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (BuildContext context) => _SleepTimerSheet(panel: panel),
-  );
+  void _openSleepTimer(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (BuildContext context) => _SleepTimerSheet(panel: panel),
+    );
+  }
 }
 
 /// 定时关闭弹窗：选择倒计时时长后发命令给被控设备（0 = 取消）。
@@ -185,7 +190,9 @@ class _CmdButton extends StatelessWidget {
   const _CmdButton({required this.label, required this.onTap});
 
   final String label;
-  final VoidCallback onTap;
+
+  /// 为空表示禁用（设备离线）。
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
