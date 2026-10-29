@@ -92,11 +92,13 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
       onCommand: widget.onCommand,
       onSendMessage: widget.onSendMessage,
     );
-    final String sceneTitle = '${info?.scene['title'] ?? ''}';
+    // 离线时场景与播放状态都是上一次上报的旧值，继续展示会误导
+    // （例如设备已关机却仍写「正在播放」），这里只显示「离线」。
+    final String sceneTitle = online ? '${info?.scene['title'] ?? ''}' : '';
     final String kind = info?.kind ?? '';
     // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
     final String playbackLabel =
-        (info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
+        (online && info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,6 +137,16 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
                   ),
                 ),
               ],
+              if (!online) ...<Widget>[
+                const SizedBox(width: 12),
+                Text(
+                  '离线',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               if (playbackLabel.isNotEmpty) ...<Widget>[
                 const SizedBox(width: 8),
                 _PlaybackBadge(
@@ -149,7 +161,7 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
           const Padding(
             padding: EdgeInsets.only(bottom: 6),
             child: Text(
-              '设备离线，指令将在其上线后送达',
+              '设备离线，暂不能发送指令',
               style: TextStyle(fontSize: 12),
             ),
           )

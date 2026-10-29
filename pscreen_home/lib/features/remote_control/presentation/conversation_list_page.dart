@@ -70,9 +70,34 @@ class _ConversationListPageState extends State<ConversationListPage> {
               builder: (_) => ChatPage(account: account, title: account),
             ),
           ),
+          onLongPress: () => _remove(context, account),
         );
       },
     );
+  }
+
+  /// 长按移除该目标（只删本机列表，不影响对端设备）。
+  Future<void> _remove(BuildContext context, String account) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('移除设备'),
+        content: Text('从会话列表移除 $account？'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirm ?? false) {
+      await ThreadTargetsStore.instance.remove(account);
+    }
   }
 
   /// 副标题：设备类型 + 在线状态。
@@ -84,7 +109,9 @@ class _ConversationListPageState extends State<ConversationListPage> {
       _ => '设备',
     };
     final String status = online ? '在线' : '离线';
-    final String scene = device?.scene['title']?.toString() ?? '';
+    // 离线时场景是上一次上报的旧值，不展示，避免看起来仍在播放。
+    final String scene =
+        online ? (device?.scene['title']?.toString() ?? '') : '';
     return scene.isEmpty ? '$kind · $status' : '$kind · $status · $scene';
   }
 }

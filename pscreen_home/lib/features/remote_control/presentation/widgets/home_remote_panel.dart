@@ -13,7 +13,9 @@ class HomeRemotePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String sceneKind = panel.device?.sceneKind ?? '';
+    // 离线时设备上报的场景是旧值，不做高亮，免得看起来像「仍在播放」。
+    final bool online = panel.online;
+    final String sceneKind = online ? (panel.device?.sceneKind ?? '') : '';
     final bool screensaver = sceneKind == 'screensaver';
 
     return Column(

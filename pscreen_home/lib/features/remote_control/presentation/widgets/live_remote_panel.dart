@@ -360,7 +360,9 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
         if (!_favorites.contains(names[i])) i,
     ];
     final List<int> ordered = <int>[...favorites, ...others];
-    final String current = widget.panel.device?.channelName ?? '';
+    // 离线时上报的频道是旧值，不标「正在播放」。
+    final String current =
+        widget.panel.online ? (widget.panel.device?.channelName ?? '') : '';
     final ColorScheme scheme = Theme.of(context).colorScheme;
 
     return Column(

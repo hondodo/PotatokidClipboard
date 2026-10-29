@@ -41,4 +41,12 @@ class ThreadTargetsStore {
     _changes.add(null);
     return true;
   }
+
+  /// 移除目标（列表长按删除）。
+  Future<void> remove(String account) async {
+    if (!_loaded || !_targets.contains(account)) return;
+    _targets = <String>[..._targets]..remove(account);
+    await _prefs.setStringList(_key, _targets);
+    _changes.add(null);
+  }
 }
