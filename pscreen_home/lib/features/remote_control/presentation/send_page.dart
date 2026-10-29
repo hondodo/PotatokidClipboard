@@ -7,6 +7,7 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/application/send_cubit.dart';
 import 'package:pscreen_home/features/remote_control/data/tv_directory.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/command_panel.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/target_remote_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/target_picker.dart';
 import 'package:pscreen_home/features/remote_control/presentation/qr_scan_page.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
@@ -132,17 +133,22 @@ class _FamilySendPageState extends State<_FamilySendPage>
                   ],
                 ),
                 const SizedBox(height: 12),
-                CommandPanel(
-                  onCommand: (String body) {
-                    if (context.read<SendCubit>().state.targets.isEmpty) {
+                // 已选目标：按设备类型展示对应遥控面板（进入即 watch 场景状态）；
+                // 未选目标时仍给出通用面板并提示先选目标。
+                if (state.targets.isNotEmpty)
+                  TargetRemotePanel(
+                    account: state.targets.first,
+                    onCommand: (String body) =>
+                        context.read<SendCubit>().sendTo(state.targets.first, body),
+                  )
+                else
+                  CommandPanel(
+                    onCommand: (String body) {
                       ScaffoldMessenger.of(
                         context,
                       ).showSnackBar(const SnackBar(content: Text('请先选择目标')));
-                      return;
-                    }
-                    context.read<SendCubit>().sendRaw(body);
-                  },
-                ),
+                    },
+                  ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _text,
@@ -283,17 +289,35 @@ class _BroadcastTabState extends State<_BroadcastTab>
                   );
                 }),
                 const Divider(),
-                CommandPanel(
-                  onCommand: (String body) {
-                    if (context.read<SendCubit>().state.targets.isEmpty) {
+                // 每个已选目标一张可折叠卡片：展开后是对应设备类型的遥控面板。
+                // 只选一台时默认展开，免去多余点击。
+                if (state.targets.isEmpty)
+                  CommandPanel(
+                    onCommand: (String body) {
                       ScaffoldMessenger.of(
                         context,
                       ).showSnackBar(const SnackBar(content: Text('请先选择目标')));
-                      return;
-                    }
-                    context.read<SendCubit>().sendRaw(body);
-                  },
-                ),
+                    },
+                  )
+                else
+                  ...state.targets.map(
+                    (String account) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ExpansionTile(
+                        title: Text(dir.nameOf(account)),
+                        initiallyExpanded: state.targets.length == 1,
+                        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        children: <Widget>[
+                          TargetRemotePanel(
+                            account: account,
+                            showHeader: false,
+                            onCommand: (String body) =>
+                                context.read<SendCubit>().sendTo(account, body),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 _SendResultBanner(results: state.sendResults, directory: dir),
                 TextField(

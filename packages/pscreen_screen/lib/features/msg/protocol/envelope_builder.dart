@@ -35,3 +35,7 @@ String buildCommandEnvelope(String name, [Map<String, dynamic>? args]) =>
       'name': name,
       'args': ?args,
     });
+
+/// 场景导航命令：`home` / `live` / `weather` / `settings` / `screensaver`。
+String buildNavCommand(String page) =>
+    buildCommandEnvelope('nav', <String, dynamic>{'page': page});

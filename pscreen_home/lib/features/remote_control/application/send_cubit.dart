@@ -65,6 +65,16 @@ class SendCubit extends Cubit<SendState> {
   /// 发送已构造好的信封字符串到所有目标（命令面板/快捷入口用）。
   Future<void> sendRaw(String body) => _sendToTargets(body);
 
+  /// 直接发往指定目标：多设备遥控面板逐台发送，不经过 targets。
+  ///
+  /// 不修改勾选状态与发送结果，面板只需尽力送达（离线由服务端排队）。
+  Future<void> sendTo(String account, String body) async {
+    if (body.isEmpty) return;
+    final String target = account.trim();
+    if (target.isEmpty || _isSelf(target)) return;
+    await channel.sendText(to: target, body: body);
+  }
+
   /// 重试指定失败目标（重发 lastBody）。
   Future<void> retryFailed(List<String> accounts) async {
     if (state.isSending) return;

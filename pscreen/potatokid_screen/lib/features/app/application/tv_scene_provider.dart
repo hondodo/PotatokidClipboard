@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -14,6 +15,12 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
 class TvSceneProvider extends CurrentSceneProvider {
   const TvSceneProvider();
 
+  /// Tab 或频道变化都会触发场景推送（结构合并为一个 Listenable）。
+  static final Listenable _changes = Listenable.merge(<Listenable>[
+    AppTabController.changes,
+    LiveChannelController.instance,
+  ]);
+
   @override
   String describe() {
     if (AppTabController.branchIndex == 0) {
@@ -23,4 +30,40 @@ class TvSceneProvider extends CurrentSceneProvider {
     }
     return AppTabController.pageName;
   }
+
+  @override
+  SceneSnapshot snapshot() {
+    switch (AppTabController.branchIndex) {
+      case 0:
+        final int index = LiveChannelController.instance.index;
+        return SceneSnapshot(
+          kind: SceneKind.live,
+          route: 'home',
+          title: ChannelInfoProvider.instance.nameAt(index) ?? '主页',
+          channelName: ChannelInfoProvider.instance.nameAt(index),
+          extra: <String, Object?>{'channelIndex': index},
+        );
+      case 1:
+        return const SceneSnapshot(
+          kind: SceneKind.clock,
+          route: 'time',
+          title: '时间页',
+        );
+      case 2:
+        return const SceneSnapshot(
+          kind: SceneKind.screensaver,
+          route: 'screensaver',
+          title: '屏保',
+        );
+      default:
+        return const SceneSnapshot(
+          kind: SceneKind.settings,
+          route: 'profile',
+          title: '设置',
+        );
+    }
+  }
+
+  @override
+  Listenable get changes => _changes;
 }

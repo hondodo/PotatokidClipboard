@@ -117,6 +117,9 @@ void main() {
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
+            // 目标设备类型：中控屏（服务端据此在 roster/presence 回显，
+            // 控制端据此选择遥控面板）。
+            kind: 'home',
             name: '中控台',
             app: info.app,
             version: info.version,

@@ -45,6 +45,9 @@ class MainApp extends StatelessWidget {
 
   final StatefulNavigationShell navigationShell;
 
+  /// 当前挂载的导航壳（供 [TvNavigator] 远程切 Tab 使用）。
+  static StatefulNavigationShell? current;
+
   /// 「时间」Tab 在 [_tabs] 中的序号（上/下键在此切换时钟样式）。
   static const int _timeBranchIndex = 1;
 
@@ -334,6 +337,8 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Tab 状态填充（上报/浮层互斥读这里）；屏保退出时弹出缓存消息。
+    // 同时记录导航壳，供远程 nav 指令切页。
+    MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
     final MessageOverlayController msgOverlay =
         MessageOverlayController.instance;
