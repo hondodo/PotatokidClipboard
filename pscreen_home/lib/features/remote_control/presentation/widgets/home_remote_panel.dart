@@ -25,19 +25,19 @@ class HomeRemotePanel extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: <Widget>[
-            _SceneButton(
+            SceneButton(
               label: '主页',
               icon: Icons.home_outlined,
               active: sceneKind == 'home',
               onTap: online ? () => panel.onCommand(buildNavCommand('home')) : null,
             ),
-            _SceneButton(
+            SceneButton(
               label: '直播',
               icon: Icons.live_tv_outlined,
               active: sceneKind == 'live',
               onTap: online ? () => panel.onCommand(buildNavCommand('live')) : null,
             ),
-            _SceneButton(
+            SceneButton(
               label: '天气',
               icon: Icons.wb_sunny_outlined,
               active: sceneKind == 'weather',
@@ -45,7 +45,7 @@ class HomeRemotePanel extends StatelessWidget {
                   ? () => panel.onCommand(buildNavCommand('weather'))
                   : null,
             ),
-            _SceneButton(
+            SceneButton(
               label: '设置',
               icon: Icons.settings_outlined,
               active: sceneKind == 'settings',
@@ -53,7 +53,7 @@ class HomeRemotePanel extends StatelessWidget {
                   ? () => panel.onCommand(buildNavCommand('settings'))
                   : null,
             ),
-            _SceneButton(
+            SceneButton(
               label: screensaver ? '退出屏保' : '屏保',
               icon: screensaver
                   ? Icons.visibility_outlined
@@ -64,7 +64,7 @@ class HomeRemotePanel extends StatelessWidget {
                   : null,
             ),
             if (panel.onSendMessage != null)
-              _SceneButton(
+              SceneButton(
                 label: '发送消息',
                 icon: Icons.send_outlined,
                 active: false,
@@ -86,8 +86,12 @@ class HomeRemotePanel extends StatelessWidget {
   }
 }
 
-class _SceneButton extends StatelessWidget {
-  const _SceneButton({
+/// 场景切换按钮（主页/直播/天气/设置/屏保/发送消息）：当前场景主题色高亮。
+///
+/// 中控端与电视端遥控面板共用。
+class SceneButton extends StatelessWidget {
+  const SceneButton({
+    super.key,
     required this.label,
     required this.icon,
     required this.active,
