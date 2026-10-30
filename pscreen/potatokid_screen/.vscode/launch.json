@@ -61,5 +61,12 @@
                 "GDK_BACKEND": "x11"
             }
         },
+        {
+            "name": "potatokid_screen mi10s wifi (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.70.14:40087"
+        },
     ]
 }
