@@ -17,7 +17,7 @@ import 'package:potatokid_clipboard/routes/routers_manager.dart';
 import 'package:potatokid_clipboard/services/app_lifecycles_state_service.dart';
 import 'package:potatokid_clipboard/services/settings_service.dart';
 import 'package:potatokid_clipboard/utils/device_utils.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:potatokid_clipboard/utils/try_icon_helper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,20 +70,21 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp>
-    with WidgetsBindingObserver, TrayListener {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Timer? appStateTimer;
 
   @override
   void initState() {
-    trayManager.addListener(this);
+    TryIconHelper.onTrayIconClicked = onShowWindow;
+    TryIconHelper.onMenuAction = onTrayMenuAction;
     super.initState();
     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
-    trayManager.removeListener(this);
+    TryIconHelper.onTrayIconClicked = null;
+    TryIconHelper.onMenuAction = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -153,38 +154,17 @@ class _MyAppState extends State<MyApp>
     );
   }
 
-  @override
-  void onTrayIconMouseDown() {
-    // do something, for example pop up the menu
-    onShowWindow();
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    // do something
-    trayManager.popUpContextMenu();
-  }
-
-  @override
-  void onTrayIconRightMouseUp() {
-    // do something
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
-    if (menuItem.key == 'show_window') {
-      // do something
+  void onTrayMenuAction(String action) {
+    if (action == TryIconHelper.actionShowWindow) {
       onShowWindow();
-    } else if (menuItem.key == 'hide_window') {
-      // do something
+    } else if (action == TryIconHelper.actionHideWindow) {
       appWindow.minimize();
       if (!Platform.isMacOS) {
         Future.delayed(const Duration(milliseconds: 100), () {
           appWindow.hide(); // macOS下调用会直接退出，如果延迟调用，也不会隐藏应用列表里的显示，相当于无效
         });
       }
-    } else if (menuItem.key == 'exit_app') {
-      // do something
+    } else if (action == TryIconHelper.actionExitApp) {
       appWindow.close();
     }
   }
