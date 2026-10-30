@@ -126,7 +126,7 @@ class VolumeControlsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool enabled = panel.online;
     // 当前设备音量（0-100，被控端随 state 帧上报）。
-    final int? volume = enabled ? panel.device?.sceneVolume : null;
+    // final int? volume = enabled ? panel.device?.sceneVolume : null;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
