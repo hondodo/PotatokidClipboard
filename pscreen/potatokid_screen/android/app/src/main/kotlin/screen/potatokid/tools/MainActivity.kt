@@ -46,6 +46,12 @@ class MainActivity : FlutterActivity() {
                         audio.setStreamMute(AudioManager.STREAM_MUSIC, !muted)
                         result.success(null)
                     }
+                    // 当前媒体音量（0-100 百分比），供遥控端显示。
+                    "getVolume" -> {
+                        val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        result.success(if (max > 0) current * 100 / max else 0)
+                    }
                     "getDeviceModel" -> {
                         result.success(Build.MODEL ?: "Android TV")
                     }

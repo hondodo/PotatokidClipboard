@@ -182,6 +182,9 @@ class RealtimeDeviceState {
   /// 直播是否处于应用内悬浮小窗（scene 顶层 `floating` 字段，仅直播场景上报）。
   bool get sceneFloating => scene['floating'] == true;
 
+  /// 当前媒体音量（0-100，scene 顶层 `volume` 字段）；未上报时为 null。
+  int? get sceneVolume => (scene['volume'] as num?)?.toInt();
+
   /// 当前播放频道名（直播场景才有）。
   String get channelName => '${scene['channelName'] ?? ''}';
 

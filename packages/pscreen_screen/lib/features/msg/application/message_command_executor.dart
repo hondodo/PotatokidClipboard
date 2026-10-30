@@ -1,5 +1,6 @@
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/channel_name_normalizer.dart';
 
@@ -32,6 +33,7 @@ class MessageCommandExecutor {
     required this.channelInfo,
     this.navigator,
     this.liveStage,
+    this.onVolumeCommand,
   });
 
   final VolumeControl volume;
@@ -43,6 +45,9 @@ class MessageCommandExecutor {
 
   /// 直播悬浮能力；未注册时可空（电视端命令按未支持处理）。
   final LiveStageControl? liveStage;
+
+  /// 音量类命令执行后的回调（上报端据此读取最新音量并刷新 state 帧）。
+  final void Function()? onVolumeCommand;
 
   /// 支持的导航页集合。
   static const Set<String> _navPages = <String>{
@@ -58,13 +63,24 @@ class MessageCommandExecutor {
     switch (name) {
       case 'volume_up':
         volume.volumeUp();
+        onVolumeCommand?.call();
         return true;
       case 'volume_down':
         volume.volumeDown();
+        onVolumeCommand?.call();
         return true;
       case 'mute':
         volume.toggleMute();
+        onVolumeCommand?.call();
         return true;
+      case 'channel_next':
+        liveChannel.next();
+        return true;
+      case 'channel_prev':
+        liveChannel.previous();
+        return true;
+      case 'switch_source':
+        return _switchSource(args);
       case 'channel':
         return _channel(args);
       case 'nav':
@@ -76,6 +92,20 @@ class MessageCommandExecutor {
       default:
         return false;
     }
+  }
+
+  /// 切换当前频道的播放源（`delta`：+1 下一个 / -1 上一个，默认 +1）。
+  ///
+  /// 与两端壳层「左/右键切源」同一条通路：播放器把实现注册到
+  /// [HomeNowPlayingController.onSwitchSource]，未打开直播时按未支持处理。
+  bool _switchSource(Map<String, dynamic>? args) {
+    final void Function(int delta)? callback =
+        HomeNowPlayingController.instance.onSwitchSource;
+    if (callback == null) return false;
+    final dynamic raw = args?['delta'];
+    final int delta = raw is num && raw.toInt() != 0 ? raw.toInt() : 1;
+    callback(delta);
+    return true;
   }
 
   /// 直播悬浮：全屏 → 应用内悬浮小窗。

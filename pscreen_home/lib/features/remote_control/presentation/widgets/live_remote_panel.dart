@@ -8,7 +8,8 @@ import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 悬浮⇄全屏 / 定时关闭 / 发送消息。
+/// 直播遥控的通用操作行：音量显示/音量± / 静音 / 频道± / 切换播放源 /
+/// 频道列表 / 悬浮⇄全屏 / 定时关闭 / 发送消息。
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
 /// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
@@ -37,10 +38,29 @@ class LiveControlsPanel extends StatelessWidget {
     final int count = panel.device?.channels.length ?? 0;
     // 离线时一律禁用（服务端虽会排队，但按钮点了没反馈，容易误以为已生效）。
     final bool enabled = panel.online;
+    // 当前设备音量（0-100，被控端随 state 帧上报）；离线时是旧值，不显示。
+    final int? volume = enabled ? panel.device?.sceneVolume : null;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
+        // 只读音量胶囊：图标 + 数值，放在控制行最前面。
+        if (volume != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.volume_up_rounded, size: 18),
+                const SizedBox(width: 4),
+                Text('$volume'),
+              ],
+            ),
+          ),
         _CmdButton(
           label: '音量+',
           onTap: enabled
@@ -57,6 +77,24 @@ class LiveControlsPanel extends StatelessWidget {
           label: '静音',
           onTap: enabled
               ? () => panel.onCommand(buildCommandEnvelope('mute'))
+              : null,
+        ),
+        _CmdButton(
+          label: '频道+',
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('channel_next'))
+              : null,
+        ),
+        _CmdButton(
+          label: '频道-',
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('channel_prev'))
+              : null,
+        ),
+        _CmdButton(
+          label: '切换播放源',
+          onTap: enabled
+              ? () => panel.onCommand(buildCommandEnvelope('switch_source'))
               : null,
         ),
         OutlinedButton.icon(

@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
@@ -104,6 +105,8 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     ChannelInfoProvider.instance.setChannels(widget.channels);
     LiveChannelController.instance.setCount(widget.channels.length);
     LiveChannelController.instance.onPlayCommit.addListener(_openCurrent);
+    // 遥控/壳层「切换播放源」通路（与电视端一致）：播放器负责真正的换源。
+    HomeNowPlayingController.instance.onSwitchSource = _switchSource;
     // ---- 播放状态上报 + 重试状态机事件喂入 ----
     // 进入播放：本轮退避清零；推进看门狗结算；按电视端标准报成功
     // （视频要出过真实画面帧，音频要已判定为音频）。
@@ -173,6 +176,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
 
   @override
   void dispose() {
+    HomeNowPlayingController.instance.onSwitchSource = null;
     LiveChannelController.instance.onPlayCommit.removeListener(_openCurrent);
     _playingSub?.cancel();
     _errorSub?.cancel();
@@ -302,6 +306,24 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     } catch (_) {
       // 打开失败由 error 流 / 看门狗进入重试；不向上抛，避免卡住状态机的 busy 位。
     }
+  }
+
+  /// 遥控「切换播放源」/ 壳层左/右键：手动切换当前频道的源（循环换向）。
+  ///
+  /// 手动换源是用户主动重试：[PlaybackRetryController.setSource] 换源 +
+  /// 本轮退避清零，并作废退避中的过期回退；随后立即打开新源。
+  void _switchSource(int delta) {
+    if (!mounted) return;
+    final int index = LiveChannelController.instance.index;
+    if (index < 0 || index >= widget.channels.length) return;
+    final int total = widget.channels[index].sources.length;
+    if (total == 0) return;
+    final int next = (_retry.sourceIndex + delta + total) % total;
+    _retry.setSource(next);
+    _retry.setBusy(true);
+    unawaited(
+      _openSource(next).whenComplete(() => _retry.setBusy(false)),
+    );
   }
 
   /// 应用解码方式设置（软解/硬解）：每次打开前读取最新设置（默认软解，

@@ -37,6 +37,17 @@ class PlatformChannelService implements VolumeControl {
     }
   }
 
+  /// 当前媒体音量（0-100 百分比）；取不到（非 Android / 原生未实现）返回 null。
+  Future<int?> getVolume() async {
+    try {
+      final int? volume = await _channel.invokeMethod<int>('getVolume');
+      if (volume != null) return volume.clamp(0, 100);
+    } catch (e) {
+      // 忽略
+    }
+    return null;
+  }
+
   Future<String> deviceModel() async {
     try {
       final String? model = await _channel.invokeMethod<String>('getDeviceModel');

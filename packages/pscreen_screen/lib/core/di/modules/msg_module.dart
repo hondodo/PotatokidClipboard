@@ -58,6 +58,19 @@ class MsgModule {
     _stateReporter?.stop();
     _stateReporter = null;
 
+    // 状态上报：被控端场景/频道列表/音量 → 服务端缓存 → watch 中的控制端。
+    // 与上报服务相互独立（不依赖登录状态），连接成功即开始工作。
+    // 先于 executor 构造：音量命令执行后要回调它的 requestPush。
+    final DeviceStateReporter stateReporter = DeviceStateReporter(
+      channel: it<RealtimeChannel>(),
+      sceneProvider: it<CurrentSceneProvider>(),
+    )..start();
+    _stateReporter = stateReporter;
+    it.registerLazySingleton<DeviceStateReporter>(
+      () => stateReporter,
+      dispose: (_) async => stateReporter.stop(),
+    );
+
     final MessageRouter router = MessageRouter(
       overlay: MessageOverlayController.instance,
       executor: MessageCommandExecutor(
@@ -70,6 +83,8 @@ class MsgModule {
         liveStage: it.isRegistered<LiveStageControl>()
             ? it<LiveStageControl>()
             : null,
+        // 音量±/静音执行后刷新最新音量并上报，遥控端音量胶囊立即跟随。
+        onVolumeCommand: stateReporter.requestPush,
       ),
     );
     final ReportingService reporting = ReportingService(
@@ -82,18 +97,6 @@ class MsgModule {
     it.registerLazySingleton<ReportingService>(
       () => reporting,
       dispose: (_) async => reporting.dispose(),
-    );
-
-    // 状态上报：被控端场景/频道列表 → 服务端缓存 → watch 中的控制端。
-    // 与上报服务相互独立（不依赖登录状态），连接成功即开始工作。
-    final DeviceStateReporter stateReporter = DeviceStateReporter(
-      channel: it<RealtimeChannel>(),
-      sceneProvider: it<CurrentSceneProvider>(),
-    )..start();
-    _stateReporter = stateReporter;
-    it.registerLazySingleton<DeviceStateReporter>(
-      () => stateReporter,
-      dispose: (_) async => stateReporter.stop(),
     );
 
     // 收消息：服务端只投递寻址到本账号的消息，直接交给路由。

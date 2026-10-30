@@ -6,7 +6,11 @@ import 'package:pscreen_home/features/remote_control/data/thread_targets_store.d
 import 'package:pscreen_home/features/remote_control/presentation/chat_page.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
-/// 遥控会话列表：只显示本机通过「+」添加过的目标设备。
+/// 遥控会话列表：显示通过「+」添加的目标设备（按登录账号云端同步）。
+///
+/// 第一行：备注名（未改名显示原始账号）；改名后第二行小字灰色显示原始账号；
+/// 最后一行是设备类型 · 在线状态 · 当前场景。
+/// 长按弹「重命名 / 移除」菜单。
 ///
 /// 在线状态来自实时通道的 presence/roster，设备类型来自 state/roster 上报。
 class ConversationListPage extends StatefulWidget {
@@ -22,7 +26,7 @@ class _ConversationListPageState extends State<ConversationListPage> {
   StreamSubscription<void>? _storeSub;
   StreamSubscription<RealtimePresence>? _presenceSub;
   StreamSubscription<RealtimeDeviceState>? _deviceSub;
-  List<String> _targets = const <String>[];
+  List<ThreadTarget> _targets = const <ThreadTarget>[];
 
   @override
   void initState() {
@@ -32,6 +36,8 @@ class _ConversationListPageState extends State<ConversationListPage> {
       if (!mounted) return;
       setState(() => _targets = ThreadTargetsStore.instance.targets);
     });
+    // 打开会话页：拉取云端列表（服务端时间戳 LWW，云端更新则覆盖本机）。
+    unawaited(ThreadTargetsStore.instance.syncFromServer());
     _presenceSub = _channel.presence.listen((_) {
       if (mounted) setState(() {});
     });
@@ -57,32 +63,118 @@ class _ConversationListPageState extends State<ConversationListPage> {
       itemCount: _targets.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (BuildContext context, int index) {
-        final String account = _targets[index];
+        final ThreadTarget target = _targets[index];
+        final String account = target.account;
         final RealtimeDeviceState? device = _channel.deviceInfoOf(account);
         final bool online = _channel.isOnline(account);
+        final bool renamed = target.alias.isNotEmpty;
         return ListTile(
           leading: _OnlineDot(online: online),
-          title: Text(account),
-          subtitle: Text(_subtitleOf(device, online)),
+          title: Text(target.displayName),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // 改名后第二行小字灰色显示原始账号，方便对照是哪台设备。
+              if (renamed)
+                Text(
+                  account,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              Text(_subtitleOf(device, online)),
+            ],
+          ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => ChatPage(account: account, title: account),
+              builder: (_) => ChatPage(account: account, title: target.displayName),
             ),
           ),
-          onLongPress: () => _remove(context, account),
+          onLongPress: () => _showMenu(context, target),
         );
       },
     );
   }
 
-  /// 长按移除该目标（只删本机列表，不影响对端设备）。
-  Future<void> _remove(BuildContext context, String account) async {
+  /// 长按菜单：重命名 / 移除（只作用于本机列表，同步后其它设备跟随）。
+  Future<void> _showMenu(BuildContext context, ThreadTarget target) async {
+    final String? action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (BuildContext context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('重命名'),
+              onTap: () => Navigator.of(context).pop('rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('移除'),
+              onTap: () => Navigator.of(context).pop('remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    switch (action) {
+      case 'rename':
+        await _rename(context, target);
+      case 'remove':
+        await _remove(context, target);
+      default:
+        break;
+    }
+  }
+
+  /// 重命名对话框：留空 = 恢复显示原始账号。
+  Future<void> _rename(BuildContext context, ThreadTarget target) async {
+    final TextEditingController controller = TextEditingController(
+      text: target.alias,
+    );
+    final String? alias = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('重命名设备'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 20,
+          decoration: InputDecoration(
+            labelText: '备注名',
+            hintText: target.account,
+            helperText: '留空则显示原始账号',
+            counterText: '',
+          ),
+          onSubmitted: (String value) => Navigator.of(context).pop(value),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (alias == null) return;
+    await ThreadTargetsStore.instance.rename(target.account, alias);
+  }
+
+  /// 移除该目标（只删本机列表，同步后其它设备跟随）。
+  Future<void> _remove(BuildContext context, ThreadTarget target) async {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) => AlertDialog(
         title: const Text('移除设备'),
-        content: Text('从会话列表移除 $account？'),
+        content: Text('从会话列表移除 ${target.displayName}？'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -96,11 +188,11 @@ class _ConversationListPageState extends State<ConversationListPage> {
       ),
     );
     if (confirm ?? false) {
-      await ThreadTargetsStore.instance.remove(account);
+      await ThreadTargetsStore.instance.remove(target.account);
     }
   }
 
-  /// 副标题：设备类型 + 在线状态。
+  /// 第三行：设备类型 + 在线状态（+ 当前场景）。
   String _subtitleOf(RealtimeDeviceState? device, bool online) {
     final String kind = switch (device?.kind) {
       'home' => '中控屏',
