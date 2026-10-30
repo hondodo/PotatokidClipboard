@@ -9,7 +9,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   flutter_udid
   share_plus
-  tray_manager
   url_launcher_windows
 )
 
