@@ -132,38 +132,10 @@ class _ConversationListPageState extends State<ConversationListPage> {
 
   /// 重命名对话框：留空 = 恢复显示原始账号。
   Future<void> _rename(BuildContext context, ThreadTarget target) async {
-    final TextEditingController controller = TextEditingController(
-      text: target.alias,
-    );
     final String? alias = await showDialog<String>(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('重命名设备'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 20,
-          decoration: InputDecoration(
-            labelText: '备注名',
-            hintText: target.account,
-            helperText: '留空则显示原始账号',
-            counterText: '',
-          ),
-          onSubmitted: (String value) => Navigator.of(context).pop(value),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+      builder: (BuildContext context) => _RenameDialog(target: target),
     );
-    controller.dispose();
     if (alias == null) return;
     await ThreadTargetsStore.instance.rename(target.account, alias);
   }
@@ -205,6 +177,64 @@ class _ConversationListPageState extends State<ConversationListPage> {
     final String scene =
         online ? (device?.scene['title']?.toString() ?? '') : '';
     return scene.isEmpty ? '$kind · $status' : '$kind · $status · $scene';
+  }
+}
+
+/// 重命名输入对话框：controller 由本 State 持有并在 dispose 释放。
+///
+/// 不能在 showDialog future 完成后立即 dispose——弹窗退出动画期间
+/// TextField 仍会引用 controller（曾因此崩溃）。
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.target});
+
+  final ThreadTarget target;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.target.alias);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('重命名设备'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 20,
+        decoration: InputDecoration(
+          labelText: '备注名',
+          hintText: widget.target.account,
+          helperText: '留空则显示原始账号',
+          counterText: '',
+        ),
+        onSubmitted: (String value) => Navigator.of(context).pop(value),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('保存'),
+        ),
+      ],
+    );
   }
 }
 
