@@ -42,23 +42,11 @@ class LiveControlsPanel extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
-        _CmdButton(
-          label: '频道+',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('channel_next'))
-              : null,
-        ),
-        _CmdButton(
-          label: '频道-',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('channel_prev'))
-              : null,
-        ),
+        _CmdButton(label: '频道+', onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('channel_next')) : null),
+        _CmdButton(label: '频道-', onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('channel_prev')) : null),
         _CmdButton(
           label: '切换播放源',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('switch_source'))
-              : null,
+          onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('switch_source')) : null,
         ),
         OutlinedButton.icon(
           onPressed: enabled ? () => _openChannels(context) : null,
@@ -71,12 +59,7 @@ class LiveControlsPanel extends StatelessWidget {
         if (panel.kind == 'home')
           OutlinedButton.icon(
             onPressed: enabled ? _toggleFloating : null,
-            icon: Icon(
-              _floating
-                  ? Icons.fullscreen_rounded
-                  : Icons.picture_in_picture_alt_rounded,
-              size: 20,
-            ),
+            icon: Icon(_floating ? Icons.fullscreen_rounded : Icons.picture_in_picture_alt_rounded, size: 20),
             label: Text(_floating ? '全屏' : '悬浮'),
           ),
         if (showSleepTimer)
@@ -100,8 +83,7 @@ class LiveControlsPanel extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (BuildContext context) =>
-          _ChannelSheet(panel: panel, title: channelsLabel),
+      builder: (BuildContext context) => _ChannelSheet(panel: panel, title: channelsLabel),
     );
   }
 
@@ -149,41 +131,26 @@ class VolumeControlsPanel extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
-        // 只读音量胶囊：图标 + 数值。
-        if (volume != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.volume_up_rounded, size: 18),
-                const SizedBox(width: 4),
-                Text('$volume'),
-              ],
-            ),
-          ),
-        _CmdButton(
-          label: '音量+',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('volume_up'))
-              : null,
-        ),
-        _CmdButton(
-          label: '音量-',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('volume_down'))
-              : null,
-        ),
-        _CmdButton(
-          label: '静音',
-          onTap: enabled
-              ? () => panel.onCommand(buildCommandEnvelope('mute'))
-              : null,
-        ),
+        // // 只读音量胶囊：图标 + 数值。
+        // if (volume != null)
+        //   Container(
+        //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        //     decoration: BoxDecoration(
+        //       color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        //       borderRadius: BorderRadius.circular(20),
+        //     ),
+        //     child: Row(
+        //       mainAxisSize: MainAxisSize.min,
+        //       children: <Widget>[
+        //         const Icon(Icons.volume_up_rounded, size: 18),
+        //         const SizedBox(width: 4),
+        //         Text('$volume'),
+        //       ],
+        //     ),
+        //   ),
+        _CmdButton(label: '音量+', onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('volume_up')) : null),
+        _CmdButton(label: '音量-', onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('volume_down')) : null),
+        _CmdButton(label: '静音', onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('mute')) : null),
       ],
     );
   }
@@ -199,9 +166,8 @@ class _SleepTimerSheet extends StatelessWidget {
   final RemotePanelContext panel;
 
   /// 中控屏的定时关闭只是关直播回主页，电视端才是退出应用。
-  String get _expireText => panel.kind == 'home'
-      ? '倒计时结束后关闭被控中控屏的直播并返回主页；「关闭」= 取消当前定时。'
-      : '倒计时结束后被控电视端自动退出应用；「关闭」= 取消当前定时。';
+  String get _expireText =>
+      panel.kind == 'home' ? '倒计时结束后关闭被控中控屏的直播并返回主页；「关闭」= 取消当前定时。' : '倒计时结束后被控电视端自动退出应用；「关闭」= 取消当前定时。';
 
   void _pick(BuildContext context, int? minutes) {
     panel.onCommand(buildSleepTimerCommand(minutes));
@@ -227,10 +193,7 @@ class _SleepTimerSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
             child: Row(
               children: <Widget>[
-                const Text(
-                  '定时关闭',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
+                const Text('定时关闭', style: TextStyle(fontWeight: FontWeight.w600)),
                 const Spacer(),
                 IconButton(
                   tooltip: '关闭',
@@ -244,9 +207,7 @@ class _SleepTimerSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
               _expireText,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline,
-              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
             ),
           ),
           Flexible(
@@ -309,13 +270,11 @@ class _ChannelSheetState extends State<_ChannelSheet> {
   @override
   void initState() {
     super.initState();
-    _sub = _channel.deviceStates
-        .where(
-          (RealtimeDeviceState state) => state.account == widget.panel.account,
-        )
-        .listen((_) {
-          if (mounted) setState(() {});
-        });
+    _sub = _channel.deviceStates.where((RealtimeDeviceState state) => state.account == widget.panel.account).listen((
+      _,
+    ) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -326,9 +285,7 @@ class _ChannelSheetState extends State<_ChannelSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final RealtimeDeviceState? device = _channel.deviceInfoOf(
-      widget.panel.account,
-    );
+    final RealtimeDeviceState? device = _channel.deviceInfoOf(widget.panel.account);
     final int count = device?.channels.length ?? 0;
     final RemotePanelContext panel = RemotePanelContext(
       account: widget.panel.account,
@@ -446,10 +403,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
       final ScrollPosition position = _listScroll.position;
       final double offset = total <= 0
           ? 0
-          : (row / total * position.maxScrollExtent).clamp(
-              0.0,
-              position.maxScrollExtent,
-            );
+          : (row / total * position.maxScrollExtent).clamp(0.0, position.maxScrollExtent);
       _listScroll.jumpTo(offset);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -460,11 +414,7 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
         if (attempts > 0) _jumpToRow(row, total, attempts - 1);
         return;
       }
-      Scrollable.ensureVisible(
-        target,
-        alignment: 0.4,
-        duration: const Duration(milliseconds: 120),
-      );
+      Scrollable.ensureVisible(target, alignment: 0.4, duration: const Duration(milliseconds: 120));
     });
   }
 
@@ -484,13 +434,9 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> names =
-        widget.panel.device?.channels ?? const <String>[];
+    final List<String> names = widget.panel.device?.channels ?? const <String>[];
     if (names.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('等待设备上报频道列表…'),
-      );
+      return const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Text('等待设备上报频道列表…'));
     }
 
     final String query = _query.toLowerCase();
@@ -511,14 +457,10 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
     ];
     final List<int> ordered = <int>[...favorites, ...others];
     // 离线时上报的频道是旧值，不标「正在播放」。
-    final String current = widget.panel.online
-        ? (widget.panel.device?.channelName ?? '')
-        : '';
+    final String current = widget.panel.online ? (widget.panel.device?.channelName ?? '') : '';
     final ColorScheme scheme = Theme.of(context).colorScheme;
     // 当前频道在（收藏置顶后的）展示列表中的行号，用于打开即定位。
-    final int currentRow = current.isEmpty
-        ? -1
-        : ordered.indexWhere((int i) => names[i] == current);
+    final int currentRow = current.isEmpty ? -1 : ordered.indexWhere((int i) => names[i] == current);
     if (currentRow >= 0) _revealCurrent(currentRow, ordered.length);
 
     return Column(
@@ -560,22 +502,10 @@ class _LiveRemotePanelState extends State<LiveRemotePanel> {
                         name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: active
-                            ? TextStyle(
-                                color: scheme.primary,
-                                fontWeight: FontWeight.bold,
-                              )
-                            : null,
+                        style: active ? TextStyle(color: scheme.primary, fontWeight: FontWeight.bold) : null,
                       ),
-                      trailing: active
-                          ? Text(
-                              '正在播放',
-                              style: TextStyle(color: scheme.primary),
-                            )
-                          : Text('${index + 1}'),
-                      onTap: () => widget.panel.onCommand(
-                        buildChannelCommand(name: name, index: index),
-                      ),
+                      trailing: active ? Text('正在播放', style: TextStyle(color: scheme.primary)) : Text('${index + 1}'),
+                      onTap: () => widget.panel.onCommand(buildChannelCommand(name: name, index: index)),
                       onLongPress: () => _toggleFavorite(name),
                     );
                   },

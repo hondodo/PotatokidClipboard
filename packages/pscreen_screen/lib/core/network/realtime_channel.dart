@@ -294,6 +294,11 @@ class RealtimeChannel {
   /// 正在订阅状态的账号（重连后自动重发 watch）。
   final Set<String> _watched = <String>{};
 
+  /// 每个账号的 watch 引用计数：会话列表页与详情页遥控面板可能同时
+  /// watch 同一设备，只有计数归零才真正发 `unwatch`，否则后退会把
+  /// 先前页面的订阅一并取消。
+  final Map<String, int> _watchCounts = <String, int>{};
+
   /// 正在订阅的合并会话线程：peer -> 额外参与账号（管理员）（重连后补发）。
   final Map<String, List<String>> _watchedThreads = <String, List<String>>{};
 
@@ -523,6 +528,7 @@ class RealtimeChannel {
   Future<bool> watch(String account) async {
     final String target = account.trim();
     if (target.isEmpty) return false;
+    _watchCounts[target] = (_watchCounts[target] ?? 0) + 1;
     _watched.add(target);
     if (!isConnected) return false;
     _send(<String, dynamic>{'t': 'watch', 'to': target});
@@ -530,9 +536,17 @@ class RealtimeChannel {
   }
 
   /// 取消订阅（离开遥控面板/会话时调用）。
+  ///
+  /// 引用计数减一；还有其它页面在看该设备时不发 `unwatch`。
   void unwatch(String account) {
     final String target = account.trim();
     if (target.isEmpty) return;
+    final int count = _watchCounts[target] ?? 0;
+    if (count > 1) {
+      _watchCounts[target] = count - 1;
+      return;
+    }
+    _watchCounts.remove(target);
     _watched.remove(target);
     if (!isConnected) return;
     _send(<String, dynamic>{'t': 'unwatch', 'to': target});

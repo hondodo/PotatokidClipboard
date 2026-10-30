@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/data/thread_targets_store.dart';
 import 'package:pscreen_home/features/remote_control/presentation/chat_page.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/playback_badge.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 遥控会话列表：显示通过「+」添加的目标设备（按登录账号云端同步）。
@@ -28,13 +29,19 @@ class _ConversationListPageState extends State<ConversationListPage> {
   StreamSubscription<RealtimeDeviceState>? _deviceSub;
   List<ThreadTarget> _targets = const <ThreadTarget>[];
 
+  /// 本页已 watch 的设备：服务端只向 watcher 转发 state 帧，
+  /// 列表要实时刷新音量/播放状态就必须保持订阅。
+  final Set<String> _watching = <String>{};
+
   @override
   void initState() {
     super.initState();
     _targets = ThreadTargetsStore.instance.targets;
+    _syncWatch();
     _storeSub = ThreadTargetsStore.instance.changes.listen((_) {
       if (!mounted) return;
       setState(() => _targets = ThreadTargetsStore.instance.targets);
+      _syncWatch();
     });
     // 打开会话页：拉取云端列表（服务端时间戳 LWW，云端更新则覆盖本机）。
     unawaited(ThreadTargetsStore.instance.syncFromServer());
@@ -48,10 +55,34 @@ class _ConversationListPageState extends State<ConversationListPage> {
 
   @override
   void dispose() {
+    for (final String account in _watching) {
+      _channel.unwatch(account);
+    }
+    _watching.clear();
     _storeSub?.cancel();
     _presenceSub?.cancel();
     _deviceSub?.cancel();
     super.dispose();
+  }
+
+  /// 让订阅与当前列表保持一致：新增的补 watch，移除的退 watch。
+  ///
+  /// watch/unwatch 在通道内按账号引用计数，详情页遥控面板的
+  /// 订阅互不影响。
+  void _syncWatch() {
+    final Set<String> next = _targets
+        .map((ThreadTarget target) => target.account.trim())
+        .where((String account) => account.isNotEmpty)
+        .toSet();
+    for (final String account in next.difference(_watching)) {
+      _channel.watch(account);
+    }
+    for (final String account in _watching.difference(next)) {
+      _channel.unwatch(account);
+    }
+    _watching
+      ..clear()
+      ..addAll(next);
   }
 
   @override
@@ -68,9 +99,32 @@ class _ConversationListPageState extends State<ConversationListPage> {
         final RealtimeDeviceState? device = _channel.deviceInfoOf(account);
         final bool online = _channel.isOnline(account);
         final bool renamed = target.alias.isNotEmpty;
+        // 当前设备音量（0-100，被控端随 state 帧上报）。
+        final int? volume = online ? device?.sceneVolume : null;
+        // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
+        final String playbackLabel = (online && device?.sceneKind == 'live') ? (device?.playbackLabel ?? '') : '';
         return ListTile(
           leading: _OnlineDot(online: online),
-          title: Text(target.displayName),
+          title: Row(
+            children: [
+              Text(target.displayName),
+              if (volume != null) ...[
+                const SizedBox(width: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.volume_up_rounded, size: 18),
+                    const SizedBox(width: 4),
+                    Text('$volume'),
+                  ],
+                ),
+              ],
+              if (playbackLabel.isNotEmpty) ...<Widget>[
+                const SizedBox(width: 8),
+                PlaybackBadge(label: playbackLabel, state: device?.playbackState ?? ''),
+              ],
+            ],
+          ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -78,11 +132,9 @@ class _ConversationListPageState extends State<ConversationListPage> {
               if (renamed)
                 Text(
                   account,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
                 ),
-              Text(_subtitleOf(device, online)),
+              Row(children: [Text(_subtitleOf(device, online))]),
             ],
           ),
           trailing: const Icon(Icons.chevron_right),
@@ -148,14 +200,8 @@ class _ConversationListPageState extends State<ConversationListPage> {
         title: const Text('移除设备'),
         content: Text('从会话列表移除 ${target.displayName}？'),
         actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('移除'),
-          ),
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('移除')),
         ],
       ),
     );
@@ -174,8 +220,7 @@ class _ConversationListPageState extends State<ConversationListPage> {
     };
     final String status = online ? '在线' : '离线';
     // 离线时场景是上一次上报的旧值，不展示，避免看起来仍在播放。
-    final String scene =
-        online ? (device?.scene['title']?.toString() ?? '') : '';
+    final String scene = online ? (device?.scene['title']?.toString() ?? '') : '';
     return scene.isEmpty ? '$kind · $status' : '$kind · $status · $scene';
   }
 }
@@ -225,14 +270,8 @@ class _RenameDialogState extends State<_RenameDialog> {
         onSubmitted: (String value) => Navigator.of(context).pop(value),
       ),
       actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: const Text('保存'),
-        ),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(_controller.text), child: const Text('保存')),
       ],
     );
   }

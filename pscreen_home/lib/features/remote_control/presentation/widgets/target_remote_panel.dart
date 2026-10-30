@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/online_dot.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/playback_badge.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
@@ -71,9 +73,7 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
   void _attach(String account) {
     if (account.isEmpty) return;
     _channel.watch(account);
-    _sub = _channel.deviceStates
-        .where((RealtimeDeviceState state) => state.account == account)
-        .listen((_) {
+    _sub = _channel.deviceStates.where((RealtimeDeviceState state) => state.account == account).listen((_) {
       if (!mounted) return;
       setState(() {});
     });
@@ -102,33 +102,36 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
     final String sceneTitle = online ? '${info?.scene['title'] ?? ''}' : '';
     final String kind = info?.kind ?? '';
     // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
-    final String playbackLabel =
-        (online && info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
-
+    final String playbackLabel = (online && info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
+    final bool enabled = panel.online;
+    // 当前设备音量（0-100，被控端随 state 帧上报）。
+    final int? volume = enabled ? panel.device?.sceneVolume : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         if (widget.showHeader)
           Row(
             children: <Widget>[
-              _OnlineDot(online: online),
-              const SizedBox(width: 8),
-              Text(
-                widget.title ?? widget.account,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                switch (kind) {
-                  'home' => '中控屏',
-                  'tv' => '电视',
-                  _ => '未知设备',
-                },
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+              OnlineDot(online: online),
+              if (volume != null) ...[
+                const SizedBox(width: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.volume_up_rounded, size: 18),
+                    const SizedBox(width: 4),
+                    Text('$volume'),
+                  ],
                 ),
-              ),
+              ],
+              const SizedBox(width: 8),
+              // Text(widget.title ?? widget.account, style: const TextStyle(fontWeight: FontWeight.w600)),
+              // const SizedBox(width: 8),
+              Text(switch (kind) {
+                'home' => '中控屏',
+                'tv' => '电视',
+                _ => '未知设备',
+              }, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               if (sceneTitle.isNotEmpty) ...<Widget>[
                 const SizedBox(width: 12),
                 Flexible(
@@ -136,28 +139,17 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
                     sceneTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    style: TextStyle(color: Theme.of(context).colorScheme.primary),
                   ),
                 ),
               ],
               if (!online) ...<Widget>[
                 const SizedBox(width: 12),
-                Text(
-                  '离线',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                Text('离线', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ],
               if (playbackLabel.isNotEmpty) ...<Widget>[
                 const SizedBox(width: 8),
-                _PlaybackBadge(
-                  label: playbackLabel,
-                  state: info?.playbackState ?? '',
-                ),
+                PlaybackBadge(label: playbackLabel, state: info?.playbackState ?? ''),
               ],
             ],
           ),
@@ -165,10 +157,7 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
         if (!online)
           const Padding(
             padding: EdgeInsets.only(bottom: 6),
-            child: Text(
-              '设备离线，暂不能发送指令',
-              style: TextStyle(fontSize: 12),
-            ),
+            child: Text('设备离线，暂不能发送指令', style: TextStyle(fontSize: 12)),
           )
         else if (info == null)
           const Padding(
@@ -182,56 +171,6 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
           ),
         RemotePanelRegistry.build(panel),
       ],
-    );
-  }
-}
-
-class _OnlineDot extends StatelessWidget {
-  const _OnlineDot({required this.online});
-
-  final bool online;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: online ? const Color(0xFF34C759) : const Color(0xFFBDBDBD),
-      ),
-    );
-  }
-}
-
-/// 播放状态徽标：正常绿 / 起播蓝 / 重试橙 / 失败红。
-class _PlaybackBadge extends StatelessWidget {
-  const _PlaybackBadge({required this.label, required this.state});
-
-  final String label;
-  final String state;
-
-  Color get _color => switch (state) {
-        'play_ok' => const Color(0xFF34C759),
-        'play_start' => const Color(0xFF4F8CFF),
-        'play_retry' => const Color(0xFFFFB020),
-        'play_fail' => const Color(0xFFFF5A5F),
-        _ => const Color(0xFF9AA4B2),
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: _color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11, color: _color, height: 1.4),
-      ),
     );
   }
 }

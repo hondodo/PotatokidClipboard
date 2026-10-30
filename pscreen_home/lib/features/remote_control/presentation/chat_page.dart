@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/core/control_config.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/online_dot.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/target_remote_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
@@ -38,8 +39,7 @@ class _ChatPageState extends State<ChatPage> {
   /// 当前登录账号（连接握手账号，可能是设备号）。
   String get _me => _channel.account;
 
-  bool get _isAdminSelf =>
-      _me == ControlConfig.adminAccount && widget.account == ControlConfig.adminAccount;
+  bool get _isAdminSelf => _me == ControlConfig.adminAccount && widget.account == ControlConfig.adminAccount;
 
   @override
   void initState() {
@@ -118,8 +118,7 @@ class _ChatPageState extends State<ChatPage> {
   /// 按 id 去重后按时间升序插入；本地乐观消息用 `local-` 前缀自增 id。
   void _merge(RealtimeThreadItem item) {
     if (!mounted) return;
-    if (item.id.isNotEmpty &&
-        _items.any((RealtimeThreadItem existing) => existing.id == item.id)) {
+    if (item.id.isNotEmpty && _items.any((RealtimeThreadItem existing) => existing.id == item.id)) {
       return;
     }
     final List<RealtimeThreadItem> next = <RealtimeThreadItem>[..._items];
@@ -206,8 +205,33 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final RealtimeDeviceState? info = _channel.deviceInfoOf(widget.account);
+    final String kind = info?.kind ?? '';
+    final bool online = _channel.isOnline(widget.account);
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            OnlineDot(online: online),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.title),
+                Row(
+                  children: [
+                    Text(switch (kind) {
+                      'home' => '中控屏',
+                      'tv' => '电视',
+                      _ => '未知设备',
+                    }, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
       body: Column(
         children: <Widget>[
           // 轻提示浮在时间线左下角，不占布局、不遮面板，2 秒自动淡出。
@@ -222,9 +246,7 @@ class _ChatPageState extends State<ChatPage> {
           // 遥控面板常驻底部（替换原输入行）：按钮行始终可见，
           // 频道列表与发送消息都走弹窗，避免小屏被内容撑爆。
           ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
-            ),
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.5),
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               child: TargetRemotePanel(
@@ -256,19 +278,11 @@ class _ChatPageState extends State<ChatPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
-              _hintError ? Icons.error_outline : Icons.check_circle_outline,
-              size: 14,
-              color: color,
-            ),
+            Icon(_hintError ? Icons.error_outline : Icons.check_circle_outline, size: 14, color: color),
             const SizedBox(width: 4),
             Text(
               hint,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: FontWeight.w500,
-              ),
+              style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -278,19 +292,14 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildTimeline() {
     if (_items.isEmpty) {
-      return Center(
-        child: Text(_loading ? '加载中…' : '暂无消息与事件'),
-      );
+      return Center(child: Text(_loading ? '加载中…' : '暂无消息与事件'));
     }
     return ListView.builder(
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: _items.length,
       itemBuilder: (BuildContext context, int index) {
-        return _ThreadCard(
-          item: _items[_items.length - 1 - index],
-          me: _me,
-        );
+        return _ThreadCard(item: _items[_items.length - 1 - index], me: _me);
       },
     );
   }
@@ -338,19 +347,13 @@ class _SendMessageSheetState extends State<_SendMessageSheet> {
               maxLines: 4,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _submit(),
-              decoration: const InputDecoration(
-                hintText: '输入消息内容',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(hintText: '输入消息内容', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  child: const Text('取消'),
-                ),
+                TextButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('取消')),
                 const SizedBox(width: 8),
                 FilledButton(onPressed: _submit, child: const Text('发送')),
               ],
@@ -388,8 +391,8 @@ class _ThreadCard extends StatelessWidget {
     final Color cardColor = isEvent
         ? scheme.surfaceContainerHigh
         : mine
-            ? scheme.primary.withValues(alpha: 0.14)
-            : scheme.surfaceContainerHigh;
+        ? scheme.primary.withValues(alpha: 0.14)
+        : scheme.surfaceContainerHigh;
 
     final Widget card = Container(
       margin: const EdgeInsets.symmetric(vertical: 5),
@@ -404,17 +407,17 @@ class _ThreadCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              _Badge(label: _badgeLabel(isEvent: isEvent, isCommand: isCommand), color: _badgeColor(isEvent: isEvent, isCommand: isCommand)),
+              _Badge(
+                label: _badgeLabel(isEvent: isEvent, isCommand: isCommand),
+                color: _badgeColor(isEvent: isEvent, isCommand: isCommand),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   '${item.from} → ${item.to}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontFamily: 'monospace',
-                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant, fontFamily: 'monospace'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -532,16 +535,11 @@ class _EventBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        if (title.isNotEmpty)
-          Text(title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+        if (title.isNotEmpty) Text(title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
         if (chips.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: chips.map((String text) => _Chip(text: text)).toList(),
-            ),
+            child: Wrap(spacing: 6, runSpacing: 4, children: chips.map((String text) => _Chip(text: text)).toList()),
           ),
         if (source.isNotEmpty)
           Padding(
@@ -557,10 +555,7 @@ class _EventBody extends StatelessWidget {
             padding: const EdgeInsets.only(top: 6),
             child: Text('原因：$reason', style: theme.textTheme.bodySmall),
           ),
-        _RawJson(source: jsonEncode(<String, Object?>{
-          'event': item.event,
-          'data': data,
-        })),
+        _RawJson(source: jsonEncode(<String, Object?>{'event': item.event, 'data': data})),
       ],
     );
   }
@@ -603,10 +598,7 @@ class _Badge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(4),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(4)),
       child: Text(
         label,
         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
@@ -667,10 +659,7 @@ class _RawJsonState extends State<_RawJson> {
                   size: 16,
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
-                Text(
-                  '原始 JSON',
-                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
+                Text('原始 JSON', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
               ],
             ),
           ),
@@ -684,10 +673,7 @@ class _RawJsonState extends State<_RawJson> {
               color: theme.colorScheme.surfaceContainerLowest,
               borderRadius: BorderRadius.circular(6),
             ),
-            child: SelectableText(
-              pretty,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-            ),
+            child: SelectableText(pretty, style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
           ),
       ],
     );
