@@ -4,10 +4,10 @@ import 'package:pscreen_home/features/remote_control/presentation/widgets/live_r
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 电视端遥控面板：页面切换行 + 直播控制行。
+/// 电视端遥控面板：页面切换行 + 常驻音量行 + 直播控制行。
 ///
 /// 与中控端不同，电视端四个页面（直播/时间/屏保/设置）的切换按钮
-/// 始终显示，不随当前页面收起；下面的直播控制行同样始终可见。
+/// 始终显示，不随当前页面收起；音量行同为常驻，直播控制行也始终可见。
 /// 高亮跟随设备上报的 `scene.kind`（`live`/`clock`/`screensaver`/`settings`）。
 class TvRemotePanel extends StatelessWidget {
   const TvRemotePanel({super.key, required this.panel});
@@ -69,6 +69,9 @@ class TvRemotePanel extends StatelessWidget {
               ),
           ],
         ),
+        const Divider(height: 24),
+        // 音量行：系统级、常驻（无论是否在直播都显示）。
+        VolumeControlsPanel(panel: panel),
         const Divider(height: 24),
         LiveControlsPanel(
           panel: panel,

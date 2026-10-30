@@ -3,9 +3,10 @@ import 'package:pscreen_home/features/remote_control/presentation/widgets/live_r
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 中控屏遥控面板：5 个场景按钮 + 直播场景下的频道遥控。
+/// 中控屏遥控面板：场景按钮行 + 常驻音量行 + 直播场景下的频道遥控。
 ///
 /// 高亮跟随设备上报的 `scene.kind`；屏保按钮在屏保中变为「退出屏保」。
+/// 音量是系统级能力，独立一行常驻显示，不随场景收起。
 class HomeRemotePanel extends StatelessWidget {
   const HomeRemotePanel({super.key, required this.panel});
 
@@ -72,6 +73,9 @@ class HomeRemotePanel extends StatelessWidget {
               ),
           ],
         ),
+        // 音量行：系统级、常驻（无论是否直播都显示）。
+        const Divider(height: 24),
+        VolumeControlsPanel(panel: panel),
         if (sceneKind == 'live') ...<Widget>[
           const Divider(height: 24),
           LiveControlsPanel(
