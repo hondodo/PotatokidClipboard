@@ -18,13 +18,20 @@ abstract class HostNavigator {
   Future<bool> open(String page);
 }
 
-/// 命令执行器：音量/切台/导航/定时关闭（text 命令由 Router 直接走浮层，不进这里）。
+/// 直播窗口形态控制（仅中控屏实现；电视端直播常驻底层，没有应用内悬浮小窗）。
+abstract class LiveStageControl {
+  /// 全屏直播 → 应用内悬浮小窗；非全屏时幂等（不生效）。
+  void toFloating();
+}
+
+/// 命令执行器：音量/切台/导航/定时关闭/直播悬浮（text 命令由 Router 直接走浮层，不进这里）。
 class MessageCommandExecutor {
   MessageCommandExecutor({
     required this.volume,
     required this.liveChannel,
     required this.channelInfo,
     this.navigator,
+    this.liveStage,
   });
 
   final VolumeControl volume;
@@ -33,6 +40,9 @@ class MessageCommandExecutor {
 
   /// 宿主导航能力；未注册时可空（命令按未支持处理）。
   final HostNavigator? navigator;
+
+  /// 直播悬浮能力；未注册时可空（电视端命令按未支持处理）。
+  final LiveStageControl? liveStage;
 
   /// 支持的导航页集合。
   static const Set<String> _navPages = <String>{
@@ -61,9 +71,21 @@ class MessageCommandExecutor {
         return _nav(args);
       case 'sleep_timer':
         return _sleepTimer(args);
+      case 'live_float':
+        return _liveFloat();
       default:
         return false;
     }
+  }
+
+  /// 直播悬浮：全屏 → 应用内悬浮小窗。
+  ///
+  /// 仅中控屏注册了 [liveStage]；电视端未注册时返回 false，由 Router 记日志忽略。
+  bool _liveFloat() {
+    final LiveStageControl? stage = liveStage;
+    if (stage == null) return false;
+    stage.toFloating();
+    return true;
   }
 
   /// 定时关闭：`minutes` ≤ 0 或缺失 = 取消；否则开始倒计时。

@@ -17,9 +17,17 @@ class FakeVolume implements VolumeControl {
   Future<void> toggleMute() async => calls.add('mute');
 }
 
+/// 记录型直播窗口 Fake（实现 LiveStageControl 接口）。
+class FakeLiveStage implements LiveStageControl {
+  final List<String> calls = <String>[];
+  @override
+  void toFloating() => calls.add('float');
+}
+
 void main() {
   late MessageOverlayController overlay;
   late FakeVolume volume;
+  late FakeLiveStage liveStage;
   late LiveChannelController live;
   late MessageRouter router;
 
@@ -27,6 +35,7 @@ void main() {
     overlay = MessageOverlayController();
     overlay.deferActive = false;
     volume = FakeVolume();
+    liveStage = FakeLiveStage();
     live = LiveChannelController.instance;
     live.setCount(3);
     ChannelInfoProvider.instance.setChannels(<IptvChannel>[
@@ -40,6 +49,7 @@ void main() {
         volume: volume,
         liveChannel: live,
         channelInfo: ChannelInfoProvider.instance,
+        liveStage: liveStage,
       ),
     );
   });
@@ -108,6 +118,26 @@ void main() {
     router.handleIncoming('{"t":"cmd","name":"fly"}');
     expect(overlay.visible, isFalse);
     expect(volume.calls, isEmpty);
+  });
+
+  test('live_float 命令 → 调用悬浮能力，不弹浮层', () {
+    router.handleIncoming('{"t":"cmd","name":"live_float"}');
+    expect(liveStage.calls, <String>['float']);
+    expect(overlay.visible, isFalse);
+  });
+
+  test('live_float 未注册能力（电视端）→ 忽略', () {
+    final MessageRouter bare = MessageRouter(
+      overlay: overlay,
+      executor: MessageCommandExecutor(
+        volume: volume,
+        liveChannel: live,
+        channelInfo: ChannelInfoProvider.instance,
+      ),
+    );
+    bare.handleIncoming('{"t":"cmd","name":"live_float"}');
+    expect(liveStage.calls, isEmpty);
+    expect(overlay.visible, isFalse);
   });
 
   test('text 命令 → 浮层', () {

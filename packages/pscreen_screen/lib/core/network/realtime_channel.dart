@@ -179,6 +179,9 @@ class RealtimeDeviceState {
   /// 场景类型名（如 `live` / `home` / `screensaver`）。
   String get sceneKind => '${scene['kind'] ?? ''}';
 
+  /// 直播是否处于应用内悬浮小窗（scene 顶层 `floating` 字段，仅直播场景上报）。
+  bool get sceneFloating => scene['floating'] == true;
+
   /// 当前播放频道名（直播场景才有）。
   String get channelName => '${scene['channelName'] ?? ''}';
 

@@ -1757,6 +1757,10 @@
         const chips = el('div', 'chips');
         if (data.kind) chips.append(el('span', 'chip', `类型 ${data.kind}`));
         if (data.route) chips.append(el('span', 'chip', `路由 ${data.route}`));
+        // 直播窗口形态：全屏（路由 /live）/ 应用内悬浮小窗（路由为底层页）。
+        if (data.kind === 'live' && data.floating !== undefined) {
+          chips.append(el('span', 'chip', data.floating ? '形态 悬浮小窗' : '形态 全屏'));
+        }
         if (data.channelName) chips.append(el('span', 'chip', `频道 ${data.channelName}`));
         if (data.deviceName || data.deviceId) chips.append(el('span', 'chip', `设备 ${data.deviceName || data.deviceId}`));
         if (data.areaName || data.areaId) chips.append(el('span', 'chip', `区域 ${data.areaName || data.areaId}`));

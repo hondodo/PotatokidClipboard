@@ -66,6 +66,10 @@ class MsgModule {
         channelInfo: ChannelInfoProvider.instance,
         // 宿主导航能力（中控屏/电视端各自注册；未注册时 nav 命令按未支持处理）。
         navigator: it.isRegistered<HostNavigator>() ? it<HostNavigator>() : null,
+        // 直播悬浮能力（仅中控屏注册；电视端无应用内悬浮小窗）。
+        liveStage: it.isRegistered<LiveStageControl>()
+            ? it<LiveStageControl>()
+            : null,
       ),
     );
     final ReportingService reporting = ReportingService(

@@ -8,7 +8,7 @@ import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 定时关闭 / 发送消息。
+/// 直播遥控的通用操作行：音量± / 静音 / 频道列表 / 悬浮⇄全屏 / 定时关闭 / 发送消息。
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
 /// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
@@ -64,6 +64,20 @@ class LiveControlsPanel extends StatelessWidget {
           icon: const Icon(Icons.list, size: 20),
           label: Text(count > 0 ? '$channelsLabel（$count）' : channelsLabel),
         ),
+        // 悬浮 ⇄ 全屏开关（仅中控端有应用内悬浮小窗；电视端不显示）。
+        // 形态跟随设备上报的 scene.floating，TargetRemotePanel 收到 state
+        // 帧即重建，按钮文案随之切换。
+        if (panel.kind == 'home')
+          OutlinedButton.icon(
+            onPressed: enabled ? _toggleFloating : null,
+            icon: Icon(
+              _floating
+                  ? Icons.fullscreen_rounded
+                  : Icons.picture_in_picture_alt_rounded,
+              size: 20,
+            ),
+            label: Text(_floating ? '全屏' : '悬浮'),
+          ),
         if (showSleepTimer)
           OutlinedButton.icon(
             onPressed: enabled ? () => _openSleepTimer(context) : null,
@@ -88,6 +102,21 @@ class LiveControlsPanel extends StatelessWidget {
       builder: (BuildContext context) =>
           _ChannelSheet(panel: panel, title: channelsLabel),
     );
+  }
+
+  /// 被控端当前是否处于应用内悬浮小窗（离线时为旧值，按钮已置灰）。
+  bool get _floating => panel.device?.sceneFloating ?? false;
+
+  /// 悬浮中 → 发 `nav live` 恢复全屏（复用现有导航命令）；
+  /// 否则发 `live_float` 缩小为悬浮小窗。
+  void _toggleFloating() {
+    if (_floating) {
+      panel.onCommand(buildNavCommand('live'));
+      panel.onHint?.call('已发送：恢复全屏直播');
+    } else {
+      panel.onCommand(buildCommandEnvelope('live_float'));
+      panel.onHint?.call('已发送：缩小为悬浮小窗');
+    }
   }
 
   void _openSleepTimer(BuildContext context) {

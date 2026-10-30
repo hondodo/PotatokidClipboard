@@ -40,6 +40,10 @@ class ScreenModule {
         live: () => getIt<LiveStageController>(),
       ),
     );
+    // 遥控端 `live_float` 命令：全屏直播 → 应用内悬浮小窗（电视端无此能力）。
+    getIt.registerLazySingleton<LiveStageControl>(
+      () => const _HomeLiveStageControl(),
+    );
     // 定时关闭在中控屏的语义：到点关闭直播（含悬浮小窗）/屏保回到主页，
     // 而不是退出应用。
     SleepTimerController.instance.onExpire = () {
@@ -51,6 +55,9 @@ class ScreenModule {
 
   static Future<void> unregister() async {
     SleepTimerController.instance.onExpire = null;
+    if (getIt.isRegistered<LiveStageControl>()) {
+      await getIt.unregister<LiveStageControl>();
+    }
     if (getIt.isRegistered<HostNavigator>()) {
       await getIt.unregister<HostNavigator>();
     }
@@ -63,4 +70,12 @@ class ScreenModule {
       await getIt.unregister<LiveStageController>();
     }
   }
+}
+
+/// 中控屏的直播悬浮能力：驱动全局直播窗口控制器缩小成应用内小窗。
+class _HomeLiveStageControl implements LiveStageControl {
+  const _HomeLiveStageControl();
+
+  @override
+  void toFloating() => getIt<LiveStageController>().toFloating();
 }
