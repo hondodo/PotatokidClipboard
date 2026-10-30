@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require('http');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -6,6 +7,9 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
 const definds = require('./definds');
+const { createAccountStore, ACCOUNT_PATTERN } = require('./accounts');
+const { attachRealtime } = require('./realtime');
+const { attachAdmin } = require('./admin');
 
 const app = express();
 const PORT = config.port;
@@ -68,6 +72,9 @@ const registerUsersDir = path.join(datasDir, 'register', 'users');
 if (!fs.existsSync(registerUsersDir)) {
     fs.mkdirSync(registerUsersDir, { recursive: true });
 }
+
+// 账号存储：HTTP 登录与 WebSocket 握手共用同一校验（见 accounts.js）
+const accountStore = createAccountStore(registerUsersDir);
 
 // 确保 screen 数据目录存在（../datas/screen/datas）
 const screenDatasDir = path.join(datasDir, 'screen', 'datas');
@@ -257,6 +264,31 @@ app.post('/api/register', (req, res) => {
     }
 });
 
+// 口令 MD5 计算接口：供 realtime.html 在登录表单本地闭环获取握手摘要
+// （浏览器 WebCrypto 不支持 MD5，页面又不引入外网 CDN / 内嵌算法）。
+// 返回的仅是提交方自己口令的 MD5，不泄露任何其他账号信息。
+app.post('/api/password_md5', (req, res) => {
+    try {
+        const { password } = req.body;
+        if (typeof password !== 'string' || password.length === 0) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '口令不能为空',
+            });
+        }
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: 'ok',
+            [definds.txt.DATA]: { md5: crypto.createHash('md5').update(password).digest('hex') },
+        });
+    } catch (error) {
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
 // 用户登录接口
 app.post('/api/login', (req, res) => {
     try {
@@ -269,33 +301,23 @@ app.post('/api/login', (req, res) => {
             });
         }
 
-        // 检查用户文件是否存在
-        const userFilePath = path.join(registerUsersDir, username);
-        if (!fs.existsSync(userFilePath)) {
-            console.log(`登录失败: ${username} - 用户不存在`);
+        const account = String(username).trim();
+        const clientIp = req.ip || req.socket.remoteAddress || 'Unknown';
+
+        // 与 WebSocket 握手共用同一校验：账号文件存在且 MD5 一致；
+        // 账号不存在且口令为默认口令（123456）时自动建档（设备首次登录即开通）。
+        const verdict = accountStore.verifyOrProvision(account, password);
+        if (!verdict.ok) {
+            const reasonText = verdict.reason === 'not_exists' ? '用户不存在' : '密码错误';
+            console.log(`登录失败: ${account} - ${reasonText} from ${clientIp}`);
             return res.status(200).json({
                 [definds.txt.CODE]: definds.code.FAILED,
-                [definds.txt.MSG]: '用户不存在',
-            });
-        }
-
-        // 读取用户文件中的密码哈希
-        const storedPasswordHash = fs.readFileSync(userFilePath, 'utf8').trim();
-
-        // 计算输入密码的MD5哈希
-        const inputPasswordHash = password;  // 改成在客户端做加密了，传入的就是加密后的密码 //crypto.createHash('md5').update(password).digest('hex');
-
-        // 验证密码
-        if (storedPasswordHash !== inputPasswordHash) {
-            console.log(`登录失败: ${username} - 密码错误`);
-            return res.status(200).json({
-                [definds.txt.CODE]: definds.code.FAILED,
-                [definds.txt.MSG]: '密码错误',
+                [definds.txt.MSG]: reasonText,
             });
         }
 
         // 密码验证成功，设置cookie
-        res.cookie('username', username, {
+        res.cookie('username', account, {
             maxAge: 14 * 24 * 60 * 60 * 1000, // 14天
             httpOnly: false, // 允许前端访问
             secure: false, // 开发环境设为false
@@ -303,22 +325,19 @@ app.post('/api/login', (req, res) => {
         });
 
         // 记录这个用户信息到用户文件 users/username_info.txt
-        const userInfoFilePath = path.join(registerUsersDir, username + '_info.txt');
-        if (!fs.existsSync(userInfoFilePath)) {
-            console.log(`登录失败: ${username} - 用户信息文件不存在`);
+        const userInfo = accountStore.readInfo(account);
+        if (!userInfo) {
+            console.log(`登录失败: ${account} - 用户信息文件不存在 from ${clientIp}`);
             return res.status(200).json({
                 [definds.txt.CODE]: definds.code.FAILED,
                 [definds.txt.MSG]: '用户信息文件不存在，请重新注册',
             });
         }
-        // 读取用户信息
-        const userInfo = JSON.parse(fs.readFileSync(userInfoFilePath, 'utf8'));
         // 更新登录时间
         userInfo.loginTime = new Date().toISOString();
-        // 保存用户信息
-        fs.writeFileSync(userInfoFilePath, JSON.stringify(userInfo, null, 2), 'utf8');
+        accountStore.writeInfo(account, userInfo);
 
-        console.log(`用户登录成功: ${username}`);
+        console.log(`用户登录成功: ${account} from ${clientIp}`);
 
         const userData = {
             user: userInfo,
@@ -675,6 +694,105 @@ app.delete('/api/notes/:noteId', (req, res) => {
         });
     } catch (error) {
         console.error('删除笔记错误:', error);
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
+// 遥控会话列表同步 - 按登录账号存一份 {updatedAt, items:[{account, alias}]}
+// 冲突策略：服务端接收时间为准的全量覆盖（后上传者胜出）。
+app.get('/api/remote_sessions', (req, res) => {
+    try {
+        const username = req.cookies?.username;
+
+        if (!username) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+
+        const filePath = path.join(usersDir, username, 'remote_sessions.json');
+
+        if (!fs.existsSync(filePath)) {
+            return res.json({
+                [definds.txt.CODE]: definds.code.SUCCESS,
+                [definds.txt.MSG]: '获取会话列表成功',
+                [definds.txt.DATA]: {
+                    updatedAt: null,
+                    items: []
+                }
+            });
+        }
+
+        const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: '获取会话列表成功',
+            [definds.txt.DATA]: {
+                updatedAt: content.updatedAt || null,
+                items: Array.isArray(content.items) ? content.items : []
+            }
+        });
+    } catch (error) {
+        console.error('获取会话列表错误:', error);
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
+app.post('/api/remote_sessions', (req, res) => {
+    try {
+        const username = req.cookies?.username;
+
+        if (!username) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+
+        const { items } = req.body;
+
+        if (!Array.isArray(items)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: 'items 必须是数组',
+            });
+        }
+
+        // 只保留 {account, alias} 白名单字段，避免脏数据。
+        const cleanItems = items
+            .filter(item => item && typeof item.account === 'string' && item.account.trim())
+            .map(item => ({
+                account: item.account.trim(),
+                alias: typeof item.alias === 'string' ? item.alias : ''
+            }));
+
+        const filePath = path.join(usersDir, username, 'remote_sessions.json');
+        const content = {
+            updatedAt: new Date().toISOString(),
+            items: cleanItems
+        };
+        fs.writeFileSync(filePath, JSON.stringify(content, null, 2));
+
+        console.log(`会话列表已同步: ${username} (${cleanItems.length} 条)`);
+
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: '会话列表同步成功',
+            [definds.txt.DATA]: {
+                updatedAt: content.updatedAt,
+                items: content.items
+            }
+        });
+    } catch (error) {
+        console.error('同步会话列表错误:', error);
         res.status(200).json({
             [definds.txt.CODE]: definds.code.FAILED,
             [definds.txt.MSG]: error.message,
@@ -1587,6 +1705,15 @@ app.post('/api/clipboard', (req, res) => {
 
         console.log(`剪贴板已创建: ${username}/${filename}`);
 
+        // 已连接的客户端直接收推送，无需再轮询 GET /api/clipboards
+        if (realtimeHandle && typeof realtimeHandle.pushClipboard === 'function') {
+            try {
+                realtimeHandle.pushClipboard(username, clipboardContent);
+            } catch (error) {
+                console.error('剪贴板推送失败:', error.message);
+            }
+        }
+
         // 按时间排序，最新的放在最前面，每个用户最多只能有1000条，旧的则删除文件
         const files = fs.readdirSync(saveDir).filter(file => file.endsWith('.txt'));
         while (files.length > 1000) {
@@ -1614,6 +1741,32 @@ app.post('/api/clipboard', (req, res) => {
     }
 });
 
+// 读取用户剪贴板列表：HTTP GET /api/clipboards 与 WebSocket 快照共用同一实现。
+// 文件名形如 clipboard_<id>.txt，id 就是文件名里的时间戳，
+// 所以先按 id 过滤文件名、再读盘；轮询/快照只读增量文件，不再全量读历史。
+function readUserClipboards(username, fromId = 0) {
+    if (typeof username !== 'string' || !ACCOUNT_PATTERN.test(username)) {
+        throw new Error('非法用户名');
+    }
+
+    const saveDir = path.join(usersDir, username, 'clipboard');
+    if (!fs.existsSync(saveDir)) return [];
+
+    const target = parseInt(fromId, 10) || 0;
+    const files = fs.readdirSync(saveDir).filter((file) => {
+        const matched = /^clipboard_(\d+)\.txt$/.exec(file);
+        if (!matched) return false;
+        return target <= 0 || Number(matched[1]) > target;
+    });
+
+    const clipboards = files.map((filename) =>
+        JSON.parse(fs.readFileSync(path.join(saveDir, filename), 'utf8')),
+    );
+    clipboards.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // 最多返回20条
+    return clipboards.slice(0, 20);
+}
+
 // 获取用户剪贴板列表
 app.get('/api/clipboards', (req, res) => {
     try {
@@ -1639,41 +1792,11 @@ app.get('/api/clipboards', (req, res) => {
             });
         }
 
-        const saveDir = path.join(usersDir, username, 'clipboard');
-
-        if (!fs.existsSync(saveDir)) {
-            return res.json({
-                [definds.txt.CODE]: definds.code.SUCCESS,
-                [definds.txt.MSG]: '获取剪贴板列表成功',
-                [definds.txt.DATA]: {
-                    clipboards: []
-                }
-            });
-        }
-
-        // 如果fromId大于0，则从fromId开始读取，只获取比fromId大的id的剪贴板，否则返回全部
-        let clipboards = [];
-
-        // 读取用户目录下的所有剪贴板文件
-        const files = fs.readdirSync(saveDir).filter(file => file.endsWith('.txt'));
-        clipboards = files.map(filename => {
-            const filePath = path.join(saveDir, filename);
-            const content = fs.readFileSync(filePath, 'utf8');
-            return JSON.parse(content);
-        }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-        if (fromId > 0) {
-            clipboards = clipboards.filter(clipboard => clipboard.id > fromId);
-        }
-
-        // 最多返回20条
-        clipboards = clipboards.slice(0, 20);
-
         res.json({
             [definds.txt.CODE]: definds.code.SUCCESS,
             [definds.txt.MSG]: '获取剪贴板列表成功',
             [definds.txt.DATA]: {
-                clipboards: clipboards
+                clipboards: readUserClipboards(username, fromId)
             }
         });
     } catch (error) {
@@ -1683,6 +1806,16 @@ app.get('/api/clipboards', (req, res) => {
             [definds.txt.MSG]: error.message,
         });
     }
+});
+
+// Admin 管理接口 / 设备配置与布局同步接口。
+// 必须在 SPA 兜底路由之前注册，否则 /api/admin/* 会被 index.html 接管。
+let realtimeHandle = null;
+const adminHandle = attachAdmin(app, {
+    datasDir,
+    registerUsersDir,
+    webAppPath,
+    onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
 });
 
 // 处理所有其他路由，返回Flutter应用（SPA支持）
@@ -1703,14 +1836,27 @@ app.use((req, res) => {
     res.sendFile(indexPath);
 });
 
-// 启动服务器
-app.listen(PORT, () => {
+// 启动服务器（HTTP + WebSocket 共用同一端口）
+const httpServer = http.createServer(app);
+realtimeHandle = attachRealtime(httpServer, {
+    path: config.realtime.path,
+    accountStore,
+    dataDir: path.join(__dirname, config.realtime.dataDir),
+    setCommInfo: adminHandle.setCommInfo,
+    // 剪贴板推送通道：复用 HTTP 的账号体系与列表读取实现
+    clipboardPath: '/ws/clipboard',
+    clipboardList: (account, fromId) => readUserClipboards(account, fromId),
+});
+httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);
+    console.log(`🔌 实时消息网关运行在 ws://localhost:${PORT}${config.realtime.path}`);
     console.log(`📁 Flutter Web应用路径: ${webAppPath}`);
     console.log(`📁 上传目录: ${uploadDir}`);
     console.log(`📦 文件大小限制: ${config.limits.fileSize / (1024 * 1024)}MB`);
     console.log('🔧 支持的功能:');
     console.log('- 静态文件服务 (Flutter Web应用)');
+    console.log('- WebSocket /ws - 实时消息与在线状态');
+    console.log('- WebSocket /ws/clipboard - 剪贴板列表推送（替代轮询）');
     console.log('- POST /api/upload - 上传文件');
     console.log('- GET /api/files - 获取文件列表');
     console.log('- DELETE /api/files/:filename - 删除文件');
@@ -1719,6 +1865,8 @@ app.listen(PORT, () => {
     console.log('- POST /api/notes - 创建笔记');
     console.log('- GET /api/notes - 获取用户笔记列表');
     console.log('- DELETE /api/notes/:noteId - 删除笔记');
+    console.log('- GET /api/remote_sessions - 获取遥控会话列表');
+    console.log('- POST /api/remote_sessions - 同步遥控会话列表');
     console.log('- GET /api/translation_config - 获取翻译配置');
     console.log('- POST /api/upload_translation - 上传翻译文件');
     console.log('- GET /api/translation_files/:app - 获取App翻译文件列表');

@@ -1,9 +1,11 @@
 .dart_tool
 build/
-# Kotlin / Gradle ¹¹½¨»º´æ
+# Node æœåŠ¡ç«¯ä¾èµ–ï¼ˆä»çº¿ä¸Š /home/honghao/services/tools/server åŒæ­¥ï¼‰
+node_modules/
+# Kotlin / Gradle æ„å»ºç¼“å­˜
 .kotlin/
 
-# Windows ÎÄ¼şÈ¨ÏŞÕï¶ÏµÄ±¸·İ / »Ø¹ö²úÎï
+# Windows æ–‡ä»¶æƒé™è¯Šæ–­çš„å¤‡ä»½ / å›æ»šäº§ç‰©
 acl-recovery/
 
 */*/pubspec.lock
