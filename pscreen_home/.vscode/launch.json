@@ -86,7 +86,7 @@
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "192.168.70.14:42899"
+            "deviceId": "192.168.70.14:40087"
         },
     ]
 }
