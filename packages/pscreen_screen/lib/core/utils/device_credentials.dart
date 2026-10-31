@@ -13,20 +13,33 @@ import 'package:pscreen_screen/core/utils/device_identity.dart';
 /// 取值优先级（账号与口令各自独立）：
 /// 1. 设置页自定义值（[AppSettings.remoteAccount] / [AppSettings.remotePassword]）
 /// 2. `.env` 兜底（`TOOLS_TOKEN` / `TOOLS_PASSWORD`，未配置时为空）
-/// 3. 默认值：账号 = 设备号（16 位 hex，无连字符）、口令 = `123456`
+/// 3. 默认值：账号 = 宿主前缀 + 设备号（16 位 hex，无连字符）、口令 = `123456`
 class DeviceCredentials {
   const DeviceCredentials._();
 
   /// 默认口令（与服务端自动建档口令一致，见服务端 accounts.js）。
   static const String defaultPassword = '123456';
 
-  /// 生效账号：自定义 > `.env` > 16 位 hex 设备号。
+  static String _defaultAccountPrefix = '';
+
+  /// 宿主启动时设置默认账号前缀；不影响自定义账号或设备号。
+  static void configureDefaultAccountPrefix(String prefix) {
+    _defaultAccountPrefix = prefix;
+  }
+
+  /// 默认账号；设备号不可用时返回空串，而不是仅返回前缀。
+  static Future<String> defaultAccount() async {
+    final String id = await deviceId();
+    return id.isEmpty ? '' : '$_defaultAccountPrefix$id';
+  }
+
+  /// 生效账号：自定义 > `.env` > 宿主前缀 + 设备号。
   static Future<String> account() async {
     final String custom = AppSettings.instance.remoteAccount.trim();
     if (custom.isNotEmpty) return custom;
     final String fallback = AppConfig.toolsToken.trim();
     if (fallback.isNotEmpty) return fallback;
-    return deviceId();
+    return defaultAccount();
   }
 
   /// 生效口令：自定义 > `.env` > 默认 `123456`。

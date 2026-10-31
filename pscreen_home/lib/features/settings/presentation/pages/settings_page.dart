@@ -168,7 +168,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存实时通道账号 / 口令，并立即重连（失败仅提示，不阻断中控台）。
   ///
-  /// 账号留空 = 回落本机设备号（16hex）；口令留空 = 默认 123456。
+  /// 账号留空 = home + 本机设备号（16hex）；口令留空 = 默认 123456。
   /// 重连顺序与启动一致：先 HTTP 登录（账号不存在时按默认口令自动建档），
   /// 再连 ws，否则 ws 握手会因「账号不存在」被拒。
   Future<void> _saveRemoteCredentials() async {
@@ -686,7 +686,7 @@ class _SettingsPageState extends State<SettingsPage> {
             controller: _remoteAccountController,
             decoration: const InputDecoration(
               labelText: '实时账号',
-              helperText: '留空则用本机设备号（16位）；管理员账号见遥控面板',
+              helperText: '留空则用 home + 本机设备号（16位）；管理员账号见遥控面板',
               border: OutlineInputBorder(),
             ),
             maxLines: 1,

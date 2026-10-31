@@ -11,7 +11,7 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
-import 'package:pscreen_screen/core/utils/device_identity.dart';
+import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
@@ -27,6 +27,7 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      DeviceCredentials.configureDefaultAccountPrefix('tv');
 
       // 1. 锁定横屏（电视场景）
       await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
@@ -78,15 +79,19 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
-      // 4.05 默认「远程」账号 = 本机设备号（16hex，去连字符）：仅当用户从未
-      //      设置过账号、或残留旧版带连字符的设备号时写入一次（卸载重装后不变）。
-      //      必须在 4.1 派发自动连接之前完成，否则 RemoteLoginBloc 的初始 State
-      //      读不到该账号；全新情况下 DeviceCredentials 也会自动回落设备号。
+      // 4.05 默认「远程」账号 = tv + 本机设备号。只替换与本机设备号匹配的
+      //      旧默认账号，保留手动设置的其他账号。
       final String savedAccount = AppSettings.instance.remoteAccount;
-      if (savedAccount.isEmpty || _isLegacyDeviceAccount(savedAccount)) {
-        final String hexId = (await DeviceIdentity.instance.resolve()).replaceAll('-', '');
-        if (hexId.isNotEmpty && savedAccount != hexId) {
-          await AppSettings.instance.setRemoteAccount(hexId);
+      final String deviceId = await DeviceCredentials.deviceId();
+      final String oldId = savedAccount.replaceAll('-', '').toLowerCase();
+      if (deviceId.isNotEmpty &&
+          (savedAccount.isEmpty ||
+              (oldId == deviceId &&
+                  (savedAccount.length == 16 ||
+                      _isLegacyDeviceAccount(savedAccount))))) {
+        final String account = await DeviceCredentials.defaultAccount();
+        if (account.isNotEmpty && savedAccount != account) {
+          await AppSettings.instance.setRemoteAccount(account);
         }
       }
 
@@ -144,6 +149,6 @@ void main() {
 }
 
 /// 是否为旧版默认账号（DeviceIdentity 原格式 `xxxx-xxxx-xxxx-xxxx`）。
-/// 这类值不是用户自定义账号，启动时迁移为 16hex 设备号。
+/// 只有与本机设备号匹配时才视为旧默认账号。
 bool _isLegacyDeviceAccount(String value) =>
     RegExp(r'^[0-9a-fA-F]{4}(-[0-9a-fA-F]{4}){3}$').hasMatch(value);

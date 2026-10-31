@@ -32,6 +32,7 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      DeviceCredentials.configureDefaultAccountPrefix('home');
 
       // 0. 媒体播放库（共享包的 IPTV 能力依赖 media_kit）
       MediaKit.ensureInitialized();
