@@ -54,8 +54,10 @@ enum CalcVoiceType {
 
 /// 计算器按键
 enum CalcVoiceItem {
-  /// 00
-  number00(0),
+  // /// 00
+  // number00(0),
+
+  none(0),
 
   /// 0
   number0(1),
@@ -102,11 +104,11 @@ enum CalcVoiceItem {
   /// ÷
   operatorDivide(15),
 
-  /// =
-  operatorEqual(16),
-
   /// %
-  operatorPercent(17),
+  operatorPercent(16),
+
+  /// =
+  functionEqual(17),
 
   /// 清除
   functionClear(18),
@@ -115,7 +117,13 @@ enum CalcVoiceItem {
   functionBackspace(19),
 
   /// 语音类型
-  voiceType(20),
+  functionVoiceType(20),
+
+  /// × -> *
+  operatorMultiplyToDart(21),
+
+  /// ÷ -> /
+  operatorDivideToDart(22),
   ;
 
   final int value;
@@ -128,8 +136,10 @@ enum CalcVoiceItem {
 
   String get text {
     switch (this) {
-      case CalcVoiceItem.number00:
-        return '00'.tr;
+      case CalcVoiceItem.none:
+        return ''.tr;
+      // case CalcVoiceItem.number00:
+      //   return '00'.tr;
       case CalcVoiceItem.number0:
         return '0'.tr;
       case CalcVoiceItem.number1:
@@ -160,7 +170,7 @@ enum CalcVoiceItem {
         return '×'.tr;
       case CalcVoiceItem.operatorDivide:
         return '÷'.tr;
-      case CalcVoiceItem.operatorEqual:
+      case CalcVoiceItem.functionEqual:
         return '='.tr;
       case CalcVoiceItem.operatorPercent:
         return '%'.tr;
@@ -168,15 +178,73 @@ enum CalcVoiceItem {
         return 'C'.tr;
       case CalcVoiceItem.functionBackspace:
         return '←'.tr;
-      case CalcVoiceItem.voiceType:
+      case CalcVoiceItem.functionVoiceType:
         return '语音'.tr;
+      case CalcVoiceItem.operatorMultiplyToDart:
+        return '*';
+      case CalcVoiceItem.operatorDivideToDart:
+        return '/';
     }
+  }
+
+  CalcVoiceItem stringToItem(String string) {
+    switch (string) {
+      case '':
+        return CalcVoiceItem.none;
+      case '*':
+        return CalcVoiceItem.operatorMultiplyToDart;
+      case '/':
+        return CalcVoiceItem.operatorDivideToDart;
+      case '0':
+        return CalcVoiceItem.number0;
+      case '1':
+        return CalcVoiceItem.number1;
+      case '2':
+        return CalcVoiceItem.number2;
+      case '3':
+        return CalcVoiceItem.number3;
+      case '4':
+        return CalcVoiceItem.number4;
+      case '5':
+        return CalcVoiceItem.number5;
+      case '6':
+        return CalcVoiceItem.number6;
+      case '7':
+        return CalcVoiceItem.number7;
+      case '8':
+        return CalcVoiceItem.number8;
+      case '9':
+        return CalcVoiceItem.number9;
+      case '.':
+        return CalcVoiceItem.numberDot;
+      case '+':
+        return CalcVoiceItem.operatorAdd;
+      case '-':
+        return CalcVoiceItem.operatorSubtract;
+      case '×':
+        return CalcVoiceItem.operatorMultiply;
+      case '÷':
+        return CalcVoiceItem.operatorDivide;
+      case '=':
+        return CalcVoiceItem.functionEqual;
+      case '%':
+        return CalcVoiceItem.operatorPercent;
+      case 'C':
+        return CalcVoiceItem.functionClear;
+      case '←':
+        return CalcVoiceItem.functionBackspace;
+      case '语音':
+        return CalcVoiceItem.functionVoiceType;
+    }
+    return CalcVoiceItem.none;
   }
 
   String get filename {
     switch (this) {
-      case CalcVoiceItem.number00:
-        return '00.mp3';
+      case CalcVoiceItem.none:
+        return '';
+      // case CalcVoiceItem.number00:
+      //   return '00.mp3';
       case CalcVoiceItem.number0:
         return '0.mp3';
       case CalcVoiceItem.number1:
@@ -207,7 +275,7 @@ enum CalcVoiceItem {
         return 'multiply.mp3';
       case CalcVoiceItem.operatorDivide:
         return 'divide.mp3';
-      case CalcVoiceItem.operatorEqual:
+      case CalcVoiceItem.functionEqual:
         return 'equal.mp3';
       case CalcVoiceItem.operatorPercent:
         return 'percent.mp3';
@@ -215,8 +283,12 @@ enum CalcVoiceItem {
         return 'clear.mp3';
       case CalcVoiceItem.functionBackspace:
         return 'backspace.mp3';
-      case CalcVoiceItem.voiceType:
+      case CalcVoiceItem.functionVoiceType:
         return 'voice_type.mp3';
+      case CalcVoiceItem.operatorMultiplyToDart:
+        return 'multiply.mp3';
+      case CalcVoiceItem.operatorDivideToDart:
+        return 'divide.mp3';
     }
   }
 }
@@ -229,9 +301,10 @@ class CalcVoiceHelper {
     initVoicePathMap();
   }
 
+  Map<String, AudioPlayer> audioPlayerMap = {};
+
   static CalcVoiceHelper get instance => _instance;
 
-  AudioPlayer? audioPlayer;
   Map<CalcVoiceType, List<String>> voicePathMap = {};
 
   List<AudioSource> playlist = [];
@@ -261,38 +334,43 @@ class CalcVoiceHelper {
     }
   }
 
+  AudioPlayer? currentAudioPlayer;
+
   Future<void> playVoice(CalcVoiceType type, CalcVoiceItem item) async {
-    // audioPlayer?.dispose();
-    // audioPlayer = null;
+    if (item == CalcVoiceItem.none) {
+      return;
+    }
+    if (type != CalcVoiceType.putonghua) {
+      debugPrint(
+          '[Calc Audio Player] skip play voice for type: $type, 还没录音，还不能播放');
+      return;
+    }
+    String path = getVoicePath(type, item);
+    // currentAudioPlayer?.stop();
+    var audioPlayer = audioPlayerMap[path];
     if (audioPlayer == null) {
       audioPlayer = AudioPlayer();
-      // initPlaylist(type);
-      // await audioPlayer?.setAudioSources(
-      //   playlist, initialIndex: 0, initialPosition: Duration.zero,
-      //   shuffleOrder: DefaultShuffleOrder(), // Customise the shuffle algorithm
-      // );
-      // audioPlayer?.setLoopMode(LoopMode.all);
-      audioPlayer?.setVolume(1.0);
-      audioPlayer?.playerStateStream.listen((state) {
+      audioPlayerMap[path] = audioPlayer;
+      audioPlayer.setAsset(path);
+      audioPlayer.setVolume(1.0);
+      audioPlayer.playerStateStream.listen((state) {
         debugPrint('[Calc Audio Player] playerState: $state');
       });
-      audioPlayer?.playerEventStream.listen((event) {
+      audioPlayer.playerEventStream.listen((event) {
         debugPrint('[Calc Audio Player] playerEvent: $event');
       });
-      audioPlayer?.bufferedPositionStream.listen((position) {
+      audioPlayer.bufferedPositionStream.listen((position) {
         debugPrint('[Calc Audio Player] bufferedPosition: $position');
       });
-      audioPlayer?.positionStream.listen((position) {
+      audioPlayer.positionStream.listen((position) {
         debugPrint('[Calc Audio Player] position: $position');
       });
-      audioPlayer?.durationStream.listen((duration) {
+      audioPlayer.durationStream.listen((duration) {
         debugPrint('[Calc Audio Player] duration: $duration');
       });
     }
-    // String path = getVoicePath(type, item);
-    // int index = 1;
-    // await audioPlayer?.seek(Duration.zero, index: index);
-    audioPlayer?.setAsset(getVoicePath(type, item));
-    await audioPlayer?.play();
+    // currentAudioPlayer = audioPlayer;
+    audioPlayer.seek(Duration.zero);
+    await audioPlayer.play();
   }
 }

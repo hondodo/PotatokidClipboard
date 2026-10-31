@@ -94,10 +94,10 @@ class CalcPage extends BaseStatelessSubWidget<CalcController> {
               _buildKeyboard(item: CalcVoiceItem.number2),
               _buildKeyboard(item: CalcVoiceItem.number3),
               _buildKeyboard(item: CalcVoiceItem.operatorAdd),
-              _buildKeyboard(item: CalcVoiceItem.voiceType),
+              _buildKeyboard(item: CalcVoiceItem.functionVoiceType),
               _buildKeyboard(item: CalcVoiceItem.number0),
               _buildKeyboard(item: CalcVoiceItem.numberDot),
-              _buildKeyboard(item: CalcVoiceItem.operatorEqual),
+              _buildKeyboard(item: CalcVoiceItem.functionEqual),
             ],
           ),
         ),
@@ -127,19 +127,16 @@ class CalcPage extends BaseStatelessSubWidget<CalcController> {
   }) {
     return AppButtonCommon.primaryWithTextIcon(
       onPressed: () {
-        if (item.value == CalcVoiceItem.voiceType.value) {
-          controller.onVoiceTypePressed();
-          return;
-        }
-        controller.onVoiceItemPressed(item);
+        controller.onItemPressed(item);
       },
       onTapDown: (details) {
         controller.onKeyTabDownFeedback();
+        controller.playVoice(item);
       },
       onTapUp: (details) {
         controller.onKeyTabUpFeedback();
       },
-      text: item.value == CalcVoiceItem.voiceType.value
+      text: item.value == CalcVoiceItem.functionVoiceType.value
           ? controller
               .voiceTypeList[controller.currentVoiceTypeIndex.value].iconText
           : item.text,

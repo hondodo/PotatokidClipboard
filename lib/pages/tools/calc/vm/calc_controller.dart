@@ -38,6 +38,32 @@ class CalcController extends BaseGetVM {
   String currentExpression = '';
   final ScrollController scrollController = ScrollController();
   List<String> operatorList = ['+', '-', '*', '/', '%', '×', '÷'];
+  List<CalcVoiceItem> numberItemList = [
+    CalcVoiceItem.number0,
+    CalcVoiceItem.number1,
+    CalcVoiceItem.number2,
+    CalcVoiceItem.number3,
+    CalcVoiceItem.number4,
+    CalcVoiceItem.number5,
+    CalcVoiceItem.number6,
+    CalcVoiceItem.number7,
+    CalcVoiceItem.number8,
+    CalcVoiceItem.number9,
+    CalcVoiceItem.numberDot,
+  ];
+  List<CalcVoiceItem> operatorItemList = [
+    CalcVoiceItem.operatorAdd,
+    CalcVoiceItem.operatorSubtract,
+    CalcVoiceItem.operatorMultiply,
+    CalcVoiceItem.operatorDivide,
+    CalcVoiceItem.operatorPercent,
+  ];
+  List<CalcVoiceItem> functionItemList = [
+    CalcVoiceItem.functionClear,
+    CalcVoiceItem.functionBackspace,
+    CalcVoiceItem.functionEqual,
+    CalcVoiceItem.functionVoiceType,
+  ];
   List<CalcVoiceType> voiceTypeList = [
     CalcVoiceType.putonghua,
     CalcVoiceType.yinyue,
@@ -161,6 +187,11 @@ class CalcController extends BaseGetVM {
     expressionHistory.add(result);
     currentExpression = isError ? '' : result.valueString;
     updateExpressionHistory();
+    // if (!isError) {
+    //   for(var char in result.valueString.characters){
+    //     playVoice(CalcVoiceItem.fromValue(char.codeUnitAt(0)));
+    //   }
+    // }
   }
 
   void onKeyboardBackspacePressed() {
@@ -362,8 +393,29 @@ class CalcController extends BaseGetVM {
     currentVoiceTypeIndex.value = index;
   }
 
-  void onVoiceItemPressed(CalcVoiceItem item) {
+  void playVoice(CalcVoiceItem item) {
+    if (item == CalcVoiceItem.functionVoiceType) {
+      return;
+    }
     CalcVoiceHelper.instance
         .playVoice(voiceTypeList[currentVoiceTypeIndex.value], item);
+  }
+
+  void onItemPressed(CalcVoiceItem item) {
+    if (numberItemList.contains(item)) {
+      onKeyboardNumberPressed(item.text);
+    } else if (operatorItemList.contains(item)) {
+      onKeyboardOperatorPressed(item.text);
+    } else if (functionItemList.contains(item)) {
+      if (item == CalcVoiceItem.functionClear) {
+        onKeyboardClearPressed();
+      } else if (item == CalcVoiceItem.functionBackspace) {
+        onKeyboardBackspacePressed();
+      } else if (item == CalcVoiceItem.functionEqual) {
+        onKeyboardEqualPressed();
+      } else if (item == CalcVoiceItem.functionVoiceType) {
+        onVoiceTypePressed();
+      }
+    }
   }
 }
