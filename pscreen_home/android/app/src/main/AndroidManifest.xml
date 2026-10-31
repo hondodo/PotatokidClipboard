@@ -48,7 +48,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.HOME"/>
-                <category android:name="android.intent.category.DEFAULT"/>
+                <!-- <category android:name="android.intent.category.DEFAULT"/> -->
             </intent-filter>
         </activity>
         <!-- 桌面图标入口：空壳 Activity，不创建 FlutterEngine。

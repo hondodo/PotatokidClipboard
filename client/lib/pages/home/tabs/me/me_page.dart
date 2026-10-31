@@ -1,10 +1,10 @@
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:potatokid_clipboard/framework/base/base_stateless_sub_widget.dart';
 import 'package:potatokid_clipboard/framework/theme/app_text_theme.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/me/vm/me_controller.dart';
+import 'package:potatokid_clipboard/utils/clipboard_utils.dart';
 import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:potatokid_clipboard/utils/dialog_helper.dart';
 
@@ -198,8 +198,9 @@ class MePage extends BaseStatelessSubWidget<MeController> {
     );
   }
 
-  void _copyToClipboard(String text, String label) {
-    Clipboard.setData(ClipboardData(text: text));
-    DialogHelper.showTextToast('已复制$label: $text');
+  Future<void> _copyToClipboard(String text, String label) async {
+    if (await ClipboardUtils.setText(text)) {
+      DialogHelper.showTextToast('已复制$label: $text');
+    }
   }
 }

@@ -28,7 +28,7 @@ class SettingsPage extends BaseStatelessSubWidget<SettingsController> {
                 value: controller.isAutoSaveClipboard.value,
                 onChanged: (value) => controller.onToggleAutoSaveClipboard(),
               ),
-              if (Platform.isWindows)
+              if (Platform.isWindows || Platform.isMacOS)
                 SwitchListTile(
                   title: Text('在启动时隐藏窗口'.tr),
                   value: controller.isHideWindowOnStartup.value,

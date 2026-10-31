@@ -102,9 +102,6 @@ dependencies:
   # 下拉刷新
   custom_refresh_indicator: ^4.0.1
 
-  # 文件图标
-  file_icon: ^1.0.0
-  
   # 文件选择
   file_picker: ^8.0.4
 
@@ -142,7 +139,12 @@ dependencies:
 
   # 音频播放
   just_audio: ^0.10.5
-  audioplayers: ^6.5.1
+  # 6.8.x 的 Windows 插件要求 C++20，与当前 VS2019 工具链不兼容。
+  audioplayers: 6.5.1
+
+dependency_overrides:
+  # audioplayers 6.5.1 的 ^4.2.1 约束仍会解析到要求 C++20 的 4.4.x。
+  audioplayers_windows: 4.2.1
 
 dev_dependencies:
   flutter_test:

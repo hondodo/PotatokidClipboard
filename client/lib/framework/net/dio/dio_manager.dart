@@ -38,10 +38,23 @@ class DioManager {
 
   Dio get dio => _dio;
 
-  late PersistCookieJar cookieJar;
+  PersistCookieJar? _cookieJar;
+  final Completer<void> _initCompleter = Completer<void>();
   String cookieHeader = '';
 
   Future<void> _init() async {
+    try {
+      await _initInternal();
+    } catch (e, stackTrace) {
+      Log.e('DioManager 初始化失败: $e\n$stackTrace');
+    } finally {
+      if (!_initCompleter.isCompleted) {
+        _initCompleter.complete();
+      }
+    }
+  }
+
+  Future<void> _initInternal() async {
     _dio.options
       ..baseUrl = Hosts.baseHost
       ..connectTimeout =
@@ -51,12 +64,15 @@ class DioManager {
       ..sendTimeout =
           const Duration(seconds: NetConfig.sendTimeout); // 设置发送超时时间为预先定义的常量值
 
-    cookieJar = PersistCookieJar(
-        storage: FileStorage((await getApplicationDocumentsDirectory()).path));
+    final applicationSupportDirectory = await getApplicationSupportDirectory();
+    final cookieDirectory = Directory(
+      '${applicationSupportDirectory.path}${Platform.pathSeparator}cookies',
+    );
+    _cookieJar = PersistCookieJar(storage: FileStorage(cookieDirectory.path));
 
     // 添加拦截器
     _dio.interceptors
-      ..add(CookieManager(cookieJar))
+      ..add(CookieManager(_cookieJar!))
       ..add(DioRequestInterceptor())
       ..add(DioLogInterceptor());
 
@@ -70,13 +86,26 @@ class DioManager {
 
   /// 获取当前域名的所有cookies
   Future<String> getCookies() async {
+    await _initCompleter.future;
+    final cookieJar = _cookieJar;
+    if (cookieJar == null) return '';
     final cookies =
         await cookieJar.loadForRequest(Uri.parse(_dio.options.baseUrl));
     return cookies.map((c) => '${c.name}=${c.value}').join(';');
   }
 
+  Future<bool> hasCookie(String name) async {
+    await _initCompleter.future;
+    final cookieJar = _cookieJar;
+    if (cookieJar == null) return false;
+    final cookies =
+        await cookieJar.loadForRequest(Uri.parse(_dio.options.baseUrl));
+    return cookies.any((cookie) => cookie.name == name);
+  }
+
   Future<void> clearCookie() async {
-    await cookieJar.deleteAll();
+    await _initCompleter.future;
+    await _cookieJar?.deleteAll();
   }
 
   /// 注：网络访问的报错统一由状态管理处理，此处只抛出异常；异常由页面处理
@@ -95,6 +124,7 @@ class DioManager {
     bool tipError = true,
     String? contentType,
   }) async {
+    await _initCompleter.future;
     Log.d(
         '[network][${DateTime.now()}] [${Hosts.baseHost}] $url, params: $params, headers: $headers');
     final List<ConnectivityResult> connectivityResult =

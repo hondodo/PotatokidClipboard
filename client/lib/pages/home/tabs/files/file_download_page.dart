@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
-import 'package:file_icon/file_icon.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -136,7 +135,7 @@ class FileDownloadPage extends BaseStatelessSubWidget<FileDownloadController> {
                   child: Row(
                     children: [
                       // 图标
-                      FileIcon(file.name, size: 32),
+                      _buildFileIcon(file.name),
                       const SizedBox(width: 8),
                       // [文件名、大小]
                       Expanded(
@@ -271,7 +270,7 @@ class FileDownloadPage extends BaseStatelessSubWidget<FileDownloadController> {
                     // 图标
                     Stack(
                       children: [
-                        FileIcon(file.name, size: 32),
+                        _buildFileIcon(file.name),
                         const Positioned(
                             bottom: 0,
                             right: 0,
@@ -352,5 +351,57 @@ class FileDownloadPage extends BaseStatelessSubWidget<FileDownloadController> {
         );
       },
     );
+  }
+
+  Widget _buildFileIcon(String filename) {
+    final extension =
+        filename.contains('.') ? filename.split('.').last.toLowerCase() : '';
+
+    final (icon, color) = switch (extension) {
+      'jpg' || 'jpeg' || 'png' || 'gif' || 'webp' || 'bmp' || 'svg' => (
+          Icons.image,
+          Colors.green
+        ),
+      'mp3' || 'wav' || 'flac' || 'aac' || 'ogg' || 'm4a' => (
+          Icons.audio_file,
+          Colors.deepPurple
+        ),
+      'mp4' || 'mov' || 'avi' || 'mkv' || 'webm' => (
+          Icons.video_file,
+          Colors.red
+        ),
+      'pdf' => (Icons.picture_as_pdf, Colors.red),
+      'doc' || 'docx' || 'odt' || 'rtf' || 'txt' => (
+          Icons.description,
+          Colors.blue
+        ),
+      'xls' || 'xlsx' || 'ods' || 'csv' => (Icons.table_chart, Colors.green),
+      'ppt' || 'pptx' || 'odp' => (Icons.slideshow, Colors.orange),
+      'zip' || 'rar' || '7z' || 'tar' || 'gz' => (
+          Icons.folder_zip,
+          Colors.amber
+        ),
+      'dart' ||
+      'json' ||
+      'xml' ||
+      'yaml' ||
+      'yml' ||
+      'html' ||
+      'css' ||
+      'js' ||
+      'ts' ||
+      'py' ||
+      'java' ||
+      'kt' ||
+      'swift' =>
+        (Icons.code, Colors.blueGrey),
+      'exe' || 'msi' || 'apk' || 'dmg' || 'app' => (
+          Icons.apps,
+          Colors.blueGrey
+        ),
+      _ => (Icons.insert_drive_file, AppTextTheme.hintColor),
+    };
+
+    return Icon(icon, size: 32, color: color);
   }
 }

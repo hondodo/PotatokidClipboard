@@ -35,7 +35,7 @@ class SettingsService extends GetxService {
   final Rx<int> autoCheckClipboardIntervalS =
       DEFAULT_AUTO_CHECK_CLIPBOARD_INTERVAL_S.obs;
 
-  /// 是否在启动时隐藏窗口-仅Windows平台有效
+  /// 是否在启动时隐藏窗口，仅 Windows 和 macOS 有效
   final Rx<bool> isHideWindowOnStartup = true.obs;
 
   @override

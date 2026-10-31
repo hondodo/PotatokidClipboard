@@ -4,10 +4,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
+import 'package:nativeapi/nativeapi.dart' as nativeapi;
 import 'package:potatokid_clipboard/app/pre_config.dart';
 import 'package:potatokid_clipboard/app/root_binding.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
@@ -44,20 +44,20 @@ void main() async {
       appWindow.minSize = initialSize;
       appWindow.size = initialSize;
       appWindow.alignment = Alignment.center;
-      appWindow.show();
-      if (Platform.isWindows) {
-        // 在调试模式下不隐藏窗口，避免调试连接断开
-        final bool isDebugMode = kDebugMode;
-        if (Get.find<SettingsService>().isHideWindowOnStartup.value &&
-            !isDebugMode) {
-          appWindow.show();
-          Future.delayed(const Duration(milliseconds: 1000), () {
-            appWindow.minimize();
-            Future.delayed(const Duration(milliseconds: 100), () {
-              appWindow.hide();
-            });
-          });
+      final canHideOnStartup = Platform.isMacOS || Platform.isWindows;
+      final hideOnStartup = canHideOnStartup &&
+          Get.find<SettingsService>().isHideWindowOnStartup.value;
+      if (hideOnStartup) {
+        if (Platform.isWindows) {
+          // doWhenWindowReady 已完成窗口句柄和首帧初始化。这里不能调用 show，
+          // 否则会绕过 BDW_HIDE_ON_STARTUP 并被 Windows 合成器显示一帧。
+          appWindow.hide();
+        } else {
+          // macOS Runner 使用 BDW_HIDE_ON_STARTUP，保持隐藏即可避免启动闪窗。
+          appWindow.hide();
         }
+      } else {
+        appWindow.show();
       }
     });
   }
@@ -158,14 +158,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (action == TryIconHelper.actionShowWindow) {
       onShowWindow();
     } else if (action == TryIconHelper.actionHideWindow) {
-      appWindow.minimize();
-      if (!Platform.isMacOS) {
+      if (Platform.isMacOS) {
+        appWindow.hide();
+      } else {
+        appWindow.minimize();
         Future.delayed(const Duration(milliseconds: 100), () {
-          appWindow.hide(); // macOS下调用会直接退出，如果延迟调用，也不会隐藏应用列表里的显示，相当于无效
+          appWindow.hide();
         });
       }
     } else if (action == TryIconHelper.actionExitApp) {
-      appWindow.close();
+      if (Platform.isMacOS) {
+        nativeapi.Application.instance.quit(0);
+      } else {
+        appWindow.close();
+      }
     }
   }
 
