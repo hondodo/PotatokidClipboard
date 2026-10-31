@@ -1,6 +1,7 @@
 package potatokid.tools.homecontroller
 
 import android.media.AudioManager
+import android.media.MediaDrm
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -8,6 +9,7 @@ import android.view.View
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.UUID
 
 /**
  * 中控屏宿主 Activity。
@@ -62,20 +64,47 @@ class MainActivity : FlutterActivity() {
                         result.success(Build.MODEL ?: "Android TV")
                     }
                     "getAndroidId" -> {
-                        // 卸载重装后 ANDROID_ID 不变，用它作为设备唯一标识。
-                        val androidId = try {
-                            Settings.Secure.getString(
-                                contentResolver,
-                                Settings.Secure.ANDROID_ID
+                        result.success(androidId())
+                    }
+                    "getDeviceIdentity" -> {
+                        val id = androidId().trim()
+                        val normalized = id.lowercase()
+                        val needsFallback = normalized.isEmpty() ||
+                            normalized == "9774d56d682e549c" ||
+                            normalized.none { it in '1'..'9' || it in 'a'..'f' }
+                        result.success(
+                            mapOf(
+                                "androidId" to id,
+                                "mediaDrmId" to if (needsFallback) mediaDrmDeviceId() else ""
                             )
-                        } catch (e: Exception) {
-                            null
-                        }
-                        result.success(androidId)
+                        )
                     }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun androidId(): String = try {
+        Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+    } catch (e: Exception) {
+        ""
+    }
+
+    private fun mediaDrmDeviceId(): String {
+        var drm: MediaDrm? = null
+        return try {
+            drm = MediaDrm(UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L))
+            drm.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
+                .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        } catch (e: Exception) {
+            ""
+        } finally {
+            try {
+                drm?.release()
+            } catch (e: Exception) {
+                // DRM 不可用时，交由共享层使用本地兜底值。
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
