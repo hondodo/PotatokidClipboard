@@ -1,0 +1,149 @@
+import 'dart:async';
+
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:potatokid_screen/app/app.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/app/config/data_files.dart';
+import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_identity.dart';
+import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/router/app_router.dart';
+import 'package:pscreen_screen/core/utils/ptools_util.dart';
+import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
+import 'package:pscreen_screen/features/remote/application/bloc/remote_login_event.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
+import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
+
+void main() {
+  runZonedGuarded<Future<void>>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+
+      // 1. 锁定横屏（电视场景）
+      await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+
+      // 1.1 沉浸式全屏：隐藏状态栏/导航栏。
+      // 电视/直播场景必须铺满全屏；同时避免 One UI 等系统对「非全屏窗口」
+      // 绘制窗口圆角（表现为画面左上/左下被切出弧线）。
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarContrastEnforced: false,
+        ),
+      );
+
+      // 1.2 初始化媒体播放库（media_kit）
+      MediaKit.ensureInitialized();
+
+      // 1.9 资产根路径：共享包的资产在宿主 bundle 内位于
+      //     packages/pscreen_screen/ 前缀下，读取前必须先告知共享包。
+      //     紧接一次接入自检：忘记配置就在启动期立刻失败，
+      //     而不是等第一次读资产时被 catch 吞成空串。
+      ScreenAssets.configure(root: 'packages/pscreen_screen/');
+      ScreenAssets.requireHostConfigured();
+
+      // 2. 加载 .env 与环境配置
+      await AppConfig.initialize();
+
+      // 2.1 数据文件（tv_name_order / tv_name_hide / weather_cities）：
+      //     先用本地值（持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值；
+      //     git 同步放在依赖注入之后（见 4.1），失败/超时都沿用本地值。
+      await DataFiles.instance.loadLocal();
+
+      // 3. 国际化
+      await EasyLocalization.ensureInitialized();
+      await initializeDateFormatting('zh_CN');
+      await initializeDateFormatting('zh_TW');
+      await initializeDateFormatting('en_US');
+      await initializeDateFormatting('ja_JP');
+
+      // 4. 依赖注入（含网络、路由、业务模块）
+      await Injection.init();
+
+      // 4.05 默认「远程」账号 = 本机设备号（16hex，去连字符）：仅当用户从未
+      //      设置过账号、或残留旧版带连字符的设备号时写入一次（卸载重装后不变）。
+      //      必须在 4.1 派发自动连接之前完成，否则 RemoteLoginBloc 的初始 State
+      //      读不到该账号；全新情况下 DeviceCredentials 也会自动回落设备号。
+      final String savedAccount = AppSettings.instance.remoteAccount;
+      if (savedAccount.isEmpty || _isLegacyDeviceAccount(savedAccount)) {
+        final String hexId = (await DeviceIdentity.instance.resolve()).replaceAll('-', '');
+        if (hexId.isNotEmpty && savedAccount != hexId) {
+          await AppSettings.instance.setRemoteAccount(hexId);
+        }
+      }
+
+      // 4.1 实时通道自动连接（不阻塞启动）。
+      //     连接结果（成功 / 失败 / 断线重连）由 RemoteLoginBloc 反映到「我的」页。
+      Injection.get<RemoteLoginBloc>().add(const RemoteLoginAutoLogin());
+
+      // 4.15 ptools 登录（不阻塞启动）：/api/screen/ 下的数据文件已改成需登录后
+      //      才可访问；先用已保存的 Tools 账号/密码登录一次拿到会话 Cookie，让
+      //      4.2 与后续频道拉取直接命中。失败不阻断启动——各拉取点遇到「未登录」
+      //      还会自行重登（见 PtoolsUtil.fetchUrl/loginWithSaved）。
+      unawaited(PtoolsUtil.loginWithSaved());
+
+      // 4.2 同步数据文件最新版（GitHub，三个文件并发拉取）。本地值已在 2.1
+      //     就绪，这里最坏等 DataFiles 内部超时（约 10s）后沿用本地值，
+      //     不会抛出、不阻断启动。
+      await DataFiles.instance.ensureSynced();
+
+      // 5. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
+      await Injection.get<AppRouter>().initialize();
+
+      // 6. 启动
+      runApp(
+        EasyLocalization(
+          supportedLocales: const <Locale>[
+            Locale('zh', 'CN'),
+            Locale('zh', 'TW'),
+            Locale('en', 'US'),
+            Locale('ja', 'JP'),
+          ],
+          path: 'assets/translations',
+          fallbackLocale: const Locale('zh', 'CN'),
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<AppBloc>(create: (_) => Injection.get<AppBloc>()),
+              // 直播频道状态机：全局共享（首页、我的页都用），
+              // 启动即用缓存优先加载，避免空屏等待。
+              BlocProvider<IptvBloc>(create: (_) => Injection.get<IptvBloc>()..add(const LoadIptv(useCache: true))),
+              // 天气状态机：全局共享，启动即加载（定位 + 拉取），
+              // 时间/屏保/主页直接消费，避免各页重复请求。
+              BlocProvider<WeatherBloc>(create: (_) => Injection.get<WeatherBloc>()..add(const LoadWeather())),
+              // 远程实时通道登录状态机：全局共享（设置页「远程」行消费），
+              // 自动登录已在 4.1 派发，这里只负责 provide。
+              BlocProvider<RemoteLoginBloc>(create: (_) => Injection.get<RemoteLoginBloc>()),
+            ],
+            child: const App(),
+          ),
+        ),
+      );
+    },
+    (error, stack) {
+      FlutterError.presentError(FlutterErrorDetails(exception: error, stack: stack));
+    },
+  );
+}
+
+/// 是否为旧版默认账号（DeviceIdentity 原格式 `xxxx-xxxx-xxxx-xxxx`）。
+/// 这类值不是用户自定义账号，启动时迁移为 16hex 设备号。
+bool _isLegacyDeviceAccount(String value) =>
+    RegExp(r'^[0-9a-fA-F]{4}(-[0-9a-fA-F]{4}){3}$').hasMatch(value);

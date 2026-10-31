@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>薯仔 Admin · 设备与家庭</title>
+  <style>
+    :root {
+      --bg: #0b1116;
+      --bg-2: #101820;
+      --panel: rgba(20, 30, 40, .82);
+      --panel-2: rgba(27, 40, 52, .9);
+      --line: rgba(148, 163, 184, .16);
+      --text: #e7eef6;
+      --muted: #93a4b5;
+      --muted-2: #6b7d8e;
+      --accent: #5fd3c4;
+      --accent-2: #60a5fa;
+      --danger: #f87171;
+      --warn: #fbbf24;
+      --ok: #34d399;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 500px at 12% -10%, rgba(95, 211, 196, .14), transparent 60%),
+        radial-gradient(800px 480px at 92% 0%, rgba(96, 165, 250, .12), transparent 58%),
+        linear-gradient(180deg, #0a0f14, var(--bg));
+      min-height: 100vh;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+
+    .app { max-width: 1480px; margin: 0 auto; padding: 22px 22px 56px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+    .brand { display: flex; align-items: center; gap: 13px; }
+    .logo {
+      width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center;
+      background: linear-gradient(135deg, rgba(95, 211, 196, .95), rgba(96, 165, 250, .9));
+      color: #062023; font-weight: 800; font-size: 20px; box-shadow: 0 10px 28px rgba(95, 211, 196, .18);
+    }
+    .brand h1 { margin: 0; font-size: 19px; letter-spacing: .4px; }
+    .brand p { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pill {
+      padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .035); color: var(--muted); font-size: 12px;
+    }
+    .pill strong { color: var(--text); font-weight: 600; }
+
+    .btn {
+      border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px;
+      background: rgba(255, 255, 255, .04); color: var(--text); font-size: 13px;
+      transition: .16s ease; white-space: nowrap;
+    }
+    .btn:hover { background: rgba(255, 255, 255, .08); border-color: rgba(148, 163, 184, .3); }
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(95, 211, 196, .95), rgba(96, 165, 250, .9));
+      border-color: transparent; color: #062023; font-weight: 700;
+    }
+    .btn.primary:hover { filter: brightness(1.06); }
+    .btn.danger { color: #ffd5d5; border-color: rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .1); }
+    .btn.small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+    .icon-btn {
+      border: 0; background: transparent; color: var(--muted); font-size: 20px;
+      line-height: 1; padding: 4px 8px; border-radius: 8px;
+    }
+    .icon-btn:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
+
+    .login-wrap { display: grid; place-items: center; min-height: 62vh; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .32); backdrop-filter: blur(10px);
+    }
+    .login-card { width: min(420px, 100%); padding: 22px; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 5px; background: rgba(0, 0, 0, .22); border-radius: 12px; margin-bottom: 18px; }
+    .seg-btn {
+      border: 0; background: transparent; color: var(--muted); padding: 9px; border-radius: 9px; font-size: 13px;
+    }
+    .seg-btn.active { background: rgba(255, 255, 255, .08); color: var(--text); font-weight: 600; }
+    form { display: grid; gap: 13px; }
+    label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+    input, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 10px; background: rgba(4, 10, 15, .55);
+      color: var(--text); padding: 10px 12px; outline: none; transition: .16s ease;
+    }
+    input:focus, select:focus { border-color: rgba(95, 211, 196, .55); box-shadow: 0 0 0 3px rgba(95, 211, 196, .1); }
+    select option { background: #101820; }
+    .hint { margin: 0; font-size: 11.5px; color: var(--muted-2); line-height: 1.5; }
+    .msg { min-height: 18px; margin: 12px 0 0; font-size: 12px; color: var(--warn); }
+    .msg.error { color: #fca5a5; }
+    .msg.ok { color: var(--ok); }
+
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .stat { padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, .025); }
+    .stat .k { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+    .stat .v { font-size: 24px; font-weight: 700; letter-spacing: .5px; }
+    .stat .v small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+    .stat.accent .v { color: var(--accent); }
+    .stat.blue .v { color: var(--accent-2); }
+
+    .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+    .tab {
+      border: 0; background: transparent; color: var(--muted); padding: 11px 14px; font-size: 13px;
+      border-bottom: 2px solid transparent; white-space: nowrap;
+    }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+    .panel { animation: fade .18s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+    .panel-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .panel-head h2 { margin: 0; font-size: 16px; }
+    .panel-head p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+    .panel-actions { display: flex; gap: 8px; align-items: center; }
+
+    .table-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; background: rgba(10, 16, 22, .45); }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    th, td { padding: 12px 14px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+    th { color: var(--muted); font-weight: 600; font-size: 11.5px; letter-spacing: .4px; background: rgba(255, 255, 255, .025); position: sticky; top: 0; z-index: 1; }
+    tbody tr:hover { background: rgba(255, 255, 255, .025); }
+    tbody tr:last-child td { border-bottom: 0; }
+    .strong { font-weight: 600; color: var(--text); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--muted-2); word-break: break-all; }
+    .muted { color: var(--muted); font-size: 11.5px; }
+    .cell-stack { display: grid; gap: 3px; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4b5563; margin-right: 6px; vertical-align: middle; }
+    .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .16); }
+    .dot.off { background: #64748b; }
+    .status-text { font-size: 12px; color: var(--muted); }
+    .status-text.on { color: var(--ok); }
+
+    .badges { display: flex; gap: 5px; flex-wrap: wrap; max-width: 320px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .035); font-size: 11px; color: var(--text);
+    }
+    .badge.all { color: var(--accent); border-color: rgba(95, 211, 196, .35); background: rgba(95, 211, 196, .08); }
+    .badge.inherit { color: var(--muted); }
+    .badge.role-admin { color: #062023; background: var(--accent); border-color: transparent; font-weight: 700; }
+    .badge.role-user { color: var(--muted); }
+
+    .empty { padding: 36px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+    .layout-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .layout-side { padding: 14px; }
+    .layout-side h3 { margin: 0 0 10px; font-size: 13px; }
+    .layout-list { display: grid; gap: 6px; max-height: 62vh; overflow: auto; }
+    .layout-item {
+      text-align: left; border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
+      border-radius: 10px; padding: 9px 11px; color: var(--text); font-size: 12px;
+    }
+    .layout-item.active { border-color: rgba(95, 211, 196, .45); background: rgba(95, 211, 196, .08); }
+    .layout-item .sub { display: block; color: var(--muted-2); font-size: 10.5px; margin-top: 3px; }
+    .layout-main { padding: 16px; min-height: 220px; }
+    .layout-main h3 { margin: 0 0 4px; font-size: 14px; }
+    .order-group { margin-top: 16px; }
+    .order-group h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; }
+    .order-list { display: grid; gap: 6px; }
+    .order-row {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 9px; background: rgba(255, 255, 255, .02);
+    }
+    .order-index { width: 22px; color: var(--muted-2); font-size: 11px; text-align: right; }
+    .order-key { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; word-break: break-all; }
+    .order-row .btn { padding: 4px 7px; font-size: 11px; }
+
+    .overlay {
+      position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);
+      display: grid; place-items: center; padding: 18px; z-index: 50;
+    }
+    .dialog { width: min(560px, 100%); max-height: 88vh; display: flex; flex-direction: column; }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .dialog-head h3 { margin: 0; font-size: 15px; }
+    .dialog-body { padding: 18px; overflow: auto; display: grid; gap: 14px; }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
+    .radio-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .radio-chip {
+      display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 999px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .03); font-size: 12px; color: var(--muted); cursor: pointer;
+    }
+    .radio-chip input { width: auto; margin: 0; accent-color: var(--accent); }
+    .radio-chip.active { color: var(--text); border-color: rgba(95, 211, 196, .45); background: rgba(95, 211, 196, .08); }
+    .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 7px; }
+    .check-item {
+      display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 9px; background: rgba(255, 255, 255, .025); font-size: 12px; color: var(--text);
+    }
+    .check-item input { width: auto; margin: 0; accent-color: var(--accent); }
+    .field-note { font-size: 11.5px; color: var(--muted-2); line-height: 1.55; }
+    .toast {
+      position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+      padding: 10px 16px; border-radius: 10px; background: rgba(16, 24, 32, .96);
+      border: 1px solid var(--line); color: var(--text); font-size: 12.5px; z-index: 80;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, .4); max-width: min(560px, 92vw);
+    }
+    .toast.error { border-color: rgba(248, 113, 113, .4); color: #fecaca; }
+    .toast.ok { border-color: rgba(52, 211, 153, .4); color: #bbf7d0; }
+
+    @media (max-width: 900px) {
+      .app { padding: 16px 14px 44px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout-grid { grid-template-columns: 1fr; }
+      .layout-side { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">薯</div>
+      <div>
+        <h1>薯仔 Admin</h1>
+        <p id="subtitle">设备状态 · 家庭权限 · 首页布局</p>
+      </div>
+    </div>
+    <div class="top-actions" id="top-actions" hidden>
+      <span class="pill" id="admin-name"></span>
+      <button class="btn" id="refresh-btn" type="button">刷新</button>
+      <button class="btn" id="logout-btn" type="button">退出</button>
+    </div>
+  </header>
+
+  <section id="login-view" class="login-wrap">
+    <div class="card login-card">
+      <div class="seg">
+        <button class="seg-btn active" type="button" data-auth="login">登录</button>
+        <button class="seg-btn" type="button" data-auth="register">注册</button>
+      </div>
+
+      <form id="login-form">
+        <label>用户名
+          <input id="login-username" autocomplete="username" placeholder="honghao" required>
+        </label>
+        <label>密码
+          <input id="login-password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn primary" type="submit">登录</button>
+        <p class="hint">管理员账号固定为 <strong>honghao</strong>；普通账号需在「用户与家庭」里提升为管理员后才能进入本页。</p>
+      </form>
+
+      <form id="register-form" hidden>
+        <label>用户名
+          <input id="register-username" autocomplete="username" placeholder="2-20 位字母 / 数字 / 中文" required>
+        </label>
+        <label>密码
+          <input id="register-password" type="password" autocomplete="new-password" placeholder="至少 4 位" required>
+        </label>
+        <label>确认密码
+          <input id="register-password-2" type="password" autocomplete="new-password" required>
+        </label>
+        <button class="btn primary" type="submit">注册普通账号</button>
+        <p class="hint">注册后默认没有管理员权限，也不会自动登录。</p>
+      </form>
+
+      <p id="auth-msg" class="msg"></p>
+    </div>
+  </section>
+
+  <main id="dashboard-view" hidden>
+    <div class="stats" id="stats"></div>
+
+    <nav class="tabs">
+      <button class="tab active" type="button" data-tab="machines">设备状态</button>
+      <button class="tab" type="button" data-tab="users">用户与家庭</button>
+      <button class="tab" type="button" data-tab="layouts">首页布局</button>
+    </nav>
+
+    <section id="tab-machines" class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>设备状态</h2>
+          <p>设备通过 Android ID 自动注册；在线判定为 90 秒内收到心跳。家庭权限优先级：机器设置 &gt; 所属用户设置 &gt; App 的 .env。</p>
+        </div>
+        <div class="panel-actions">
+          <span class="pill" id="realtime-pill">实时通道在线：—</span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:86px">状态</th>
+              <th>设备</th>
+              <th style="width:150px">所属用户</th>
+              <th style="width:130px">通信账号</th>
+              <th style="width:280px">可见家庭</th>
+              <th style="width:120px">当前家庭</th>
+              <th style="width:170px">最后心跳</th>
+              <th style="width:130px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="machines-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-users" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>用户与家庭</h2>
+          <p>用户设置对绑定到该用户的所有设备生效；机器可以单独覆盖。留空表示未配置，回落下一层或 .env。</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>用户</th>
+              <th style="width:110px">角色</th>
+              <th style="width:320px">可见家庭</th>
+              <th style="width:90px">设备数</th>
+              <th style="width:170px">最后登录</th>
+              <th style="width:120px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-layouts" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>首页布局</h2>
+          <p>App 拖拽排序后自动上传到服务端；卸载重装后会自动拉回。这里可以查看、微调或重置。</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn small" id="layout-save" type="button" disabled>保存当前布局</button>
+          <button class="btn small danger" id="layout-reset" type="button" disabled>重置</button>
+        </div>
+      </div>
+      <div class="layout-grid">
+        <div class="card layout-side">
+          <h3>布局归属</h3>
+          <div class="layout-list" id="layout-list"></div>
+        </div>
+        <div class="card layout-main" id="layout-main">
+          <div class="empty">暂无布局数据。App 首次拖拽排序后会自动出现在这里。</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="dialog-root"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const state = {
+    me: null,
+    overview: null,
+    tab: 'machines',
+    timer: null,
+    layoutKey: '',
+    layoutDraft: null,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  function toast(message, kind = '') {
+    const el = document.createElement('div');
+    el.className = `toast ${kind}`;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }
+
+  function timeAgo(ms) {
+    if (!ms) return '—';
+    const diff = Date.now() - Number(ms);
+    if (diff < 0) return '刚刚';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 10) return '刚刚';
+    if (sec < 60) return `${sec} 秒前`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min} 分钟前`;
+    const hour = Math.floor(min / 60);
+    if (hour < 24) return `${hour} 小时前`;
+    const day = Math.floor(hour / 24);
+    if (day < 30) return `${day} 天前`;
+    return new Date(Number(ms)).toLocaleString('zh-CN', { hour12: false });
+  }
+
+  async function api(path, options = {}) {
+    const opts = {
+      credentials: 'same-origin',
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    };
+    const res = await fetch(path, opts);
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* 非 JSON 响应 */ }
+    if (res.status === 401) {
+      showLogin();
+      throw new Error((data && data.msg) || '登录已过期');
+    }
+    if (!res.ok || (data && typeof data.code === 'number' && data.code !== 0)) {
+      throw new Error((data && data.msg) || `请求失败 (HTTP ${res.status})`);
+    }
+    return data ? data.data : null;
+  }
+
+  // ------------------------------------------------------------ 登录 / 注册
+
+  function setAuthMessage(message, kind = '') {
+    const el = $('auth-msg');
+    el.textContent = message || '';
+    el.className = `msg ${kind}`;
+  }
+
+  function switchAuth(mode) {
+    document.querySelectorAll('[data-auth]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.auth === mode);
+    });
+    $('login-form').hidden = mode !== 'login';
+    $('register-form').hidden = mode !== 'register';
+    setAuthMessage('');
+  }
+
+  function showLogin() {
+    state.me = null;
+    state.overview = null;
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    $('login-view').hidden = false;
+    $('dashboard-view').hidden = true;
+    $('top-actions').hidden = true;
+  }
+
+  function showDashboard() {
+    $('login-view').hidden = true;
+    $('dashboard-view').hidden = false;
+    $('top-actions').hidden = false;
+    $('admin-name').innerHTML = `管理员 <strong>${esc(state.me.name)}</strong>`;
+  }
+
+  async function tryAutoLogin() {
+    try {
+      const data = await api('/api/admin/me');
+      state.me = data.user;
+      showDashboard();
+      await loadOverview();
+      startPolling();
+    } catch (_) {
+      showLogin();
+    }
+  }
+
+  document.querySelectorAll('[data-auth]').forEach((btn) => {
+    btn.addEventListener('click', () => switchAuth(btn.dataset.auth));
+  });
+
+  $('login-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const username = $('login-username').value.trim();
+    const password = $('login-password').value;
+    if (!username || !password) return;
+    setAuthMessage('登录中…');
+    try {
+      const data = await api('/api/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      state.me = data.user;
+      $('login-password').value = '';
+      setAuthMessage('');
+      showDashboard();
+      await loadOverview();
+      startPolling();
+    } catch (error) {
+      setAuthMessage(error.message, 'error');
+    }
+  });
+
+  $('register-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const username = $('register-username').value.trim();
+    const password = $('register-password').value;
+    const password2 = $('register-password-2').value;
+    if (!username || !password) return;
+    if (password !== password2) {
+      setAuthMessage('两次输入的密码不一致', 'error');
+      return;
+    }
+    setAuthMessage('注册中…');
+    try {
+      await api('/api/admin/register', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      $('register-username').value = '';
+      $('register-password').value = '';
+      $('register-password-2').value = '';
+      switchAuth('login');
+      $('login-username').value = username;
+      setAuthMessage('注册成功，请登录', 'ok');
+    } catch (error) {
+      setAuthMessage(error.message, 'error');
+    }
+  });
+
+  $('logout-btn').addEventListener('click', async () => {
+    try { await api('/api/admin/logout', { method: 'POST', body: '{}' }); } catch (_) { /* 忽略 */ }
+    showLogin();
+  });
+
+  $('refresh-btn').addEventListener('click', () => loadOverview(true));
+
+  // ------------------------------------------------------------ 概览
+
+  function startPolling() {
+    if (state.timer) clearInterval(state.timer);
+    state.timer = setInterval(() => {
+      if (!document.hidden && state.me) loadOverview(false);
+    }, 10000);
+  }
+
+  async function loadOverview(showError) {
+    try {
+      const data = await api('/api/admin/overview');
+      state.overview = data;
+      state.me = data.admin;
+      renderAll();
+    } catch (error) {
+      if (showError) toast(error.message, 'error');
+    }
+  }
+
+  function renderAll() {
+    if (!state.overview) return;
+    renderStats();
+    renderMachines();
+    renderUsers();
+    renderLayouts();
+    const realtime = state.overview.realtimeOnline || [];
+    $('realtime-pill').textContent = realtime.length
+      ? `实时通道在线：${realtime.join('、')}`
+      : '实时通道在线：—';
+  }
+
+  function renderStats() {
+    const stats = state.overview.stats || {};
+    $('stats').innerHTML = `
+      <div class="stat accent"><div class="k">在线设备</div><div class="v">${stats.online || 0}<small>/ ${stats.machines || 0} 台</small></div></div>
+      <div class="stat"><div class="k">已注册设备</div><div class="v">${stats.machines || 0}<small>台</small></div></div>
+      <div class="stat blue"><div class="k">用户账号</div><div class="v">${stats.users || 0}<small>个</small></div></div>
+      <div class="stat"><div class="k">已知家庭</div><div class="v">${stats.homes || 0}<small>个</small></div></div>
+    `;
+  }
+
+  function homesBadges(homes, source) {
+    if (homes === null || homes === undefined) {
+      const label = source === 'none' ? '跟随 .env' : '跟随上层';
+      return `<span class="badge inherit">${esc(label)}</span>`;
+    }
+    if (!Array.isArray(homes) || homes.length === 0) {
+      return '<span class="badge all">全部家庭</span>';
+    }
+    return `<div class="badges">${homes.map((home) => `<span class="badge">${esc(home)}</span>`).join('')}</div>`;
+  }
+
+  function sourceLabel(source) {
+    if (source === 'machine') return '机器设置';
+    if (source === 'user') return '用户设置';
+    return '未配置';
+  }
+
+  // 通信账号列：第一行账号，第二行 ws 握手回写的客户端标识（app v版本+构建）。
+  function commCell(machine) {
+    if (!machine.commAccount && !machine.commApp) return '<span class="muted">—</span>';
+    let label = '';
+    if (machine.commApp) {
+      label = esc(machine.commApp);
+      if (machine.commVersion) {
+        label += ` v${esc(machine.commVersion)}`;
+        if (machine.commBuild) label += `+${esc(machine.commBuild)}`;
+      }
+    }
+    return `
+      <div class="cell-stack">
+        ${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">—</span>'}
+        ${label ? `<span class="muted">${label}</span>` : ''}
+      </div>`;
+  }
+
+  function renderMachines() {
+    const body = $('machines-body');
+    const machines = state.overview.machines || [];
+    const users = state.overview.users || [];
+    if (!machines.length) {
+      body.innerHTML = '<tr><td colspan="8"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = machines.map((machine) => {
+      const online = machine.online === true;
+      const ownerOptions = ['<option value="">未绑定</option>']
+        .concat(users.map((user) => `<option value="${esc(user.name)}" ${machine.owner === user.name ? 'selected' : ''}>${esc(user.displayName || user.name)} (${esc(user.name)})</option>`))
+        .join('');
+      return `
+        <tr data-machine-id="${esc(machine.id)}">
+          <td><span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span></td>
+          <td>
+            <div class="cell-stack">
+              <span class="strong">${esc(machine.name)}</span>
+              <span class="mono">${esc(machine.id)}</span>
+              <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
+            </div>
+          </td>
+          <td><select data-action="owner">${ownerOptions}</select></td>
+          <td>${commCell(machine)}</td>
+          <td>
+            <div class="cell-stack">
+              ${homesBadges(machine.effectiveHomes, machine.homesSource)}
+              <span class="muted">来源：${esc(sourceLabel(machine.homesSource))}${machine.homesSource === 'machine' ? '' : (machine.owner ? ' → ' + esc(machine.owner) : '')}</span>
+            </div>
+          </td>
+          <td>${machine.currentHome ? `<span class="badge">${esc(machine.currentHome)}</span>` : '<span class="muted">—</span>'}</td>
+          <td><div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="mono">${esc(machine.ip || '')}</span></div></td>
+          <td>
+            <div class="row-actions">
+              <button class="btn small" data-action="homes" type="button">家庭</button>
+              <button class="btn small" data-action="rename" type="button">改名</button>
+              <button class="btn small danger" data-action="delete" type="button">删除</button>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    body.querySelectorAll('tr[data-machine-id]').forEach((row) => {
+      const id = row.dataset.machineId;
+      const machine = machines.find((item) => item.id === id);
+      if (!machine) return;
+      row.querySelector('[data-action="owner"]').addEventListener('change', async (event) => {
+        try {
+          await api(`/api/admin/machines/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ owner: event.target.value }),
+          });
+          toast('已更新所属用户', 'ok');
+          await loadOverview(false);
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      });
+      row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
+        title: `可见家庭 · ${machine.name}`,
+        homes: machine.homes,
+        onSave: (homes) => api(`/api/admin/machines/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ homes }),
+        }),
+      }));
+      row.querySelector('[data-action="rename"]').addEventListener('click', () => editMachineName(machine));
+      row.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+        if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
+        try {
+          await api(`/api/admin/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          toast('设备已删除', 'ok');
+          await loadOverview(false);
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      });
+    });
+  }
+
+  function renderUsers() {
+    const body = $('users-body');
+    const users = state.overview.users || [];
+    if (!users.length) {
+      body.innerHTML = '<tr><td colspan="6"><div class="empty">还没有用户。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = users.map((user) => `
+      <tr data-user-name="${esc(user.name)}">
+        <td>
+          <div class="cell-stack">
+            <span class="strong">${esc(user.displayName || user.name)}</span>
+            <span class="mono">${esc(user.name)}${user.enabled === false ? ' · 已禁用' : ''}</span>
+          </div>
+        </td>
+        <td>
+          <select data-action="role" ${user.name === state.me.name ? 'disabled' : ''}>
+            <option value="user" ${user.role === 'user' ? 'selected' : ''}>普通用户</option>
+            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option>
+          </select>
+        </td>
+        <td>
+          <div class="cell-stack">
+            ${homesBadges(user.homes, 'none')}
+            <span class="muted">${user.homes === null || user.homes === undefined ? '未配置（回落 .env）' : (Array.isArray(user.homes) && user.homes.length === 0 ? '不限制' : '仅这些家庭')}</span>
+          </div>
+        </td>
+        <td>${user.machineCount || 0}</td>
+        <td><span class="muted">${esc(user.loginTime ? timeAgo(new Date(user.loginTime).getTime()) : '从未登录')}</span></td>
+        <td>
+          <div class="row-actions">
+            <button class="btn small" data-action="homes" type="button">家庭</button>
+            <button class="btn small" data-action="rename" type="button">改名</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    body.querySelectorAll('tr[data-user-name]').forEach((row) => {
+      const name = row.dataset.userName;
+      const user = users.find((item) => item.name === name);
+      if (!user) return;
+      row.querySelector('[data-action="role"]').addEventListener('change', async (event) => {
+        try {
+          await api(`/api/admin/users/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ role: event.target.value }),
+          });
+          toast('已更新角色', 'ok');
+          await loadOverview(false);
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      });
+      row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
+        title: `可见家庭 · ${user.displayName || user.name}`,
+        homes: user.homes,
+        level: 'user',
+        onSave: (homes) => api(`/api/admin/users/${encodeURIComponent(name)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ homes }),
+        }),
+      }));
+      row.querySelector('[data-action="rename"]').addEventListener('click', () => editDisplayName(user));
+    });
+  }
+
+  // ------------------------------------------------------------ 家庭编辑弹窗
+
+  function openDialog({ title, content, onSave, saveLabel = '保存' }) {
+    const root = $('dialog-root');
+    root.innerHTML = `
+      <div class="overlay">
+        <div class="card dialog" role="dialog" aria-modal="true">
+          <div class="dialog-head">
+            <h3>${esc(title)}</h3>
+            <button class="icon-btn" type="button" data-close>×</button>
+          </div>
+          <div class="dialog-body"></div>
+          <div class="dialog-foot">
+            <button class="btn" type="button" data-close>取消</button>
+            <button class="btn primary" type="button" data-save>${esc(saveLabel)}</button>
+          </div>
+        </div>
+      </div>`;
+    const overlay = root.querySelector('.overlay');
+    const body = root.querySelector('.dialog-body');
+    body.appendChild(content);
+    const close = () => { root.innerHTML = ''; };
+    root.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+    root.querySelector('[data-save]').addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      try {
+        await onSave();
+        close();
+        toast('已保存', 'ok');
+        await loadOverview(false);
+      } catch (error) {
+        toast(error.message, 'error');
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function editHomes({ title, homes, onSave, level = 'machine' }) {
+    const known = Array.from(new Set([
+      ...(state.overview.homes || []),
+      ...(Array.isArray(homes) ? homes : []),
+    ])).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+    const mode = homes === null || homes === undefined ? 'inherit' : (homes.length === 0 ? 'all' : 'custom');
+    const wrap = document.createElement('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = '14px';
+
+    const modes = document.createElement('div');
+    modes.className = 'radio-row';
+    // 「跟随…」的名称与描述按入口区分：设备层的下一层是所属用户，用户层的下一层是 App 的 .env。
+    const inheritLabel = level === 'user' ? '跟随.env' : '跟随绑定用户/.env';
+    const inheritNote = level === 'user'
+      ? '以App的.env的HONE_MANE为准'
+      : '表示本层不限制，如果绑定了用户，且在用户里设置指定家庭则以用户设置为准，否则以App的.env的HONE_MANE为准';
+    // 用户页选「全部/指定家庭」时提示：设备单独设置会覆盖本页。
+    const deviceOverrideNote = '注意：若某台设备在设备状态页单独设置了可见家庭，则本页设置对该设备不生效';
+    const notes = {
+      inherit: inheritNote,
+      all: level === 'user' ? deviceOverrideNote : '',
+      custom: level === 'user' ? deviceOverrideNote : '',
+    };
+    const modeDefs = [
+      ['inherit', inheritLabel],
+      ['all', '全部家庭'],
+      ['custom', '指定家庭'],
+    ];
+    modeDefs.forEach(([value, label]) => {
+      const chip = document.createElement('label');
+      chip.className = `radio-chip ${mode === value ? 'active' : ''}`;
+      chip.innerHTML = `<input type="radio" name="home-mode" value="${value}" ${mode === value ? 'checked' : ''}>${esc(label)}`;
+      modes.appendChild(chip);
+    });
+    wrap.appendChild(modes);
+
+    const custom = document.createElement('div');
+    custom.style.display = 'grid';
+    custom.style.gap = '9px';
+    custom.hidden = mode !== 'custom';
+    const grid = document.createElement('div');
+    grid.className = 'check-grid';
+    const selected = new Set(Array.isArray(homes) ? homes : []);
+    if (known.length) {
+      known.forEach((home) => {
+        const item = document.createElement('label');
+        item.className = 'check-item';
+        item.innerHTML = `<input type="checkbox" value="${esc(home)}" ${selected.has(home) ? 'checked' : ''}><span>${esc(home)}</span>`;
+        grid.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'field-note';
+      empty.textContent = '还没有上报过家庭名，可在下方手动输入。';
+      grid.appendChild(empty);
+    }
+    custom.appendChild(grid);
+
+    const extraLabel = document.createElement('label');
+    extraLabel.textContent = '其他家庭（英文逗号分隔）';
+    const extraInput = document.createElement('input');
+    extraInput.placeholder = '例如：棠德304, 金科1204';
+    extraInput.value = Array.from(selected).filter((home) => !known.includes(home)).join(', ');
+    extraLabel.appendChild(extraInput);
+    custom.appendChild(extraLabel);
+    wrap.appendChild(custom);
+
+    // 提示随选中项切换：跟随→回落说明；用户页的全部/指定→设备覆盖提醒。
+    const note = document.createElement('p');
+    note.className = 'field-note';
+    const syncNote = (value) => {
+      const text = notes[value] || '';
+      note.textContent = text;
+      note.hidden = !text;
+    };
+    syncNote(mode);
+    wrap.appendChild(note);
+
+    wrap.querySelectorAll('input[name="home-mode"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        wrap.querySelectorAll('.radio-chip').forEach((chip) => {
+          chip.classList.toggle('active', chip.querySelector('input').checked);
+        });
+        const checked = wrap.querySelector('input[name="home-mode"]:checked').value;
+        custom.hidden = checked !== 'custom';
+        syncNote(checked);
+      });
+    });
+
+    openDialog({
+      title,
+      content: wrap,
+      onSave: () => {
+        const selectedMode = wrap.querySelector('input[name="home-mode"]:checked').value;
+        if (selectedMode === 'inherit') return onSave(null);
+        if (selectedMode === 'all') return onSave([]);
+        const values = new Set();
+        grid.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+          if (input.checked) values.add(input.value.trim());
+        });
+        extraInput.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean).forEach((item) => values.add(item));
+        if (!values.size) throw new Error('请至少选择一个家庭，或选择「跟随上层 / .env」');
+        return onSave(Array.from(values));
+      },
+    });
+  }
+
+  function editMachineName(machine) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = '设备显示名';
+    const input = document.createElement('input');
+    input.value = machine.name || '';
+    input.maxLength = 40;
+    label.appendChild(input);
+    wrap.appendChild(label);
+    const note = document.createElement('p');
+    note.className = 'field-note';
+    note.textContent = `设备 ID：${machine.id}（Android ID，重装 App 不变）`;
+    wrap.appendChild(note);
+    openDialog({
+      title: '修改设备名',
+      content: wrap,
+      onSave: () => api(`/api/admin/machines/${encodeURIComponent(machine.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: input.value.trim() }),
+      }),
+    });
+  }
+
+  function editDisplayName(user) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = '显示名';
+    const input = document.createElement('input');
+    input.value = user.displayName || user.name;
+    input.maxLength = 40;
+    label.appendChild(input);
+    wrap.appendChild(label);
+    openDialog({
+      title: '修改用户显示名',
+      content: wrap,
+      onSave: () => api(`/api/admin/users/${encodeURIComponent(user.name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ displayName: input.value.trim() }),
+      }),
+    });
+  }
+
+  // ------------------------------------------------------------ 布局
+
+  function renderLayouts() {
+    const list = $('layout-list');
+    const layouts = state.overview.layouts || [];
+    if (!layouts.length) {
+      list.innerHTML = '<div class="empty">暂无布局数据</div>';
+      state.layoutKey = '';
+      state.layoutDraft = null;
+      renderLayoutMain();
+      return;
+    }
+    if (!layouts.some((item) => item.key === state.layoutKey)) {
+      state.layoutKey = layouts[0].key;
+      state.layoutDraft = cloneLayout(layouts[0]);
+    }
+    list.innerHTML = layouts.map((item) => {
+      const active = item.key === state.layoutKey ? 'active' : '';
+      const owner = item.key.startsWith('device_') ? `设备 ${item.key.slice(7)}` : `用户 ${item.key}`;
+      return `<button class="layout-item ${active}" type="button" data-layout-key="${esc(item.key)}">
+        ${esc(owner)}
+        <span class="sub">${item.all.length} 张卡片 · ${esc(timeAgo(item.updatedAt || item.savedAt))}</span>
+      </button>`;
+    }).join('');
+    list.querySelectorAll('[data-layout-key]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const item = layouts.find((layout) => layout.key === btn.dataset.layoutKey);
+        state.layoutKey = btn.dataset.layoutKey;
+        state.layoutDraft = cloneLayout(item);
+        renderLayouts();
+      });
+    });
+    renderLayoutMain();
+  }
+
+  function cloneLayout(layout) {
+    return {
+      key: layout.key,
+      all: Array.isArray(layout.all) ? [...layout.all] : [],
+      byHome: Object.fromEntries(Object.entries(layout.byHome || {}).map(([home, list]) => [home, [...list]])),
+      updatedAt: layout.updatedAt || 0,
+    };
+  }
+
+  function renderLayoutMain() {
+    const main = $('layout-main');
+    const draft = state.layoutDraft;
+    $('layout-save').disabled = !draft;
+    $('layout-reset').disabled = !draft;
+    if (!draft) {
+      main.innerHTML = '<div class="empty">暂无布局数据。App 首次拖拽排序后会自动出现在这里。</div>';
+      return;
+    }
+    const owner = draft.key.startsWith('device_') ? `设备 ${draft.key.slice(7)}` : `用户 ${draft.key}`;
+    main.innerHTML = `
+      <h3>${esc(owner)}</h3>
+      <p class="field-note">最后更新：${esc(timeAgo(draft.updatedAt))}。顺序中的 key 对应设备卡片；App 会忽略已经不存在的卡片。</p>
+      ${renderOrderGroup('全部视图', draft.all, 'all', null)}
+      ${Object.entries(draft.byHome).map(([home, list]) => renderOrderGroup(`家庭：${home}`, list, 'home', home)).join('')}
+    `;
+
+    main.querySelectorAll('[data-move]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const scope = btn.dataset.scope;
+        const home = btn.dataset.home || null;
+        const index = Number(btn.dataset.index);
+        const delta = Number(btn.dataset.move);
+        const list = scope === 'all' ? draft.all : (draft.byHome[home] || []);
+        const next = index + delta;
+        if (next < 0 || next >= list.length) return;
+        [list[index], list[next]] = [list[next], list[index]];
+        renderLayoutMain();
+      });
+    });
+    main.querySelectorAll('[data-remove]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const scope = btn.dataset.scope;
+        const home = btn.dataset.home || null;
+        const index = Number(btn.dataset.index);
+        const list = scope === 'all' ? draft.all : (draft.byHome[home] || []);
+        list.splice(index, 1);
+        renderLayoutMain();
+      });
+    });
+  }
+
+  function renderOrderGroup(title, list, scope, home) {
+    if (!list || !list.length) {
+      return `<div class="order-group"><h4>${esc(title)}</h4><div class="empty" style="padding:14px">空</div></div>`;
+    }
+    return `<div class="order-group">
+      <h4>${esc(title)} <span class="muted">(${list.length})</span></h4>
+      <div class="order-list">
+        ${list.map((key, index) => `
+          <div class="order-row">
+            <span class="order-index">${index + 1}</span>
+            <span class="order-key">${esc(key)}</span>
+            <button class="btn" type="button" data-move="-1" data-scope="${scope}" data-home="${esc(home || '')}" data-index="${index}" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn" type="button" data-move="1" data-scope="${scope}" data-home="${esc(home || '')}" data-index="${index}" ${index === list.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn danger" type="button" data-remove data-scope="${scope}" data-home="${esc(home || '')}" data-index="${index}">删</button>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  $('layout-save').addEventListener('click', async () => {
+    const draft = state.layoutDraft;
+    if (!draft) return;
+    try {
+      await api(`/api/admin/layouts/${encodeURIComponent(draft.key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ all: draft.all, byHome: draft.byHome }),
+      });
+      toast('布局已保存', 'ok');
+      await loadOverview(false);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  });
+
+  $('layout-reset').addEventListener('click', async () => {
+    const draft = state.layoutDraft;
+    if (!draft) return;
+    if (!confirm(`确定重置「${draft.key}」的首页布局？设备下次同步会恢复默认排序。`)) return;
+    try {
+      await api(`/api/admin/layouts/${encodeURIComponent(draft.key)}`, { method: 'DELETE' });
+      state.layoutKey = '';
+      state.layoutDraft = null;
+      toast('布局已重置', 'ok');
+      await loadOverview(false);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  });
+
+  // ------------------------------------------------------------ Tab
+
+  document.querySelectorAll('[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.tab = btn.dataset.tab;
+      document.querySelectorAll('[data-tab]').forEach((item) => {
+        item.classList.toggle('active', item.dataset.tab === state.tab);
+      });
+      $('tab-machines').hidden = state.tab !== 'machines';
+      $('tab-users').hidden = state.tab !== 'users';
+      $('tab-layouts').hidden = state.tab !== 'layouts';
+    });
+  });
+
+  tryAutoLogin();
+})();
+</script>
+</body>
+</html>

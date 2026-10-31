@@ -1,0 +1,66 @@
+import java.io.File
+
+plugins {
+    id("com.android.application")
+    id("kotlin-android")
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+// 正式签名口令从本地 .storepass.txt 读取，避免在脚本中硬编码明文口令。
+val releaseSigningStore: File = file("potatokid-release.jks")
+val releaseSigningPassword: String = file(".storepass.txt").readText().trim()
+
+android {
+    namespace = "screen.potatokid.tools"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    signingConfigs {
+        create("release") {
+            storeFile = releaseSigningStore
+            storePassword = releaseSigningPassword
+            keyAlias = "potatokid"
+            keyPassword = releaseSigningPassword
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+
+    defaultConfig {
+        applicationId = "screen.potatokid.tools"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // SDK 集成要求：多个依赖都带 libc++_shared.so，打包时保留首个，避免重复冲突。
+    packaging {
+        jniLibs {
+            pickFirsts += listOf(
+                "lib/x86/libc++_shared.so",
+                "lib/x86_64/libc++_shared.so",
+                "lib/armeabi-v7a/libc++_shared.so",
+                "lib/arm64-v8a/libc++_shared.so",
+            )
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

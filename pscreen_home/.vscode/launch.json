@@ -1,0 +1,92 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "potatokid_home SM G970U (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "R58M349S90M"
+        },
+        {
+            "name": "potatokid_home MiTV AZFU0 (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.56:5555"
+        },
+        {
+            "name": "potatokid_home M2102J2SC (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "e724dd69"
+        },
+        {
+            "name": "potatokid_home 腾讯极光 Q601F (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.0.9:5555"
+        },
+        {
+            "name": "potatokid_home (profile mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "potatokid_home (release mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        },
+        {
+            "name": "potatokid_home RK3288E (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.5:5555"
+        },
+        {
+            "name": "potatokid_home RK3288E Remote (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "100.73.19.98:5555"
+        },
+        {
+            "name": "pscreen_home (Flutter Linux)",
+            "program": "lib/main.dart",
+            "deviceId": "linux",
+            "request": "launch",
+            "type": "dart",
+            "env": {
+                "GDK_BACKEND": "x11"
+            }
+        },
+        {
+            "name": "potatokid_home RK3288E (Release)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.5:5555",
+            "flutterMode": "release"
+        },
+        {
+            "name": "potatokid_home RK3288E Remote (Release)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "100.73.19.98:5555",
+            "flutterMode": "release"
+        },
+        {
+            "name": "potatokid_home mi10s wifi (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.70.14:40087"
+        },
+    ]
+}

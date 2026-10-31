@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "crypto": "^1.0.1",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,3 @@
+[submodule "3rd/camera-rtsp"]
+	path = 3rd/camera-rtsp
+	url = https://github.com/camdyzeng/camera-rtsp.git

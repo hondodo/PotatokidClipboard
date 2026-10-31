@@ -1,0 +1,86 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 网络访问（debug/profile 构建由 Flutter 模板额外注入，主构建必须自带，
+         否则 release 包完全无法联网） -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 遥控端：扫码绑定目标电视 -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- 扫码需要前置摄像头 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <application
+        android:label="薯仔的中控台"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon"
+        android:usesCleartextTraffic="true">
+        <!-- Android 9+ 默认禁止明文流量，而墙控面板连接的局域网 Home Assistant
+             通常是 http://192.168.x.x:8123 → ws:// 明文 WebSocket，必须放行 -->
+        <!-- 主界面只注册 HOME，不再带 LAUNCHER。
+             原因：HOME 意图会被 AMS 放进 home 栈（taskType=HOME_ACTIVITY_TYPE），
+             而 LAUNCHER 意图产生的普通任务在另一个栈。singleTop / singleTask 只
+             在同一个栈内复用 Task，跨栈拦不住：先用图标启动再按 Home，就会得到
+             两个 MainActivity → 同一个进程里两个 FlutterEngine → 各自一套
+             DeviceReporter / RealtimeChannel / ReportingService，表现为「屏保」
+             和「主页」两条数据同时上报。
+             现在图标入口交给不含 Flutter 的 LauncherActivity（见下），主界面永远
+             只存在于 home 栈，进程内只有一个 FlutterEngine。
+             注意：taskAffinity 不能为空。空 affinity 会让 singleTask 找不到
+             已有 Task，HOME 与图标入口仍会各建一个 Task；使用包名让两个入口
+             都能命中同一个 Task。 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="potatokid.tools.homecontroller"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <!-- HOME + DEFAULT：把本应用注册为系统桌面（launcher）。
+                 开机后系统直接进入本应用；若同时存在其他桌面，首次会弹选择框，
+                 选中本应用并点「始终」后即可开机自启，不依赖 BOOT_COMPLETED（Android 7.1 更可靠）。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+        <!-- 桌面图标入口：空壳 Activity，不创建 FlutterEngine。
+             点图标时把 HOME 意图拉起（命中上面的 MainActivity，回到 home 栈），
+             然后立刻结束自己，不会留下第二个任务/引擎。 -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="potatokid.tools.homecontroller.launcher"
+            android:theme="@style/LauncherEntryTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

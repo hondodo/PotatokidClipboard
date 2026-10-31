@@ -1,0 +1,41 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "potatokid_clipboard",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "args": [
+                "--disable-service-auth-codes"
+            ],
+            "toolArgs": [
+                "--disable-service-auth-codes"
+            ]
+        },
+        {
+            "name": "potatokid_clipboard (profile mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "potatokid_clipboard (release mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release",
+            "program": "lib/main.dart"
+        },
+        {
+            "name": "potatokid_clipboard (Flutter SM G970U)",
+            "program": "lib/main.dart",
+            "deviceId": "R58M349S90M",
+            "request": "launch",
+            "type": "dart"
+        }
+    ]
+}

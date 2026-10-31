@@ -1,0 +1,1153 @@
+import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
+import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
+import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
+import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
+import 'package:pscreen_home/features/home/application/history_service.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/climate_quick_switch.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_entity_resolver.dart';
+import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_quick_switch.dart';
+import 'package:pscreen_home/features/home/domain/models/air_fryer_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/fridge_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/kettle_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/lock_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
+import 'package:pscreen_home/features/home/domain/models/rice_cooker_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_purifier_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/washer_summary.dart';
+import 'package:pscreen_home/features/home/domain/models/water_heater_summary.dart';
+import 'package:pscreen_home/features/home/presentation/components/button_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/air_fryer_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/climate_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/fridge_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/kettle_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/light_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/lock_overview_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/metric_chart_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/projector_remote_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/range_hood_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/rice_cooker_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_stats_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/multi_switch_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/socket_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/value_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/washer_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_heater_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_purifier_control_panel.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_heater_schedule_sheet.dart';
+import 'package:pscreen_home/features/home/presentation/components/water_usage_sheet.dart';
+
+/// 设备详情页：一个物理设备的全部可控实体。
+///
+/// 灯 / 空调渲染成完整控制面板（亮度、色温、效果 / 温度盘、模式、风速、
+/// 摆风），其余实体（延时、勿扰、墙壁开关等）保持轻量开关卡。
+/// 从首页网格的合并卡片点入（路由 /device/:deviceId）。
+class DeviceDetailPage extends StatelessWidget {
+  const DeviceDetailPage({super.key, required this.deviceId});
+
+  final String deviceId;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<HomeBloc, HomeState>(
+      listenWhen: (HomeState prev, HomeState cur) =>
+          cur.errorMessage != null && cur.errorMessage != prev.errorMessage,
+      listener: (BuildContext context, HomeState state) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(state.errorMessage ?? ''),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        context.read<HomeBloc>().add(const ClearHomeError());
+      },
+      child: BlocBuilder<HomeBloc, HomeState>(
+        builder: (BuildContext context, HomeState state) {
+          // 离线进入详情时先不拉历史；连接恢复后图表自动补拉。
+          final bool isConnected = context.select<ConnectionBloc, bool>(
+            (ConnectionBloc connection) => connection.state.isReady,
+          );
+          final HaDeviceGroup? group = state.deviceGroupOf(deviceId);
+          if (group == null) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('设备详情')),
+              body: const Center(child: Text('设备不存在或已移除')),
+            );
+          }
+
+          // 门锁优先识别：安全设备只展示状态 / 电量，禁用全部控制。
+          final LockSummary? lock = state.lockSummaries[deviceId];
+          final bool isLockDevice = lock != null;
+          final WasherSummary? washer = isLockDevice
+              ? null
+              : state.washerSummaries[deviceId];
+          final WaterHeaterSummary? waterHeater = isLockDevice
+              ? null
+              : state.waterHeaterSummaries[deviceId];
+          final KettleSummary? kettle = isLockDevice
+              ? null
+              : state.kettleSummaries[deviceId];
+          final FanSummary? fan = isLockDevice
+              ? null
+              : state.fanSummaries[deviceId];
+          final ProjectorSummary? projector = isLockDevice
+              ? null
+              : state.projectorSummaries[deviceId];
+          final bool showProjectorPanel = projector != null;
+          final FridgeSummary? fridge = isLockDevice
+              ? null
+              : state.fridgeSummaries[deviceId];
+          final bool showFridgePanel = fridge != null;
+          final SocketSummary? socket = isLockDevice
+              ? null
+              : state.socketSummaries[deviceId];
+          final bool showSocketPanel = socket != null;
+          final PowerStats? devicePower = state.powerStats[deviceId];
+          final MultiSwitchSummary? multiSwitch = isLockDevice
+              ? null
+              : state.multiSwitchSummaries[deviceId];
+          final bool showMultiSwitchPanel = multiSwitch != null;
+          final RiceCookerSummary? riceCooker = isLockDevice
+              ? null
+              : state.riceCookerSummaries[deviceId];
+          final bool showRiceCookerPanel = riceCooker != null;
+          final AirFryerSummary? airFryer = isLockDevice
+              ? null
+              : state.airFryerSummaries[deviceId];
+          final bool showAirFryerPanel = airFryer != null;
+          final WaterPurifierSummary? purifier = isLockDevice
+              ? null
+              : state.waterPurifierSummaries[deviceId];
+          final bool showPurifierPanel = purifier != null;
+          final RangeHoodSummary? hood = isLockDevice
+              ? null
+              : state.rangeHoodSummaries[deviceId];
+          final bool showHoodPanel = hood != null;
+          final bool showFanPanel = fan != null;
+          final bool showLockPanel = lock != null;
+          final String deviceAreaLabel = state.areaLabelFor(
+            group.primary?.entityId ?? group.entities.first.entityId,
+          );
+          // 功率曲线与当前功率共用同一实体，避免数字与曲线数据源不一致。
+          final String? powerEntityId =
+              devicePower?.acPowerEntityId ?? devicePower?.currentEntityId;
+          final HistoryService historyService = Injection.get<HistoryService>();
+          final Widget? powerCard = devicePower == null
+              ? null
+              : PowerStatsCard(
+                  stats: devicePower,
+                  chart: powerEntityId == null
+                      ? null
+                      : MetricChartContent(
+                          service: historyService,
+                          deviceId: deviceId,
+                          sources: <Metric, MetricSource>{
+                            Metric.power: MetricSource(powerEntityId),
+                          },
+                          isConnected: isConnected,
+                        ),
+                );
+          // 空调快捷开关：同设备 switch 子实体（喜好/节能/睡眠等），按钮化并从下方原始行隐藏。
+          final bool hasClimatePanel =
+              !isLockDevice &&
+              group.entities.any((HaEntityStateModel e) => e.isClimate);
+          final List<ClimateQuickSwitch> climateQuickSwitches = hasClimatePanel
+              ? ClimateQuickSwitch.buildList(group.entities)
+              : const <ClimateQuickSwitch>[];
+          // 空调指示灯（light 域，带灯光效果），收进气候面板快捷开关区之后。
+          final List<HaEntityStateModel> climateIndicatorLights = group.entities
+              .where(
+                (HaEntityStateModel e) =>
+                    e.domain == 'light' &&
+                    e.entityId.contains('_indicator_light'),
+              )
+              .toList(growable: false);
+          final HaEntityStateModel? climateIndicatorLight =
+              hasClimatePanel && climateIndicatorLights.isNotEmpty
+              ? climateIndicatorLights.first
+              : null;
+          // 插座快捷开关：童锁 / 定时 + 指示灯（light 域）。
+          final List<SocketQuickSwitch> socketQuickSwitches = showSocketPanel
+              ? SocketQuickSwitch.buildList(group.entities)
+              : const <SocketQuickSwitch>[];
+          final String? socketIndicatorLightId = showSocketPanel
+              ? SocketQuickSwitch.indicatorLightEntityId(group.entities)
+              : null;
+          final bool socketIndicatorLightOn =
+              showSocketPanel &&
+              SocketQuickSwitch.indicatorLightOn(group.entities);
+          final String washerPowerId =
+              washer?.powerEntityId ??
+              group.primary?.entityId ??
+              group.entities.first.entityId;
+          final Set<String> hiddenIds = <String>{
+            if (showLockPanel)
+              for (final String entityId in lock.infoEntityIds) entityId,
+            if (washer?.powerEntityId != null) washer!.powerEntityId!,
+            if (washer?.modeEntityId != null) washer!.modeEntityId!,
+            if (washer?.startEntityId != null) washer!.startEntityId!,
+            if (washer?.pauseEntityId != null) washer!.pauseEntityId!,
+            if (washer?.stopEntityId != null) washer!.stopEntityId!,
+            if (waterHeater != null) waterHeater.entity.entityId,
+            if (waterHeater?.preheatEntityId != null)
+              waterHeater!.preheatEntityId!,
+            if (waterHeater?.timerPreheatEntityId != null)
+              waterHeater!.timerPreheatEntityId!,
+            if (waterHeater?.scheduleEntityId != null)
+              waterHeater!.scheduleEntityId!,
+            if (waterHeater?.usageEntityId != null) waterHeater!.usageEntityId!,
+            if (kettle?.modeEntityId != null) kettle!.modeEntityId!,
+            if (kettle?.targetEntityId != null) kettle!.targetEntityId!,
+            if (kettle?.keepWarmEntityId != null) kettle!.keepWarmEntityId!,
+            if (kettle?.keepWarmTempEntityId != null)
+              kettle!.keepWarmTempEntityId!,
+            if (kettle?.dechlorinationEntityId != null)
+              kettle!.dechlorinationEntityId!,
+            if (kettle?.rapidCoolingEntityId != null)
+              kettle!.rapidCoolingEntityId!,
+            if (kettle?.startEntityId != null) kettle!.startEntityId!,
+            if (kettle?.stopEntityId != null) kettle!.stopEntityId!,
+            if (showFanPanel) fan.entity.entityId,
+            if (showFanPanel && fan.delayEntityId != null) fan.delayEntityId!,
+            if (showFanPanel && fan.masterSwitchEntityId != null)
+              fan.masterSwitchEntityId!,
+            for (final ClimateQuickSwitch s in climateQuickSwitches) s.entityId,
+            if (climateIndicatorLight != null) climateIndicatorLight.entityId,
+            if (showProjectorPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showFridgePanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showSocketPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (devicePower?.currentEntityId != null)
+              devicePower!.currentEntityId!,
+            if (devicePower?.acPowerEntityId != null)
+              devicePower!.acPowerEntityId!,
+            if (devicePower?.totalEntityId != null) devicePower!.totalEntityId!,
+            if (devicePower?.temperatureEntityId != null)
+              devicePower!.temperatureEntityId!,
+            if (devicePower?.countEntityId != null) devicePower!.countEntityId!,
+            if (showMultiSwitchPanel)
+              for (final SwitchGang gang in multiSwitch.gangs) gang.entityId,
+            if (showRiceCookerPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showAirFryerPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showPurifierPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+            if (showHoodPanel)
+              for (final HaEntityStateModel entity in group.entities)
+                entity.entityId,
+          };
+          // 详情页标题已显示设备名，列表项裁剪掉重复的设备名前缀。
+          final List<HaEntityStateModel> entities = group.entities
+              .where((HaEntityStateModel e) => !hiddenIds.contains(e.entityId))
+              .map((HaEntityStateModel e) => e.withoutDeviceName(group.title))
+              .toList(growable: false);
+          final int panelCount =
+              !showLockPanel &&
+                  washer == null &&
+                  waterHeater == null &&
+                  kettle == null &&
+                  !showFanPanel &&
+                  !showProjectorPanel &&
+                  !showFridgePanel &&
+                  !showSocketPanel &&
+                  !showMultiSwitchPanel &&
+                  !showRiceCookerPanel &&
+                  !showAirFryerPanel &&
+                  !showPurifierPanel &&
+                  !showHoodPanel
+              ? 0
+              : 1;
+          // 该设备可绘制的指标（数值型 sensor 或 climate 属性）；无则不出曲线卡。
+          // 功率已由「用电信息」卡展示，这里排除，避免重复出曲线。
+          final Map<Metric, MetricSource> metricSources =
+              <Metric, MetricSource>{
+                for (final MapEntry<Metric, MetricSource> entry
+                    in MetricEntityResolver.resolve(group).entries)
+                  if (entry.key != Metric.power) entry.key: entry.value,
+              };
+          final bool showMetricChart = metricSources.isNotEmpty;
+          final bool showInlineMetricChart =
+              hasClimatePanel && metricSources.isNotEmpty;
+          final bool showTailMetricChart =
+              showMetricChart && !showInlineMetricChart;
+          final String headerStatus;
+          if (lock != null) {
+            headerStatus = lock.statusLabel;
+          } else if (washer != null) {
+            headerStatus = washer.hasFault ? '故障' : washer.statusLabel;
+          } else if (waterHeater != null) {
+            headerStatus = waterHeater.hasFault
+                ? '故障'
+                : waterHeater.statusLabel;
+          } else if (kettle != null) {
+            headerStatus = kettle.statusLabel;
+          } else if (showFanPanel) {
+            headerStatus = fan.statusLabel;
+          } else if (showProjectorPanel) {
+            headerStatus = projector.title;
+          } else if (showFridgePanel) {
+            headerStatus = fridge.statusLabel;
+          } else if (showSocketPanel) {
+            headerStatus = socket.statusLabel;
+          } else if (showMultiSwitchPanel) {
+            headerStatus = multiSwitch.statusLabel;
+          } else if (showRiceCookerPanel) {
+            headerStatus = riceCooker.status;
+          } else if (showAirFryerPanel) {
+            headerStatus = airFryer.status;
+          } else if (showPurifierPanel) {
+            headerStatus = purifier.statusLabel;
+          } else if (showHoodPanel) {
+            headerStatus = hood.statusLabel;
+          } else {
+            headerStatus = group.statusLabel;
+          }
+
+          return Scaffold(
+            appBar: AppBar(
+              title: Text(
+                '$deviceAreaLabel ${group.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              actions: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 240),
+                      child: Text(
+                        headerStatus,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            body: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount:
+                  entities.length + panelCount + (showTailMetricChart ? 1 : 0),
+              separatorBuilder: (BuildContext context, int index) =>
+                  const SizedBox(height: 12),
+              itemBuilder: (BuildContext context, int index) {
+                if (showTailMetricChart &&
+                    index == panelCount + entities.length) {
+                  return MetricChartCard(
+                    service: Injection.get<HistoryService>(),
+                    deviceId: deviceId,
+                    sources: metricSources,
+                    isConnected: isConnected,
+                  );
+                }
+
+                if (showLockPanel && index == 0) {
+                  return LockOverviewCard(summary: lock);
+                }
+
+                if (showHoodPanel && index == 0) {
+                  final RangeHoodSummary current = hood;
+                  return RangeHoodControlPanel(
+                    summary: current,
+                    isToggling:
+                        current.powerEntityId != null &&
+                        state.togglingIds.contains(current.powerEntityId),
+                    onToggle: current.powerEntityId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.powerEntityId!),
+                          ),
+                    onFanLevelSelected: current.fanEntityId == null
+                        ? (_) {}
+                        : (String level) => context.read<HomeBloc>().add(
+                            SelectEntityOption(
+                              entityId: current.fanEntityId!,
+                              option: level,
+                            ),
+                          ),
+                    onDelayToggle: current.delayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.delayEntityId!),
+                          ),
+                    onDelayMinutesChanged: current.delayTimeEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: current.delayTimeEntityId!,
+                              value: value.toDouble(),
+                            ),
+                          ),
+                    onLightToggle: current.lightEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.lightEntityId!),
+                          ),
+                    onCruiseToggle: current.cruiseEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.cruiseEntityId!),
+                          ),
+                    onHolidayToggle: current.holidayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.holidayEntityId!),
+                          ),
+                    onDryCleaningStart: current.dryCleaningStartEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(
+                              entityId: current.dryCleaningStartEntityId!,
+                            ),
+                          ),
+                    onDryCleaningStop: current.dryCleaningStopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(
+                              entityId: current.dryCleaningStopEntityId!,
+                            ),
+                          ),
+                    onSettingToggle: (String entityId) => context
+                        .read<HomeBloc>()
+                        .add(ToggleEntity(entityId: entityId)),
+                    onSettingNumber: (String entityId, int value) =>
+                        context.read<HomeBloc>().add(
+                          SetNumberEntityValue(
+                            entityId: entityId,
+                            value: value.toDouble(),
+                          ),
+                        ),
+                    onSettingSelect: (String entityId, String option) =>
+                        context.read<HomeBloc>().add(
+                          SelectEntityOption(
+                            entityId: entityId,
+                            option: option,
+                          ),
+                        ),
+                  );
+                }
+
+                if (showPurifierPanel && index == 0) {
+                  final WaterPurifierSummary current = purifier;
+                  return WaterPurifierControlPanel(
+                    summary: current,
+                    onHolidayToggle: current.holidayEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.holidayEntityId!),
+                          ),
+                    onPipelineToggle: current.pipelineEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.pipelineEntityId!),
+                          ),
+                    onAlarmToggle: current.alarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.alarmEntityId!),
+                          ),
+                  );
+                }
+
+                if (showRiceCookerPanel && index == 0) {
+                  final RiceCookerSummary current = riceCooker;
+                  return RiceCookerControlPanel(
+                    summary: current,
+                    onStart: current.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressNotifyAction(
+                              entityId: current.startEntityId!,
+                              message: current.startMessage,
+                            ),
+                          ),
+                    onStop: current.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: current.stopEntityId!),
+                          ),
+                  );
+                }
+
+                if (showAirFryerPanel && index == 0) {
+                  final AirFryerSummary current = airFryer;
+                  return AirFryerControlPanel(
+                    summary: current,
+                    onModeSelected: current.modeEntityId == null
+                        ? (_) {}
+                        : (String mode) => context.read<HomeBloc>().add(
+                            SelectEntityOption(
+                              entityId: current.modeEntityId!,
+                              option: mode,
+                            ),
+                          ),
+                    onTemperatureChanged: current.temperatureEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: current.temperatureEntityId!,
+                              value: value.toDouble(),
+                            ),
+                          ),
+                    onTimeChanged: current.timeEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: current.timeEntityId!,
+                              value: value.toDouble(),
+                            ),
+                          ),
+                    onStart: current.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: current.startEntityId!),
+                          ),
+                    onPause: current.pauseEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: current.pauseEntityId!),
+                          ),
+                    onResume: current.resumeEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(
+                              entityId: current.resumeEntityId!,
+                            ),
+                          ),
+                    onStop: current.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: current.stopEntityId!),
+                          ),
+                    onAutoKeepWarm: current.autoKeepWarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(
+                              entityId: current.autoKeepWarmEntityId!,
+                            ),
+                          ),
+                    onCurrentKeepWarm: current.currentKeepWarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(
+                              entityId: current.currentKeepWarmEntityId!,
+                            ),
+                          ),
+                  );
+                }
+
+                if (showMultiSwitchPanel && index == 0) {
+                  final MultiSwitchSummary current = multiSwitch;
+                  return MultiSwitchControlPanel(
+                    summary: current,
+                    togglingIds: state.togglingIds,
+                    onToggleGang: (String entityId) => context
+                        .read<HomeBloc>()
+                        .add(ToggleEntity(entityId: entityId)),
+                    onAllOn: () {
+                      for (final SwitchGang gang in current.gangs) {
+                        if (!gang.isOn) {
+                          context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: gang.entityId),
+                          );
+                        }
+                      }
+                    },
+                    onAllOff: () {
+                      for (final SwitchGang gang in current.gangs) {
+                        if (gang.isOn) {
+                          context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: gang.entityId),
+                          );
+                        }
+                      }
+                    },
+                  );
+                }
+
+                if (showSocketPanel && index == 0) {
+                  return Column(
+                    children: <Widget>[
+                      SocketControlPanel(
+                        summary: socket,
+                        isToggling: state.togglingIds.contains(
+                          socket.powerEntityId,
+                        ),
+                        onToggle: () => context.read<HomeBloc>().add(
+                          ToggleEntity(entityId: socket.powerEntityId),
+                        ),
+                        quickSwitches: socketQuickSwitches,
+                        onQuickSwitchToggled: (String entityId) => context
+                            .read<HomeBloc>()
+                            .add(ToggleEntity(entityId: entityId)),
+                        indicatorLightEntityId: socketIndicatorLightId,
+                        indicatorLightOn: socketIndicatorLightOn,
+                        onIndicatorLightToggled: socketIndicatorLightId == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                ToggleEntity(entityId: socketIndicatorLightId),
+                              ),
+                      ),
+                      if (powerCard != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        powerCard,
+                      ],
+                    ],
+                  );
+                }
+
+                if (showFridgePanel && index == 0) {
+                  final FridgeSummary current = fridge;
+                  return FridgeControlPanel(
+                    summary: current,
+                    onModeSelected: current.modeEntityId == null
+                        ? (_) {}
+                        : (String mode) => context.read<HomeBloc>().add(
+                            SelectEntityOption(
+                              entityId: current.modeEntityId!,
+                              option: mode,
+                            ),
+                          ),
+                    onTargetChanged: (String entityId, int temperature) =>
+                        context.read<HomeBloc>().add(
+                          SetNumberEntityValue(
+                            entityId: entityId,
+                            value: temperature.toDouble(),
+                          ),
+                        ),
+                  );
+                }
+
+                if (showProjectorPanel && index == 0) {
+                  final ProjectorSummary current = projector;
+                  final String? powerId = current.isOn
+                      ? current.powerOffEntityId
+                      : current.powerOnEntityId;
+                  return ProjectorControlPanel(
+                    summary: current,
+                    isBusy:
+                        powerId != null && state.togglingIds.contains(powerId),
+                    onPower: powerId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: powerId),
+                          ),
+                    onVolumeChanged: current.volumeEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: current.volumeEntityId!,
+                              value: value.toDouble(),
+                            ),
+                          ),
+                    onBrightnessChanged: current.brightnessEntityId == null
+                        ? (_) {}
+                        : (int value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: current.brightnessEntityId!,
+                              value: value.toDouble(),
+                            ),
+                          ),
+                    onInputSelected: current.inputEntityId == null
+                        ? (_) {}
+                        : (String input) => context.read<HomeBloc>().add(
+                            SelectEntityOption(
+                              entityId: current.inputEntityId!,
+                              option: input,
+                            ),
+                          ),
+                    onMuteToggle: current.muteEntityId == null
+                        ? () {}
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: current.muteEntityId!),
+                          ),
+                    onOpenApp: current.openAppEntityId == null
+                        ? (_) {}
+                        : (String package) => context.read<HomeBloc>().add(
+                            PressNotifyAction(
+                              entityId: current.openAppEntityId!,
+                              message: ProjectorSummary.openAppMessage(package),
+                            ),
+                          ),
+                    onButtonPressed: (String entityId) => context
+                        .read<HomeBloc>()
+                        .add(PressEntityButton(entityId: entityId)),
+                    onOpenRemote: !current.hasRemote
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            useSafeArea: true,
+                            constraints: const BoxConstraints(maxWidth: 1100),
+                            builder: (BuildContext sheetContext) =>
+                                FractionallySizedBox(
+                                  heightFactor: 0.92,
+                                  child: ProjectorRemoteSheet(
+                                    isOn: current.isOn,
+                                    onPower: () {
+                                      if (powerId == null) return;
+                                      context.read<HomeBloc>().add(
+                                        PressEntityButton(entityId: powerId),
+                                      );
+                                    },
+                                    onKey: (int key) =>
+                                        context.read<HomeBloc>().add(
+                                          PressNotifyAction(
+                                            entityId:
+                                                current.pressButtonEntityId!,
+                                            message: '[$key]',
+                                          ),
+                                        ),
+                                  ),
+                                ),
+                          ),
+                  );
+                }
+
+                if (showFanPanel && index == 0) {
+                  final FanSummary current = fan;
+                  final HaEntityStateModel? master = current.masterSwitch;
+                  return Column(
+                    children: <Widget>[
+                      if (master != null) ...<Widget>[
+                        FanLightMasterRow(
+                          name: current.name,
+                          master: master,
+                          isToggling: state.togglingIds.contains(
+                            master.entityId,
+                          ),
+                          onToggle: () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: master.entityId),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      FanControlPanel(
+                        summary: current,
+                        isToggling: state.togglingIds.contains(
+                          current.entity.entityId,
+                        ),
+                        onToggle: () => context.read<HomeBloc>().add(
+                          ToggleEntity(entityId: current.entity.entityId),
+                        ),
+                        onModeSelected: (String mode) =>
+                            context.read<HomeBloc>().add(
+                              SetFanPresetMode(
+                                entityId: current.entity.entityId,
+                                mode: mode,
+                              ),
+                            ),
+                        onSpeedSelected: (int level) =>
+                            context.read<HomeBloc>().add(
+                              SetFanPercentage(
+                                entityId: current.entity.entityId,
+                                percentage: FanSummary.percentageForLevel(
+                                  level,
+                                ),
+                              ),
+                            ),
+                        onPercentageChanged: (int percentage) =>
+                            context.read<HomeBloc>().add(
+                              SetFanPercentage(
+                                entityId: current.entity.entityId,
+                                percentage: percentage,
+                              ),
+                            ),
+                        onOscillatingChanged: (bool oscillating) =>
+                            context.read<HomeBloc>().add(
+                              SetFanOscillating(
+                                entityId: current.entity.entityId,
+                                oscillating: oscillating,
+                              ),
+                            ),
+                        onDelayChanged: current.delayEntityId == null
+                            ? (_) {}
+                            : (int minutes) => context.read<HomeBloc>().add(
+                                SetNumberEntityValue(
+                                  entityId: current.delayEntityId!,
+                                  value: minutes.toDouble(),
+                                ),
+                              ),
+                      ),
+                    ],
+                  );
+                }
+
+                if (washer != null && index == 0) {
+                  return WasherControlPanel(
+                    summary: washer,
+                    isToggling: state.togglingIds.contains(washerPowerId),
+                    onToggle: () => context.read<HomeBloc>().add(
+                      ToggleEntity(entityId: washerPowerId),
+                    ),
+                    onModeSelected: (String mode) {
+                      final String? modeId = washer.modeEntityId;
+                      if (modeId == null) return;
+                      context.read<HomeBloc>().add(
+                        SelectEntityOption(entityId: modeId, option: mode),
+                      );
+                    },
+                    onStart: washer.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: washer.startEntityId!),
+                          ),
+                    onPause: washer.pauseEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: washer.pauseEntityId!),
+                          ),
+                    onStop: washer.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: washer.stopEntityId!),
+                          ),
+                  );
+                }
+
+                if (kettle != null && index == 0) {
+                  return KettleControlPanel(
+                    summary: kettle,
+                    isBusy: false,
+                    onStart: kettle.startEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressNotifyAction(
+                              entityId: kettle.startEntityId!,
+                              message: kettle.startMessage,
+                            ),
+                          ),
+                    onStop: kettle.stopEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            PressEntityButton(entityId: kettle.stopEntityId!),
+                          ),
+                    onModeSelected: kettle.modeEntityId == null
+                        ? null
+                        : (String mode) => context.read<HomeBloc>().add(
+                            SelectEntityOption(
+                              entityId: kettle.modeEntityId!,
+                              option: mode,
+                            ),
+                          ),
+                    onTargetTemperatureChanged: kettle.targetEntityId == null
+                        ? null
+                        : (double value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: kettle.targetEntityId!,
+                              value: value,
+                            ),
+                          ),
+                    onKeepWarmTemperatureChanged:
+                        kettle.effectiveKeepWarmTempEntityId == null
+                        ? null
+                        : (double value) => context.read<HomeBloc>().add(
+                            SetNumberEntityValue(
+                              entityId: kettle.effectiveKeepWarmTempEntityId!,
+                              value: value,
+                            ),
+                          ),
+                    onToggleKeepWarm: kettle.keepWarmEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: kettle.keepWarmEntityId!),
+                          ),
+                    onToggleDechlorination:
+                        kettle.dechlorinationEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(
+                              entityId: kettle.dechlorinationEntityId!,
+                            ),
+                          ),
+                    onToggleRapidCooling: kettle.rapidCoolingEntityId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(
+                              entityId: kettle.rapidCoolingEntityId!,
+                            ),
+                          ),
+                  );
+                }
+
+                if (waterHeater != null && index == 0) {
+                  final String entityId = waterHeater.entity.entityId;
+                  final String? preheatId = waterHeater.preheatEntityId;
+                  final String? timerId = waterHeater.timerPreheatEntityId;
+                  return WaterHeaterControlPanel(
+                    summary: waterHeater,
+                    isToggling: state.togglingIds.contains(entityId),
+                    onToggle: () => context.read<HomeBloc>().add(
+                      ToggleEntity(entityId: entityId),
+                    ),
+                    onTemperatureChanged: (double value) =>
+                        context.read<HomeBloc>().add(
+                          SetWaterHeaterTemperature(
+                            entityId: entityId,
+                            temperature: value,
+                          ),
+                        ),
+                    onModeSelected: (String mode) =>
+                        context.read<HomeBloc>().add(
+                          SetWaterHeaterOperationMode(
+                            entityId: entityId,
+                            mode: mode,
+                          ),
+                        ),
+                    onPreheatToggle: preheatId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: preheatId),
+                          ),
+                    onTimerPreheatToggle: timerId == null
+                        ? null
+                        : () => context.read<HomeBloc>().add(
+                            ToggleEntity(entityId: timerId),
+                          ),
+                    onShowUsage: waterHeater.usageEntityId == null
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            useSafeArea: true,
+                            builder: (BuildContext sheetContext) =>
+                                FractionallySizedBox(
+                                  heightFactor: 0.92,
+                                  child: WaterUsageSheet(
+                                    entityId: waterHeater.usageEntityId!,
+                                    title: waterHeater.name,
+                                  ),
+                                ),
+                          ),
+                    onEditSchedule: waterHeater.scheduleEntityId == null
+                        ? null
+                        : () => showModalBottomSheet<void>(
+                            context: context,
+                            isScrollControlled: true,
+                            useSafeArea: true,
+                            builder: (BuildContext sheetContext) =>
+                                FractionallySizedBox(
+                                  heightFactor: 0.9,
+                                  child: WaterHeaterScheduleSheet(
+                                    scheduleText: waterHeater.scheduleText,
+                                    masterOn: waterHeater.timerPreheatOn,
+                                    onWrite: (String value) =>
+                                        context.read<HomeBloc>().add(
+                                          SetTextEntityValue(
+                                            entityId:
+                                                waterHeater.scheduleEntityId!,
+                                            value: value,
+                                          ),
+                                        ),
+                                    onMasterToggle: timerId == null
+                                        ? null
+                                        : () => context.read<HomeBloc>().add(
+                                            ToggleEntity(entityId: timerId),
+                                          ),
+                                  ),
+                                ),
+                          ),
+                  );
+                }
+
+                final HaEntityStateModel entity = entities[index - panelCount];
+                final bool toggling = state.togglingIds.contains(
+                  entity.entityId,
+                );
+                final String areaLabel = state.areaLabelFor(entity.entityId);
+                void onToggle() => context.read<HomeBloc>().add(
+                  ToggleEntity(entityId: entity.entityId),
+                );
+
+                // 门锁属于安全设备：数据正常展示，控制项置灰禁用，
+                // 点击时提示出于安全暂不支持更改。
+                if (isLockDevice) {
+                  if (entity.isSwitchable) {
+                    return ButtonWidget(
+                      entity: entity,
+                      isToggling: false,
+                      onToggle: () {},
+                      areaLabel: areaLabel,
+                      blockedReason: '出于安全，暂不支持更改',
+                      onBlockedTap: () => _showLockBlocked(context),
+                    );
+                  }
+                  if (entity.isAction) {
+                    return ValueWidget(
+                      entity: entity,
+                      areaLabel: areaLabel,
+                      blockedReason: '出于安全，暂不支持更改',
+                      onBlockedTap: () => _showLockBlocked(context),
+                    );
+                  }
+                  return ValueWidget(entity: entity, areaLabel: areaLabel);
+                }
+
+                if (entity.isClimate) {
+                  return Column(
+                    children: <Widget>[
+                      ClimateControlPanel(
+                        entity: entity,
+                        isToggling: toggling,
+                        areaLabel: areaLabel,
+                        onToggle: onToggle,
+                        quickSwitches: climateQuickSwitches,
+                        onQuickSwitchToggled: (String entityId) => context
+                            .read<HomeBloc>()
+                            .add(ToggleEntity(entityId: entityId)),
+                        indicatorLightEntityId: climateIndicatorLight?.entityId,
+                        indicatorLightOn: climateIndicatorLight?.isOn ?? false,
+                        indicatorLightEffects:
+                            climateIndicatorLight?.effectList ??
+                            const <String>[],
+                        indicatorLightEffect: climateIndicatorLight?.effect,
+                        onIndicatorLightToggled: climateIndicatorLight == null
+                            ? null
+                            : () => context.read<HomeBloc>().add(
+                                ToggleEntity(
+                                  entityId: climateIndicatorLight.entityId,
+                                ),
+                              ),
+                        onIndicatorLightEffectSelected:
+                            climateIndicatorLight == null
+                            ? null
+                            : (String effect) => context.read<HomeBloc>().add(
+                                SetLightEffect(
+                                  entityId: climateIndicatorLight.entityId,
+                                  effect: effect,
+                                ),
+                              ),
+                        onTemperatureChanged: (double value) =>
+                            context.read<HomeBloc>().add(
+                              SetClimateTemperature(
+                                entityId: entity.entityId,
+                                temperature: value,
+                              ),
+                            ),
+                        onHvacModeSelected: (String mode) =>
+                            context.read<HomeBloc>().add(
+                              SetClimateHvacMode(
+                                entityId: entity.entityId,
+                                mode: mode,
+                              ),
+                            ),
+                        onFanModeSelected: (String mode) =>
+                            context.read<HomeBloc>().add(
+                              SetClimateFanMode(
+                                entityId: entity.entityId,
+                                mode: mode,
+                              ),
+                            ),
+                        onSwingModeSelected: (String mode) =>
+                            context.read<HomeBloc>().add(
+                              SetClimateSwingMode(
+                                entityId: entity.entityId,
+                                mode: mode,
+                              ),
+                            ),
+                      ),
+                      if (powerCard != null) ...<Widget>[
+                        const SizedBox(height: 12),
+                        powerCard,
+                      ],
+                      if (showInlineMetricChart) ...<Widget>[
+                        const SizedBox(height: 12),
+                        MetricChartCard(
+                          service: historyService,
+                          deviceId: deviceId,
+                          sources: metricSources,
+                          isConnected: isConnected,
+                        ),
+                      ],
+                    ],
+                  );
+                }
+
+                if (entity.isLight) {
+                  return LightControlPanel(
+                    entity: entity,
+                    isToggling: toggling,
+                    areaLabel: areaLabel,
+                    onToggle: onToggle,
+                    onBrightnessChanged: (int percent) =>
+                        context.read<HomeBloc>().add(
+                          SetLightBrightness(
+                            entityId: entity.entityId,
+                            percent: percent,
+                          ),
+                        ),
+                    onColorTemperatureChanged: (int kelvin) =>
+                        context.read<HomeBloc>().add(
+                          SetLightColorTemperature(
+                            entityId: entity.entityId,
+                            kelvin: kelvin,
+                          ),
+                        ),
+                    onEffectSelected: (String effect) =>
+                        context.read<HomeBloc>().add(
+                          SetLightEffect(
+                            entityId: entity.entityId,
+                            effect: effect,
+                          ),
+                        ),
+                  );
+                }
+
+                if (!entity.isSwitchable) {
+                  return ValueWidget(entity: entity, areaLabel: areaLabel);
+                }
+
+                return ButtonWidget(
+                  entity: entity,
+                  isToggling: toggling,
+                  onToggle: onToggle,
+                  areaLabel: areaLabel,
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 门锁控制项被安全锁定时的提示。
+  void _showLockBlocked(BuildContext context) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('出于安全，暂不支持更改'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+}
