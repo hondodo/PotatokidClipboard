@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
@@ -51,8 +52,12 @@ class DioManager {
       ..sendTimeout = AppConstants.sendTimeout;
     _dio.interceptors.add(DioLogInterceptor()); // 日志打印
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      _cookieJar = PersistCookieJar(storage: FileStorage(dir.path));
+      final applicationSupportDirectory =
+          await getApplicationSupportDirectory();
+      final cookieDirectory = Directory(
+        '${applicationSupportDirectory.path}${Platform.pathSeparator}cookies',
+      );
+      _cookieJar = PersistCookieJar(storage: FileStorage(cookieDirectory.path));
       _dio.interceptors.add(CookieManager(_cookieJar!));
     } catch (e, s) {
       const LogService().error('DioManager cookie 初始化失败', error: e, stackTrace: s);

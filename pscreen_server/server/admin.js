@@ -162,6 +162,10 @@ function attachAdmin(app, options = {}) {
     const onlineAccounts = typeof options.onlineAccounts === 'function'
         ? options.onlineAccounts
         : () => [];
+    // 由 server.js 注入：把配置变更推给在线设备（realtime 在 admin 之后挂载）。
+    const pushDeviceConfig = typeof options.pushDeviceConfig === 'function'
+        ? options.pushDeviceConfig
+        : () => {};
 
     const adminDir = path.join(datasDir, 'admin');
     fs.mkdirSync(adminDir, { recursive: true });
@@ -621,6 +625,10 @@ function attachAdmin(app, options = {}) {
             }
             writeUserInfo(name, info);
             console.log(`[admin] 更新用户 ${name}: homes=${JSON.stringify(info.homes)} role=${info.role}`);
+            // 用户家庭白名单变化会影响其名下设备 → 逐台推送最新生效配置。
+            for (const machine of Object.values(readMachines())) {
+                if (machine.owner === name) pushConfigToMachine(machine, { reason: 'user' });
+            }
             return jsonOk(res, { user: normalizeUser(readUserInfo(name)) });
         } catch (error) {
             console.error('[admin] 更新用户失败:', error);
@@ -653,6 +661,7 @@ function attachAdmin(app, options = {}) {
             machines[id] = normalizeMachine(id, machine);
             saveMachines(machines);
             console.log(`[admin] 更新设备 ${id}: owner=${machine.owner} homes=${JSON.stringify(machine.homes)}`);
+            pushConfigToMachine(machines[id], { reason: 'machine' });
             return jsonOk(res, { machine: machines[id] });
         } catch (error) {
             console.error('[admin] 更新设备失败:', error);
@@ -683,6 +692,7 @@ function attachAdmin(app, options = {}) {
             });
             layouts[key] = layout;
             saveLayouts(layouts);
+            pushConfigForLayout(key, { reason: 'layout', layoutChanged: true });
             return jsonOk(res, { key, layout });
         } catch (error) {
             console.error('[admin] 保存布局失败:', error);
@@ -699,6 +709,7 @@ function attachAdmin(app, options = {}) {
         const now = nowMs();
         layouts[key] = { all: [], byHome: {}, updatedAt: now, savedAt: now };
         saveLayouts(layouts);
+        pushConfigForLayout(key, { reason: 'layout', layoutChanged: true });
         return jsonOk(res, null, '布局已重置');
     });
 
@@ -768,6 +779,100 @@ function attachAdmin(app, options = {}) {
         };
     }
 
+    // ws 通道专用：设备上报 / 保活不再走 HTTP 心跳，直接操作设备表。
+    // lastSeen 写盘节流：machines.json 是全量写，客户端 25s 一次 ping 若每次都
+    // 落盘代价过高；60s 仍远小于 90s 的在线判定阈值。
+    const TOUCH_THROTTLE_MS = 60 * 1000;
+    const lastTouchAt = new Map();
+
+    /** 精确匹配优先，其次后缀匹配（ws 上报 16hex，表主键可能是 android_<hex>）。 */
+    function findMachineKey(machines, id) {
+        if (!id) return null;
+        if (machines[id]) return id;
+        return Object.keys(machines).find((candidate) => candidate.endsWith(id)) || null;
+    }
+
+    /** ws 连接 / ping 保活：仅刷新 lastSeen。 */
+    function touchDevice(deviceId) {
+        const id = safeDeviceId(deviceId);
+        if (!id) return;
+        const machines = readMachines();
+        const key = findMachineKey(machines, id);
+        if (!key) return;
+        const now = nowMs();
+        // 按设备表主键节流：同一设备无论用哪种 id 形式上报都只算一次。
+        if (now - (lastTouchAt.get(key) || 0) < TOUCH_THROTTLE_MS) return;
+        lastTouchAt.set(key, now);
+        machines[key].lastSeen = now;
+        saveMachines(machines);
+    }
+
+    /** ws report 帧：更新设备上报字段（已知家庭 / 当前家庭 / HA 连接状态）。 */
+    function updateDeviceReport(deviceId, report) {
+        const id = safeDeviceId(deviceId);
+        if (!id) return null;
+        const body = report && typeof report === 'object' ? report : {};
+        const machines = readMachines();
+        const key = findMachineKey(machines, id);
+        if (!key) return null;
+        const machine = machines[key];
+        const now = nowMs();
+        if (Array.isArray(body.knownHomes)) {
+            machine.knownHomes = body.knownHomes
+                .filter((home) => typeof home === 'string' && home.trim())
+                .map((home) => home.trim().slice(0, MAX_HOME_NAME))
+                .slice(0, MAX_HOMES);
+        }
+        if (typeof body.currentHome === 'string') {
+            machine.currentHome = body.currentHome.trim().slice(0, MAX_HOME_NAME);
+        }
+        if (typeof body.haConnected === 'boolean') {
+            machine.haConnected = body.haConnected;
+        }
+        if (typeof body.appVersion === 'string' && body.appVersion.trim()) {
+            machine.appVersion = body.appVersion.trim().slice(0, 32);
+        }
+        machine.lastSeen = now;
+        lastTouchAt.set(key, now);
+        machines[key] = normalizeMachine(key, machine);
+        saveMachines(machines);
+        return machines[key];
+    }
+
+    /** 按 deviceId 取生效配置（供 ws 下发；未注册返回 null）。 */
+    function configFor(deviceId) {
+        const id = safeDeviceId(deviceId);
+        if (!id) return null;
+        const machines = readMachines();
+        const key = findMachineKey(machines, id);
+        if (!key) return null;
+        return { deviceId: key, ...deviceConfigResponse(machines[key]) };
+    }
+
+    /** 配置变更后向在线设备推送最新生效配置（离线设备下次连接时由注册/拉取自愈）。 */
+    function pushConfigToMachine(machine, extra = {}) {
+        if (!machine) return;
+        const usersByName = new Map(listUsers().map((user) => [user.name, user]));
+        const config = resolveMachineConfig(machine, usersByName);
+        const layout = readLayouts()[config.layoutKey] || null;
+        pushDeviceConfig(machine.id, {
+            t: 'config',
+            deviceId: machine.id,
+            config: { ...config, layoutUpdatedAt: layout ? layout.updatedAt : 0 },
+            ...extra,
+        });
+    }
+
+    /** 布局变更：只推布局归属（layoutKey）为该标识的设备。 */
+    function pushConfigForLayout(key, extra = {}) {
+        const machines = readMachines();
+        const usersByName = new Map(listUsers().map((user) => [user.name, user]));
+        for (const machine of Object.values(machines)) {
+            if (resolveMachineConfig(machine, usersByName).layoutKey !== key) continue;
+            pushConfigToMachine(machine, extra);
+        }
+    }
+
     app.post('/api/device/register', (req, res) => {
         try {
             const machine = upsertMachine(req, req.body || {});
@@ -776,7 +881,6 @@ function attachAdmin(app, options = {}) {
             return jsonFail(res, error.message);
         }
     });
-
     app.post('/api/device/heartbeat', (req, res) => {
         try {
             const machine = upsertMachine(req, req.body || {});
@@ -894,7 +998,15 @@ function attachAdmin(app, options = {}) {
         machines[key] = normalizeMachine(key, machine);
         saveMachines(machines);
     }
-    return { adminDir, ADMIN_USERNAME, setCommInfo };
+    return {
+        adminDir,
+        ADMIN_USERNAME,
+        setCommInfo,
+        // ws 通道复用：保活 / 上报 / 取配置
+        touchDevice,
+        updateDeviceReport,
+        configFor,
+    };
 }
 
 module.exports = { attachAdmin, ADMIN_USERNAME };

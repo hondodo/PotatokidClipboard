@@ -89,6 +89,10 @@ class TryIconHelper {
 
     _listenTrayIcon(trayIcon);
     _setIcon(trayIcon, TrayIconState.off);
+    if (!trayIcon.setVisible(true)) {
+      debugPrint('TryIconHelper] 显示托盘图标失败');
+      return null;
+    }
     return trayIcon;
   }
 
@@ -102,10 +106,13 @@ class TryIconHelper {
       return;
     }
     _setIcon(trayIcon, trayIconState);
+    if (!trayIcon.isVisible()) {
+      trayIcon.setVisible(true);
+    }
   }
 
-  static void _addMenuItem(nativeapi.Menu menu,
-      List<nativeapi.MenuItem> items, String label, String action) {
+  static void _addMenuItem(nativeapi.Menu menu, List<nativeapi.MenuItem> items,
+      String label, String action) {
     final item = nativeapi.MenuItem.createWithLabelAndType(
         label, nativeapi.MenuItemType.normal)!;
     item.addListener((event) {
@@ -141,18 +148,17 @@ class TryIconHelper {
     return launchAtLogin != null && launchAtLogin.isEnabled;
   }
 
-  static nativeapi.MenuItem _addLaunchAtLoginItem(
-      nativeapi.Menu menu,
-      List<nativeapi.MenuItem> items,
-      nativeapi.LaunchAtLogin launchAtLogin) {
+  static nativeapi.MenuItem _addLaunchAtLoginItem(nativeapi.Menu menu,
+      List<nativeapi.MenuItem> items, nativeapi.LaunchAtLogin launchAtLogin) {
     final enabled = launchAtLogin.isEnabled;
     debugPrint('TryIconHelper] 构建开机启动项: id=${launchAtLogin.id} '
         'enabled=$enabled');
     _lastSyncedEnabled = enabled;
     final item = nativeapi.MenuItem.createWithLabelAndType(
         '开机启动'.tr, nativeapi.MenuItemType.checkbox)!;
-    item.state =
-        enabled ? nativeapi.MenuItemState.checked : nativeapi.MenuItemState.unchecked;
+    item.state = enabled
+        ? nativeapi.MenuItemState.checked
+        : nativeapi.MenuItemState.unchecked;
     item.addListener((event) {
       if (event is nativeapi.MenuItemClickedEvent) {
         debugPrint('TryIconHelper] MenuItemClickedEvent → 切换开机启动');
@@ -222,8 +228,8 @@ class TryIconHelper {
     });
   }
 
-  static void _setIcon(nativeapi.TrayIcon trayIcon,
-      TrayIconState trayIconState) {
+  static void _setIcon(
+      nativeapi.TrayIcon trayIcon, TrayIconState trayIconState) {
     final String assetName;
     if (trayIconState == TrayIconState.on) {
       assetName = Platform.isWindows

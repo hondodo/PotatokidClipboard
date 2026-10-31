@@ -175,11 +175,13 @@ abstract class BaseStatelessSubWidget<T extends BaseStatusMixin>
         return buildLoadingBody(
             context); // loadingBody(context) ?? const NetLoadingStatusWidget();
       case Status.success:
-        return Container(
+        return Material(
+          color: bodyBackgroundColor ?? Colors.white,
+          child: Padding(
             padding: bodyPadding(),
-            decoration:
-                BoxDecoration(color: bodyBackgroundColor ?? Colors.white),
-            child: buildBody(context));
+            child: buildBody(context),
+          ),
+        );
       case Status.error:
         if (code == StatusErrorCode.disconnect) {
           return errorBody(context, code) ??

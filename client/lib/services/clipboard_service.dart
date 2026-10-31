@@ -8,6 +8,7 @@ import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
 import 'package:potatokid_clipboard/services/settings_service.dart';
 import 'package:potatokid_clipboard/user/user_service.dart';
+import 'package:potatokid_clipboard/utils/clipboard_utils.dart';
 import 'package:potatokid_clipboard/utils/device_utils.dart';
 import 'package:potatokid_clipboard/utils/error_utils.dart';
 
@@ -41,11 +42,16 @@ class ClipboardService extends GetxService {
 
   /// 设置当前剪贴板内容，为避免点击app里的复制按钮，触发监听，导致重复保存
   void setCurrentClipboard(String text) {
-    _lastClipboardText = text;
     if (text.isEmpty) {
       return;
     }
-    Clipboard.setData(ClipboardData(text: text));
+    final previousText = _lastClipboardText;
+    _lastClipboardText = text;
+    unawaited(ClipboardUtils.setText(text).then((success) {
+      if (!success && _lastClipboardText == text) {
+        _lastClipboardText = previousText;
+      }
+    }));
   }
 
   /// 启动监控
@@ -109,7 +115,7 @@ class ClipboardService extends GetxService {
         if (text.isNotEmpty && _lastClipboardText != text) {
           // 如果是ios，那么要设置剪贴板内容，否则会一直提示获取剪贴板的来源
           if (DeviceUtils.instance.isMobile()) {
-            Clipboard.setData(data);
+            await ClipboardUtils.setText(text);
           }
           _handleClipboardChange(text);
         }

@@ -1,11 +1,11 @@
 import 'dart:math';
 
 import 'package:dart_eval/dart_eval.dart';
-import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:flutter/material.dart';
 import 'package:potatokid_clipboard/utils/calc_voice_helper.dart';
+import 'package:potatokid_clipboard/utils/clipboard_utils.dart';
 import 'package:vibration/vibration.dart';
 
 class CalcResult {
@@ -336,13 +336,14 @@ class CalcController extends BaseGetVM {
   }
 
   Future<void> onTabLine(String line) async {
-    await Clipboard.setData(ClipboardData(text: line));
-    showSuccess(
-      '已复制@line到剪贴板'.trParams({
-        'line': line,
-      }),
-      timeout: 1000,
-    );
+    if (await ClipboardUtils.setText(line)) {
+      showSuccess(
+        '已复制@line到剪贴板'.trParams({
+          'line': line,
+        }),
+        timeout: 1000,
+      );
+    }
   }
 
   Future<void> onTabExpressionHistory(CalcResult result) async {
@@ -375,13 +376,14 @@ class CalcController extends BaseGetVM {
     if (result.isError) {
       return;
     }
-    await Clipboard.setData(ClipboardData(text: result.valueString));
-    showSuccess(
-      '已复制@line到剪贴板'.trParams({
-        'line': result.valueString,
-      }),
-      timeout: 1000,
-    );
+    if (await ClipboardUtils.setText(result.valueString)) {
+      showSuccess(
+        '已复制@line到剪贴板'.trParams({
+          'line': result.valueString,
+        }),
+        timeout: 1000,
+      );
+    }
   }
 
   void onVoiceTypePressed() {

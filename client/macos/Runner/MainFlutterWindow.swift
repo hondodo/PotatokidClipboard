@@ -4,6 +4,10 @@ import bitsdojo_window_macos // Add this line
 
 class MainFlutterWindow: BitsdojoWindow {
 
+  override func close() {
+    orderOut(nil)
+  }
+
   override func bitsdojo_window_configure() -> UInt {
     // return BDW_CUSTOM_FRAME | BDW_HIDE_ON_STARTUP
     return BDW_HIDE_ON_STARTUP

@@ -8,6 +8,7 @@ import 'package:potatokid_clipboard/app/app_enums.dart';
 import 'package:potatokid_clipboard/framework/base/base_get_vm.dart';
 import 'package:potatokid_clipboard/gen/assets.gen.dart';
 import 'package:potatokid_clipboard/pages/tools/time_stamp/model.dart/time_zone_model.dart';
+import 'package:potatokid_clipboard/utils/clipboard_utils.dart';
 
 class TimeStampController extends BaseGetVM {
   // --------------------------------当前时间戳--------------------------------
@@ -119,7 +120,7 @@ class TimeStampController extends BaseGetVM {
   }
 
   void onCopy() {
-    Clipboard.setData(ClipboardData(text: currentTimeStamp.value.toString()));
+    unawaited(ClipboardUtils.setText(currentTimeStamp.value.toString()));
   }
 
   void startTimer() {

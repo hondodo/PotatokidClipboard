@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:potatokid_clipboard/framework/utils/app_log.dart';
 import 'package:potatokid_clipboard/pages/home/tabs/clipboard/repository/clipboard_repository.dart';
+import 'package:potatokid_clipboard/utils/clipboard_utils.dart';
 import 'package:potatokid_clipboard/utils/error_utils.dart';
 
 class ClipBoardPushHelper {
@@ -34,7 +35,7 @@ class ClipBoardPushHelper {
     if (text.isEmpty) {
       return;
     }
-    Clipboard.setData(ClipboardData(text: text));
+    unawaited(ClipboardUtils.setText(text));
   }
 
   /// 检查剪贴板内容
