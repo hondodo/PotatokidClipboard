@@ -10,12 +10,14 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 中控屏与 Admin 服务端的同步器。
 ///
 /// 职责：
 /// - 启动时用 Android ID 注册设备，拉取「可见家庭」与首页布局；
-/// - 每 60 秒心跳上报在线状态 / 当前家庭 / 已知家庭，并接收配置变更；
+/// - 在线期间通过实时通道（WebSocket）每 60 秒上报状态，并接收配置推送；
+/// - WS 不可用时降级为每 5 分钟一次 HTTP 心跳，维持在线状态；
 /// - 拖拽排序后把卡片顺序上传（带时间戳，服务端按新旧合并）；
 /// - 服务端不可达时静默降级，不影响 HA 连接与主页使用。
 class DeviceReporter {
@@ -25,6 +27,12 @@ class DeviceReporter {
   }) : _store = store,
        _log = log;
 
+  /// WS 上报间隔（与原 HTTP 心跳一致）。
+  static const Duration _reportInterval = Duration(seconds: 60);
+
+  /// WS 断开时的 HTTP 兜底间隔（降频，仅维持在线与配置自愈）。
+  static const Duration _fallbackInterval = Duration(minutes: 5);
+
   final SettingsStore _store;
   final LogService _log;
 
@@ -32,9 +40,16 @@ class DeviceReporter {
   String _deviceId = '';
   String _appVersion = '';
   String _layoutKey = '';
+  int _layoutUpdatedAt = 0;
 
-  Timer? _heartbeatTimer;
+  Timer? _reportTimer;
+  Timer? _fallbackTimer;
   Timer? _pushTimer;
+  StreamSubscription<RealtimeConnectionState>? _wsStateSub;
+  StreamSubscription<Map<String, dynamic>>? _wsConfigSub;
+
+  /// null = 尚未判定过（首次 sync 必须真正执行一次，否则兜底不会启动）。
+  bool? _wsReady;
   _PendingLayout? _pending;
   bool _initialized = false;
 
@@ -64,6 +79,7 @@ class DeviceReporter {
       );
       _applyConfig(config, dispatch: false);
       _layoutKey = config.layoutKey;
+      _layoutUpdatedAt = config.layoutUpdatedAt;
       await _syncLayout();
       _log.info(
         '[服务端] 设备已注册: $_deviceId 家庭来源=${config.source} '
@@ -74,38 +90,116 @@ class DeviceReporter {
     }
   }
 
-  /// 启动心跳（runApp 之后调用；未配置服务端时无操作）。
+  /// 启动在线上报（runApp 之后调用；未配置服务端时无操作）。
+  ///
+  /// 优先走实时通道（WS）：连接后每 60 秒上报一次；WS 未连通时降级为
+  /// 每 5 分钟一次 HTTP 心跳，连通边沿自动切回 WS。
   void start() {
     if (_client == null) return;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(
-      const Duration(seconds: 60),
+    final RealtimeChannel? channel = _realtimeChannel;
+    if (channel == null) {
+      _startFallback();
+      return;
+    }
+    _wsStateSub ??= channel.connectionState.listen((_) => _syncReportMode());
+    _wsConfigSub ??= channel.deviceConfigs.listen(_applyServerConfig);
+    _syncReportMode();
+  }
+
+  RealtimeChannel? get _realtimeChannel {
+    if (!Injection.isRegistered<RealtimeChannel>()) return null;
+    return Injection.get<RealtimeChannel>();
+  }
+
+  /// WS 连接状态变化：切换上报通道（进入连接态立即上报一次并拿到最新配置）。
+  void _syncReportMode() {
+    final bool ready = _realtimeChannel?.isConnected ?? false;
+    if (ready == _wsReady) return;
+    _wsReady = ready;
+    _reportTimer?.cancel();
+    _reportTimer = null;
+    if (ready) {
+      _stopFallback();
+      _reportTimer = Timer.periodic(
+        _reportInterval,
+        (_) => unawaited(_reportViaWs()),
+      );
+      unawaited(_reportViaWs());
+    } else {
+      _startFallback();
+    }
+  }
+
+  void _startFallback() {
+    _fallbackTimer?.cancel();
+    // 不立即发：启动注册已完成一次配置同步，首个兜底心跳等一个周期即可，
+    // 避免 WS 正常时也产生一次 HTTP 心跳。
+    _fallbackTimer = Timer.periodic(
+      _fallbackInterval,
       (_) => unawaited(_heartbeat()),
     );
-    unawaited(_heartbeat());
+  }
+
+  void _stopFallback() {
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
   }
 
   /// 设置页修改服务端地址后调用：断开旧客户端并重新注册 / 同步。
   Future<void> reinitialize() async {
-    _heartbeatTimer?.cancel();
-    _pushTimer?.cancel();
+    _cancelTimers();
+    _cancelWsSubscriptions();
     _pending = null;
     _client?.dispose();
     _client = null;
     _deviceId = '';
     _layoutKey = '';
+    _layoutUpdatedAt = 0;
     _initialized = false;
     await initialize();
     start();
   }
 
   void dispose() {
-    _heartbeatTimer?.cancel();
-    _pushTimer?.cancel();
+    _cancelTimers();
+    _cancelWsSubscriptions();
     _client?.dispose();
     _client = null;
   }
 
+  void _cancelTimers() {
+    _reportTimer?.cancel();
+    _reportTimer = null;
+    _stopFallback();
+    _pushTimer?.cancel();
+    _wsReady = null;
+  }
+
+  void _cancelWsSubscriptions() {
+    _wsStateSub?.cancel();
+    _wsStateSub = null;
+    _wsConfigSub?.cancel();
+    _wsConfigSub = null;
+  }
+
+  /// WS 上报：状态字段 + 回包里的最新配置（服务端顺带刷新 lastSeen）。
+  Future<void> _reportViaWs() async {
+    final RealtimeChannel? channel = _realtimeChannel;
+    if (channel == null || !channel.isConnected) return;
+    try {
+      final Map<String, dynamic>? config = await channel.sendReport(
+        knownHomes: _knownHomes(),
+        currentHome: _currentHome(),
+        haConnected: _haConnected(),
+        appVersion: _appVersion,
+      );
+      if (config != null) _applyServerConfig(config);
+    } catch (error) {
+      _log.info('[服务端] ws 上报失败: $error');
+    }
+  }
+
+  /// 兜底：WS 未连通时的降频 HTTP 心跳。
   Future<void> _heartbeat() async {
     final ServerApiClient? client = _client;
     if (client == null || _deviceId.isEmpty) return;
@@ -118,13 +212,22 @@ class DeviceReporter {
         haConnected: _haConnected(),
       );
       _applyConfig(config, dispatch: true);
-      if (config.layoutKey.isNotEmpty && config.layoutKey != _layoutKey) {
-        _layoutKey = config.layoutKey;
-        await _syncLayout();
-      }
     } catch (error) {
-      // 心跳失败很常见（服务端重启 / 设备离线），只记 debug 级日志。
+      // 心跳失败很常见（服务端重启 / 设备离线），只记 info 级日志。
       _log.info('[服务端] 心跳失败: $error');
+    }
+  }
+
+  /// 服务端推送 / 上报回包的配置：套用白名单，布局有更新时重新同步。
+  void _applyServerConfig(Map<String, dynamic> json) {
+    final ServerDeviceConfig config = ServerDeviceConfig.fromJson(json);
+    _applyConfig(config, dispatch: true);
+    if (config.layoutKey != _layoutKey ||
+        (config.layoutUpdatedAt > 0 &&
+            config.layoutUpdatedAt != _layoutUpdatedAt)) {
+      _layoutKey = config.layoutKey;
+      _layoutUpdatedAt = config.layoutUpdatedAt;
+      unawaited(_syncLayout());
     }
   }
 

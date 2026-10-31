@@ -1816,6 +1816,8 @@ const adminHandle = attachAdmin(app, {
     registerUsersDir,
     webAppPath,
     onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
+    // admin 变更配置后按设备号推给在线 ws（realtime 尚未挂载时安全降级为无操作）。
+    pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
 });
 
 // 处理所有其他路由，返回Flutter应用（SPA支持）
@@ -1843,6 +1845,10 @@ realtimeHandle = attachRealtime(httpServer, {
     accountStore,
     dataDir: path.join(__dirname, config.realtime.dataDir),
     setCommInfo: adminHandle.setCommInfo,
+    // 设备表：ws 保活 / 上报 / 下发配置（替代 HTTP 心跳）
+    touchDevice: adminHandle.touchDevice,
+    updateDeviceReport: adminHandle.updateDeviceReport,
+    configFor: adminHandle.configFor,
     // 剪贴板推送通道：复用 HTTP 的账号体系与列表读取实现
     clipboardPath: '/ws/clipboard',
     clipboardList: (account, fromId) => readUserClipboards(account, fromId),

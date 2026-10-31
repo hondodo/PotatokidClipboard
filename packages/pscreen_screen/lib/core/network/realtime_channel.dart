@@ -283,6 +283,8 @@ class RealtimeChannel {
       StreamController<void>.broadcast();
   final StreamController<RealtimeDeviceState> _deviceController =
       StreamController<RealtimeDeviceState>.broadcast();
+  final StreamController<Map<String, dynamic>> _configController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   RealtimeConnectionState _state = RealtimeConnectionState.disconnected;
   final Set<String> _online = <String>{};
@@ -333,6 +335,11 @@ class RealtimeChannel {
 
   /// 被控设备状态变化（roster / presence / state 任一更新时推送）。
   Stream<RealtimeDeviceState> get deviceStates => _deviceController.stream;
+
+  /// 服务端下发的设备生效配置（管理端改白名单 / 布局归属时推送）。
+  ///
+  /// 旧服务端不会发 `config` 帧，订阅端保持静默即可。
+  Stream<Map<String, dynamic>> get deviceConfigs => _configController.stream;
 
   RealtimeConnectionState get state => _state;
   bool get isConnected => _state == RealtimeConnectionState.connected;
@@ -615,6 +622,27 @@ class RealtimeChannel {
     return true;
   }
 
+  /// 上报设备自身状态（已知家庭 / 当前家庭 / HA 连接），替代 HTTP 设备心跳。
+  ///
+  /// 服务端会顺带刷新 `lastSeen` 并在回包里返回最新生效配置，客户端据此
+  /// 在重连后自愈（无需再额外拉一次 config）。
+  Future<Map<String, dynamic>?> sendReport({
+    List<String> knownHomes = const <String>[],
+    String currentHome = '',
+    bool? haConnected,
+    String appVersion = '',
+  }) async {
+    final Map<String, dynamic>? reply = await _request(<String, dynamic>{
+      't': 'report',
+      'knownHomes': knownHomes,
+      'currentHome': currentHome,
+      'haConnected': ?haConnected,
+      if (appVersion.isNotEmpty) 'appVersion': appVersion,
+    });
+    final dynamic raw = reply == null ? null : reply['config'];
+    return raw is Map<String, dynamic> ? raw : null;
+  }
+
   Future<void> dispose() async {
     await disconnect();
     await _stateController.close();
@@ -624,6 +652,7 @@ class RealtimeChannel {
     await _errorController.close();
     await _conversationController.close();
     await _deviceController.close();
+    await _configController.close();
   }
 
   Future<bool> _open() async {
@@ -809,6 +838,14 @@ class RealtimeChannel {
         break;
 
       case 'pong':
+        break;
+
+      case 'config':
+        // 服务端推送的设备生效配置（家庭白名单 / 布局标识）。
+        final dynamic rawConfig = frame['config'];
+        if (rawConfig is Map<String, dynamic> && !_configController.isClosed) {
+          _configController.add(Map<String, dynamic>.unmodifiable(rawConfig));
+        }
         break;
 
       default:

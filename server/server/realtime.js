@@ -131,6 +131,11 @@ function attachRealtime(httpServer, options = {}) {
     const clipboardConnections = new Map();
     // 账号存储（datas/register/users）：与 HTTP 登录同一校验；未传时拒绝所有连接。
     const accountStore = options.accountStore || null;
+    // 设备表入口（由 server.js 注入 admin 的实现）：ws 保活 / 上报 / 取配置。
+    const touchDevice = typeof options.touchDevice === 'function' ? options.touchDevice : () => {};
+    const updateDeviceReport =
+        typeof options.updateDeviceReport === 'function' ? options.updateDeviceReport : () => null;
+    const configForDevice = typeof options.configFor === 'function' ? options.configFor : () => null;
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
     const historyFile = path.join(dataDir, 'history.jsonl');
     const eventsFile = path.join(dataDir, 'events.jsonl');
@@ -200,6 +205,23 @@ function attachRealtime(httpServer, options = {}) {
             });
         }
         return roster;
+    }
+
+    /** 按设备号向在线 socket 推帧（target 是设备表主键，ws.deviceId 可能不带前缀）。 */
+    function pushToDevice(targetDeviceId, payload) {
+        const target = String(targetDeviceId || '').trim();
+        if (!target) return 0;
+        let sent = 0;
+        for (const sockets of connections.values()) {
+            for (const ws of sockets) {
+                const id = ws.deviceId || '';
+                if (!id) continue;
+                if (id !== target && !target.endsWith(id)) continue;
+                sendJson(ws, payload);
+                sent++;
+            }
+        }
+        return sent;
     }
 
     /** 把某设备的最新状态推给一个控制端（无缓存则不发）。 */
@@ -625,6 +647,14 @@ function attachRealtime(httpServer, options = {}) {
                 console.warn('[realtime] 记录通信账号失败:', error.message);
             }
         }
+        // 连接即视为在线：等价于原 HTTP 心跳的 lastSeen 刷新。
+        if (deviceId) {
+            try {
+                touchDevice(deviceId);
+            } catch (error) {
+                console.warn('[realtime] 刷新设备在线状态失败:', error.message);
+            }
+        }
 
         let sockets = connections.get(account);
         const firstConnection = !sockets || sockets.size === 0;
@@ -678,8 +708,25 @@ function attachRealtime(httpServer, options = {}) {
 
             switch (frame.t) {
                 case 'ping':
+                    // 客户端 25s 一次 ping：顺带保活设备表，替代 HTTP 心跳。
+                    if (ws.deviceId) touchDevice(ws.deviceId);
                     sendJson(ws, { t: 'pong', ts: Date.now() });
                     break;
+
+                case 'report': {
+                    // 设备状态上报（已知家庭 / 当前家庭 / HA 连接）：替代 HTTP 心跳的上行字段。
+                    // 回包里附带最新生效配置，客户端重连后据此自愈。
+                    const id = typeof frame.id === 'string' ? frame.id : '';
+                    const machine = ws.deviceId ? updateDeviceReport(ws.deviceId, frame) : null;
+                    const snapshot = ws.deviceId ? configForDevice(ws.deviceId) : null;
+                    sendJson(ws, {
+                        t: 'result',
+                        id,
+                        ok: !!machine,
+                        ...(snapshot ? { config: snapshot.config } : {}),
+                    });
+                    break;
+                }
 
                 case 'msg': {
                     const to = typeof frame.to === 'string' ? frame.to.trim() : '';
@@ -1111,7 +1158,7 @@ function attachRealtime(httpServer, options = {}) {
     });
 
     console.log(`[realtime] WebSocket 网关已挂载: ${wsPath} (剪贴板推送: ${clipboardPath})`);
-    return { wss, onlineAccounts, pushClipboard };
+    return { wss, onlineAccounts, pushClipboard, pushToDevice };
 }
 
 module.exports = { attachRealtime };
