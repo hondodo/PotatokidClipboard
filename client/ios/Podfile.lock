@@ -1,4 +1,9 @@
 PODS:
+  - audio_session (0.0.1):
+    - Flutter
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - battery_plus (1.0.0):
     - Flutter
   - connectivity_plus (0.0.1):
@@ -43,14 +48,16 @@ PODS:
   - flutter_udid (0.0.1):
     - Flutter
     - KeychainAccess
+  - haptic_feedback (0.5.1):
+    - Flutter
+  - just_audio (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - KeychainAccess (4.2.2)
   - native_flutter_proxy (0.0.1):
     - Flutter
-  - open_file_ios (0.0.1):
+  - open_file_ios (1.0.3):
     - Flutter
-  - path_provider_foundation (0.0.1):
-    - Flutter
-    - FlutterMacOS
   - SDWebImage (5.21.1):
     - SDWebImage/Core (= 5.21.1)
   - SDWebImage/Core (5.21.1)
@@ -59,19 +66,25 @@ PODS:
   - SwiftyGif (5.4.5)
   - url_launcher_ios (0.0.1):
     - Flutter
+  - vibration (3.0.0):
+    - Flutter
 
 DEPENDENCIES:
+  - audio_session (from `.symlinks/plugins/audio_session/ios`)
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/darwin`)
   - battery_plus (from `.symlinks/plugins/battery_plus/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
   - flutter_udid (from `.symlinks/plugins/flutter_udid/ios`)
+  - haptic_feedback (from `.symlinks/plugins/haptic_feedback/ios`)
+  - just_audio (from `.symlinks/plugins/just_audio/darwin`)
   - native_flutter_proxy (from `.symlinks/plugins/native_flutter_proxy/ios`)
   - open_file_ios (from `.symlinks/plugins/open_file_ios/ios`)
-  - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
+  - vibration (from `.symlinks/plugins/vibration/ios`)
 
 SPEC REPOS:
   trunk:
@@ -82,6 +95,10 @@ SPEC REPOS:
     - SwiftyGif
 
 EXTERNAL SOURCES:
+  audio_session:
+    :path: ".symlinks/plugins/audio_session/ios"
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/darwin"
   battery_plus:
     :path: ".symlinks/plugins/battery_plus/ios"
   connectivity_plus:
@@ -94,35 +111,43 @@ EXTERNAL SOURCES:
     :path: Flutter
   flutter_udid:
     :path: ".symlinks/plugins/flutter_udid/ios"
+  haptic_feedback:
+    :path: ".symlinks/plugins/haptic_feedback/ios"
+  just_audio:
+    :path: ".symlinks/plugins/just_audio/darwin"
   native_flutter_proxy:
     :path: ".symlinks/plugins/native_flutter_proxy/ios"
   open_file_ios:
     :path: ".symlinks/plugins/open_file_ios/ios"
-  path_provider_foundation:
-    :path: ".symlinks/plugins/path_provider_foundation/darwin"
   share_plus:
     :path: ".symlinks/plugins/share_plus/ios"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
+  vibration:
+    :path: ".symlinks/plugins/vibration/ios"
 
 SPEC CHECKSUMS:
+  audio_session: 19e9480dbdd4e5f6c4543826b2e8b0e4ab6145fe
+  audioplayers_darwin: f15e209a3e856d1a7edcf98dc029f484fead2242
   battery_plus: 34f72fa2afeeea83bbae306c72a25828d3ec727a
   connectivity_plus: 2a701ffec2c0ae28a48cf7540e279787e77c447d
   device_info_plus: bf2e3232933866d73fe290f2942f2156cdd10342
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: b159e0c068aef54932bb15dc9fd1571818edaf49
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_udid: 8bd93f87dee925989788ae646418a63c73a15407
+  haptic_feedback: a366a27ec760f0e865651605b95de8a9bb04ef01
+  just_audio: a42c63806f16995daf5b219ae1d679deb76e6a79
   KeychainAccess: c0c4f7f38f6fc7bbe58f5702e25f7bd2f65abf51
   native_flutter_proxy: 9d5ce4f6db3e1bf1e0c796020393f6500abd3126
-  open_file_ios: 461db5853723763573e140de3193656f91990d9e
-  path_provider_foundation: 0b743cbb62d8e47eab856f09262bb8c1ddcfe6ba
+  open_file_ios: 04cd9d58ba71ec67c8aa56dbf5e0f3ae755b19ba
   SDWebImage: f29024626962457f3470184232766516dee8dfea
   share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
   url_launcher_ios: bb13df5870e8c4234ca12609d04010a21be43dfa
+  vibration: 8e4d81c3e73ab229a9fb5ab2692f789c4a46d74d
 
-PODFILE CHECKSUM: 0a7d5b7d0e53420cb0284f7b2f171f93843b94d2
+PODFILE CHECKSUM: 32795bdbd26d80aa4eb82e1b104007d464daa41b
 
 COCOAPODS: 1.16.2
