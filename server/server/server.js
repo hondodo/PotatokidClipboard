@@ -10,12 +10,18 @@ const definds = require('./definds');
 const { createAccountStore, ACCOUNT_PATTERN } = require('./accounts');
 const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
+const { createTrafficTracker } = require('./traffic');
 
 const app = express();
 const PORT = config.port;
 
 // 配置信任代理，以便正确获取用户真实IP
 app.set('trust proxy', true);
+
+// 接口流量统计（HTTP + WebSocket）：必须在 body 解析之前挂，
+// 才能拿到原始上行字节；数据落 ../datas/stats/。
+const traffic = createTrafficTracker(path.join(__dirname, '../datas'));
+app.use(traffic.middleware);
 
 // 请求日志中间件
 app.use((req, res, next) => {
@@ -779,6 +785,7 @@ app.post('/api/remote_sessions', (req, res) => {
             updatedAt: new Date().toISOString(),
             items: cleanItems
         };
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, JSON.stringify(content, null, 2));
 
         console.log(`会话列表已同步: ${username} (${cleanItems.length} 条)`);
@@ -1729,7 +1736,9 @@ app.post('/api/clipboard', (req, res) => {
             [definds.txt.CODE]: definds.code.SUCCESS,
             [definds.txt.MSG]: '剪贴板创建成功',
             [definds.txt.DATA]: {
-                clipboard: clipboardContent
+                clipboard: req.body.summary === '1'
+                    ? clipboardSummary(clipboardContent)
+                    : clipboardContent
             }
         });
     } catch (error) {
@@ -1744,7 +1753,28 @@ app.post('/api/clipboard', (req, res) => {
 // 读取用户剪贴板列表：HTTP GET /api/clipboards 与 WebSocket 快照共用同一实现。
 // 文件名形如 clipboard_<id>.txt，id 就是文件名里的时间戳，
 // 所以先按 id 过滤文件名、再读盘；轮询/快照只读增量文件，不再全量读历史。
-function readUserClipboards(username, fromId = 0) {
+const CLIPBOARD_PREVIEW_LENGTH = 100;
+
+function clipboardSummary(clipboard) {
+    const content = typeof clipboard.content === 'string' ? clipboard.content : '';
+    let preview = '';
+    let count = 0;
+    let truncated = false;
+    for (const character of content) {
+        if (count++ >= CLIPBOARD_PREVIEW_LENGTH) {
+            truncated = true;
+            break;
+        }
+        preview += character;
+    }
+    return {
+        ...clipboard,
+        content: truncated ? `${preview}…` : preview,
+        contentIsSummary: true,
+    };
+}
+
+function readUserClipboards(username, fromId = 0, summary = false) {
     if (typeof username !== 'string' || !ACCOUNT_PATTERN.test(username)) {
         throw new Error('非法用户名');
     }
@@ -1764,7 +1794,8 @@ function readUserClipboards(username, fromId = 0) {
     );
     clipboards.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     // 最多返回20条
-    return clipboards.slice(0, 20);
+    const result = clipboards.slice(0, 20);
+    return summary ? result.map(clipboardSummary) : result;
 }
 
 // 获取用户剪贴板列表
@@ -1796,7 +1827,7 @@ app.get('/api/clipboards', (req, res) => {
             [definds.txt.CODE]: definds.code.SUCCESS,
             [definds.txt.MSG]: '获取剪贴板列表成功',
             [definds.txt.DATA]: {
-                clipboards: readUserClipboards(username, fromId)
+                clipboards: readUserClipboards(username, fromId, req.query.summary === '1')
             }
         });
     } catch (error) {
@@ -1804,6 +1835,46 @@ app.get('/api/clipboards', (req, res) => {
         res.status(200).json({
             [definds.txt.CODE]: definds.code.FAILED,
             [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
+// 按当前 Cookie 所属用户读取单条全文，不接受客户端传入的用户目录。
+app.get('/api/clipboards/:id', (req, res) => {
+    try {
+        const username = req.cookies?.username;
+        const id = req.params.id;
+        if (!username || !ACCOUNT_PATTERN.test(username) ||
+            username === '.' || username === '..' || !accountStore.exists(username)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.UNLOGIN,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+        if (!/^\d+$/.test(id)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '无效的剪贴板 ID',
+            });
+        }
+        const filePath = path.join(usersDir, username, 'clipboard', `clipboard_${id}.txt`);
+        if (!fs.existsSync(filePath)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FILE_NOT_EXISTS,
+                [definds.txt.MSG]: '剪贴板内容不存在',
+            });
+        }
+        const clipboard = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: '获取剪贴板内容成功',
+            [definds.txt.DATA]: { clipboard },
+        });
+    } catch (error) {
+        console.error('获取剪贴板内容错误:', error);
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: '获取剪贴板内容失败',
         });
     }
 });
@@ -1818,6 +1889,8 @@ const adminHandle = attachAdmin(app, {
     onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
     // admin 变更配置后按设备号推给在线 ws（realtime 尚未挂载时安全降级为无操作）。
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
+    // /api/admin/traffic 查询用
+    traffic,
 });
 
 // 处理所有其他路由，返回Flutter应用（SPA支持）
@@ -1851,7 +1924,10 @@ realtimeHandle = attachRealtime(httpServer, {
     configFor: adminHandle.configFor,
     // 剪贴板推送通道：复用 HTTP 的账号体系与列表读取实现
     clipboardPath: '/ws/clipboard',
-    clipboardList: (account, fromId) => readUserClipboards(account, fromId),
+    clipboardList: (account, fromId, summary) => readUserClipboards(account, fromId, summary),
+    clipboardSummary,
+    // WS 流量统计：connection 建立后包装 send / 监听 message
+    traffic,
 });
 httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);

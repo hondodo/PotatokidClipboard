@@ -148,6 +148,18 @@
     .badge.role-user { color: var(--muted); }
 
     .empty { padding: 36px 16px; text-align: center; color: var(--muted); font-size: 13px; }
+
+    /* 流量统计：按来源分组的表头行与表尾总计行 */
+    .traffic-scope-header td {
+      padding: 8px 10px; font-size: 12px; font-weight: 700;
+      color: var(--accent); letter-spacing: .04em;
+      background: rgba(95, 211, 196, .06); border-top: 1px solid var(--line);
+    }
+    .traffic-total td {
+      padding: 7px 10px; font-size: 12px;
+      background: rgba(255, 255, 255, .025); border-top: 1px solid var(--line);
+    }
+    .traffic-total td:last-child { color: var(--accent); }
     .layout-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
     .layout-side { padding: 14px; }
     .layout-side h3 { margin: 0 0 10px; font-size: 13px; }
@@ -271,6 +283,7 @@
       <button class="tab active" type="button" data-tab="machines">设备状态</button>
       <button class="tab" type="button" data-tab="users">用户与家庭</button>
       <button class="tab" type="button" data-tab="layouts">首页布局</button>
+      <button class="tab" type="button" data-tab="traffic">流量统计</button>
     </nav>
 
     <section id="tab-machines" class="panel">
@@ -346,6 +359,36 @@
           <div class="empty">暂无布局数据。App 首次拖拽排序后会自动出现在这里。</div>
         </div>
       </div>
+    </section>
+
+    <section id="tab-traffic" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>流量统计</h2>
+          <p>按接口 / 通道、按来源（外网 wan / Tailscale tail / 内网 lan）统计应用层流量。字节为有效载荷，不含协议头。</p>
+        </div>
+        <div class="panel-actions">
+          <select id="traffic-date" class="btn small"></select>
+          <button class="btn small" id="traffic-refresh" type="button">刷新</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>接口 / 通道</th>
+              <th style="width:90px">来源</th>
+              <th style="width:110px" id="traffic-count-th">请求数</th>
+              <th style="width:130px">上行</th>
+              <th style="width:130px">下行</th>
+              <th style="width:130px">合计</th>
+            </tr>
+          </thead>
+          <tbody id="traffic-body"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="traffic-ws-accounts" style="margin-top:12px"></div>
+      <div id="traffic-summary" style="margin-top:12px"></div>
     </section>
   </main>
 </div>
@@ -1071,6 +1114,124 @@
     }
   });
 
+  // ------------------------------------------------------------ 流量统计
+
+  const SCOPE_LABELS = { wan: '外网', tail: 'Tailscale', lan: '内网' };
+
+  function fmtBytes(n) {
+    if (!n) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = Number(n);
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+  }
+
+  state.traffic = null;
+
+  async function loadTraffic() {
+    try {
+      const date = $('traffic-date').value || '';
+      const data = await api(`/api/admin/traffic${date ? `?date=${encodeURIComponent(date)}` : ''}`);
+      state.traffic = data;
+      renderTraffic();
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  }
+
+  function renderTraffic() {
+    const data = state.traffic;
+    if (!data) return;
+    const { dates, stats } = data;
+
+    // 日期下拉：只在选项变化时重建，保留当前选择
+    const sel = $('traffic-date');
+    const current = sel.value;
+    sel.innerHTML = dates.map((d) => `<option value="${esc(d)}"${d === (current || dates[0]) ? ' selected' : ''}>${esc(d === dates[0] ? `${d}（今天）` : d)}</option>`).join('');
+
+    // 按来源分组：外网 → Tailscale → 内网；组内按流量降序（大头置顶）
+    const groups = [];
+    for (const scope of ['wan', 'tail', 'lan']) {
+      const rows = [];
+      const httpMap = (stats.http || {})[scope] || {};
+      for (const [route, item] of Object.entries(httpMap)) {
+        rows.push({ name: route, ...item });
+      }
+      const wsMap = (stats.ws || {})[scope] || {};
+      for (const [channel, item] of Object.entries(wsMap)) {
+        rows.push({ name: `WS ${channel}`, ...item });
+      }
+      if (!rows.length) continue;
+      rows.sort((a, b) => (b.in + b.out) - (a.in + a.out));
+      const total = rows.reduce((acc, r) => ({
+        count: acc.count + r.count, in: acc.in + r.in, out: acc.out + r.out,
+      }), { count: 0, in: 0, out: 0 });
+      groups.push({ scope, label: SCOPE_LABELS[scope] || scope, rows, total });
+    }
+
+    const body = $('traffic-body');
+    if (!groups.length) {
+      body.innerHTML = '<tr><td colspan="6" class="empty">暂无统计数据。</td></tr>';
+    } else {
+      // 每组：来源分组标题 → 明细行（降序）→ 紧跟该来源的总计行
+      body.innerHTML = groups.map((g) => `
+        <tr class="traffic-scope-header"><td colspan="6">${esc(g.label)}</td></tr>` +
+        g.rows.map((r) => `
+        <tr>
+          <td>${esc(r.name)}</td>
+          <td>${esc(g.label)}</td>
+          <td>${r.count}</td>
+          <td>${fmtBytes(r.in)}</td>
+          <td>${fmtBytes(r.out)}</td>
+          <td><strong>${fmtBytes(r.in + r.out)}</strong></td>
+        </tr>`).join('') +
+        `
+        <tr class="traffic-total">
+          <td>${esc(g.label)} 总计</td>
+          <td></td>
+          <td>${g.total.count}</td>
+          <td>${fmtBytes(g.total.in)}</td>
+          <td>${fmtBytes(g.total.out)}</td>
+          <td><strong>${fmtBytes(g.total.in + g.total.out)}</strong></td>
+        </tr>`).join('');
+    }
+
+    // WS 账号明细：跨账号汇总展示（wan 优先，无则退到 tail/lan）
+    const acctHost = $('traffic-ws-accounts');
+    const acctMap = (stats.wsAccounts || {});
+    let acctHtml = '';
+    for (const scope of ['wan', 'tail', 'lan']) {
+      const entries = Object.entries(acctMap[scope] || {}).sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
+      if (!entries.length) continue;
+      const acctTotal = entries.reduce((acc, [, v]) => ({
+        in: acc.in + v.in, out: acc.out + v.out,
+      }), { in: 0, out: 0 });
+      acctHtml += `<p style="margin:6px 0;color:var(--muted)">WebSocket 账号流量（${esc(SCOPE_LABELS[scope] || scope)}）</p><div class="table-wrap"><table><thead><tr><th>账号</th><th style="width:130px">上行</th><th style="width:130px">下行</th><th style="width:130px">合计</th></tr></thead><tbody>` +
+        entries.map(([name, v]) => `<tr><td>${esc(name)}</td><td>${fmtBytes(v.in)}</td><td>${fmtBytes(v.out)}</td><td><strong>${fmtBytes(v.in + v.out)}</strong></td></tr>`).join('') +
+        `<tr class="traffic-total"><td>总计</td><td>${fmtBytes(acctTotal.in)}</td><td>${fmtBytes(acctTotal.out)}</td><td><strong>${fmtBytes(acctTotal.in + acctTotal.out)}</strong></td></tr>` +
+        '</tbody></table></div>';
+    }
+    acctHost.innerHTML = acctHtml;
+
+    // 流量汇总：页面最底部按来源给一份合计（HTTP + WS），内外网各花了多少一眼看到
+    const sumHost = $('traffic-summary');
+    if (!groups.length) {
+      sumHost.innerHTML = '';
+    } else {
+      const grand = groups.reduce((acc, g) => ({
+        count: acc.count + g.total.count, in: acc.in + g.total.in, out: acc.out + g.total.out,
+      }), { count: 0, in: 0, out: 0 });
+      sumHost.innerHTML = `<p style="margin:6px 0;color:var(--muted)">流量汇总（HTTP + WebSocket）</p><div class="table-wrap"><table><thead><tr><th>来源</th><th style="width:130px">上行</th><th style="width:130px">下行</th><th style="width:130px">合计</th></tr></thead><tbody>` +
+        groups.map((g) => `<tr><td>${esc(g.label)}</td><td>${fmtBytes(g.total.in)}</td><td>${fmtBytes(g.total.out)}</td><td><strong>${fmtBytes(g.total.in + g.total.out)}</strong></td></tr>`).join('') +
+        `<tr class="traffic-total"><td>总计</td><td>${fmtBytes(grand.in)}</td><td>${fmtBytes(grand.out)}</td><td><strong>${fmtBytes(grand.in + grand.out)}</strong></td></tr>` +
+        '</tbody></table></div>';
+    }
+  }
+
+  $('traffic-date').addEventListener('change', loadTraffic);
+  $('traffic-refresh').addEventListener('click', loadTraffic);
+
   // ------------------------------------------------------------ Tab
 
   document.querySelectorAll('[data-tab]').forEach((btn) => {
@@ -1082,6 +1243,9 @@
       $('tab-machines').hidden = state.tab !== 'machines';
       $('tab-users').hidden = state.tab !== 'users';
       $('tab-layouts').hidden = state.tab !== 'layouts';
+      $('tab-traffic').hidden = state.tab !== 'traffic';
+      // 首次切到流量页才拉数据，之后跟随页面刷新按钮
+      if (state.tab === 'traffic' && !state.traffic) loadTraffic();
     });
   });
 

@@ -596,6 +596,27 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    // 接口流量统计查询：?date=YYYY-MM-DD（空 = 今天）。
+    const traffic = options.traffic || null;
+    app.get('/api/admin/traffic', requireAdmin, (req, res) => {
+        try {
+            if (!traffic) return jsonFail(res, '流量统计未启用');
+            const date = String(req.query.date || '').trim();
+            if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                return jsonFail(res, '日期格式应为 YYYY-MM-DD');
+            }
+            const stats = traffic.snapshot(date);
+            if (!stats) return jsonFail(res, '该日期没有统计数据');
+            return jsonOk(res, {
+                dates: traffic.availableDates(),
+                stats,
+            });
+        } catch (error) {
+            console.error('[admin] 读取流量统计失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
     app.put('/api/admin/users/:name', requireAdmin, (req, res) => {
         try {
             const name = safeUsername(req.params.name);
