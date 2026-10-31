@@ -127,6 +127,8 @@ function attachRealtime(httpServer, options = {}) {
     const clipboardPath = options.clipboardPath || '/ws/clipboard';
     const readClipboardList =
         typeof options.clipboardList === 'function' ? options.clipboardList : null;
+    const clipboardSummary =
+        typeof options.clipboardSummary === 'function' ? options.clipboardSummary : (item) => item;
     /** account -> Set<WebSocket>：正在订阅剪贴板推送的客户端 */
     const clipboardConnections = new Map();
     // 账号存储（datas/register/users）：与 HTTP 登录同一校验；未传时拒绝所有连接。
@@ -488,10 +490,10 @@ function attachRealtime(httpServer, options = {}) {
     }
 
     /** 读取某账号的剪贴板列表（与 GET /api/clipboards 共用同一实现）。 */
-    function clipboardSnapshot(account, fromId) {
+    function clipboardSnapshot(account, fromId, summary) {
         if (!readClipboardList) return [];
         try {
-            return readClipboardList(account, fromId) || [];
+            return readClipboardList(account, fromId, summary) || [];
         } catch (error) {
             console.error(`[realtime] read clipboards failed for ${account}:`, error.message);
             return [];
@@ -504,7 +506,10 @@ function attachRealtime(httpServer, options = {}) {
         if (!sockets || sockets.size === 0) return 0;
         let delivered = 0;
         for (const ws of sockets) {
-            sendJson(ws, { t: 'clipboard_new', clipboard });
+            sendJson(ws, {
+                t: 'clipboard_new',
+                clipboard: ws.clipboardSummary ? clipboardSummary(clipboard) : clipboard,
+            });
             delivered++;
         }
         if (delivered > 0) {
@@ -515,7 +520,6 @@ function attachRealtime(httpServer, options = {}) {
 
     // 剪贴板通道：Cookie 鉴权（与 HTTP 接口同一信任级别），连接即回快照，之后只推增量。
     function handleClipboardConnection(ws, request, url) {
-        void url;
         const account = parseCookieHeader(request.headers.cookie).username || '';
         if (!ACCOUNT_PATTERN.test(account) || (accountStore && !accountStore.exists(account))) {
             console.warn(
@@ -529,6 +533,7 @@ function attachRealtime(httpServer, options = {}) {
         ws.connectedAt = Date.now();
         ws.account = account;
         ws.clipboard = true;
+        ws.clipboardSummary = url.searchParams.get('summary') === '1';
         let sockets = clipboardConnections.get(account);
         if (!sockets) {
             sockets = new Set();
@@ -540,7 +545,7 @@ function attachRealtime(httpServer, options = {}) {
             `sockets=${sockets.size} total=${wss.clients.size}`,
         );
 
-        sendJson(ws, { t: 'clipboard_list', clipboards: clipboardSnapshot(account, 0) });
+        sendJson(ws, { t: 'clipboard_list', clipboards: clipboardSnapshot(account, 0, ws.clipboardSummary) });
 
         ws.on('pong', () => {
             ws.isAlive = true;
@@ -564,7 +569,7 @@ function attachRealtime(httpServer, options = {}) {
             }
             if (frame.t === 'clipboard_watch') {
                 const fromId = parseInt(frame.fromId, 10) || 0;
-                sendJson(ws, { t: 'clipboard_list', clipboards: clipboardSnapshot(account, fromId) });
+                sendJson(ws, { t: 'clipboard_list', clipboards: clipboardSnapshot(account, fromId, ws.clipboardSummary) });
                 return;
             }
             sendJson(ws, { t: 'error', code: 400, msg: `unknown type: ${frame.t}` });

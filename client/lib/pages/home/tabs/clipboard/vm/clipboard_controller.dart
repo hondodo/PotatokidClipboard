@@ -38,11 +38,18 @@ class ClipboardController extends BaseGetVM {
   StreamSubscription<List<ClipboardItemModel>>? _snapshotSub;
   StreamSubscription<ClipboardItemModel>? _newItemSub;
   StreamSubscription<AppLifecycleState>? _lifecycleSub;
+  StreamSubscription<String>? _clipboardChangeSub;
+  StreamSubscription<UserModel>? _userSub;
+  int _clipboardWriteGeneration = 0;
+  bool _closed = false;
 
   @override
   void onInit() {
     super.onInit();
-    user.listen(onUserChanged);
+    _userSub = user.listen(onUserChanged);
+    _clipboardChangeSub = Get.find<ClipboardService>()
+        .clipboardTextStream
+        .listen((_) => _clipboardWriteGeneration++);
     // WebSocket 推送：连接即回快照，之后只收增量
     _snapshotSub =
         ClipboardSocketService.instance.onSnapshot.listen(onSnapshot);
@@ -57,10 +64,14 @@ class ClipboardController extends BaseGetVM {
 
   @override
   void onClose() {
+    _closed = true;
+    _clipboardWriteGeneration++;
     _clipboardListTimer?.cancel();
     _snapshotSub?.cancel();
     _newItemSub?.cancel();
     _lifecycleSub?.cancel();
+    _clipboardChangeSub?.cancel();
+    _userSub?.cancel();
     ClipboardSocketService.instance.stop();
     super.onClose();
   }
@@ -90,17 +101,48 @@ class ClipboardController extends BaseGetVM {
   /// 有新增内容时按设置自动写入本机剪贴板
   void _autoSaveFromList(int added) {
     if (added == 0) return;
+    final generation = ++_clipboardWriteGeneration;
     bool autoSet = Get.find<SettingsService>().isAutoSaveClipboard.value;
     if (autoSet) {
       var item = clipboardList.first;
       if (item.deviceId != DeviceUtils.instance.deviceId) {
-        Get.find<ClipboardService>().setCurrentClipboard(item.content ?? '');
+        unawaited(_writeClipboardItem(item, generation, automatic: true));
+      }
+    }
+  }
+
+  Future<void> _writeClipboardItem(ClipboardItemModel item, int generation,
+      {required bool automatic}) async {
+    final account = user.value.name;
+    try {
+      final content = item.contentIsSummary
+          ? await Get.find<ClipboardRepository>().getClipboardContent(item.id)
+          : item.content;
+      if (_closed ||
+          generation != _clipboardWriteGeneration ||
+          user.value.isNotLogin ||
+          user.value.name != account ||
+          (automatic && !settingsService.isAutoSaveClipboard.value)) {
+        return;
+      }
+      if (content == null) {
+        throw const FormatException('Missing clipboard content');
+      }
+      Get.find<ClipboardService>().setCurrentClipboard(content);
+    } catch (e) {
+      if (_closed || generation != _clipboardWriteGeneration) return;
+      Log.e('ClipboardController] 获取剪贴板全文失败: $e');
+      if (automatic) {
+        settingsService.isSyncingClipboardFailed.value = true;
+      } else {
+        ErrorUtils.showErrorToast(e);
       }
     }
   }
 
   /// WebSocket 连接后的全量快照
   void onSnapshot(List<ClipboardItemModel> items) {
+    if (_closed || user.value.isNotLogin) return;
     final added = _mergeItems(items);
     _autoSaveFromList(added);
     settingsService.isSyncingClipboard.value = true;
@@ -111,6 +153,7 @@ class ClipboardController extends BaseGetVM {
 
   /// 服务端推送的单条新增剪贴板
   void onNewItem(ClipboardItemModel item) {
+    if (_closed || user.value.isNotLogin) return;
     final added = _mergeItems([item]);
     _autoSaveFromList(added);
     settingsService.isSyncingClipboard.value = true;
@@ -121,8 +164,10 @@ class ClipboardController extends BaseGetVM {
 
   /// HTTP 兜底拉取（WebSocket 未建立时使用）
   Future<void> onLoadClipboard() async {
+    final account = user.value.name;
     var response = await Get.find<ClipboardRepository>()
         .getClipboardList(fromId: _maxClipboardId);
+    if (_closed || user.value.isNotLogin || user.value.name != account) return;
     final items = response.clipboards ?? const <ClipboardItemModel>[];
     final added = _mergeItems(items);
     _autoSaveFromList(added);
@@ -131,6 +176,7 @@ class ClipboardController extends BaseGetVM {
   }
 
   Future<void> onSetClipboard() async {
+    _clipboardWriteGeneration++;
     try {
       if (textController.text.isEmpty) {
         DialogHelper.showTextToast('请输入内容'.tr);
@@ -200,10 +246,12 @@ class ClipboardController extends BaseGetVM {
   }
 
   void onCopyClipboard(ClipboardItemModel item) {
-    Get.find<ClipboardService>().setCurrentClipboard(item.content ?? '');
+    final generation = ++_clipboardWriteGeneration;
+    unawaited(_writeClipboardItem(item, generation, automatic: false));
   }
 
   void onUserChanged(UserModel user) {
+    _clipboardWriteGeneration++;
     if (user.isNotLogin) {
       ClipboardSocketService.instance.stop();
       clipboardList.clear();

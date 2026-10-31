@@ -186,8 +186,9 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
 
   Widget buildClipboardCard(ClipboardItemModel item) {
     String content = item.content ?? '';
-    if (content.length > 100) {
-      content = '${content.substring(0, 100)}...';
+    final preview = content.runes.take(101).toList();
+    if (preview.length > 100) {
+      content = '${String.fromCharCodes(preview.take(100))}...';
     }
     content = content.replaceAll('\n', ' ');
     var card = Card(

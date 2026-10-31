@@ -6,6 +6,9 @@ part 'clipboard_item_model.g.dart';
 
 @JsonSerializable()
 class ClipboardItemModel {
+  bool _contentIsSummary = false;
+  bool get contentIsSummary => _contentIsSummary;
+
   int get id {
     if (sId == null) {
       return 0;
@@ -57,6 +60,7 @@ class ClipboardItemModel {
       this.createdAt});
 
   factory ClipboardItemModel.fromJson(Map<String, dynamic> json) =>
-      _$ClipboardItemModelFromJson(json);
+      _$ClipboardItemModelFromJson(json)
+        .._contentIsSummary = json['contentIsSummary'] == true;
   Map<String, dynamic> toJson() => _$ClipboardItemModelToJson(this);
 }

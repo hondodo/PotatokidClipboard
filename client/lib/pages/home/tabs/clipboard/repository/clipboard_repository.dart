@@ -13,6 +13,7 @@ class ClipboardRepository with RequestMixin {
         'content': text,
         'os': DeviceUtils.instance.osType.value,
         'deviceId': DeviceUtils.instance.deviceId,
+        'summary': '1',
       },
     ).sendDataRequest(this);
     return response;
@@ -23,8 +24,22 @@ class ClipboardRepository with RequestMixin {
         await Apis.getClipboardList.inBaseHost.getHttpRequestWithApi(
       params: {
         'fromId': fromId ?? 0,
+        'summary': '1',
       },
     ).sendDataRequest(this);
     return ClipboardListModel.fromJson(response);
+  }
+
+  Future<String> getClipboardContent(int id) async {
+    final response = await '${Apis.getClipboard}/$id'
+        .inBaseHost
+        .getHttpRequestWithApi()
+        .sendDataRequest(this);
+    final clipboard = response['clipboard'];
+    if (clipboard is! Map<String, dynamic> ||
+        clipboard['content'] is! String) {
+      throw const FormatException('Invalid clipboard content');
+    }
+    return clipboard['content'] as String;
   }
 }

@@ -199,6 +199,7 @@ class ClipboardSocketService {
     return base.replace(
       scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: _path,
+      queryParameters: {'summary': '1'},
     );
   }
 }

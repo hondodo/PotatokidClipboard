@@ -18,7 +18,7 @@ class BatteryIconTextWidget extends StatelessWidget {
             style: AppTextTheme.textStyle.body,
           ),
           Text(
-            '${c.batteryLevel.value}%',
+            c.batteryLevel.value == null ? '--%' : '${c.batteryLevel.value}%',
             style: AppTextTheme.textStyle.body,
           ),
         ],
