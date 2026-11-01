@@ -17,8 +17,8 @@ class DeviceUtils {
     try {
       // 尝试使用 flutter_udid 获取设备 ID
       String udid = await FlutterUdid.udid;
-      udid = udid.replaceAll('-', '');
-      deviceId = udid;
+      // trim：Linux 上 flutter_udid 读 /etc/machine-id 会带尾部换行
+      deviceId = udid.trim().replaceAll('-', '');
     } catch (e) {
       // 如果 flutter_udid 失败（例如 Windows 上的 wmic 命令不可用），使用备用方案
       debugPrint('flutter_udid failed: $e, using fallback method');

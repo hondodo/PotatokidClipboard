@@ -216,7 +216,7 @@ class ClipboardPage extends BaseStatelessSubWidget<ClipboardController> {
                           children: [
                             Icon(getOsIcon(item.os),
                                 size: 12, color: AppTextTheme.hintColor),
-                            if (item.deviceId ==
+                            if (item.deviceId?.trim() ==
                                 DeviceUtils.instance.deviceId) ...[
                               const SizedBox(width: 4),
                               Text('本设备'.tr,

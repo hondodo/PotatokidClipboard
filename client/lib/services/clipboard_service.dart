@@ -18,7 +18,18 @@ class ClipboardService extends GetxService {
   Stream<String> get clipboardTextStream =>
       clipboardTextStreamController.stream;
 
-  String _lastClipboardText = '';
+  /// 最近一次实际从系统剪贴板读到的值（变化检测以此为准，而非"意向值"，
+  /// 避免写入系统剪贴板尚未生效/被系统归一化时，轮询把旧值误判为新复制）
+  String _lastObservedText = '';
+
+  /// 最近一次由本 App 写入系统剪贴板的内容与时间，用于识别自己写入的回声
+  String? _lastLocalWriteText;
+  DateTime? _lastLocalWriteAt;
+
+  /// 回声抑制窗口：写入系统剪贴板后的一段时间内，读回内容与写入内容
+  /// 归一化后一致的，视为自己的回声，不再上传
+  static const Duration _echoSuppressWindow = Duration(seconds: 10);
+
   Timer? _pollingTimer;
   bool _isMonitoring = false;
 
@@ -26,13 +37,17 @@ class ClipboardService extends GetxService {
     syncClipboardNotPostToServer();
   }
 
+  /// 统一换行符，消除 Windows(\r\n) 与 Linux/Android(\n) 之间的回声差异
+  static String normalizeLineEndings(String text) =>
+      text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
   Future syncClipboardNotPostToServer() async {
     return Clipboard.getData(Clipboard.kTextPlain).then((value) {
       if (value != null && value.text != null) {
         String text = value.text!;
-        if (text.isNotEmpty && _lastClipboardText != text) {
-          // 首次进入时，设置剪贴板内容，不触发监听，只有打开app后，剪贴板有内容变化时，才会触发监听，避免重复触发监听
-          _lastClipboardText = text;
+        if (text.isNotEmpty) {
+          // 首次进入时，记录剪贴板内容，不触发监听，只有打开app后，剪贴板有内容变化时，才会触发监听，避免重复触发监听
+          _lastObservedText = text;
         }
       }
     }).catchError((e) {
@@ -45,13 +60,24 @@ class ClipboardService extends GetxService {
     if (text.isEmpty) {
       return;
     }
-    final previousText = _lastClipboardText;
-    _lastClipboardText = text;
-    unawaited(ClipboardUtils.setText(text).then((success) {
-      if (!success && _lastClipboardText == text) {
-        _lastClipboardText = previousText;
-      }
-    }));
+    // 只记录写入意图，不更新 _lastObservedText：
+    // 系统剪贴板的实际值由轮询读回确认，写入未生效期间不会产生误判
+    _lastLocalWriteText = text;
+    _lastLocalWriteAt = DateTime.now();
+    unawaited(ClipboardUtils.setText(text));
+  }
+
+  /// 读回内容是否为本 App 刚写入剪贴板的回声（含系统归一化差异，如 \r\n -> \n）
+  bool _isSelfEcho(String text) {
+    final written = _lastLocalWriteText;
+    final writtenAt = _lastLocalWriteAt;
+    if (written == null || writtenAt == null) {
+      return false;
+    }
+    if (DateTime.now().difference(writtenAt) > _echoSuppressWindow) {
+      return false;
+    }
+    return normalizeLineEndings(text) == normalizeLineEndings(written);
   }
 
   /// 启动监控
@@ -112,7 +138,13 @@ class ClipboardService extends GetxService {
       final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
       if (data != null && data.text != null) {
         String text = data.text!;
-        if (text.isNotEmpty && _lastClipboardText != text) {
+        if (text.isNotEmpty && _lastObservedText != text) {
+          // 以实际读回值为准更新基准，之后相同内容不会再被判定为变化
+          _lastObservedText = text;
+          // 自己刚写入剪贴板的内容（含系统归一化差异）不视为新复制，避免回声上传
+          if (_isSelfEcho(text)) {
+            return;
+          }
           // 如果是ios，那么要设置剪贴板内容，否则会一直提示获取剪贴板的来源
           if (DeviceUtils.instance.isMobile()) {
             await ClipboardUtils.setText(text);
@@ -130,7 +162,6 @@ class ClipboardService extends GetxService {
   void _handleClipboardChange(String text) {
     Log.d(
         'ClipboardService] 剪贴板内容变化: ${text.length > 50 ? "${text.substring(0, 50)}..." : text}');
-    _lastClipboardText = text;
 
     if (clipboardTextStreamController.isClosed) {
       Log.w('ClipboardService] StreamController 已关闭，无法发送数据');
@@ -161,5 +192,5 @@ class ClipboardService extends GetxService {
     super.onClose();
   }
 
-  String get lastClipboardText => _lastClipboardText;
+  String get lastClipboardText => _lastObservedText;
 }

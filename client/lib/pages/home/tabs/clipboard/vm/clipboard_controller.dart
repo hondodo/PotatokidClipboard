@@ -105,7 +105,7 @@ class ClipboardController extends BaseGetVM {
     bool autoSet = Get.find<SettingsService>().isAutoSaveClipboard.value;
     if (autoSet) {
       var item = clipboardList.first;
-      if (item.deviceId != DeviceUtils.instance.deviceId) {
+      if (item.deviceId?.trim() != DeviceUtils.instance.deviceId) {
         unawaited(_writeClipboardItem(item, generation, automatic: true));
       }
     }
