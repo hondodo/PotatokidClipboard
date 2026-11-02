@@ -269,10 +269,15 @@ class AppSettings {
   ///
   /// 持久化内容目前**全部**在 SharedPreferences 里（主题/语言之外的所有设置项、
   /// 频道列表缓存、频道源记忆、失效源黑名单、天气定位），故清空它即清空所有选项。
+  ///
+  /// **例外（儿童模式状态）**：`kid_watch_*` / `parental_*` 前缀的键**不清理**——
+  /// 否则孩子可经「我的 → 重置」一键清零双计时熔断。家长解除儿童模式时走
+  /// `ParentalStateController` 的显式清除入口（见 `KidWatchTimerController.clearAll`）。
   Future<void> clearAllPersisted() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       for (final String key in prefs.getKeys().toList(growable: false)) {
+        if (_isParentalStateKey(key)) continue;
         await prefs.remove(key);
       }
     } catch (_) {
@@ -291,6 +296,10 @@ class AppSettings {
     _remoteAccount = '';
     _remotePassword = '';
   }
+
+  /// 是否为儿童模式状态键（不参与「重置」清理）。
+  static bool _isParentalStateKey(String key) =>
+      key.startsWith('kid_watch_') || key.startsWith('parental_');
 
   static String _themeModeToString(ThemeMode mode) {
     switch (mode) {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/app_log.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
@@ -276,6 +277,26 @@ class ReportingService {
       _send('已收看$minutes分钟，当前频道是${scene.title}');
     } else {
       _send('已在线$minutes分钟，当前场景：${scene.title}${_playbackSuffix(scene)}');
+    }
+    _reportParentalWatch();
+  }
+
+  /// 心跳附带儿童观看分账（`parental_watch`）：按孩子分账的 session/daily 时长，
+  /// 家长端据此还原「谁看了多久」。未启用儿童模式时不发。
+  void _reportParentalWatch() {
+    try {
+      final ParentalStateController parental = ParentalStateController.instance;
+      if (!parental.enabled) return;
+      final List<String> childIds = parental.activeChildIds;
+      if (childIds.isEmpty) return;
+      reportEvent('parental_watch', <String, Object?>{
+        'childIds': childIds,
+        'sessionSecByChild': parental.timer.sessionSecByChild,
+        'dailySecByChild': parental.timer.dailySecByChild,
+        'date': parental.timer.dateKey,
+      });
+    } catch (e) {
+      Log.error('[ReportingService] parental_watch 上报异常: $e');
     }
   }
 
