@@ -51,13 +51,18 @@ class HistoryService {
 
     return _inFlight.putIfAbsent(key, () async {
       try {
-        final List<MetricSample> out = await _loadDetailOrStats(
-          deviceId: deviceId,
-          metric: metric,
-          entityId: source.entityId,
-          range: range,
-          start: start,
-          end: end,
+        // 缓存前先做近细远粗折叠：1h 内保留原始点，更早按 1 分钟桶
+        // 只留 min/max，周/月范围的点数从数万降到 ~3.5k（幂等，可重复调用）。
+        final List<MetricSample> out = foldSamples(
+          await _loadDetailOrStats(
+            deviceId: deviceId,
+            metric: metric,
+            entityId: source.entityId,
+            range: range,
+            start: start,
+            end: end,
+          ),
+          now: end,
         );
         _cache[key] = (samples: out, fetchedAt: DateTime.now());
         return out;
@@ -121,18 +126,44 @@ class HistoryService {
     );
   }
 
+  /// 拉取结果按时间升序（HA 明细接口不保证有序，有序归并依赖它）。
+  static List<MetricSample> _ensureSorted(List<MetricSample> samples) {
+    for (int i = 1; i < samples.length; i++) {
+      if (samples[i].at.isBefore(samples[i - 1].at)) {
+        return samples.toList()
+          ..sort((MetricSample a, MetricSample b) => a.at.compareTo(b.at));
+      }
+    }
+    return samples;
+  }
+
+  /// 把内存采样合并进历史结果：双指针有序归并，按时间去重（内存优先）。
+  ///
+  /// history 与 live 都按时间升序，相比旧实现的 HashMap + 全量 sort，
+  /// 省掉数万次哈希插入和 O(n log n) 排序。
   List<MetricSample> _mergeWithMemory(String deviceId, Metric metric, List<MetricSample> history) {
+    final List<MetricSample> hist = _ensureSorted(history);
     final List<MetricSample> live = _store.seriesOf(deviceId, metric);
-    if (live.isEmpty) return history;
-    final Map<DateTime, MetricSample> byTime = <DateTime, MetricSample>{};
-    for (final MetricSample s in history) {
-      byTime[s.at] = s;
+    if (live.isEmpty) return hist;
+    final List<MetricSample> merged = <MetricSample>[];
+    int i = 0;
+    int j = 0;
+    while (i < hist.length && j < live.length) {
+      final int cmp = hist[i].at.compareTo(live[j].at);
+      if (cmp < 0) {
+        merged.add(hist[i]);
+        i += 1;
+      } else if (cmp > 0) {
+        merged.add(live[j]);
+        j += 1;
+      } else {
+        merged.add(live[j]); // 时间戳相同：内存优先
+        i += 1;
+        j += 1;
+      }
     }
-    for (final MetricSample s in live) {
-      byTime[s.at] = s; // 内存优先
-    }
-    final List<MetricSample> merged = byTime.values.toList(growable: false)
-      ..sort((MetricSample a, MetricSample b) => a.at.compareTo(b.at));
+    merged.addAll(hist.sublist(i));
+    merged.addAll(live.sublist(j));
     return merged;
   }
 

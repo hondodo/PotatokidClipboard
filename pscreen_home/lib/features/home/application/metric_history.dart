@@ -11,12 +11,18 @@ import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 /// - 写入时按 [window] 淘汰过期点（滑动窗口）；
 /// - 通过 `ValueListenable` 通知图表刷新，避免把历史塞进全局 State 导致整页重建。
 class MetricHistoryStore {
-  MetricHistoryStore({this.window = defaultWindow});
+  MetricHistoryStore({this.window = defaultWindow, this.rawWindow = defaultRawWindow});
 
   /// 默认保留窗口：最近 24 小时。
   static const Duration defaultWindow = Duration(hours: 24);
 
+  /// 折叠阈值：超过该时长的采样点按分钟折叠为 min/max 两点。
+  static const Duration defaultRawWindow = Duration(hours: 1);
+
   final Duration window;
+
+  /// 近细远粗的「细」区间长度，见 [foldSamples]。
+  final Duration rawWindow;
 
   final Map<String, List<MetricSample>> _series =
       <String, List<MetricSample>>{};
@@ -46,6 +52,12 @@ class MetricHistoryStore {
     final List<MetricSample> list =
         _series.putIfAbsent(key, () => <MetricSample>[]);
     list.add(MetricSample(at: at, value: value));
+    // 时钟回拨保护：新点早于末尾时重新排序，保证序列始终按时间升序
+    //（下游的折叠与有序归并都依赖这一不变量）。
+    if (list.length > 1 &&
+        list[list.length - 2].at.isAfter(list[list.length - 1].at)) {
+      list.sort((MetricSample a, MetricSample b) => a.at.compareTo(b.at));
+    }
 
     final DateTime cutoff = at.subtract(window);
     int drop = 0;
@@ -54,7 +66,15 @@ class MetricHistoryStore {
     }
     if (drop > 0) list.removeRange(0, drop);
 
-    _notifiers[key]?.value = List<MetricSample>.unmodifiable(list);
+    // 近细远粗：折叠后用结果替换内部序列。原先内部保留 24 小时全量
+    // 原始点（5s 采样 = 17,280 点/序列），每 5 秒都要全量遍历 + 复制；
+    // 折叠后只剩「1 分钟粒度的折叠段 + 最近 1 小时原始点」（约 3,500 点），
+    // 下个采样周期的遍历与快照成本随之下降一个量级。
+    final List<MetricSample> folded =
+        foldSamples(list, now: at, rawWindow: rawWindow);
+    _series[key] = folded;
+
+    _notifiers[key]?.value = List<MetricSample>.unmodifiable(folded);
   }
 
   void clear(String deviceId, Metric metric) {
@@ -69,6 +89,59 @@ class MetricHistoryStore {
     }
     _series.clear();
   }
+}
+
+/// 近细远粗折叠：[rawWindow] 以内的点原样保留，更早的点按 [bucket] 分桶，
+/// 每桶只保留「最小值 / 最大值」两个真实采样点（尖峰不丢，绘制层的
+/// 像素桶降采样同样按 min/max 保留尖峰，视觉一致）。
+///
+/// 幂等：已折叠的点重新归桶结果不变，因此可对同一序列反复调用，
+/// 内部序列用折叠结果替换后，下个采样周期只需遍历折叠后的小序列。
+/// 要求 [samples] 按时间升序（[MetricHistoryStore.record] 保证）。
+List<MetricSample> foldSamples(
+  List<MetricSample> samples, {
+  required DateTime now,
+  Duration rawWindow = MetricHistoryStore.defaultRawWindow,
+  Duration bucket = const Duration(minutes: 1),
+}) {
+  if (samples.isEmpty) return const <MetricSample>[];
+  final int cutoffMs = now.subtract(rawWindow).millisecondsSinceEpoch;
+  final int bucketMs = bucket.inMilliseconds;
+  if (bucketMs <= 0) return List<MetricSample>.of(samples);
+
+  final List<MetricSample> out = <MetricSample>[];
+  int i = 0;
+  while (i < samples.length &&
+      samples[i].at.millisecondsSinceEpoch < cutoffMs) {
+    // 跟踪同一时间桶内的最小 / 最大值。
+    final int bucketStart =
+        samples[i].at.millisecondsSinceEpoch -
+        samples[i].at.millisecondsSinceEpoch.remainder(bucketMs);
+    final int bucketEnd = bucketStart + bucketMs;
+    MetricSample? lo;
+    MetricSample? hi;
+    while (i < samples.length) {
+      final MetricSample s = samples[i];
+      final int ms = s.at.millisecondsSinceEpoch;
+      if (ms >= cutoffMs || ms >= bucketEnd) break;
+      if (lo == null || s.value < lo.value) lo = s;
+      if (hi == null || s.value > hi.value) hi = s;
+      i += 1;
+    }
+    if (lo == null) break; // 防御：不可达，避免死循环
+    if (identical(lo, hi)) {
+      out.add(lo);
+    } else if (lo.at.isBefore(hi!.at)) {
+      out..add(lo)..add(hi);
+    } else {
+      out..add(hi)..add(lo);
+    }
+  }
+  // 窗口内原始点原样保留。
+  for (; i < samples.length; i += 1) {
+    out.add(samples[i]);
+  }
+  return out;
 }
 
 /// 指标采样器：按固定间隔读取各设备最新指标值写入 [MetricHistoryStore]。

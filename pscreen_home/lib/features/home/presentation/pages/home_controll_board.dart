@@ -1517,6 +1517,14 @@ class _ControlGridState extends State<_ControlGrid> {
               ),
             );
           },
+          // 包默认长按 500ms，挂墙屏上手指微动即被 GridView 滚动或卡片内
+          // 滑块抢走手势导致拖动不启动；降到 150ms 提高容错。
+          // 不能用 Duration.zero（即触即拖会破坏卡片点击）。
+          longPressDelay: const Duration(milliseconds: 150),
+          onDragStarted: (int index) =>
+              debugPrint('[看板] 开始拖动 index=$index'),
+          onDragEnd: (int index) =>
+              debugPrint('[看板] 结束拖动 index=$index'),
           childBuilder: (wrapItem) {
             return GridView.builder(
               controller: _scrollController,

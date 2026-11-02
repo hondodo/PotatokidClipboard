@@ -45,16 +45,21 @@ class MetricSparkline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final Widget painter = CustomPaint(
-      painter: _SparklinePainter(
-        samples: samples,
-        window: window,
-        accent: accent,
-        showLabels: showLabels,
-        unit: unit,
-        gapThreshold: gapThreshold,
-        gridColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
-        labelColor: theme.colorScheme.outline,
+    // RepaintBoundary：曲线缓存在独立图层，卡片其他部分（数字、开关、
+    // 拖动时的整卡重绘）变化时不必重画曲线；曲线自身 5s 一变时
+    // 也只重绘本图层。
+    final Widget painter = RepaintBoundary(
+      child: CustomPaint(
+        painter: _SparklinePainter(
+          samples: samples,
+          window: window,
+          accent: accent,
+          showLabels: showLabels,
+          unit: unit,
+          gapThreshold: gapThreshold,
+          gridColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+          labelColor: theme.colorScheme.outline,
+        ),
       ),
     );
     if (height == null) {
@@ -275,19 +280,14 @@ List<List<MetricSample>> splitByGap(  List<MetricSample> samples,
   return out;
 }
 
-/// 绘制用的采样点：保留原始值与映射后的横坐标。
-class _Plotted {
-  const _Plotted({required this.sample, required this.x});
-
-  final MetricSample sample;
-  final double x;
-}
-
 /// 按逻辑像素宽度分桶降采样：每桶保留时间顺序上的最小值 / 最大值。
 ///
 /// 这不是数据层操作：`MetricHistoryStore` 仍保留完整的 24 小时采样点，
 /// 仅在绘制前把「一个像素里挤了几十个点」压缩成 min/max 两个点，
 /// 既保留尖峰，又把线段数收敛到约 `2 × 图表宽度`。
+///
+/// 实现为两遍扫描 + 桶内索引比较，不为每个点分配中间对象，
+/// 避免高频重绘时的 GC 压力。
 @visibleForTesting
 List<MetricSample> downsampleMetricSamples({
   required List<MetricSample> samples,
@@ -302,33 +302,35 @@ List<MetricSample> downsampleMetricSamples({
   final int windowMs = window.inMilliseconds;
   if (windowMs <= 0) return const <MetricSample>[];
 
-  // 先按时间窗过滤并映射横坐标。
-  final List<_Plotted> visible = <_Plotted>[];
+  double xOf(MetricSample s) =>
+      (s.at.millisecondsSinceEpoch - windowStartMs).toDouble() /
+      windowMs *
+      width;
+
+  // 第一遍：按时间窗过滤。点数不超过 2×像素宽时直接返回（含过滤结果，
+  // 保持原有早退语义）。
+  final List<MetricSample> visible = <MetricSample>[];
   for (final MetricSample s in samples) {
-    final double t = (s.at.millisecondsSinceEpoch - windowStartMs).toDouble();
-    final double x = (t / windowMs) * width;
+    final double x = xOf(s);
     if (x < -2 || x > width + 2) continue;
-    visible.add(_Plotted(sample: s, x: x));
+    visible.add(s);
   }
   if (visible.isEmpty) return const <MetricSample>[];
 
-  final List<_Plotted> plotted = _downsamplePlotted(visible, width);
-  return plotted.map((_Plotted p) => p.sample).toList(growable: false);
-}
-
-/// 采样点横坐标递增，顺序扫描分桶即可。
-List<_Plotted> _downsamplePlotted(List<_Plotted> input, double width) {
   final int buckets = width.ceil();
   final int maxPoints = buckets * 2;
-  if (buckets <= 0 || input.length <= maxPoints) return input;
+  if (buckets <= 0 || visible.length <= maxPoints) return visible;
 
-  final int lastIndex = input.length - 1;
-  final List<_Plotted> out = <_Plotted>[];
+  // 第二遍：顺序扫描分桶（横坐标递增），每桶只保留 min/max 的索引。
+  final int lastIndex = visible.length - 1;
+  final List<MetricSample> out = <MetricSample>[];
   int start = 0;
-  for (int b = 0; b < buckets && start <= lastIndex; b++) {
+  int b = 0;
+  while (start <= lastIndex && b < buckets) {
     final double bucketEnd = b + 1.0;
+    b += 1;
     int end = start;
-    while (end <= lastIndex && input[end].x < bucketEnd) {
+    while (end <= lastIndex && xOf(visible[end]) < bucketEnd) {
       end += 1;
     }
     if (end == start) continue;
@@ -336,30 +338,27 @@ List<_Plotted> _downsamplePlotted(List<_Plotted> input, double width) {
     int minIndex = start;
     int maxIndex = start;
     for (int i = start + 1; i < end; i++) {
-      if (input[i].sample.value < input[minIndex].sample.value) {
-        minIndex = i;
-      }
-      if (input[i].sample.value > input[maxIndex].sample.value) {
-        maxIndex = i;
-      }
+      final double v = visible[i].value;
+      if (v < visible[minIndex].value) minIndex = i;
+      if (v > visible[maxIndex].value) maxIndex = i;
     }
 
     if (minIndex == maxIndex) {
-      out.add(input[start]);
+      out.add(visible[start]);
     } else if (minIndex < maxIndex) {
       out
-        ..add(input[minIndex])
-        ..add(input[maxIndex]);
+        ..add(visible[minIndex])
+        ..add(visible[maxIndex]);
     } else {
       out
-        ..add(input[maxIndex])
-        ..add(input[minIndex]);
+        ..add(visible[maxIndex])
+        ..add(visible[minIndex]);
     }
     start = end;
   }
 
   // 收尾：保证曲线一直画到最右端（包括超出右边界的少量余量点）。
-  if (start <= lastIndex) out.add(input[lastIndex]);
+  if (start <= lastIndex) out.add(visible[lastIndex]);
   return out;
 }
 
