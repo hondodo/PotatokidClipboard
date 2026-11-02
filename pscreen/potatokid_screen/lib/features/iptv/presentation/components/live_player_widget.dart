@@ -611,6 +611,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await _applyProxySetting(_proxyUrl);
     // Android 音频输出后端（ao=audiotrack）：只在首次 open 前设一次。
     await _applyAudioOutput();
+
+    /// 直播真的很小声，只能调整到120，可能出现爆音；遥控的音量指的是改系统全局，不要将遥控的音量接入到这里修改
+    _player?.setVolume(120);
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
     // 刷新重试状态机的 700ms 冷却基准。

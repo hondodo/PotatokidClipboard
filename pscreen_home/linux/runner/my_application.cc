@@ -1,6 +1,8 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -10,9 +12,109 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  // 视图与音量通道（音量通道需要 messenger，来自 view 的 engine）。
+  FlView* view;
+  FlMethodChannel* volume_channel;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+// ---------- 系统音量：通过 pactl 操作默认 sink（PulseAudio 与
+// pipewire-pulse 均支持），失败返回 FALSE，由调用方转成错误响应。 ----------
+
+// 执行 `pactl <args>`，成功时 *stdout_out 需 g_free。
+static gboolean run_pactl(const gchar* args, gchar** stdout_out) {
+  gchar* cmd = g_strconcat("pactl ", args, nullptr);
+  gchar* std_out = nullptr;
+  gchar* std_err = nullptr;
+  gint status = 0;
+  gboolean spawned = g_spawn_command_line_sync(
+      cmd, &std_out, &std_err, &status, nullptr);
+  g_free(cmd);
+  g_free(std_err);
+  if (!spawned || status != 0) {
+    g_free(std_out);
+    return FALSE;
+  }
+  *stdout_out = std_out;
+  return TRUE;
+}
+
+// 解析 pactl 输出里第一个 "NN%" 前的整数（Volume: front-left: 65536 / 100% ...）。
+static gint parse_first_percent(const gchar* text) {
+  const gchar* pct = strchr(text, '%');
+  if (pct == nullptr) return -1;
+  const gchar* end = pct;
+  while (end > text && g_ascii_isdigit(*(end - 1))) end--;
+  if (end == pct) return -1;
+  return (gint)g_ascii_strtoll(end, nullptr, 10);
+}
+
+// getVolume：成功返回 0-100，失败返回 -1。
+static gint read_volume_percent() {
+  gchar* out = nullptr;
+  if (!run_pactl("get-sink-volume @DEFAULT_SINK@", &out)) return -1;
+  gint percent = parse_first_percent(out);
+  g_free(out);
+  return percent < 0 ? -1 : MIN(percent, 100);
+}
+
+static gboolean set_volume_delta(const gchar* delta) {
+  gchar* out = nullptr;
+  gchar* args = g_strconcat("set-sink-volume @DEFAULT_SINK@ ", delta, nullptr);
+  gboolean ok = run_pactl(args, &out);
+  g_free(args);
+  g_free(out);
+  return ok;
+}
+
+static gboolean toggle_mute() {
+  gchar* out = nullptr;
+  gboolean ok = run_pactl("set-sink-mute @DEFAULT_SINK@ toggle", &out);
+  g_free(out);
+  return ok;
+}
+
+// ---------- MethodChannel 回调（方法名与 Android 宿主一致） ----------
+
+static void volume_method_call_cb(FlMethodChannel* channel,
+                                  FlMethodCall* method_call,
+                                  gpointer user_data) {
+  g_autoptr(FlMethodResponse) response = nullptr;
+  const gchar* name = fl_method_call_get_name(method_call);
+
+  if (strcmp(name, "volumeUp") == 0) {
+    response = set_volume_delta("+2%")
+                   ? FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr))
+                   : FL_METHOD_RESPONSE(fl_method_error_response_new(
+                         "NO_AUDIO", "pactl failed", nullptr));
+  } else if (strcmp(name, "volumeDown") == 0) {
+    response = set_volume_delta("-2%")
+                   ? FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr))
+                   : FL_METHOD_RESPONSE(fl_method_error_response_new(
+                         "NO_AUDIO", "pactl failed", nullptr));
+  } else if (strcmp(name, "toggleMute") == 0) {
+    response = toggle_mute()
+                   ? FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr))
+                   : FL_METHOD_RESPONSE(fl_method_error_response_new(
+                         "NO_AUDIO", "pactl failed", nullptr));
+  } else if (strcmp(name, "getVolume") == 0) {
+    gint percent = read_volume_percent();
+    response = percent < 0
+                   ? FL_METHOD_RESPONSE(fl_method_error_response_new(
+                         "NO_AUDIO", "pactl failed", nullptr))
+                   : FL_METHOD_RESPONSE(fl_method_success_response_new(
+                         fl_value_new_int(percent)));
+  } else {
+    // 其余方法（getDeviceModel/getAndroidId/...）交回 Dart 兜底。
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to send response: %s", error->message);
+  }
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -59,6 +161,7 @@ static void my_application_activate(GApplication* application) {
       project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
+  self->view = view;
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
@@ -74,6 +177,16 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+
+  // 注册系统音量通道（在插件注册之后，engine 已就绪）。
+  FlEngine* engine = fl_view_get_engine(view);
+  FlBinaryMessenger* messenger = fl_engine_get_binary_messenger(engine);
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->volume_channel =
+      fl_method_channel_new(messenger, "potatokid/volume",
+                            FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->volume_channel, volume_method_call_cb, self, nullptr);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -121,6 +234,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->volume_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

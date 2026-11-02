@@ -274,9 +274,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     _retry.resetForChannel(0);
     // 换台期间抑制旧流残留的 error/completed 干扰（与电视端一致）。
     _retry.setBusy(true);
-    unawaited(
-      _openSource(_retry.sourceIndex).whenComplete(() => _retry.setBusy(false)),
-    );
+    unawaited(_openSource(_retry.sourceIndex).whenComplete(() => _retry.setBusy(false)));
   }
 
   /// 打开当前频道的第 [sourceIndex] 个源（重试状态机的 open 回调）。
@@ -301,6 +299,9 @@ class _LivePlayerViewState extends State<LivePlayerView> {
       // 确保解码方式（软解/硬解）已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
       await _applyHwdecSetting();
       await _applyAudioOutput();
+
+      /// 直播真的很小声，只能调整到120，可能出现爆音；遥控的音量指的是改系统全局，不要将遥控的音量接入到这里修改
+      _player.setVolume(120);
       await _player.open(Media(url));
       _report('play_start', index: index);
     } catch (_) {
@@ -321,9 +322,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     final int next = (_retry.sourceIndex + delta + total) % total;
     _retry.setSource(next);
     _retry.setBusy(true);
-    unawaited(
-      _openSource(next).whenComplete(() => _retry.setBusy(false)),
-    );
+    unawaited(_openSource(next).whenComplete(() => _retry.setBusy(false)));
   }
 
   /// 应用解码方式设置（软解/硬解）：每次打开前读取最新设置（默认软解，
@@ -371,11 +370,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          Video(
-            controller: _videoController,
-            controls: NoVideoControls,
-            fit: BoxFit.contain,
-          ),
+          Video(controller: _videoController, controls: NoVideoControls, fit: BoxFit.contain),
           // 音频节目（广播台）没有画面：居中收音机图标 + 频道名，
           // 贴底叠一层跳动声条氛围。只在判定为音频时淡入显示
           // （unknown / 视频保持原画面），且不可点击、不影响浮层交互。
