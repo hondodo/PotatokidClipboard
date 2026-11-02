@@ -101,11 +101,17 @@ class _LiveStageHostState extends State<LiveStageHost>
                       shadowColor: Colors.black54,
                       borderRadius: BorderRadius.circular(floating ? 12 : 0),
                       clipBehavior: floating ? Clip.antiAlias : Clip.none,
-                      child: LivePage(
-                        enablePlayer: widget.enablePlayer,
-                        floating: floating,
-                        onFloat: floating ? null : widget.controller.toFloating,
-                        onClose: () => widget.controller.close(),
+                      // 宿主挂在 Navigator 之上（MaterialApp.builder），这一层
+                      // 没有 Overlay 祖先，而 Tooltip（返回 / 上一台 / 下一台等）
+                      // 在 build 期就断言必须存在 Overlay。补一层局部 Overlay
+                      // 专供 LivePage 的浮层使用，不影响 Navigator 内的页面。
+                      child: Overlay.wrap(
+                        child: LivePage(
+                          enablePlayer: widget.enablePlayer,
+                          floating: floating,
+                          onFloat: floating ? null : widget.controller.toFloating,
+                          onClose: () => widget.controller.close(),
+                        ),
                       ),
                     ),
                   ),

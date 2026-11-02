@@ -211,4 +211,51 @@ void main() {
     expect(clamped2.right, closeTo(1200 - safe.right, 0.01));
     expect(clamped2.bottom, closeTo(900 - safe.bottom, 0.01));
   });
+
+  // 生产环境里宿主挂在 MaterialApp.builder（Navigator 之上），这一层没有
+  // Overlay 祖先，而 Tooltip 在 build 期断言必须存在 Overlay。
+  // 回归：此处曾抛「No Overlay widget found」，直播页一进去就报错。
+  testWidgets('宿主位于 Navigator 之上时，直播页 Tooltip 不再报「No Overlay」', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final _FakeRouter router = _FakeRouter(RouteNames.home);
+    final LiveStageController controller = LiveStageController(
+      router: () => router,
+    );
+    addTearDown(() {
+      controller.dispose();
+      router.dispose();
+    });
+    final IptvBloc bloc = IptvBloc(repository: _FakeIptvRepository());
+    addTearDown(bloc.close);
+
+    await tester.pumpWidget(
+      BlocProvider<IptvBloc>.value(
+        value: bloc,
+        child: MaterialApp(
+          home: const Scaffold(body: SizedBox.shrink()),
+          // 与 App 一致：宿主在 builder 层，位于 Navigator 之上。
+          builder: (BuildContext context, Widget? child) => LiveStageHost(
+            controller: controller,
+            enablePlayer: false,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+
+    controller.openFullscreen();
+    await tester.pump();
+    bloc.add(const LoadIptv());
+    for (int i = 0; i < 30 && find.byType(ListTile).evaluate().isEmpty; i++) {
+      await tester.pump();
+    }
+
+    // 频道列表出现后，全屏返回按钮等 Tooltip 已完成一次构建。
+    expect(tester.takeException(), isNull);
+    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.byTooltip('悬浮'), findsOneWidget);
+  });
 }

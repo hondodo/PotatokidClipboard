@@ -93,6 +93,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 打开源后迟迟无画面/无声音的看门狗超时（解决“连了很久没反应”）。
   static const Duration _hangTimeout = Duration(seconds: 60);
 
+  /// 是否已应用 Android 音频输出后端（全局选项，只需在首次 open 前设一次）。
+  bool _audioOutputApplied = false;
+
   /// 代理重试时的对应超时：免费代理普遍慢/不通，缩短以便尽快换下一个。
   static const Duration _proxyHangTimeout = Duration(seconds: 20);
 
@@ -224,9 +227,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       if (_isAudioDecodeError(trimmed) && _isPlaybackHealthy()) {
         if (!_audioDecodeErrorLogged) {
           _audioDecodeErrorLogged = true;
-          Injection.get<LogService>().info(
-            '[LivePlayerWidget] 忽略音频解码错误(画面正常，不重开该源): $trimmed',
-          );
+          Injection.get<LogService>().info('[LivePlayerWidget] 忽略音频解码错误(画面正常，不重开该源): $trimmed');
         }
         return;
       }
@@ -572,6 +573,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await (player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
   }
 
+  /// 切换 Android 音频输出后端（仅 Android，且只在首次 open 前设一次）。
+  ///
+  /// media_kit 在 Android 默认用 OpenSL ES（`ao=opensles`），部分设备上对
+  /// URL 直播源的输出电平偏低 / 音质偏差；改走 AudioTrack（`ao=audiotrack`）
+  /// 可直接改善这一现象。写成 `audiotrack,opensles` 的驱动列表：audiotrack
+  /// 在个别设备上初始化失败时 mpv 会自动回退到 opensles，不会变成无声。
+  Future<void> _applyAudioOutput() async {
+    if (_audioOutputApplied) return;
+    _audioOutputApplied = true;
+    try {
+      if (defaultTargetPlatform != TargetPlatform.android) return;
+      if (_player?.platform is! NativePlayer) return;
+      await (_player?.platform as NativePlayer).setProperty('ao', 'audiotrack,opensles');
+    } catch (_) {
+      // 设置失败不阻断播放（回落 media_kit 默认的 opensles）。
+    }
+  }
+
   /// 是否为「音轨解码失败」类错误（画面可能完全正常）。
   static bool _isAudioDecodeError(String msg) =>
       msg.contains('Error decoding audio') || msg.contains('Failed to decode audio');
@@ -580,10 +599,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   ///
   /// 只有这种情况下的音轨报错才值得忽略。连视频都没起来的源仍按原逻辑回退，
   /// 交给看门狗与回退机制处理，避免「音轨坏 = 整个源不可用」的误判反过来漏掉真坏源。
-  bool _isPlaybackHealthy() =>
-      _playedVideo ||
-      _mediaKind == MediaKind.video ||
-      (_player?.state.playing ?? false);
+  bool _isPlaybackHealthy() => _playedVideo || _mediaKind == MediaKind.video || (_player?.state.playing ?? false);
 
   /// 打开当前频道的当前源。
   Future<void> _playCurrentSource() async {
@@ -593,6 +609,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     await _hwdecReady;
     // 代理也需在 open 前设置（只影响之后打开的流）。
     await _applyProxySetting(_proxyUrl);
+    // Android 音频输出后端（ao=audiotrack）：只在首次 open 前设一次。
+    await _applyAudioOutput();
     final int idx = _currentSource.clamp(0, channel.sources.length - 1);
     _lastOpenAt = DateTime.now();
     // 刷新重试状态机的 700ms 冷却基准。
@@ -858,8 +876,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
           // 视频始终全屏铺满；fit/aspectRatio 跟随「我的」页的画面显示模式。
           BlocBuilder<AppBloc, AppState>(
             buildWhen: (previous, current) =>
-                previous.aspectMode != current.aspectMode ||
-                previous.backgroundPlayback != current.backgroundPlayback,
+                previous.aspectMode != current.aspectMode || previous.backgroundPlayback != current.backgroundPlayback,
             builder: (context, state) {
               final VideoAspectMode mode = state.aspectMode;
               return ColoredBox(
