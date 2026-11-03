@@ -52,6 +52,9 @@ class AppBloc extends Bloc<AppEvent, AppState> {
 
   Future<void> _loadPersistedSettings() async {
     await AppSettings.instance.ensureLoaded();
+    // 加载完成时 bloc 可能已随宿主销毁（快速退出/测试卸载）：跳过 add，
+    // 否则 bloc 框架会抛「Cannot add new events after calling close」。
+    if (isClosed) return;
     final AppSettings s = AppSettings.instance;
     add(
       _PersistedSettingsLoaded(
