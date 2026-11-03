@@ -42,14 +42,16 @@ class ChildrenSection extends StatelessWidget {
           children: <Widget>[
             Text(
               '儿童档案',
-              style: theme.textTheme.titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const Spacer(),
             FilledButton.tonalIcon(
               onPressed: () async {
-                final ParentalChild? child =
-                    await ChildProfileEditorSheet.show(context);
+                final ParentalChild? child = await ChildProfileEditorSheet.show(
+                  context,
+                );
                 if (child == null) return;
                 await onSave(
                   config.copyWith(
@@ -84,8 +86,9 @@ class ChildrenSection extends StatelessWidget {
                 initial: config.children[i],
               );
               if (next == null) return;
-              final List<ParentalChild> children =
-                  List<ParentalChild>.of(config.children);
+              final List<ParentalChild> children = List<ParentalChild>.of(
+                config.children,
+              );
               children[i] = next;
               await onSave(config.copyWith(children: children));
             },
@@ -108,8 +111,9 @@ class ChildrenSection extends StatelessWidget {
                 ),
               );
               if (ok != true) return;
-              final List<ParentalChild> children =
-                  List<ParentalChild>.of(config.children);
+              final List<ParentalChild> children = List<ParentalChild>.of(
+                config.children,
+              );
               children.removeAt(i);
               await onSave(config.copyWith(children: children));
             },
@@ -156,17 +160,19 @@ class _ChildCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     child.name,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 Chip(
                   visualDensity: VisualDensity.compact,
                   label: Text(child.profileModeLabel),
-                  backgroundColor: (child.isStrict
-                          ? scheme.errorContainer
-                          : scheme.secondaryContainer)
-                      .withValues(alpha: 0.6),
+                  backgroundColor:
+                      (child.isStrict
+                              ? scheme.errorContainer
+                              : scheme.secondaryContainer)
+                          .withValues(alpha: 0.6),
                 ),
                 if (child.locked)
                   const Padding(
@@ -180,7 +186,11 @@ class _ChildCard extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: '删除',
-                  icon: Icon(Icons.delete_outline, size: 20, color: scheme.error),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 20,
+                    color: scheme.error,
+                  ),
                   onPressed: onDelete,
                 ),
               ],
@@ -210,6 +220,7 @@ class WatchSection extends StatelessWidget {
     required this.config,
     required this.watchEvents,
     required this.activeEvents,
+    this.sessions = const <ParentalSession>[],
   });
 
   final ParentalConfig config;
@@ -219,6 +230,9 @@ class WatchSection extends StatelessWidget {
 
   /// `parental_child_active` 历史（按时间升序）。
   final List<RealtimeEvent> activeEvents;
+
+  /// 服务端还原的会话级记录（跨设备）。
+  final List<ParentalSession> sessions;
 
   /// 合并两类上报取最新一份「当前在看」的 childIds；都没有时回落配置值。
   List<String> _activeIds() {
@@ -270,6 +284,14 @@ class WatchSection extends StatelessWidget {
     return '$seconds 秒';
   }
 
+  static String _formatTime(int ms) {
+    if (ms <= 0) return '—';
+    final DateTime time = DateTime.fromMillisecondsSinceEpoch(ms);
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
+  }
+
   String _nameOf(String childId) {
     for (final ParentalChild child in config.children) {
       if (child.id == childId) return child.name;
@@ -284,13 +306,11 @@ class WatchSection extends StatelessWidget {
     final List<String> activeIds = _activeIds();
     final Map<String, int> daily = _todayDailySec();
 
-    if (watchEvents.isEmpty && activeEvents.isEmpty) {
+    if (watchEvents.isEmpty && activeEvents.isEmpty && sessions.isEmpty) {
       return Center(
         child: Text(
           '暂无观看上报（电视端心跳附带 parental_watch 后展示）',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: scheme.outline,
-          ),
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
         ),
       );
     }
@@ -307,15 +327,13 @@ class WatchSection extends StatelessWidget {
               children: <Widget>[
                 Text(
                   '当前观看者',
-                  style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (activeIds.isEmpty)
-                  Text(
-                    '未上报在看孩子',
-                    style: theme.textTheme.bodyMedium,
-                  )
+                  Text('未上报在看孩子', style: theme.textTheme.bodyMedium)
                 else
                   Wrap(
                     spacing: 8,
@@ -337,7 +355,9 @@ class WatchSection extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           '今日时长（按档案分账）',
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const SizedBox(height: 8),
         if (config.children.isEmpty)
@@ -352,7 +372,9 @@ class WatchSection extends StatelessWidget {
               child: ListTile(
                 dense: true,
                 leading: Icon(
-                  activeIds.contains(child.id) ? Icons.visibility : Icons.person_outline,
+                  activeIds.contains(child.id)
+                      ? Icons.visibility
+                      : Icons.person_outline,
                   color: activeIds.contains(child.id) ? scheme.primary : null,
                 ),
                 title: Text(child.name),
@@ -369,6 +391,39 @@ class WatchSection extends StatelessWidget {
                 ),
               ),
             ),
+        if (sessions.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 8),
+          Text(
+            '观看会话',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final ParentalSession session in sessions.take(20))
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.play_circle_outline),
+                title: Text(
+                  '${session.childName} · ${session.machineName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${_formatTime(session.startMs)} - ${_formatTime(session.endMs)}'
+                  ' · 当日累计 ${_formatDuration(session.dailySec)}',
+                ),
+                trailing: Text(
+                  _formatDuration(session.durationSec),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -418,8 +473,7 @@ class UnlockSection extends StatelessWidget {
         final String code = '${event.data['code'] ?? ''}'.trim();
         final String reason = '${event.data['reason'] ?? ''}'.trim();
         final DateTime ts = DateTime.fromMillisecondsSinceEpoch(event.ts);
-        final bool expired =
-            event.ts <= 0 || now.difference(ts) > _codeTtl;
+        final bool expired = event.ts <= 0 || now.difference(ts) > _codeTtl;
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: Padding(
@@ -456,8 +510,9 @@ class UnlockSection extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 12),
                     child: Text(
                       '已过期',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: scheme.outline),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.outline,
+                      ),
                     ),
                   )
                 else
@@ -548,8 +603,7 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
                 (MapEntry<String, String> entry) => ChoiceChip(
                   label: Text(entry.value),
                   selected: _unlockMode == entry.key,
-                  onSelected: (_) =>
-                      setState(() => _unlockMode = entry.key),
+                  onSelected: (_) => setState(() => _unlockMode = entry.key),
                 ),
               )
               .toList(growable: false),

@@ -1930,6 +1930,9 @@ const adminHandle = attachAdmin(app, {
     registerUsersDir,
     webAppPath,
     onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
+    // 家长记录查询：按设备通信账号读取 realtime 事件历史。
+    eventsForAccounts: (accounts, frame) =>
+        realtimeHandle ? realtimeHandle.eventsForAccounts(accounts, frame) : [],
     // admin 变更配置后按设备号推给在线 ws（realtime 尚未挂载时安全降级为无操作）。
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
     // /api/admin/traffic 查询用
@@ -1967,6 +1970,10 @@ realtimeHandle = attachRealtime(httpServer, {
     touchDevice: adminHandle.touchDevice,
     updateDeviceReport: adminHandle.updateDeviceReport,
     configFor: adminHandle.configFor,
+    // parental_* 事件按设备绑定家长扇出
+    parentAccountsFor: adminHandle.parentAccountsFor,
+    // 家长端拉历史事件时并入其绑定设备的账号（补部署前的旧记录）
+    machineAccountsForParent: adminHandle.machineAccountsForParent,
     // 剪贴板推送通道：复用 HTTP 的账号体系与列表读取实现
     clipboardPath: '/ws/clipboard',
     clipboardList: (account, fromId, summary) => readUserClipboards(account, fromId, summary),

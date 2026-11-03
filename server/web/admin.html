@@ -146,6 +146,19 @@
     .badge.inherit { color: var(--muted); }
     .badge.role-admin { color: #062023; background: var(--accent); border-color: transparent; font-weight: 700; }
     .badge.role-user { color: var(--muted); }
+    .badge.role-parent { color: #1d4ed8; border-color: rgba(96, 165, 250, .35); background: rgba(96, 165, 250, .1); }
+
+    .parent-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .parent-chip {
+      display: inline-flex; align-items: center; gap: 4px; width: auto; margin: 0;
+      padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px;
+      background: rgba(255, 255, 255, .035); color: var(--text); font-size: 11px; cursor: pointer;
+    }
+    .parent-chip input { width: auto; margin: 0; padding: 0; accent-color: var(--accent); }
+    .parent-chip:has(input:checked) { border-color: rgba(95, 211, 196, .55); color: var(--accent); }
+    .section-card { padding: 16px; margin-bottom: 14px; }
+    .section-card h3 { margin: 0 0 6px; font-size: 14px; }
+    .section-card .hint { margin-bottom: 12px; }
 
     .empty { padding: 36px 16px; text-align: center; color: var(--muted); font-size: 13px; }
 
@@ -294,6 +307,7 @@
       <button class="tab active" type="button" data-tab="machines">设备状态</button>
       <button class="tab" type="button" data-tab="users">用户与家庭</button>
       <button class="tab" type="button" data-tab="layouts">首页布局</button>
+      <button class="tab" type="button" data-tab="parental" hidden>家长控制</button>
       <button class="tab" type="button" data-tab="traffic">流量统计</button>
     </nav>
 
@@ -313,7 +327,7 @@
             <tr>
               <th style="width:86px">状态</th>
               <th>设备</th>
-              <th style="width:150px">所属用户</th>
+              <th style="width:210px">家长</th>
               <th style="width:130px">通信账号</th>
               <th style="width:280px">可见家庭</th>
               <th style="width:120px">当前家庭</th>
@@ -372,6 +386,73 @@
       </div>
     </section>
 
+    <section id="tab-parental" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>家长控制</h2>
+          <p>一台设备可绑定多个家长，一个家长也可绑定多台设备；家长账号登录后只显示本页。</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn small" type="button" id="parental-refresh">刷新记录</button>
+        </div>
+      </div>
+
+      <div class="card section-card">
+        <h3>设备与家长绑定</h3>
+        <p class="hint" id="parental-bind-hint">管理员可给任意设备勾选多个家长；家长只能认领未绑定设备，或解绑自己。</p>
+        <div class="table-wrap">
+          <table style="min-width:720px">
+            <thead>
+              <tr>
+                <th>设备</th>
+                <th>家长</th>
+                <th style="width:150px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="parental-bind-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card section-card">
+        <h3>小孩观看记录</h3>
+        <p class="hint">按会话展示：设备、孩子、开始/结束时间和本次观看时长。</p>
+        <div class="table-wrap">
+          <table style="min-width:780px">
+            <thead>
+              <tr>
+                <th style="width:180px">开始</th>
+                <th style="width:180px">结束</th>
+                <th>孩子</th>
+                <th>设备</th>
+                <th style="width:100px">本次时长</th>
+                <th style="width:100px">当日累计</th>
+              </tr>
+            </thead>
+            <tbody id="parental-sessions-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card section-card">
+        <h3>解锁请求</h3>
+        <p class="hint">电视端发起、已投递到绑定家长的远程解锁请求。</p>
+        <div class="table-wrap">
+          <table style="min-width:720px">
+            <thead>
+              <tr>
+                <th style="width:180px">时间</th>
+                <th>设备</th>
+                <th>孩子</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody id="parental-unlocks-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="tab-traffic" class="panel" hidden>
       <div class="panel-head">
         <div>
@@ -417,6 +498,8 @@
     timer: null,
     layoutKey: '',
     layoutDraft: null,
+    parentalRecords: null,
+    parentalLoading: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -496,12 +579,30 @@
     $('top-actions').hidden = true;
   }
 
+  function isParentRole() {
+    return !!(state.me && state.me.role === 'parent');
+  }
+
+  function applyRoleLayout() {
+    const parent = isParentRole();
+    document.querySelectorAll('[data-tab]').forEach((btn) => {
+      const adminOnly = ['machines', 'users', 'layouts', 'traffic'].includes(btn.dataset.tab);
+      btn.hidden = parent && adminOnly;
+    });
+    $('stats').hidden = parent;
+    $('parental-bind-hint').textContent = parent
+      ? '家长只能绑定未绑定设备，或解绑自己；其他家长的绑定关系需由管理员维护。'
+      : '管理员可给任意设备勾选多个家长；家长只能认领未绑定设备，或解绑自己。';
+    if (parent) activateTab('parental');
+  }
+
   function showDashboard() {
     $('login-view').hidden = true;
     $('dashboard-view').hidden = false;
     $('top-actions').hidden = false;
-    const roleLabel = state.me && state.me.role === 'parent' ? '家长' : '管理员';
+    const roleLabel = isParentRole() ? '家长' : '管理员';
     $('admin-name').innerHTML = `${roleLabel} <strong>${esc(state.me.name)}</strong>`;
+    applyRoleLayout();
   }
 
   async function tryAutoLogin() {
@@ -591,6 +692,7 @@
       state.overview = data;
       state.me = data.admin;
       renderAll();
+      if (state.tab === 'parental') loadParentalRecords(false);
     } catch (error) {
       if (showError) toast(error.message, 'error');
     }
@@ -602,6 +704,7 @@
     renderMachines();
     renderUsers();
     renderLayouts();
+    renderParental();
     const realtime = state.overview.realtimeOnline || [];
     $('realtime-pill').textContent = realtime.length
       ? `实时通道在线：${realtime.join('、')}`
@@ -653,19 +756,21 @@
       </div>`;
   }
 
+  function parentBadges(machine) {
+    const parents = Array.isArray(machine.parents) ? machine.parents : [];
+    if (!parents.length) return '<span class="muted">未绑定</span>';
+    return `<div class="badges">${parents.map((name) => `<span class="badge role-parent">${esc(name)}</span>`).join('')}</div>`;
+  }
+
   function renderMachines() {
     const body = $('machines-body');
     const machines = state.overview.machines || [];
-    const users = state.overview.users || [];
     if (!machines.length) {
       body.innerHTML = '<tr><td colspan="8"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
       return;
     }
     body.innerHTML = machines.map((machine) => {
       const online = machine.online === true;
-      const ownerOptions = ['<option value="">未绑定</option>']
-        .concat(users.map((user) => `<option value="${esc(user.name)}" ${machine.owner === user.name ? 'selected' : ''}>${esc(user.displayName || user.name)} (${esc(user.name)})</option>`))
-        .join('');
       return `
         <tr data-machine-id="${esc(machine.id)}">
           <td><span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span></td>
@@ -676,7 +781,7 @@
               <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
             </div>
           </td>
-          <td><select data-action="owner">${ownerOptions}</select></td>
+          <td>${parentBadges(machine)}</td>
           <td>${commCell(machine)}</td>
           <td>
             <div class="cell-stack">
@@ -701,18 +806,6 @@
       const id = row.dataset.machineId;
       const machine = machines.find((item) => item.id === id);
       if (!machine) return;
-      row.querySelector('[data-action="owner"]').addEventListener('change', async (event) => {
-        try {
-          await api(`/api/admin/machines/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ owner: event.target.value }),
-          });
-          toast('已更新所属用户', 'ok');
-          await loadOverview(false);
-        } catch (error) {
-          toast(error.message, 'error');
-        }
-      });
       row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
         title: `可见家庭 · ${machine.name}`,
         homes: machine.homes,
@@ -1589,21 +1682,195 @@
   $('traffic-date').addEventListener('change', loadTraffic);
   $('traffic-refresh').addEventListener('click', loadTraffic);
 
+  // ------------------------------------------------------------ 家长控制
+
+  function fmtTime(ms) {
+    if (!ms) return '—';
+    return new Date(Number(ms)).toLocaleString('zh-CN', { hour12: false });
+  }
+
+  function fmtDuration(value) {
+    const total = Math.max(0, Math.floor(Number(value) || 0));
+    const hour = Math.floor(total / 3600);
+    const minute = Math.floor((total % 3600) / 60);
+    const second = total % 60;
+    if (hour > 0) return `${hour} 小时 ${minute} 分`;
+    if (minute > 0) return `${minute} 分 ${second} 秒`;
+    return `${second} 秒`;
+  }
+
+  async function loadParentalRecords(showError) {
+    if (!state.me || state.parentalLoading) return;
+    state.parentalLoading = true;
+    try {
+      state.parentalRecords = await api('/api/admin/parental/records?limit=200');
+      renderParental();
+    } catch (error) {
+      if (showError) toast(error.message, 'error');
+    } finally {
+      state.parentalLoading = false;
+    }
+  }
+
+  function renderParentalBinding() {
+    const body = $('parental-bind-body');
+    const parent = isParentRole();
+    const machines = state.overview.machines || [];
+    const available = state.overview.availableMachines || [];
+    if (parent) {
+      const rows = machines.map((machine) => ({ machine, own: true }))
+        .concat(available.map((machine) => ({ machine, own: false })));
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有可绑定设备。电视端注册后会出现在这里，未绑定设备可直接认领。</div></td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(({ machine, own }) => `
+        <tr data-bind-id="${esc(machine.id)}" data-own="${own}">
+          <td>
+            <div class="cell-stack">
+              <span class="strong">${esc(machine.name)}</span>
+              <span class="mono">${esc(machine.id)}</span>
+              <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>
+            </div>
+          </td>
+          <td>${own ? parentBadges(machine) : '<span class="muted">未绑定（可认领）</span>'}</td>
+          <td>
+            <button class="btn small ${own ? 'danger' : 'primary'}" type="button"
+              data-bind-action="${own ? 'unbind' : 'bind'}">${own ? '解绑我' : '绑定到我'}</button>
+          </td>
+        </tr>`).join('');
+      return;
+    }
+
+    const parents = (state.overview.users || [])
+      .filter((user) => user.role === 'parent' || user.role === 'admin');
+    if (!machines.length) {
+      body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有设备注册。</div></td></tr>';
+      return;
+    }
+    if (!parents.length) {
+      body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有家长账号，请先在「用户与家庭」把账号角色改为家长。</div></td></tr>';
+      return;
+    }
+    body.innerHTML = machines.map((machine) => {
+      const bound = new Set(machine.parents || []);
+      const chips = parents.map((user) => `
+        <label class="parent-chip">
+          <input type="checkbox" data-parent value="${esc(user.name)}" ${bound.has(user.name) ? 'checked' : ''}>
+          ${esc(user.displayName || user.name)} (${esc(user.name)})
+        </label>`).join('');
+      return `
+        <tr data-bind-id="${esc(machine.id)}" data-own="false">
+          <td>
+            <div class="cell-stack">
+              <span class="strong">${esc(machine.name)}</span>
+              <span class="mono">${esc(machine.id)}</span>
+              <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>
+            </div>
+          </td>
+          <td><div class="parent-chips">${chips}</div></td>
+          <td><button class="btn small primary" type="button" data-bind-action="save">保存绑定</button></td>
+        </tr>`;
+    }).join('');
+  }
+
+  function renderParentalRecords() {
+    const records = state.parentalRecords || {};
+    const sessions = records.sessions || [];
+    const context = state.overview.machines || [];
+    const machineById = new Map(context.map((machine) => [machine.id, machine]));
+    $('parental-sessions-body').innerHTML = sessions.length
+      ? sessions.map((item) => {
+        const machine = machineById.get(item.machineId);
+        return `
+          <tr>
+            <td>${esc(fmtTime(item.startMs))}</td>
+            <td>${esc(fmtTime(item.endMs))}</td>
+            <td><span class="strong">${esc(item.childName || item.childId)}</span></td>
+            <td>${esc(item.machineName || (machine && machine.name) || item.machineId)}</td>
+            <td>${esc(fmtDuration(item.durationSec))}</td>
+            <td>${esc(fmtDuration(item.dailySec))}</td>
+          </tr>`;
+      }).join('')
+      : '<tr><td colspan="6"><div class="empty">暂无观看记录。电视端开启儿童模式并上报心跳后会自动出现。</div></td></tr>';
+
+    const unlocks = records.unlockRequests || [];
+    $('parental-unlocks-body').innerHTML = unlocks.length
+      ? unlocks.map((event) => {
+        const data = event.data || {};
+        const children = Array.isArray(data.childIds) ? data.childIds.join('、') : '';
+        return `
+          <tr>
+            <td>${esc(fmtTime(event.ts))}</td>
+            <td>${esc(event.machineName || event.from || '—')}</td>
+            <td>${esc(children || '—')}</td>
+            <td>${esc(data.reason || '锁屏解锁')}</td>
+          </tr>`;
+      }).join('')
+      : '<tr><td colspan="4"><div class="empty">暂无解锁请求。</div></td></tr>';
+  }
+
+  function renderParental() {
+    if (!state.overview) return;
+    renderParentalBinding();
+    renderParentalRecords();
+    $('parental-bind-body').querySelectorAll('button[data-bind-action]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('tr[data-bind-id]');
+        const id = row && row.dataset.bindId;
+        if (!id) return;
+        btn.disabled = true;
+        try {
+          if (isParentRole()) {
+            await api('/api/admin/parental/bind', {
+              method: 'POST',
+              body: JSON.stringify({ deviceId: id, bind: btn.dataset.bindAction === 'bind' }),
+            });
+            toast(btn.dataset.bindAction === 'bind' ? '已绑定到当前账号' : '已解绑', 'ok');
+          } else {
+            const parents = Array.from(row.querySelectorAll('input[data-parent]:checked'))
+              .map((input) => input.value);
+            await api(`/api/admin/machines/${encodeURIComponent(id)}`, {
+              method: 'PUT',
+              body: JSON.stringify({ parents }),
+            });
+            toast('已更新家长绑定', 'ok');
+          }
+          await loadOverview(false);
+          await loadParentalRecords(false);
+        } catch (error) {
+          toast(error.message, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  $('parental-refresh').addEventListener('click', () => {
+    loadOverview(false);
+    loadParentalRecords(true);
+  });
+
   // ------------------------------------------------------------ Tab
 
-  document.querySelectorAll('[data-tab]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.tab = btn.dataset.tab;
-      document.querySelectorAll('[data-tab]').forEach((item) => {
-        item.classList.toggle('active', item.dataset.tab === state.tab);
-      });
-      $('tab-machines').hidden = state.tab !== 'machines';
-      $('tab-users').hidden = state.tab !== 'users';
-      $('tab-layouts').hidden = state.tab !== 'layouts';
-      $('tab-traffic').hidden = state.tab !== 'traffic';
-      // 首次切到流量页才拉数据，之后跟随页面刷新按钮
-      if (state.tab === 'traffic' && !state.traffic) loadTraffic();
+  function activateTab(tab) {
+    if (!tab) return;
+    state.tab = tab;
+    document.querySelectorAll('[data-tab]').forEach((item) => {
+      item.classList.toggle('active', item.dataset.tab === tab);
     });
+    ['machines', 'users', 'layouts', 'parental', 'traffic'].forEach((name) => {
+      const section = $('tab-' + name);
+      if (section) section.hidden = state.tab !== name;
+    });
+    // 首次切到流量页才拉数据，之后跟随页面刷新按钮
+    if (tab === 'traffic' && !state.traffic) loadTraffic();
+    if (tab === 'parental') loadParentalRecords(false);
+  }
+
+  document.querySelectorAll('[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
 
   tryAutoLogin();

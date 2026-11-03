@@ -47,9 +47,17 @@ class _ParentalPageState extends State<ParentalPage> {
   List<RealtimeEvent> _watchEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _activeEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _unlockEvents = const <RealtimeEvent>[];
+  List<ParentalSession> _sessions = const <ParentalSession>[];
   String _myAccount = '';
   bool _loading = false;
   String? _error;
+
+  /// 实时通道连接状态：页面常在通道未连上时构建，连上后要补拉一次事件，
+  /// 否则「观看者 / 解锁」会一直停在空态。
+  StreamSubscription<RealtimeConnectionState>? _connSub;
+
+  /// 在线期间新到的 parental_* 事件（服务端按绑定家长扇出）。
+  StreamSubscription<RealtimeEvent>? _eventSub;
 
   RealtimeChannel? get _channel {
     if (!Injection.isRegistered<RealtimeChannel>()) return null;
@@ -60,13 +68,67 @@ class _ParentalPageState extends State<ParentalPage> {
   void initState() {
     super.initState();
     AccountSession.roleNotifier.addListener(_onRoleChanged);
+    _connSub = _channel?.connectionState.listen((
+      RealtimeConnectionState state,
+    ) {
+      if (state != RealtimeConnectionState.connected) return;
+      if (!AccountSession.isParentOrAdmin) return;
+      unawaited(_loadEvents());
+      unawaited(_loadParentalSessions());
+    });
+    _eventSub = _channel?.events.listen(_onRealtimeEvent);
     if (AccountSession.isParentOrAdmin) unawaited(_reload());
   }
 
   @override
   void dispose() {
     AccountSession.roleNotifier.removeListener(_onRoleChanged);
+    _connSub?.cancel();
+    _eventSub?.cancel();
     super.dispose();
+  }
+
+  /// 在线事件增量并入「观看者 / 解锁」，避免必须手动刷新才能看到新记录。
+  void _onRealtimeEvent(RealtimeEvent event) {
+    if (!mounted || !AccountSession.isParentOrAdmin) return;
+    if (event.event == 'parental_watch') {
+      setState(() => _watchEvents = _withEvent(_watchEvents, event));
+    } else if (event.event == 'parental_child_active') {
+      setState(() => _activeEvents = _withEvent(_activeEvents, event));
+    } else if (event.event == 'parental_unlock_request') {
+      setState(
+        () => _unlockEvents = _dedupeUnlock(<RealtimeEvent>[
+          ..._unlockEvents,
+          event,
+        ]),
+      );
+    }
+  }
+
+  /// 电视端同一请求会「owner 直投 + 管理员」双发（id 不同、短码相同）；
+  /// 按来源 + 短码去重，取较新的一条。
+  static List<RealtimeEvent> _dedupeUnlock(List<RealtimeEvent> events) {
+    final Map<String, RealtimeEvent> latest = <String, RealtimeEvent>{};
+    for (final RealtimeEvent event in events) {
+      final String code = '${event.data['code'] ?? ''}'.trim();
+      final String key = code.isEmpty ? event.id : '${event.from}|$code';
+      final RealtimeEvent? current = latest[key];
+      if (current == null || event.ts > current.ts) latest[key] = event;
+    }
+    final List<RealtimeEvent> result = latest.values.toList(growable: false);
+    result.sort((RealtimeEvent a, RealtimeEvent b) => a.ts.compareTo(b.ts));
+    return result;
+  }
+
+  /// 按 id 去重（服务端双发/重连补发可能同 id），并按时间升序排列。
+  static List<RealtimeEvent> _withEvent(
+    List<RealtimeEvent> list,
+    RealtimeEvent event,
+  ) {
+    if (list.any((RealtimeEvent item) => item.id == event.id)) return list;
+    final List<RealtimeEvent> next = <RealtimeEvent>[...list, event];
+    next.sort((RealtimeEvent a, RealtimeEvent b) => a.ts.compareTo(b.ts));
+    return next;
   }
 
   /// 后台刷新登录可能在页面构建之后才写回角色；角色变化时重新判定权限。
@@ -91,17 +153,25 @@ class _ParentalPageState extends State<ParentalPage> {
         passwordMd5: DeviceCredentials.passwordMd5(),
       );
       final List<ParentalMachine> machines = await _api.fetchMachines();
-      // parent 只看自己管的 TV（owner == 本账号）；admin 放开过滤代管全部。
+      // parent 只看绑定到自己名下的 TV（多家长绑定）；admin 放开代管全部。
       final List<ParentalMachine> visible = AccountSession.isAdmin
           ? machines
           : machines
-                .where((ParentalMachine machine) => machine.owner == account)
+                .where(
+                  (ParentalMachine machine) =>
+                      machine.parents.contains(account) ||
+                      machine.owner == account,
+                )
                 .toList(growable: false);
-      final ParentalMachine? previous = _selected;
-      ParentalMachine? selected = previous;
-      if (previous != null &&
-          !visible.any((ParentalMachine machine) => machine.id == previous.id)) {
-        selected = null;
+      // 重新拉取后设备列表是全新实例：按 id 找回选中项，且必须使用新列表
+      // 里的同一个实例，否则 DropdownButton 按 == 比较会找不到匹配项。
+      final String previousId = _selected?.id ?? '';
+      ParentalMachine? selected;
+      for (final ParentalMachine machine in visible) {
+        if (machine.id == previousId) {
+          selected = machine;
+          break;
+        }
       }
       selected ??= visible.isEmpty ? null : visible.first;
       if (!mounted) return;
@@ -112,6 +182,7 @@ class _ParentalPageState extends State<ParentalPage> {
       });
       await _loadConfig();
       await _loadEvents();
+      await _loadParentalSessions();
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     } finally {
@@ -152,16 +223,29 @@ class _ParentalPageState extends State<ParentalPage> {
       setState(() {
         _watchEvents = watch;
         _activeEvents = active;
-        _unlockEvents = unlock;
+        _unlockEvents = _dedupeUnlock(unlock);
       });
     } catch (_) {
       // 事件查询依赖 WS 在线；失败不阻塞档案 / 设置等模块。
     }
   }
 
+  /// 会话级观看记录走 HTTP，避免实时通道未连接时看不到历史。
+  Future<void> _loadParentalSessions() async {
+    try {
+      final List<ParentalSession> sessions = await _api.fetchParentalSessions();
+      if (!mounted) return;
+      setState(() => _sessions = sessions);
+    } catch (_) {
+      // 记录查询失败不阻塞档案 / 设置。
+    }
+  }
+
   void _hint(String message, {bool error = false}) {
     if (!mounted) return;
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
     if (messenger == null) return;
     messenger
       ..hideCurrentSnackBar()
@@ -196,20 +280,17 @@ class _ParentalPageState extends State<ParentalPage> {
     final String code = '${event.data['code'] ?? ''}'.trim();
     final String to = event.from.trim();
     final RealtimeChannel? channel = _channel;
-    final bool ok = channel != null &&
+    final bool ok =
+        channel != null &&
         code.isNotEmpty &&
         to.isNotEmpty &&
         await channel.sendText(
           to: to,
-          body: buildCommandEnvelope(
-            'parental_unlock',
-            <String, dynamic>{'code': code},
-          ),
+          body: buildCommandEnvelope('parental_unlock', <String, dynamic>{
+            'code': code,
+          }),
         );
-    _hint(
-      ok ? '已发送解锁命令（短码有效性由电视端校验）' : '发送失败：实时通道未连接',
-      error: !ok,
-    );
+    _hint(ok ? '已发送解锁命令（短码有效性由电视端校验）' : '发送失败：实时通道未连接', error: !ok);
     if (ok) unawaited(_loadEvents());
   }
 
@@ -314,7 +395,10 @@ class _ParentalPageState extends State<ParentalPage> {
           bottom: TabBar(
             isScrollable: true,
             tabs: _tabs
-                .map(( _TabSpec tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label))
+                .map(
+                  (_TabSpec tab) =>
+                      Tab(icon: Icon(tab.icon, size: 20), text: tab.label),
+                )
                 .toList(growable: false),
           ),
         ),
@@ -354,6 +438,7 @@ class _ParentalPageState extends State<ParentalPage> {
                     config: _config,
                     watchEvents: _watchEvents,
                     activeEvents: _activeEvents,
+                    sessions: _sessions,
                   ),
                   UnlockSection(events: _unlockEvents, onUnlock: _sendUnlock),
                   ParentalSettingsSection(
@@ -387,9 +472,9 @@ class _ParentalPageState extends State<ParentalPage> {
                 value: selected,
                 items: _machines
                     .map(
-                      (ParentalMachine machine) => DropdownMenuItem<
-                        ParentalMachine
-                      >(
+                      (
+                        ParentalMachine machine,
+                      ) => DropdownMenuItem<ParentalMachine>(
                         value: machine,
                         child: Text(
                           '${machine.name.isEmpty ? machine.id : machine.name}'

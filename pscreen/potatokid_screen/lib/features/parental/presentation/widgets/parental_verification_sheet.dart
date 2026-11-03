@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_attempt_gate.dart';
 import 'package:pscreen_screen/core/parental/parental_config.dart';
@@ -141,49 +142,64 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         _closing = true;
         _stopWatchingRemoteUnlock();
       },
-      child: Dialog(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Row(
+      child: Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.arrowDown): NextFocusIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowUp): PreviousFocusIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowRight): NextFocusIntent(),
+          SingleActivator(LogicalKeyboardKey.arrowLeft): PreviousFocusIntent(),
+          SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        child: FocusTraversalGroup(
+          child: Dialog(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    Icon(
-                      Icons.lock_outline,
-                      color: Theme.of(context).colorScheme.primary,
+                    Row(
+                      children: <Widget>[
+                        Icon(
+                          Icons.lock_outline,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text('家长验证', style: textTheme.titleLarge),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text('家长验证', style: textTheme.titleLarge),
+                    const SizedBox(height: 16),
+                    if (gate.locked) ...<Widget>[
+                      Text(
+                        '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (mode == 'remote') ..._buildRemoteSection(gate),
+                    if (usePin) ..._buildPinSection(gate, textTheme),
+                    // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
+                    if (mode == 'arith' ||
+                        (mode == 'pin' && !usePin) ||
+                        mode == 'remote')
+                      ..._buildArithSection(gate, textTheme),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: () => _close(false),
+                      child: const Text('关闭'),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                if (gate.locked) ...<Widget>[
-                  Text(
-                    '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (mode == 'remote') ..._buildRemoteSection(gate),
-                if (usePin) ..._buildPinSection(gate, textTheme),
-                // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
-                if (mode == 'arith' ||
-                    (mode == 'pin' && !usePin) ||
-                    mode == 'remote')
-                  ..._buildArithSection(gate, textTheme),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () => _close(false),
-                  child: const Text('关闭'),
-                ),
-              ],
+              ),
             ),
           ),
         ),

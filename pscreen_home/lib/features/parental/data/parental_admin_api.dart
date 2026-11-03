@@ -36,10 +36,7 @@ class ParentalAdminApi {
     final dynamic data = await DioManager().send(
       url: _uri('/api/admin/login').toString(),
       method: HttpMethod.POST,
-      params: <String, dynamic>{
-        'username': username,
-        'password': passwordMd5,
-      },
+      params: <String, dynamic>{'username': username, 'password': passwordMd5},
       contentType: 'application/json',
       notTipNetError: true,
     );
@@ -58,8 +55,29 @@ class ParentalAdminApi {
     if (machines is! List) return const <ParentalMachine>[];
     return machines
         .whereType<Map>()
-        .map((Map item) =>
-            ParentalMachine.fromJson(Map<String, dynamic>.from(item)))
+        .map(
+          (Map item) =>
+              ParentalMachine.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  /// 家长可见的会话级观看记录（服务端由 parental_watch 心跳还原）。
+  Future<List<ParentalSession>> fetchParentalSessions() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/records?limit=200').toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic sessions = body['sessions'];
+    if (sessions is! List) return const <ParentalSession>[];
+    return sessions
+        .whereType<Map>()
+        .map(
+          (Map item) =>
+              ParentalSession.fromJson(Map<String, dynamic>.from(item)),
+        )
         .toList(growable: false);
   }
 
@@ -112,12 +130,51 @@ class ParentalAdminApi {
   }
 }
 
+/// 一次会话级观看记录。
+class ParentalSession {
+  const ParentalSession({
+    required this.machineId,
+    required this.machineName,
+    required this.childId,
+    required this.childName,
+    required this.date,
+    required this.startMs,
+    required this.endMs,
+    required this.durationSec,
+    required this.dailySec,
+  });
+
+  final String machineId;
+  final String machineName;
+  final String childId;
+  final String childName;
+  final String date;
+  final int startMs;
+  final int endMs;
+  final int durationSec;
+  final int dailySec;
+
+  factory ParentalSession.fromJson(Map<String, dynamic> json) =>
+      ParentalSession(
+        machineId: '${json['machineId'] ?? ''}',
+        machineName: '${json['machineName'] ?? ''}',
+        childId: '${json['childId'] ?? ''}',
+        childName: '${json['childName'] ?? ''}',
+        date: '${json['date'] ?? ''}',
+        startMs: (json['startMs'] as num?)?.toInt() ?? 0,
+        endMs: (json['endMs'] as num?)?.toInt() ?? 0,
+        durationSec: (json['durationSec'] as num?)?.toInt() ?? 0,
+        dailySec: (json['dailySec'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// 设备清单中的一台机器（Admin overview 的 machines 条目裁剪）。
 class ParentalMachine {
   const ParentalMachine({
     required this.id,
     required this.name,
     required this.owner,
+    required this.parents,
     required this.commAccount,
     required this.online,
   });
@@ -129,8 +186,11 @@ class ParentalMachine {
   /// 设备显示名。
   final String name;
 
-  /// 归属账号（`parent` 角色只看 `owner == 本账号`，admin 放开代管）。
+  /// 兼容旧数据的单一归属账号；新绑定关系以 [parents] 为准。
   final String owner;
+
+  /// 绑定到该设备的家长账号（可多个）。
+  final List<String> parents;
 
   /// 当前生效的实时通信账号（遥控面板与解锁命令的投递目标）。
   final String commAccount;
@@ -142,6 +202,12 @@ class ParentalMachine {
         id: '${json['id'] ?? ''}',
         name: '${json['name'] ?? ''}',
         owner: '${json['owner'] ?? ''}',
+        parents: (json['parents'] is List)
+            ? (json['parents'] as List)
+                  .map((dynamic item) => '${item ?? ''}')
+                  .where((String item) => item.isNotEmpty)
+                  .toList(growable: false)
+            : const <String>[],
         commAccount: '${json['commAccount'] ?? ''}',
         online: json['online'] == true,
       );

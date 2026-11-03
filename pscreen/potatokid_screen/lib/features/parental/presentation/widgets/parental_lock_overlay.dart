@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
@@ -67,9 +68,30 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         // 焦点落到顶部导航条 _TopTab（焦点即切页）导致锁屏下仍能切 Tab。
         // OK/enter 由按钮自身节点先消费（activate），不受此拦截影响。
         return Focus(
+          // 本节点只做拦截，不参与焦点遍历，否则方向键可能停在无 UI 的
+          // 包装节点上。
+          canRequestFocus: false,
+          skipTraversal: true,
           onKeyEvent: (FocusNode node, KeyEvent event) =>
               KeyEventResult.handled,
-          child: const _LockScreenPage(),
+          // 电视遥控的 D-pad / OK 键在 WidgetsApp 默认快捷键之外：这里显式
+          // 映射方向焦点与 select，锁屏页的按钮才能被遥控选中和触发。
+          child: Shortcuts(
+            shortcuts: const <ShortcutActivator, Intent>{
+              SingleActivator(LogicalKeyboardKey.arrowDown): NextFocusIntent(),
+              SingleActivator(LogicalKeyboardKey.arrowUp):
+                  PreviousFocusIntent(),
+              SingleActivator(LogicalKeyboardKey.arrowRight): NextFocusIntent(),
+              SingleActivator(LogicalKeyboardKey.arrowLeft):
+                  PreviousFocusIntent(),
+              SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+            },
+            child: const _LockScreenPage(),
+          ),
         );
       },
     );
@@ -88,9 +110,17 @@ class _LockScreenPage extends StatefulWidget {
 class _LockScreenPageState extends State<_LockScreenPage> {
   Timer? _ticker;
 
+  /// 锁屏出现时强制把焦点拉到「家长验证解锁」按钮：锁屏前焦点常停在
+  /// 顶部导航条/内容区，根按键处理器在锁定期间一律吞键，导致遥控方向键
+  /// 与 OK 完全无响应（鼠标可点是因为点击会先赋焦点）。
+  final FocusNode _verifyFocus = FocusNode(debugLabel: 'parental-verify');
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _verifyFocus.requestFocus();
+    });
     // 短码状态（签发/消费/过期）变化即时刷新，不等 1s 倒计时 ticker。
     ParentalUnlockCodeController.instance.addListener(_onCodesChanged);
     // 每秒刷新短码倒计时（锁屏期间本页常驻，解锁即卸载停表）。
@@ -107,13 +137,15 @@ class _LockScreenPageState extends State<_LockScreenPage> {
   void dispose() {
     ParentalUnlockCodeController.instance.removeListener(_onCodesChanged);
     _ticker?.cancel();
+    _verifyFocus.dispose();
     super.dispose();
   }
 
   Future<void> _reissue() async {
     final KidWatchTimerController timer = KidWatchTimerController.instance;
-    final String reason =
-        timer.lockReason.isEmpty ? 'threshold' : timer.lockReason;
+    final String reason = timer.lockReason.isEmpty
+        ? 'threshold'
+        : timer.lockReason;
     await ParentalUnlockCodeController.instance.issue(reason);
   }
 
@@ -150,16 +182,18 @@ class _LockScreenPageState extends State<_LockScreenPage> {
               const SizedBox(height: 16),
               Text(
                 '观看时间已到',
-                style: theme.textTheme.headlineSmall
-                    ?.copyWith(color: Colors.white),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(height: 20),
               // 剩余取「当前组合中最先到阈值者」（remaining* 内部逐人取最小）。
               Text(
                 '单次剩余：${remainSession == null ? '未启用' : _fmt(remainSession)}'
                 '　　当日剩余：${remainDaily == null ? '未启用' : _fmt(remainDaily)}',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(color: Colors.white70),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white70,
+                ),
               ),
               const SizedBox(height: 12),
               // 逐人已看（分账）：锁屏展示当前组合内每个孩子的 session/daily。
@@ -169,14 +203,16 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                   child: Text(
                     '${_nameOf(parental, id)}：已看 ${_fmt(timer.sessionSecOf(id))}'
                     '（当日 ${_fmt(timer.dailySecOf(id))}）',
-                    style: theme.textTheme.bodyLarge
-                        ?.copyWith(color: Colors.white70),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: Colors.white70,
+                    ),
                   ),
                 ),
               const SizedBox(height: 20),
               ..._buildCodeArea(codes, theme),
               const SizedBox(height: 24),
               FilledButton(
+                focusNode: _verifyFocus,
                 autofocus: true,
                 onPressed: _openVerify,
                 child: const Text('家长验证解锁'),
@@ -223,16 +259,13 @@ class _LockScreenPageState extends State<_LockScreenPage> {
         consumed
             ? '解锁已确认'
             : codes.code == null
-                ? '尚未生成解锁码'
-                : '解锁码已过期',
+            ? '尚未生成解锁码'
+            : '解锁码已过期',
         style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70),
       ),
       if (!consumed) ...<Widget>[
         const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: _reissue,
-          child: const Text('重新请求解锁码'),
-        ),
+        OutlinedButton(onPressed: _reissue, child: const Text('重新请求解锁码')),
       ],
     ];
   }
