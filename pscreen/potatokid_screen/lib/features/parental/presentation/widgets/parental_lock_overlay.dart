@@ -61,7 +61,16 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         if (!KidWatchTimerController.instance.locked) {
           return const SizedBox.shrink();
         }
-        return const _LockScreenPage();
+        // 锁屏期间吞掉全部按键（方案 5.2 根按键拦截的锁屏层分支）：本层是
+        // MainApp Stack 中 rootOkHandler 的兄弟节点，焦点在锁屏按钮上时按键
+        // 不经根分发——放行会上浮 WidgetsApp Shortcuts 触发方向焦点转移，
+        // 焦点落到顶部导航条 _TopTab（焦点即切页）导致锁屏下仍能切 Tab。
+        // OK/enter 由按钮自身节点先消费（activate），不受此拦截影响。
+        return Focus(
+          onKeyEvent: (FocusNode node, KeyEvent event) =>
+              KeyEventResult.handled,
+          child: const _LockScreenPage(),
+        );
       },
     );
   }

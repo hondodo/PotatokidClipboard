@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -37,7 +38,11 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await EasyLocalization.ensureInitialized();
+    _registerAssetMock();
     await Injection.init();
+    // 预热 AppSettings：确保 _loading 在建 AppBloc 前完成，否则其
+    // _loadPersistedSettings 的 add() 会落在 bloc close 之后（StateError）。
+    await AppSettings.instance.ensureLoaded();
     await ParentalStateController.instance
         .saveLocalConfig(const ParentalConfig());
     _resetTimer();
@@ -107,16 +112,22 @@ void main() {
   testWidgets('锁屏期间根按键吞键：不触发 Tab 切换（含未锁对照）',
       (WidgetTester tester) async {
     await _pumpApp(tester, location: '/');
-    final StatefulNavigationShell shell = MainApp.current!;
-    expect(shell.currentIndex, 0);
+    // 注意：切 Tab 会重建 StatefulShellRoute，shell widget 实例随之更新
+    //（MainApp.current 在每次 build 覆写），故断言须动态读取 MainApp.current，
+    // 缓存旧实例会读到过期的 currentIndex。
+    expect(MainApp.current!.currentIndex, 0);
 
     // 对照：未锁时左右键经根分发正常切 Tab（证明按键链路本身是通的）。
+    // 焦点由 home 分支的 autofocus 节点落位（在 MainApp 子树内），按键
+    // 沿 focus 链冒泡到根 Focus 的 _handleRootKey 分发。
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
-    expect(shell.currentIndex, 1, reason: '未锁时左右键应切换 Tab');
+    await tester.pump();
+    expect(MainApp.current!.currentIndex, 1,
+        reason: '未锁时左右键应切换 Tab');
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pump();
-    expect(shell.currentIndex, 0);
+    expect(MainApp.current!.currentIndex, 0);
 
     // 计到阈值进锁屏（与阶段 2/3 用例同法：逐秒 ticker 累加）。
     final KidWatchTimerController timer = KidWatchTimerController.instance;
@@ -141,7 +152,8 @@ void main() {
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
-    expect(shell.currentIndex, 0, reason: '锁屏吞键，不触发 Tab 切换');
+    expect(MainApp.current!.currentIndex, 0,
+        reason: '锁屏吞键，不触发 Tab 切换');
 
     await _unmount(tester);
   });
@@ -163,7 +175,12 @@ Future<void> _pumpApp(WidgetTester tester, {required String location}) async {
               GoRoute(
                 path: '/',
                 builder: (BuildContext context, GoRouterState state) =>
-                    const SizedBox(key: Key('home-branch')),
+                    // 模拟真机内容区的可聚焦节点：焦点经路由 ModalScope 下穿
+                    // 落位到分支内，按键才能沿 focus 链冒泡到 MainApp 根分发。
+                    Focus(
+                      autofocus: true,
+                      child: const SizedBox(key: Key('home-branch')),
+                    ),
               ),
             ],
           ),
@@ -215,23 +232,21 @@ Future<void> _pumpApp(WidgetTester tester, {required String location}) async {
       child: _TestApp(router: _router!),
     ),
   );
-  // 等本地化委托加载与首帧就绪。
+  // 等本地化委托加载与路由首帧就绪（GoRouter initialLocation 匹配经
+  // microtask 完成，两次 pump + settle 足以 build 出 shell）。
   await tester.pump();
   await tester.pump();
-  debugPrint(
-      '=== [probe] pumped mainApp=${find.byType(MainApp).evaluate().length} profile=${find.byType(ProfilePage).evaluate().length}');
-  await SharedPreferences.getInstance();
-  debugPrint('=== [probe] prefs future resolved');
+  await tester.pumpAndSettle();
 }
 
 /// 收尾：停表 + 卸载整树（取消导航条自动收起计时器）+ 释放路由。
 Future<void> _unmount(WidgetTester tester) async {
-  debugPrint('=== [probe] unmount begin');
   _resetTimer();
   await tester.pumpWidget(const SizedBox());
   _router?.dispose();
   _router = null;
-  debugPrint('=== [probe] unmount end');
+  // 清静态壳引用，避免残留到下一个测试（MainApp.current 为静态字段）。
+  MainApp.current = null;
 }
 
 /// 停掉儿童观看计时器（周期 ticker）并清空会话/锁屏残留。
@@ -246,6 +261,36 @@ void _resetTimer() {
   timer.clearAll();
 }
 
+/// 按测试重新注册 `flutter/assets` 同步读取处理器。
+///
+/// flutter_test 只在 binding 初始化时注册一次该 mock（`mockFlutterAssets`），
+/// 且注册的回调在每个测试结束后被清掉——第二个测试起 `rootBundle.loadString`
+/// 落到真实 messenger，在 FakeAsync 内永不完成，WidgetsApp 的
+/// `Localizations._locale` 停在 null、整棵应用子树渲染成 `SizedBox`
+/// （Router/Navigator/页面全都不 build）。故每个 setUp 补注册等价处理器。
+void _registerAssetMock() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMessageHandler('flutter/assets', (ByteData? message) {
+    final String key = utf8.decode(message!.buffer.asUint8List());
+    final List<String> candidates = <String>[
+      if (Platform.environment.containsKey('UNIT_TEST_ASSETS'))
+        '${Platform.environment['UNIT_TEST_ASSETS']}/$key',
+      key,
+      if (key.startsWith('packages/')) key.split('/').skip(2).join('/'),
+    ];
+    for (final String candidate in candidates) {
+      final File file = File(candidate);
+      if (file.existsSync()) {
+        final bytes = file.readAsBytesSync();
+        return SynchronousFuture<ByteData>(
+          bytes.buffer.asByteData(bytes.offsetInBytes, bytes.lengthInBytes),
+        );
+      }
+    }
+    return null;
+  });
+}
+
 /// 测试宿主：补齐 MainApp 所需的 AppBloc / RemoteLoginBloc 与本地化接线。
 class _TestApp extends StatelessWidget {
   const _TestApp({required this.router});
@@ -256,13 +301,7 @@ class _TestApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiBlocProvider(
       providers: <BlocProvider<dynamic>>[
-        BlocProvider<AppBloc>(create: (BuildContext _) {
-          debugPrint('=== [probe] AppBloc created');
-          final AppBloc bloc = AppBloc();
-          AppSettings.instance.ensureLoaded().then(
-              (_) => debugPrint('=== [probe] ensureLoaded done'));
-          return bloc;
-        }),
+        BlocProvider<AppBloc>(create: (BuildContext _) => AppBloc()),
         BlocProvider<RemoteLoginBloc>(
           create: (BuildContext _) =>
               RemoteLoginBloc(repository: const _FakeRemoteLoginRepository()),
@@ -299,20 +338,32 @@ class _FakeRemoteLoginRepository implements RemoteLoginRepository {
   Future<void> switchAccount(String account) async {}
 }
 
-/// 从磁盘读取 zh-CN 等翻译 JSON（测试环境不依赖资产 bundle 打包）。
+/// 从磁盘同步读取 zh-CN 等翻译 JSON（测试环境不依赖资产 bundle 打包）。
+///
+/// 不走 rootBundle：其字符串缓存是跨测试共享的单例，前序测试残留的挂起
+/// Future 会让后续测试的 loadString 永不完成（FakeAsync 内也等不到真实
+/// I/O 回调），导致 Localizations._locale 停在 null、整棵子树渲染成
+/// SizedBox。同步读文件不依赖事件循环，整跑稳定。
 class _DiskAssetLoader extends AssetLoader {
   const _DiskAssetLoader();
 
   @override
   Future<Map<String, dynamic>> load(String path, Locale locale) async {
     final String assetKey = '$path/${locale.toLanguageTag()}.json';
-    String raw;
-    try {
-      raw = await rootBundle.loadString(assetKey);
-    } catch (_) {
-      raw = await File(assetKey).readAsString();
+    final List<String> candidates = <String>[
+      if (Platform.environment.containsKey('UNIT_TEST_ASSETS'))
+        '${Platform.environment['UNIT_TEST_ASSETS']}/$assetKey',
+      assetKey,
+      if (assetKey.startsWith('packages/'))
+        assetKey.split('/').skip(2).join('/'),
+    ];
+    for (final String candidate in candidates) {
+      final File file = File(candidate);
+      if (file.existsSync()) {
+        return jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      }
     }
-    return jsonDecode(raw) as Map<String, dynamic>;
+    throw FlutterError('translation asset not found: $assetKey');
   }
 }
 
