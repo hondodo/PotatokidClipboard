@@ -1,4 +1,6 @@
+import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
+import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -25,7 +27,8 @@ abstract class LiveStageControl {
   void toFloating();
 }
 
-/// 命令执行器：音量/切台/导航/定时关闭/直播悬浮（text 命令由 Router 直接走浮层，不进这里）。
+/// 命令执行器：音量/切台/导航/定时关闭/直播悬浮/远程解锁（text 命令由
+/// Router 直接走浮层，不进这里）。
 class MessageCommandExecutor {
   MessageCommandExecutor({
     required this.volume,
@@ -89,9 +92,24 @@ class MessageCommandExecutor {
         return _sleepTimer(args);
       case 'live_float':
         return _liveFloat();
+      case 'parental_unlock':
+        return _parentalUnlock(args);
       default:
         return false;
     }
+  }
+
+  /// 远程解锁：校验短码（匹配 + 60s 未过期 + 未使用过，全部满足才消费，
+  /// 一次性）通过后解除锁屏。
+  ///
+  /// 任一校验失败按未知命令返回 false（不抛异常），由 Router 记日志。
+  /// 短码状态见 [ParentalUnlockCodeController]（锁屏 UI 同源展示）。
+  bool _parentalUnlock(Map<String, dynamic>? args) {
+    final dynamic raw = args?['code'];
+    if (raw is! String) return false;
+    if (!ParentalUnlockCodeController.instance.consume(raw)) return false;
+    KidWatchTimerController.instance.unlock();
+    return true;
   }
 
   /// 切换当前频道的播放源（`delta`：+1 下一个 / -1 上一个，默认 +1）。

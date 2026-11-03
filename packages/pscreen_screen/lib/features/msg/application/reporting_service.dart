@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/app_log.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
@@ -28,6 +29,7 @@ class ReportingService {
     required this.channelInfo,
     required this.liveChannel,
     required this.sceneProvider,
+    this.onChannelSwitch,
     DateTime Function()? now,
     Duration? heartbeatInterval,
   })  : _now = now ?? DateTime.now,
@@ -57,6 +59,11 @@ class ReportingService {
 
   /// 当前场景描述提供者（由宿主注入）。
   final CurrentSceneProvider sceneProvider;
+
+  /// 换台开始（上报频道与上一频道不同）时回调：让状态上报丢弃上一频道
+  /// 播放快照（`DeviceStateReporter.clearLastPlayback`）。离开直播的
+  /// `PlaybackStateProvider.clear()` 路径不触发它。
+  final void Function()? onChannelSwitch;
 
   final DateTime Function() _now;
 
@@ -206,7 +213,9 @@ class ReportingService {
         _pbStartedKeys.clear();
         _pbLastState = '';
         _pbRetryAt = null;
-        // 新频道尚未出结果：清掉上一频道的播放状态。
+        // 新频道尚未出结果：先让状态上报丢弃上一频道快照
+        //（clear 会同步触发一次 push，顺序反了会把旧快照发出去），再清空当前状态。
+        onChannelSwitch?.call();
         PlaybackStateProvider.instance.clear();
       }
       // 播放状态以「最新一次」为准（事件上报有去重/限流，状态不该被一并丢弃）。
@@ -276,6 +285,26 @@ class ReportingService {
       _send('已收看$minutes分钟，当前频道是${scene.title}');
     } else {
       _send('已在线$minutes分钟，当前场景：${scene.title}${_playbackSuffix(scene)}');
+    }
+    _reportParentalWatch();
+  }
+
+  /// 心跳附带儿童观看分账（`parental_watch`）：按孩子分账的 session/daily 时长，
+  /// 家长端据此还原「谁看了多久」。未启用儿童模式时不发。
+  void _reportParentalWatch() {
+    try {
+      final ParentalStateController parental = ParentalStateController.instance;
+      if (!parental.enabled) return;
+      final List<String> childIds = parental.activeChildIds;
+      if (childIds.isEmpty) return;
+      reportEvent('parental_watch', <String, Object?>{
+        'childIds': childIds,
+        'sessionSecByChild': parental.timer.sessionSecByChild,
+        'dailySecByChild': parental.timer.dailySecByChild,
+        'date': parental.timer.dateKey,
+      });
+    } catch (e) {
+      Log.error('[ReportingService] parental_watch 上报异常: $e');
     }
   }
 

@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:get_it/get_it.dart';
+import 'package:pscreen_screen/app/app_log.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
+import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -47,6 +50,7 @@ class MsgModule {
 
   static StreamSubscription<RealtimeMessage>? _sub;
   static StreamSubscription<RemoteLoginState>? _stateSub;
+  static StreamSubscription<Map<String, dynamic>>? _configSub;
   static DeviceStateReporter? _stateReporter;
   static String _lastStartedAccount = '';
 
@@ -55,6 +59,8 @@ class MsgModule {
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
+    await _configSub?.cancel();
+    _configSub = null;
     _stateReporter?.stop();
     _stateReporter = null;
 
@@ -93,11 +99,22 @@ class MsgModule {
       channelInfo: ChannelInfoProvider.instance,
       liveChannel: LiveChannelController.instance,
       sceneProvider: it<CurrentSceneProvider>(),
+      // 换台时丢弃状态上报里的上一频道播放快照（离开直播路径不经过它）。
+      onChannelSwitch: stateReporter.clearLastPlayback,
     );
     it.registerLazySingleton<ReportingService>(
       () => reporting,
       dispose: (_) async => reporting.dispose(),
     );
+
+    // 儿童模式选人上报：选人页确认 / 换人（setActiveChildren 有变化）→
+    // `parental_child_active` 事件（服务端按 event 落库，零改动）；
+    // 未登录时 reportEvent 内部有 _started 门禁，不会误发。
+    ParentalStateController.instance.onActiveChildrenChanged =
+        (List<String> childIds) => reporting.reportEvent(
+              'parental_child_active',
+              <String, Object?>{'childIds': childIds},
+            );
 
     // 收消息：服务端只投递寻址到本账号的消息，直接交给路由。
     _sub = it<RealtimeChannel>().messages.listen((RealtimeMessage message) {
@@ -105,6 +122,15 @@ class MsgModule {
         router.handleIncoming(message.body);
       }
     });
+
+    // 服务端配置下行：管理端改儿童模式（档案 / 档位 / 白名单黑名单）时
+    // pushConfigToMachine 实时推送；交给 ParentalStateController 按
+    // 「服务端 parental 为对象即为准」的双源规则应用并广播。
+    _configSub = it<RealtimeChannel>().deviceConfigs.listen(
+          (Map<String, dynamic> config) => unawaited(
+            ParentalStateController.instance.applyServerConfig(config),
+          ),
+        );
 
     // 连接态边沿驱动上报启停。
     _stateSub = it<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
@@ -120,6 +146,12 @@ class MsgModule {
           _lastStartedAccount = account;
         }
         unawaited(reporting.start(account));
+        // 解锁短码补发：重启后锁屏可能先于连接建立生成短码（离线期双发失败），
+        // 登录成功后按原码补发两条（手机端按 code 去重，重复无副作用）。
+        unawaited(ParentalUnlockCodeController.instance.flushPending());
+        // 主动拉一次最新生效配置：`config` 帧只在管理端改动时推送（握手不推），
+        // report 回包自带服务端配置（含 parental），登录后即与管理端对齐。
+        unawaited(_pullServerConfig(it<RealtimeChannel>()));
       } else if (state.status == RemoteLoginStatus.error ||
           (state.status == RemoteLoginStatus.notConfigured &&
               it<RealtimeChannel>().account.trim().isEmpty)) {
@@ -132,14 +164,31 @@ class MsgModule {
     });
   }
 
+  /// 登录成功后主动上报一次，取回服务端生效配置（`report` 回包自带
+  /// config，含 parental）并交给 ParentalStateController 应用。
+  static Future<void> _pullServerConfig(RealtimeChannel channel) async {
+    try {
+      final Map<String, dynamic>? config = await channel.sendReport();
+      if (config != null) {
+        await ParentalStateController.instance.applyServerConfig(config);
+      }
+    } catch (e) {
+      Log.error('[MsgModule] 拉取服务端配置失败: $e');
+    }
+  }
+
   static Future<void> unregister(GetIt it) async {
     await _sub?.cancel();
     _sub = null;
     await _stateSub?.cancel();
     _stateSub = null;
+    await _configSub?.cancel();
+    _configSub = null;
     _stateReporter?.stop();
     _stateReporter = null;
     _lastStartedAccount = '';
+    // 回调随上报服务一起摘除，避免 ReportingService 销毁后仍被回调。
+    ParentalStateController.instance.onActiveChildrenChanged = null;
     if (it.isRegistered<DeviceStateReporter>()) {
       await it.unregister<DeviceStateReporter>();
     }

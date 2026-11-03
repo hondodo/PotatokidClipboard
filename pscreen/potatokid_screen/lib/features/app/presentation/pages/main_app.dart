@@ -14,9 +14,14 @@ import 'package:pscreen_screen/features/iptv/application/home_now_playing_contro
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 import 'package:potatokid_screen/features/msg/presentation/widgets/message_overlay.dart';
+import 'package:potatokid_screen/features/parental/presentation/widgets/parental_lock_overlay.dart';
+import 'package:potatokid_screen/features/parental/presentation/widgets/parental_select_overlay.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
+import 'package:potatokid_screen/features/profile/presentation/pages/profile_readonly_page.dart';
 import 'package:pscreen_screen/features/time/application/time_style_controller.dart';
+import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/utils/key_repeat_controller.dart';
 import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
@@ -75,6 +80,12 @@ class MainApp extends StatelessWidget {
       initialLocation: index == navigationShell.currentIndex,
     );
   }
+
+  /// 「我的」Tab 儿童模式只读替换是否生效（方案 5.2 生效判定式）。
+  /// 判定式不成立时为 false：内容区渲染与全部按键路径与现状完全一致。
+  bool get _profileReadonly =>
+      navigationShell.currentIndex == _profileBranchIndex &&
+      ParentalStateController.instance.enabled;
 
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
     // 确认弹窗（退出/重置）打开期间一律让位：把按键交给弹窗自己的焦点树，
@@ -151,6 +162,21 @@ class MainApp extends StatelessWidget {
   /// - 返回：二次确认后退出应用。
   /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
+    // 儿童模式选人页可见：全部按键交给选人页（上下移动光标 / 确定勾选与
+    // 确认，其余吞掉）——未确定不进直播、不操作底层；锁屏在其上层时让位
+    //（锁屏页优先经自己的焦点树处理，维持阶段 2 行为不变）。
+    if (ParentalSelectOverlay.gateVisible &&
+        !KidWatchTimerController.instance.locked) {
+      ParentalSelectOverlay.handleGateKey(context, key);
+      return true;
+    }
+
+    // 锁屏期间（方案 5.2「根按键拦截」）：锁屏页/家长验证层各有自己的焦点
+    // 节点，按键经其焦点链处理、不经本根分发；焦点仍留在内容区/导航条时
+    // 按键会走到这里——一律吞掉，不再下钻 Tab 切换、频道与设置行导航
+    //（覆盖悬浮遥控器直调路径；解锁相关按键由最上层覆盖层焦点链放行）。
+    if (KidWatchTimerController.instance.locked) return true;
+
     // 消息浮层可见：OK 开详情 / 返回 关闭；详情内上下键转发浮层滚动全文
     //（D-pad，长按经 KeyRepeatController 连续滚）；其余按键吞掉（防止浮层下
     // 页面被操作，详情内 OK 亦忽略），并重置自动关闭计时。
@@ -211,6 +237,7 @@ class MainApp extends StatelessWidget {
       final Future<void> Function()? submitInline =
           ProfilePage.onSubmitInlineEdit;
       if (cur == _profileBranchIndex &&
+          !_profileReadonly &&
           ProfilePage.isInlineEditing &&
           submitInline != null) {
         unawaited(submitInline());
@@ -228,6 +255,7 @@ class MainApp extends StatelessWidget {
       // 同样仅限「我的」分支，理由同上。
       final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
       if (cur == _profileBranchIndex &&
+          !_profileReadonly &&
           ProfilePage.isInlineEditing &&
           cancelInline != null) {
         cancelInline();
@@ -250,6 +278,7 @@ class MainApp extends StatelessWidget {
       final int delta = key == LogicalKeyboardKey.arrowRight ? 1 : -1;
       // 最高优先级：焦点在「我的」设置行内时，左/右改该行的值。
       if (cur == _profileBranchIndex &&
+          !_profileReadonly &&
           ProfileFocusController.instance.focused) {
         ProfileFocusController.instance.step(delta);
         return true;
@@ -284,6 +313,11 @@ class MainApp extends StatelessWidget {
               : TimeStyleController.instance.next();
           break;
         case _profileBranchIndex: // 我的：导航条 ↔ 主题/语言/悬浮遥控器
+          if (_profileReadonly) {
+            // 只读页无正文行（方案 5.2）：吞掉上下键，防止选中态落到
+            // 常驻但不可命中的原页行上（不穿透原页）。
+            break;
+          }
           up
               ? ProfileFocusController.instance.moveUp()
               : ProfileFocusController.instance.moveDown();
@@ -318,7 +352,9 @@ class MainApp extends StatelessWidget {
   /// - 其余 → 激活焦点控件（若有）。
   void _pressOk(BuildContext context) {
     final int cur = navigationShell.currentIndex;
-    if (cur == _profileBranchIndex && ProfileFocusController.instance.focused) {
+    if (cur == _profileBranchIndex &&
+        !_profileReadonly &&
+        ProfileFocusController.instance.focused) {
       ProfileFocusController.instance.activate();
       return;
     }
@@ -340,6 +376,9 @@ class MainApp extends StatelessWidget {
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
+    // 场景注入（阶段 1 收尾）：直播/时间/屏保计入观看、「我的」（设置）不计入
+    //（口径见儿童模式方案「场景计时」）；值未变时 setViewingScene 内部早返回。
+    KidWatchTimerController.instance.setViewingScene(navigationShell.currentIndex != _profileBranchIndex);
     final MessageOverlayController msgOverlay =
         MessageOverlayController.instance;
     final bool wasDeferred = msgOverlay.deferActive;
@@ -379,7 +418,26 @@ class MainApp extends StatelessWidget {
                         }
                         context.read<AppBloc>().add(SetChrome(!chromeVisible));
                       },
-                      child: navigationShell,
+                      child: ListenableBuilder(
+                        listenable: ParentalStateController.instance,
+                        builder: (context, _) {
+                          // 儿童模式生效时「我的」分支整页替换为只读页
+                          //（方案 5.2/5.3）：IndexedStack 翻转——shell 常驻
+                          //（保住各分支状态与视频），非选中子节点不绘制、
+                          // 不命中、焦点被排除（RenderIndexedStack）；
+                          // 判定式不成立时 children 仅 shell 且 index=0，
+                          // 与现状等价。
+                          final bool readonly = _profileReadonly;
+                          return IndexedStack(
+                            sizing: StackFit.expand,
+                            index: readonly ? 1 : 0,
+                            children: <Widget>[
+                              navigationShell,
+                              if (readonly) const ProfileReadonlyPage(),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                     // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
                     // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
@@ -412,6 +470,12 @@ class MainApp extends StatelessWidget {
         // 消息浮层：全局最上层，独立于 rootOkHandler 焦点链；详情内 D-pad
         // 滚动由上面的拦截层转发 [MessageOverlay.scrollDetail]。
         const Positioned.fill(child: MessageOverlay()),
+        // 儿童模式选人页：开机确认一次（未确认全屏遮挡，未确定不进直播），
+        // 置于消息浮层之上、锁屏之下（锁屏优先级最高）。
+        const Positioned.fill(child: ParentalSelectOverlay()),
+        // 儿童模式锁屏覆盖层：置于最上层（盖住导航条/悬浮遥控/消息浮层），
+        // 展示判据统一读 KidWatchTimerController.locked（到阈值/重启保持/解除）。
+        const Positioned.fill(child: ParentalLockOverlay()),
       ],
     );
   }

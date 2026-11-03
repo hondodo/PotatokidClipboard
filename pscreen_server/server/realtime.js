@@ -643,6 +643,14 @@ function attachRealtime(httpServer, options = {}) {
         /** 该 socket 订阅的合并会话线程：peer -> Set(additional accounts) */
         ws.threads = new Map();
 
+        // 登录握手带 deviceId 且设备表无记录时自动建档（复用 admin upsertMachine）。
+        if (deviceId && typeof options.ensureMachine === 'function') {
+            try {
+                options.ensureMachine(request, { deviceId, name, appVersion: version });
+            } catch (error) {
+                console.warn('[realtime] 登录自动建档失败:', error.message);
+            }
+        }
         // ws 握手带 deviceId 时，把通信账号与客户端标识（app/version/build）
         // 一并回写到 admin 设备表（machines.json.commAccount/commApp/…）。
         if (deviceId && typeof options.setCommInfo === 'function') {

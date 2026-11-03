@@ -23,9 +23,11 @@ class LoadIptv extends IptvEvent {
 /// 按「清理失效源」重新计算展示列表。
 ///
 /// [enabled] 为开关当前值：开启时剔除失效地址（源被剔光的频道整体移除），
-/// 关闭时用完整列表还原。开关切换、以及刚记录到新的失效地址时都会派发。
+/// 关闭时用完整列表还原。开关切换、以及刚记录到新的失效地址时都会派发；
+/// 儿童模式配置 / 选人变化等与开关无关的重放不带值（null = 按
+/// AppSettings 当前设置重算，见 `IptvBloc._viewOf`）。
 class FilterInvalidChannels extends IptvEvent {
-  const FilterInvalidChannels(this.enabled);
+  const FilterInvalidChannels([this.enabled]);
 
-  final bool enabled;
+  final bool? enabled;
 }

@@ -40,6 +40,10 @@ class DeviceStateReporter {
   Timer? _listTimer;
   Listenable? _sceneChanges;
   String? _lastListVersion;
+
+  /// 最近一次有效播放快照：电视端离开直播后 [PlaybackStateProvider.current]
+  /// 已被 `clear()` 置空，仍用它随 state 下发「上次播放」（中控端不用）。
+  Map<String, Object?>? _lastPlayback;
   bool _started = false;
 
   /// 最近一次读到的媒体音量（0-100）；null = 尚未读到（非 Android 等）。
@@ -89,7 +93,15 @@ class DeviceStateReporter {
     PlaybackStateProvider.instance.notifier.removeListener(_onPlaybackChanged);
     _lastListVersion = null;
     _volume = null;
+    _lastPlayback = null;
   }
+
+  /// 换台：丢弃上一频道的播放快照，避免新频道出结果前把旧状态当成当前。
+  ///
+  /// 仅换台路径调用（`ReportingService.notifyPlayback` 检测到频道变化时经
+  /// `onChannelSwitch` 回调触发）；离开直播只清 [PlaybackStateProvider]、
+  /// 不走这里，电视端仍保留「上次播放」。
+  void clearLastPlayback() => _lastPlayback = null;
 
   void _onSceneChanged() {
     if (!_started) return;
@@ -106,7 +118,8 @@ class DeviceStateReporter {
     _debounce = Timer(sceneDebounce, () => unawaited(_pushWithVolume()));
   }
 
-  /// 播放状态变化：只在直播场景才有意义，非直播由 [_push] 统一发 null。
+  /// 播放状态变化：立即推一次，让控制端徽标即时刷新（是否下发由 [_push]
+  /// 按端类型与场景决定）。
   void _onPlaybackChanged() {
     if (!_started || !channel.isConnected) return;
     _push();
@@ -159,14 +172,19 @@ class DeviceStateReporter {
       final Map<String, Object?> sceneJson = scene.toJson();
       final int? volume = _volume;
       if (volume != null) sceneJson['volume'] = volume;
+      final Map<String, Object?>? playbackNow =
+          PlaybackStateProvider.instance.current?.toJson();
+      if (playbackNow != null) _lastPlayback = playbackNow;
       channel.sendState(
         scene: sceneJson,
         channels: sendList ? names : null,
         listVersion: sendList ? version : null,
-        // 播放状态只在直播场景有意义；其它场景显式发 null，让控制端清空。
-        playback: scene.kind == SceneKind.live
-            ? PlaybackStateProvider.instance.current?.toJson()
-            : null,
+        // 播放状态按端类型下发：
+        // - 中控屏（home）只有直播场景才真正播放，非直播发 null 让控制端清空；
+        // - 电视端（tv）任何页面都可能在播，非直播也保留上次播放快照。
+        playback: channel.kind == 'tv'
+            ? playbackNow ?? _lastPlayback
+            : (scene.kind == SceneKind.live ? playbackNow : null),
       );
     } catch (e) {
       Log.warn('[DeviceStateReporter] 状态上报异常: $e');

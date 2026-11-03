@@ -101,8 +101,8 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
     // （例如设备已关机却仍写「正在播放」），这里只显示「离线」。
     final String sceneTitle = online ? '${info?.scene['title'] ?? ''}' : '';
     final String kind = info?.kind ?? '';
-    // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
-    final String playbackLabel = (online && info?.sceneKind == 'live') ? (info?.playbackLabel ?? '') : '';
+    // 是否显示由 playbackLabelOf 按端类型决定（电视端非直播也显示上次播放）。
+    final String playbackLabel = playbackLabelOf(online: online, device: info);
     final bool enabled = panel.online;
     // 当前设备音量（0-100，被控端随 state 帧上报）。
     final int? volume = enabled ? panel.device?.sceneVolume : null;

@@ -186,6 +186,64 @@ void main() {
     });
   });
 
+  test('换台回调 onChannelSwitch：仅频道变化触发，离开直播场景不触发', () {
+    fakeAsync((FakeAsync async) {
+      service.dispose();
+      int switchCalls = 0;
+      final _MutableSceneProvider provider = _MutableSceneProvider(
+        const SceneSnapshot(
+          kind: SceneKind.live,
+          route: '/live',
+          title: '直播-CCTV-1',
+          channelName: 'CCTV-1',
+        ),
+      );
+      service = ReportingService(
+        sender: sender,
+        deviceModel: () async => 'MiBOX 4',
+        channelInfo: ChannelInfoProvider.instance,
+        liveChannel: LiveChannelController.instance,
+        sceneProvider: provider,
+        now: () => DateTime(2026, 10, 15, 20, 30),
+        onChannelSwitch: () => switchCalls++,
+      );
+
+      service.start('TV_001');
+      async.flushMicrotasks();
+
+      // 首次上报（null → 频道）也走换台分支：清一次本就为空的快照，无害。
+      service.notifyPlayback('play_start',
+          channel: 'CCTV-1', sourceIndex: 1, sourceTotal: 2, sourceUrl: 'a');
+      expect(switchCalls, 1);
+
+      // 真正换台：频道变化再触发一次。
+      service.notifyPlayback('play_start',
+          channel: 'CCTV-5', sourceIndex: 1, sourceTotal: 2, sourceUrl: 'b');
+      expect(switchCalls, 2);
+
+      // 同频道状态上报不触发。
+      service.notifyPlayback('play_retry',
+          channel: 'CCTV-5',
+          sourceIndex: 1,
+          sourceTotal: 2,
+          sourceUrl: 'b',
+          round: 1,
+          reason: 'error: timeout');
+      expect(switchCalls, 2);
+
+      // 离开直播（场景切到屏保，只走 provider.clear 路径）：不触发换台回调。
+      provider.update(const SceneSnapshot(
+          kind: SceneKind.screensaver, route: '/', title: '屏保'));
+      async.elapse(
+          ReportingService.sceneDebounce + const Duration(milliseconds: 20));
+      async.flushMicrotasks();
+      expect(switchCalls, 2);
+
+      service.stop();
+      provider.dispose();
+    });
+  });
+
   test('stop 后不再发送', () async {
     service.start('TV_001');
     await pumpEventQueue();

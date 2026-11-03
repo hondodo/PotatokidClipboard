@@ -3,6 +3,7 @@ import 'package:pscreen_screen/core/di/modules/core_module.dart';
 import 'package:pscreen_screen/core/di/modules/iptv_module.dart';
 import 'package:pscreen_screen/core/di/modules/msg_module.dart';
 import 'package:pscreen_screen/core/di/modules/network_module.dart';
+import 'package:pscreen_screen/core/di/modules/parental_module.dart';
 import 'package:pscreen_screen/core/di/modules/remote_module.dart';
 import 'package:pscreen_screen/core/di/modules/weather_module.dart';
 
@@ -26,6 +27,7 @@ class ScreenModules {
 
   static Future<void> register(GetIt it) async {
     await CoreModule.register(it);
+    await ParentalModule.register(it);
     await NetworkModule.register(it);
     await RemoteModule.register(it);
     await MsgModule.register(it);
@@ -39,6 +41,7 @@ class ScreenModules {
     await MsgModule.unregister(it);
     await RemoteModule.unregister(it);
     await NetworkModule.unregister(it);
+    await ParentalModule.unregister(it);
     await CoreModule.unregister(it);
   }
 }

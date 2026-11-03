@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
@@ -23,7 +26,6 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
-import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
@@ -185,7 +187,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await channel.disconnect();
     try {
       // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
-      await PtoolsUtil.loginWithSaved();
+      await AccountSession.loginWithSaved();
       final ClientInfo info = await ClientInfo.current();
       await channel
           .connect(
@@ -386,6 +388,41 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             keyboardType: TextInputType.url,
             maxLines: 1,
+          ),
+          // 家长视图入口（仅 admin）：现状没有独立 admin 后台，admin
+          // 复用家长视图代码代管全部 TV（方案 4.2 风险 #13 的取舍）。
+          // parent 登录后直接落在家长视图，无需此入口；user 不展示。
+          ValueListenableBuilder<String>(
+            valueListenable: AccountSession.roleNotifier,
+            builder: (BuildContext context, String role, Widget? _) {
+              if (role != 'admin') return const SizedBox.shrink();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const SizedBox(height: 24),
+                  Text(
+                    '家长视图（管理员代管）',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '当前账号角色为 admin，可代管查看全部设备的儿童档案、当前观看者'
+                    '与解锁记录；家长账号（parent）登录后会直接进入家长视图。',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => context.go(RouteNames.parentalPath),
+                    icon: const Icon(Icons.shield_rounded),
+                    label: const Text('打开家长视图'),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 24),
           Text(

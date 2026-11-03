@@ -1,8 +1,11 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pscreen_screen/app/app_log.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/net_exceptions.dart';
+import 'package:pscreen_screen/core/parental/parental_config.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/bloc_event.dart';
 import 'package:pscreen_screen/core/utils/error_message.dart';
@@ -11,6 +14,7 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_list_cache.dart';
 import 'package:pscreen_screen/features/iptv/data/datasources/local/iptv_source_rules.dart';
+import 'package:pscreen_screen/features/iptv/domain/channel_name_matcher.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';
 
@@ -38,6 +42,8 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
     on<FilterInvalidChannels>(_onFilterInvalidChannels);
     // 「清理失效源」记录到新的失效地址后，立即重算展示列表（移除对应源/频道）。
     ChannelFailureGuard.instance.addListener(_onInvalidSourcesChanged);
+    // 儿童模式配置 / 选人变化：立即重算展示列表（换档案、判定式失效即时反映）。
+    ParentalStateController.instance.addListener(_onParentalChanged);
   }
 
   final IptvRepository _repository;
@@ -47,6 +53,10 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
   List<IptvChannel> _fullChannels = const <IptvChannel>[];
 
   void _onInvalidSourcesChanged() => add(const FilterInvalidChannels(true));
+
+  /// 儿童模式配置 / 选中档案变化：不带开关值重算（[_viewOf] 内回落
+  /// AppSettings 当前「清理失效源」设置），过滤结果始终叠加儿童模式判定。
+  void _onParentalChanged() => add(const FilterInvalidChannels());
 
   /// 开关切换 / 记录到新失效地址：按 [FilterInvalidChannels.enabled] 重算展示列表。
   Future<void> _onFilterInvalidChannels(
@@ -66,7 +76,10 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
   /// - `remove_source_contains.txt` 里的片段命中的源**始终**剔除（包含即命中）；
   /// - 开启「清理失效源」时，再剔除已判定的失效地址，但 `not_remove_source.txt`
   ///   里的源豁免（永不被自动移除）；
-  /// - 某频道的源被剔光则整体移除该频道。
+  /// - 某频道的源被剔光则整体移除该频道；
+  /// - 最后叠加儿童模式两档过滤（strict 白名单交集 / mild 黑名单并集，
+  ///   多档案取最严，见 [applyParentalFilter]）——放在唯一计算点末尾，
+  ///   缓存 / 刷新 / 兜底各加载路径都自动生效。
   ///
   /// 同时把 [full] 记为完整列表，供之后开关切换时重算。
   Future<List<IptvChannel>> _viewOf(
@@ -84,13 +97,50 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
       await guard.ensureLoaded();
       invalid = guard.invalidUrls;
     }
-    return _applySourceRules(
+    final List<IptvChannel> ruled = _applySourceRules(
       full,
       removed: rules.removedUrls,
       removedContains: rules.removedContainsPatterns,
       protected: rules.protectedUrls,
       invalid: invalid,
     );
+    final ParentalStateController parental = ParentalStateController.instance;
+    return applyParentalFilter(
+      ruled,
+      config: parental.config,
+      profiles: parental.activeProfiles,
+    );
+  }
+
+  /// 儿童模式两档过滤（方案 §2.3；多档案合并 = 每个选中档案都放行）：
+  /// - strict（加法白名单）：频道须**命中分组且命中频道名**
+  ///   （`allowGroups` ∩ `allowChannels`，分组按 [IptvChannel.group] 原文比对，
+  ///   频道名走 [ChannelNameMatcher] 精确 + `*` 通配）；
+  /// - mild（减法黑名单）：`hideGroups` ∪ `hideChannels` 任一命中即隐藏；
+  /// - 空值字段 = 不限制该维度；判定式不成立（未启用 / 未选档案）原样返回；
+  /// - **防黑屏**：过滤结果为空 → 不应用 + 日志（方案 L59 保护）。
+  ///
+  /// 入口在 [_viewOf]（唯一计算点）末尾；保持为纯函数公开，便于直接单测。
+  static List<IptvChannel> applyParentalFilter(
+    List<IptvChannel> channels, {
+    required ParentalConfig config,
+    required List<ChildProfile> profiles,
+  }) {
+    if (!config.enabled || profiles.isEmpty || channels.isEmpty) {
+      return channels;
+    }
+    // 匹配器构建含归一化开销：逐档案预构建一次，循环内只做判定。
+    final List<_ParentalRule> rules =
+        profiles.map<_ParentalRule>(_ParentalRule.new).toList(growable: false);
+    final List<IptvChannel> out = <IptvChannel>[];
+    for (final IptvChannel c in channels) {
+      if (rules.every((_ParentalRule r) => r.allows(c))) out.add(c);
+    }
+    if (out.isEmpty) {
+      Log.i('[IptvBloc] 儿童模式过滤后无任何频道，本次不应用（防黑屏）');
+      return channels;
+    }
+    return out;
   }
 
   /// 按规则计算展示列表：剔除 [removed]（整行相等的强制移除）、
@@ -217,5 +267,49 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
         errorMessage: hasFallback ? null : mapErrorToMessage(e),
       ));
     }
+  }
+}
+
+/// 单个档案的儿童模式判定规则（[IptvBloc.applyParentalFilter] 逐档案预构建）。
+///
+/// 频道名匹配复用 [ChannelNameMatcher]（精确 + `*` 通配、不引正则）；
+/// 分组按 [IptvChannel.group] 原文整串比对（管理端写什么就是什么）。
+class _ParentalRule {
+  _ParentalRule(ChildProfile profile)
+      : _strict = profile.isStrict,
+        _hideGroups = profile.hideGroups.toSet(),
+        _hideChannels = ChannelNameMatcher(profile.hideChannels),
+        _allowGroups = profile.allowGroups.toSet(),
+        _allowChannels = ChannelNameMatcher(profile.allowChannels);
+
+  /// true = strict（加法白名单），false = mild（减法黑名单）。
+  final bool _strict;
+
+  final Set<String> _hideGroups;
+  final ChannelNameMatcher _hideChannels;
+  final Set<String> _allowGroups;
+  final ChannelNameMatcher _allowChannels;
+
+  /// 该频道是否被本档案放行（空值字段 = 不限制该维度）。
+  bool allows(IptvChannel c) {
+    if (_strict) {
+      // 加法：命中分组且命中频道名；任一维度配置为空则该维度不限制。
+      if (_allowGroups.isNotEmpty &&
+          (c.group == null || !_allowGroups.contains(c.group))) {
+        return false;
+      }
+      if (!_allowChannels.isEmpty && !_allowChannels.matches(c.name)) {
+        return false;
+      }
+      return true;
+    }
+    // 减法：分组黑名单 / 频道名黑名单任一命中即隐藏。
+    if (_hideGroups.isNotEmpty &&
+        c.group != null &&
+        _hideGroups.contains(c.group)) {
+      return false;
+    }
+    if (_hideChannels.matches(c.name)) return false;
+    return true;
   }
 }

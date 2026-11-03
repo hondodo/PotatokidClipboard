@@ -4,6 +4,7 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_unlock_overlay.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
 
@@ -31,13 +32,18 @@ class App extends StatelessWidget {
         listenable: uiScale,
         builder: (BuildContext context, Widget? _) => UiScaleScope(
           scale: uiScale.scale,
-          child: ScreensaverHost(
-            router: appRouter,
-            controller: screensaver,
-            live: liveStage,
-            child: LiveStageHost(
-              controller: liveStage,
-              child: child ?? const SizedBox.shrink(),
+          // 解锁弹层挂在 UiScaleScope 内（享受等比缩放）、ScreensaverHost
+          // 之外（弹层要盖过屏保）；Stack 形态不依赖 Navigator 祖先，
+          // 因为 MaterialApp.builder 的 context 在 Navigator 之上。
+          child: ParentalUnlockOverlay(
+            child: ScreensaverHost(
+              router: appRouter,
+              controller: screensaver,
+              live: liveStage,
+              child: LiveStageHost(
+                controller: liveStage,
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
         ),

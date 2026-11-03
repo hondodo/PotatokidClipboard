@@ -41,4 +41,10 @@ class RouteNames {
 
   /// 天气页完整路径
   static String get weatherPath => '/$weather';
+
+  // 家长视图（parent / admin 专属：儿童档案、当前观看者、解锁记录等）
+  static const String parental = 'parental';
+
+  /// 家长视图完整路径
+  static String get parentalPath => '/$parental';
 }

@@ -8,6 +8,7 @@ import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
@@ -22,7 +23,6 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
-import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -68,6 +68,14 @@ void main() {
       final DeviceReporter deviceReporter = Injection.get<DeviceReporter>();
       final Future<void> serverSync = deviceReporter.initialize();
 
+      // 3.2 登录取角色：/api/login 响应含 user.role，下面 initialize()
+      //     创建路由时读取它决定 initialLocation（parent 直落家长视图），
+      //     所以必须先登录；服务端不可达时超时降级为空角色（按 user 处理）。
+      await AccountSession.loginWithSaved().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
+      );
+
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();
       await serverSync;
@@ -101,7 +109,7 @@ void main() {
             return;
           }
           // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
-          await PtoolsUtil.loginWithSaved();
+          await AccountSession.loginWithSaved();
           final ClientInfo info = await ClientInfo.current();
           await Injection.get<RealtimeChannel>().connect(
             account: account,
