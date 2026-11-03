@@ -19,12 +19,16 @@ import 'package:pscreen_screen/core/utils/device_credentials.dart';
 class AccountSession {
   AccountSession._();
 
-  /// 角色变化通知（登录成功写入、重新登录前清空）；
+  /// 角色变化通知（登录成功写入、账号切换且登录失败时清空）；
   /// 解锁弹层据此注册 / 注销 `events.listen`。
   static final ValueNotifier<String> roleNotifier = ValueNotifier<String>('');
 
   /// 进行中的登录：并发调用共享同一次请求（与 PtoolsUtil 口径一致）。
   static Future<bool>? _loginInFlight;
+
+  /// 上一次成功登录的账号；仅当账号真正切换且新登录失败时才清空角色，
+  /// 同账号的后台刷新登录不能把已有角色短暂清空。
+  static String _roleAccount = '';
 
   /// 当前账号角色；未登录 / 登录失败时为空串（按 `user` 处理）。
   static String get role => roleNotifier.value;
@@ -53,8 +57,8 @@ class AccountSession {
     final String account = (await DeviceCredentials.account()).trim();
     final String passwordMd5 = DeviceCredentials.passwordMd5();
     if (account.isEmpty || passwordMd5.isEmpty) return false;
-    // 换账号 / 口令后旧角色不再可信：先清空，登录成功再写入新角色。
-    if (roleNotifier.value.isNotEmpty) roleNotifier.value = '';
+    final bool accountChanged =
+        _roleAccount.isNotEmpty && account != _roleAccount;
     try {
       final dynamic data = await DioManager().send(
         url: AppConstants.ptoolsLoginUrl,
@@ -67,14 +71,27 @@ class AccountSession {
         notTipNetError: true,
       );
       final Map<String, dynamic>? body = _asMap(data);
-      if (body == null) return false;
+      if (body == null) {
+        if (accountChanged) _clearRole();
+        return false;
+      }
       final dynamic code = body['code'];
-      if (code is! num || code.toInt() != 0) return false;
+      if (code is! num || code.toInt() != 0) {
+        if (accountChanged) _clearRole();
+        return false;
+      }
       roleNotifier.value = _roleOf(body);
+      _roleAccount = account;
       return true;
     } catch (_) {
+      if (accountChanged) _clearRole();
       return false;
     }
+  }
+
+  static void _clearRole() {
+    roleNotifier.value = '';
+    _roleAccount = '';
   }
 
   /// 从 `/api/login` 响应体取 `data.user.role`；缺失 / 非法值回落 `user`。

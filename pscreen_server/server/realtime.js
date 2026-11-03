@@ -129,6 +129,8 @@ function attachRealtime(httpServer, options = {}) {
         typeof options.clipboardList === 'function' ? options.clipboardList : null;
     const clipboardSummary =
         typeof options.clipboardSummary === 'function' ? options.clipboardSummary : (item) => item;
+    // 流量统计（由 server.js 注入）：connection 建立后包装 send / 监听 message 计字节。
+    const traffic = options.traffic || null;
     /** account -> Set<WebSocket>：正在订阅剪贴板推送的客户端 */
     const clipboardConnections = new Map();
     // 账号存储（datas/register/users）：与 HTTP 登录同一校验；未传时拒绝所有连接。
@@ -594,6 +596,13 @@ function attachRealtime(httpServer, options = {}) {
     }
 
     wss.on('connection', (ws, request, url) => {
+        // 流量统计：两个通道都从这里进，按 url.pathname 归类。
+        // 优先取 X-Forwarded-For：经路由侠等内网穿透接入时，TCP 对端是隧道客户端
+        // (127.0.0.1)，真实外网 IP 在转发头里；与 Express trust proxy 行为保持一致。
+        if (traffic) {
+            const forwarded = String(request.headers['x-forwarded-for'] || '').split(',')[0].trim();
+            traffic.wsAttach(ws, forwarded || request.socket.remoteAddress, url.pathname);
+        }
         if (url.pathname === clipboardPath) {
             handleClipboardConnection(ws, request, url);
             return;

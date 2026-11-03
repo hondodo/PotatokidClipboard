@@ -8,16 +8,14 @@
 #
 # 同步范围：
 #   - 服务端源码与依赖：本目录（*.bak-* 线上备份不带）
-#   - web 资源 admin.html / realtime.html：源在仓库 pscreen_server/web，部署到目标的 ../build/web
-#     （index.html 线上被改成 7 字节占位，与仓库源不同，两个方向都不碰）
+#   - web 资源 admin.html / realtime.html：源在仓库 server/web，部署到目标的 ../build/web
 #   - datas/、uploads/ 是运行时用户数据，任何方向都不同步
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # server/server（同步源）
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"               # PotatokidClipboard
-WEB_SRC="$REPO_ROOT/pscreen_server/web"
+WEB_SRC="$SCRIPT_DIR/../web"                               # server/web（web 同步源）
 LIVE_DIR="${LIVE_DIR:-/home/honghao/services/tools/server}"
-WEB_FILES=(admin.html realtime.html)
+WEB_FILES=(admin.html realtime.html index.html)
 
 sync_service() { # $1=源目录 $2=目标目录
     if [[ "$2" != *:* ]]; then mkdir -p "$2"; fi # 远程目标由 rsync 建目录

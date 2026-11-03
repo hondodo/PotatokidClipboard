@@ -322,6 +322,15 @@ app.post('/api/login', (req, res) => {
             });
         }
 
+        // 登录请求携带设备标识时自动建档（阶段 0：登录后 admin 设备表可见该设备）。
+        if (req.body.deviceId) {
+            try {
+                adminHandle.ensureMachineForLogin(req, req.body);
+            } catch (error) {
+                console.warn('登录侧设备建档失败:', error.message);
+            }
+        }
+
         // 密码验证成功，设置cookie
         res.cookie('username', account, {
             maxAge: 14 * 24 * 60 * 60 * 1000, // 14天
@@ -1952,6 +1961,8 @@ realtimeHandle = attachRealtime(httpServer, {
     accountStore,
     dataDir: path.join(__dirname, config.realtime.dataDir),
     setCommInfo: adminHandle.setCommInfo,
+    // 登录握手带 deviceId 且设备表无记录时自动建档
+    ensureMachine: adminHandle.ensureMachineForLogin,
     // 设备表：ws 保活 / 上报 / 下发配置（替代 HTTP 心跳）
     touchDevice: adminHandle.touchDevice,
     updateDeviceReport: adminHandle.updateDeviceReport,

@@ -2,7 +2,7 @@
 //
 // 数据全部落在 ../datas/admin 下（与现有 register/users 同级）：
 // - users 仍复用 ../datas/register/users/<name> 与 <name>_info.txt，
-//   这里只在 info JSON 上扩展 role / homes / displayName / enabled；
+//   这里只在 info JSON 上扩展 role（admin | parent | user 三级）/ homes / displayName / enabled；
 // - machines.json：每台中控屏的注册信息、所属用户、家庭覆盖与最近心跳；
 // - layouts.json：按用户（未绑定用户时按设备）保存的首页卡片顺序；
 // - secret.key：Admin 会话签名密钥（首次启动自动生成）。
@@ -25,6 +25,11 @@ const MAX_HOMES = 50;
 const MAX_HOME_NAME = 64;
 const MAX_LAYOUT_ITEMS = 1000;
 const MAX_LAYOUT_HOMES = 100;
+// 儿童模式（方案 §2.2）：档案数量与各名单字段的上限。
+const MAX_PARENTAL_CHILDREN = 12;
+const MAX_PARENTAL_LIST = 200;
+// 禁看时段条目格式 `HH:MM-HH:MM`（与 Flutter 端 QuietHour.tryParse 对齐，从严校验）。
+const PARENTAL_QUIET_HOURS_RE = /^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 function nowMs() {
     return Date.now();
@@ -126,6 +131,174 @@ function normalizeStringList(value, max = MAX_LAYOUT_ITEMS) {
     return list;
 }
 
+/**
+ * 儿童模式配置校验（方案 §2.2 配置结构，PUT parental body 分支用）。
+ *
+ * 取舍（整体拒绝 vs 逐字段归一）：
+ * - **整体拒绝（throw → jsonFail）**：结构/类型/枚举/数值非法——`mode` 缺失或
+ *   枚举外、`profileMode`/`unlockMode` 枚举外、`children`/名单字段非数组、
+ *   档案 id/name 缺失、限额为负或非数值、`quietHours` 条目格式非法。理由：
+ *   静默归一会让家长误以为规则已生效（白名单被清空 = 没生效，格式错的
+ *   禁看时段被丢 = 没禁）。
+ * - **安全归一**：字符串裁剪到长度上限、名单去重/截断、`age` 取整、
+ *   缺失的可选字段补默认值（与 Flutter 端 `ParentalConfig.fromJson` 默认一致）。
+ *
+ * 返回 null 表示清除 parental（body 给 `parental: null` 或字段缺失时读路径）。
+ */
+function normalizeParental(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('parental 必须是对象或 null');
+    }
+    // mode 是全局总开关：必填且只能 off|on（缺失或拼错整体拒绝，避免静默不生效）。
+    if (value.mode !== 'off' && value.mode !== 'on') {
+        throw new Error('parental.mode 必须是 off 或 on');
+    }
+    // 解锁方式：缺失默认 remote（与客户端 fromJson 一致）；给出但非法 → 拒绝。
+    let unlockMode = 'remote';
+    if (value.unlockMode !== undefined && value.unlockMode !== null) {
+        if (value.unlockMode !== 'remote' && value.unlockMode !== 'pin' && value.unlockMode !== 'arith') {
+            throw new Error('parental.unlockMode 必须是 remote、pin 或 arith');
+        }
+        unlockMode = value.unlockMode;
+    }
+    if (value.pin !== undefined && value.pin !== null && typeof value.pin !== 'string') {
+        throw new Error('parental.pin 必须是字符串');
+    }
+    if (value.ownerAccount !== undefined && value.ownerAccount !== null && typeof value.ownerAccount !== 'string') {
+        throw new Error('parental.ownerAccount 必须是字符串');
+    }
+    // activeChildIds：电视端持久化自己的选择，后台一般不下发；给则必须是字符串数组。
+    const activeChildIds = normalizeParentalIdList(value.activeChildIds, 'parental.activeChildIds');
+
+    if (value.children !== undefined && value.children !== null && !Array.isArray(value.children)) {
+        throw new Error('parental.children 必须是数组');
+    }
+    const rawChildren = Array.isArray(value.children) ? value.children : [];
+    if (rawChildren.length > MAX_PARENTAL_CHILDREN) {
+        throw new Error(`parental.children 最多 ${MAX_PARENTAL_CHILDREN} 个档案`);
+    }
+    const children = [];
+    const seenIds = new Set();
+    rawChildren.forEach((child, index) => {
+        const at = `parental.children[${index}]`;
+        if (!child || typeof child !== 'object' || Array.isArray(child)) {
+            throw new Error(`${at} 必须是对象`);
+        }
+        if (typeof child.id !== 'string' || !child.id.trim() || child.id.trim().length > 64) {
+            throw new Error(`${at}.id 必须是非空字符串（≤64 字符）`);
+        }
+        const id = child.id.trim();
+        if (seenIds.has(id)) throw new Error(`${at}.id 重复：${id}`);
+        seenIds.add(id);
+        if (typeof child.name !== 'string' || !child.name.trim()) {
+            throw new Error(`${at}.name 必须是非空字符串`);
+        }
+        // 档位：缺失默认 mild（与客户端 fromJson 一致）；给出但非法 → 拒绝。
+        let profileMode = 'mild';
+        if (child.profileMode !== undefined && child.profileMode !== null) {
+            if (child.profileMode !== 'mild' && child.profileMode !== 'strict') {
+                throw new Error(`${at}.profileMode 必须是 mild 或 strict`);
+            }
+            profileMode = child.profileMode;
+        }
+        // age：缺失/null = 未知；给出则必须是 0~150 的数值。
+        let age;
+        if (child.age !== undefined && child.age !== null) {
+            if (typeof child.age !== 'number' || !Number.isFinite(child.age) || child.age < 0 || child.age > 150) {
+                throw new Error(`${at}.age 必须是 0~150 的数值`);
+            }
+            age = Math.trunc(child.age);
+        }
+        // 限额：缺失默认 0（不启用）；给出则必须是非负数值（负数/非数值拒绝）。
+        const sessionLimitMin = normalizeParentalLimit(child.sessionLimitMin, `${at}.sessionLimitMin`);
+        const dailyLimitMin = normalizeParentalLimit(child.dailyLimitMin, `${at}.dailyLimitMin`);
+        if (child.locked !== undefined && child.locked !== null && typeof child.locked !== 'boolean') {
+            throw new Error(`${at}.locked 必须是布尔值`);
+        }
+        children.push({
+            id,
+            name: child.name.trim().slice(0, 40),
+            ...(age !== undefined ? { age } : {}),
+            profileMode,
+            locked: child.locked === true,
+            hideGroups: normalizeParentalNameList(child.hideGroups, `${at}.hideGroups`),
+            hideChannels: normalizeParentalNameList(child.hideChannels, `${at}.hideChannels`),
+            allowGroups: normalizeParentalNameList(child.allowGroups, `${at}.allowGroups`),
+            allowChannels: normalizeParentalNameList(child.allowChannels, `${at}.allowChannels`),
+            sessionLimitMin,
+            dailyLimitMin,
+            quietHours: normalizeParentalQuietHours(child.quietHours, `${at}.quietHours`),
+        });
+    });
+
+    return {
+        mode: value.mode,
+        activeChildIds,
+        children,
+        unlockMode,
+        pin: typeof value.pin === 'string' ? value.pin.trim().slice(0, 32) : '',
+        ownerAccount: typeof value.ownerAccount === 'string' ? value.ownerAccount.trim().slice(0, 64) : '',
+    };
+}
+
+/** 限额字段：缺失/null → 0（不启用）；给出则必须是非负数值。 */
+function normalizeParentalLimit(value, field) {
+    if (value === undefined || value === null) return 0;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        throw new Error(`${field} 必须是非负数值`);
+    }
+    return Math.trunc(value);
+}
+
+/** 名单字段（hide/allow 四件套）：缺失 → []；非数组或元素非字符串 → 拒绝（静默丢条目会让规则看似生效实则失效）。 */
+function normalizeParentalNameList(value, field) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error(`${field} 必须是数组`);
+    for (const item of value) {
+        if (typeof item !== 'string') throw new Error(`${field} 的元素必须是字符串`);
+    }
+    return normalizeStringList(value, MAX_PARENTAL_LIST);
+}
+
+/** id 列表（activeChildIds）：缺失 → []；结构非法 → 拒绝；字符串条目去重截断。 */
+function normalizeParentalIdList(value, field) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error(`${field} 必须是数组`);
+    for (const item of value) {
+        if (typeof item !== 'string') throw new Error(`${field} 的元素必须是字符串`);
+    }
+    const list = [];
+    for (const item of value) {
+        const id = item.trim();
+        if (!id || id.length > 64) continue;
+        if (!list.includes(id)) list.push(id);
+        if (list.length >= MAX_PARENTAL_CHILDREN) break;
+    }
+    return list;
+}
+
+/** 禁看时段：缺失 → []；非数组/条目格式非法 → 拒绝（拼错的时段静默失效会让家长误以为已禁）。 */
+function normalizeParentalQuietHours(value, field) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error(`${field} 必须是数组`);
+    const list = [];
+    for (const item of value) {
+        if (typeof item !== 'string') throw new Error(`${field} 的元素必须是字符串`);
+        const text = item.trim();
+        if (!PARENTAL_QUIET_HOURS_RE.test(text)) {
+            throw new Error(`${field} 条目格式必须是 HH:MM-HH:MM：${item}`);
+        }
+        // 起止相同 = 全天不生效的空条目（Flutter 端 tryParse 同样判无效），视为拼错。
+        if (text.slice(0, 5) === text.slice(6, 11)) {
+            throw new Error(`${field} 起止时间不能相同：${item}`);
+        }
+        if (!list.includes(text)) list.push(text);
+        if (list.length >= MAX_PARENTAL_LIST) break;
+    }
+    return list;
+}
+
 function normalizeByHome(value) {
     const result = {};
     if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
@@ -212,6 +385,9 @@ function attachAdmin(app, options = {}) {
     function normalizeUser(info) {
         const name = String(info.name || '').trim();
         const isAdmin = info.role === 'admin' || name === ADMIN_USERNAME;
+        // 角色归一（方案 §4.2 三级角色 admin | parent | user）：家长操作
+        // 允许 parent + admin、拒绝 user——parent 原样透传、其余归一为 user；
+        // 阶段 3 的家长操作入口按同一口径（role ∈ {parent, admin}）判定。
         let homes = null;
         try {
             homes = normalizeHomes(info.homes);
@@ -224,12 +400,17 @@ function attachAdmin(app, options = {}) {
             displayName: typeof info.displayName === 'string' && info.displayName.trim()
                 ? info.displayName.trim().slice(0, 40)
                 : name,
-            role: isAdmin ? 'admin' : 'user',
+            role: isAdmin ? 'admin' : (info.role === 'parent' ? 'parent' : 'user'),
             homes,
             enabled: info.enabled !== false,
             createdAt: info.createdAt || '',
             loginTime: info.loginTime || '',
         };
+    }
+
+    // 角色排序权重：admin > parent > user（listUsers 排序用）。
+    function roleRank(role) {
+        return role === 'admin' ? 0 : role === 'parent' ? 1 : 2;
     }
 
     function listUsers() {
@@ -248,7 +429,7 @@ function attachAdmin(app, options = {}) {
             users.push(normalizeUser(readUserInfo(name)));
         }
         users.sort((a, b) => {
-            if (a.role !== b.role) return a.role === 'admin' ? -1 : 1;
+            if (a.role !== b.role) return roleRank(a.role) - roleRank(b.role);
             return a.name.localeCompare(b.name, 'zh-CN');
         });
         return users;
@@ -287,6 +468,15 @@ function attachAdmin(app, options = {}) {
         } catch (_) {
             homes = null;
         }
+        // 儿童模式配置（方案 §2.2）：按白名单重建记录时必须保留 parental，
+        // 否则 PUT 后立刻被丢掉。读路径对坏数据 try/catch 容错（丢弃不抛，
+        // 单条损坏不能让整份 machines.json 读不出来）。
+        let parental = null;
+        try {
+            parental = normalizeParental(machine.parental);
+        } catch (_) {
+            parental = null;
+        }
         return {
             id,
             name: typeof machine.name === 'string' && machine.name.trim()
@@ -294,6 +484,7 @@ function attachAdmin(app, options = {}) {
                 : '未命名设备',
             owner: typeof machine.owner === 'string' ? machine.owner.trim() : '',
             homes,
+            parental,
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -352,6 +543,8 @@ function attachAdmin(app, options = {}) {
             owner,
             ownerName: user ? user.displayName || user.name : '',
             layoutKey: owner || `device_${machine.id}`,
+            // 儿童模式配置透传（方案 §2.2：parental 挂机器记录，经 config 帧下发）。
+            parental: machine.parental || null,
         };
     }
 
@@ -382,11 +575,25 @@ function attachAdmin(app, options = {}) {
         }
     }
 
-    function currentAdmin(req) {
+    function currentSession(req) {
         const payload = verifySession(req.cookies ? req.cookies[SESSION_COOKIE] : '');
         if (!payload) return null;
         const user = normalizeUser(readUserInfo(payload.u));
-        if (user.role !== 'admin' || user.enabled === false) return null;
+        if (user.enabled === false) return null;
+        return user;
+    }
+
+    function currentAdmin(req) {
+        const user = currentSession(req);
+        if (!user || user.role !== 'admin') return null;
+        return user;
+    }
+
+    // 家长操作门禁（方案 §4.2 三级角色）：parent + admin 放行、user 拒绝。
+    // 覆盖概览查看与机器配置（含 parental）编辑；用户管理/布局/删机器仍 admin-only。
+    function currentParentOperator(req) {
+        const user = currentSession(req);
+        if (!user || (user.role !== 'admin' && user.role !== 'parent')) return null;
         return user;
     }
 
@@ -396,6 +603,15 @@ function attachAdmin(app, options = {}) {
             return jsonFail(res, '未登录或会话已过期', 401, 401);
         }
         req.adminUser = admin;
+        next();
+    }
+
+    function requireParentOperator(req, res, next) {
+        const operator = currentParentOperator(req);
+        if (!operator) {
+            return jsonFail(res, '未登录或无家长操作权限', 401, 401);
+        }
+        req.adminUser = operator;
         next();
     }
 
@@ -500,8 +716,9 @@ function attachAdmin(app, options = {}) {
                 return jsonFail(res, '密码错误');
             }
             const user = normalizeUser(readUserInfo(username));
-            if (user.role !== 'admin') {
-                return jsonFail(res, '该账号不是管理员', 403, 403);
+            // 登录放行 admin|parent（家长要用管理页配置儿童模式），user 拒绝。
+            if (user.role !== 'admin' && user.role !== 'parent') {
+                return jsonFail(res, '该账号无管理页访问权限', 403, 403);
             }
             if (user.enabled === false) {
                 return jsonFail(res, '该账号已被禁用', 403, 403);
@@ -512,7 +729,7 @@ function attachAdmin(app, options = {}) {
             info.loginTime = new Date().toISOString();
             writeUserInfo(username, info);
             setSessionCookie(res, username);
-            console.log(`[admin] 管理员登录: ${username} ip=${ip}`);
+            console.log(`[admin] 管理页登录: ${username} role=${user.role} ip=${ip}`);
             return jsonOk(res, { user }, '登录成功');
         } catch (error) {
             console.error('[admin] 登录失败:', error);
@@ -526,9 +743,10 @@ function attachAdmin(app, options = {}) {
     });
 
     app.get('/api/admin/me', (req, res) => {
-        const admin = currentAdmin(req);
-        if (!admin) return jsonFail(res, '未登录', 401, 401);
-        return jsonOk(res, { user: admin });
+        // admin.html 自动登录用；parent 登录也需通过（否则家长登录后 401 循环）。
+        const operator = currentParentOperator(req);
+        if (!operator) return jsonFail(res, '未登录', 401, 401);
+        return jsonOk(res, { user: operator });
     });
 
     function buildOverview(admin) {
@@ -587,7 +805,7 @@ function attachAdmin(app, options = {}) {
         };
     }
 
-    app.get('/api/admin/overview', requireAdmin, (req, res) => {
+    app.get('/api/admin/overview', requireParentOperator, (req, res) => {
         try {
             return jsonOk(res, buildOverview(req.adminUser));
         } catch (error) {
@@ -642,7 +860,8 @@ function attachAdmin(app, options = {}) {
                 if (name === ADMIN_USERNAME && req.body.role !== 'admin') {
                     return jsonFail(res, '不能降级管理员账号');
                 }
-                info.role = req.body.role === 'admin' ? 'admin' : 'user';
+                // 三级角色：admin / parent / user（其余值按 user 归一）。
+                info.role = req.body.role === 'admin' ? 'admin' : (req.body.role === 'parent' ? 'parent' : 'user');
             }
             writeUserInfo(name, info);
             console.log(`[admin] 更新用户 ${name}: homes=${JSON.stringify(info.homes)} role=${info.role}`);
@@ -657,7 +876,7 @@ function attachAdmin(app, options = {}) {
         }
     });
 
-    app.put('/api/admin/machines/:id', requireAdmin, (req, res) => {
+    app.put('/api/admin/machines/:id', requireParentOperator, (req, res) => {
         try {
             const id = safeDeviceId(req.params.id);
             if (!id) return jsonFail(res, '设备 ID 无效');
@@ -679,9 +898,15 @@ function attachAdmin(app, options = {}) {
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'homes')) {
                 machine.homes = normalizeHomes(req.body.homes);
             }
+            // 儿童模式配置（方案 §2.2 三处小改之一）：body 给 parental 对象则校验后
+            // 整体替换（整对象替换语义，后台表单先读后改再全量回传）；给 null 清除；
+            // 不给该键则保持原值。校验失败 throw → 走下方 catch 整体拒绝，不落盘。
+            if (Object.prototype.hasOwnProperty.call(req.body || {}, 'parental')) {
+                machine.parental = normalizeParental(req.body.parental);
+            }
             machines[id] = normalizeMachine(id, machine);
             saveMachines(machines);
-            console.log(`[admin] 更新设备 ${id}: owner=${machine.owner} homes=${JSON.stringify(machine.homes)}`);
+            console.log(`[admin] 更新设备 ${id}: owner=${machine.owner} homes=${JSON.stringify(machine.homes)} parental=${machine.parental ? machine.parental.mode : 'null'}`);
             pushConfigToMachine(machines[id], { reason: 'machine' });
             return jsonOk(res, { machine: machines[id] });
         } catch (error) {
@@ -784,6 +1009,14 @@ function attachAdmin(app, options = {}) {
         saveMachines(machines);
         if (isNew) console.log(`[device] 新设备注册: ${id} ${machine.name} ip=${machine.ip}`);
         return machines[id];
+    }
+
+    /** 登录侧自动建档：登录请求携带 deviceId 且设备表无该记录时，复用 upsertMachine 建档。 */
+    function ensureMachineForLogin(req, body) {
+        const id = safeDeviceId(body && body.deviceId);
+        if (!id) return null;
+        if (findMachineKey(readMachines(), id)) return null; // 已有记录：登录不改动既有数据
+        return upsertMachine(req, body);
     }
 
     function deviceConfigResponse(machine) {
@@ -911,7 +1144,10 @@ function attachAdmin(app, options = {}) {
         }
     });
 
-    app.get('/api/device/config', (req, res) => {
+    // 生效配置读取（含 parental/PIN）：按家长操作门禁放行 parent+admin。
+    // 设备自身不走此端点（注册/心跳与 WS config 帧自带配置），唯一调用方
+    // pscreen_home 家长视图在 ensureAdminSession 后由持久化 Cookie 携带会话。
+    app.get('/api/device/config', requireParentOperator, (req, res) => {
         try {
             const id = safeDeviceId(req.query.deviceId);
             if (!id) return jsonFail(res, 'deviceId 无效');
@@ -1023,6 +1259,8 @@ function attachAdmin(app, options = {}) {
         adminDir,
         ADMIN_USERNAME,
         setCommInfo,
+        // 登录链路（HTTP /api/login、ws 握手）携带 deviceId 时自动建档
+        ensureMachineForLogin,
         // ws 通道复用：保活 / 上报 / 取配置
         touchDevice,
         updateDeviceReport,
@@ -1030,4 +1268,5 @@ function attachAdmin(app, options = {}) {
     };
 }
 
-module.exports = { attachAdmin, ADMIN_USERNAME };
+// normalizeParental 导出仅供测试直接驱动校验逻辑（attachAdmin 需要完整服务环境）。
+module.exports = { attachAdmin, ADMIN_USERNAME, normalizeParental };

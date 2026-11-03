@@ -1,4 +1,0 @@
-enum AppPageStyle {
-  light,
-  dark,
-}

@@ -47,8 +47,12 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
 
   /// 打开时锁屏是否成立：仅此时监听远程解锁边沿（选人页 `locked` 闸门
   /// 场景打开时未锁，不监听，避免被无关状态误关）。
-  late final bool _watchRemoteUnlock;
+  late bool _watchRemoteUnlock;
   late bool _prevLocked;
+
+  /// 已经发起关闭：弹窗关闭动画期间仍可能收到控制器通知，
+  /// 必须忽略，否则会二次 pop 把底下的页面弹掉。
+  bool _closing = false;
 
   Timer? _ticker;
   String _pinError = '';
@@ -69,9 +73,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     ParentalUnlockCodeController.instance.addListener(_onCodesChanged);
     _newArith();
     // 闸门持久化加载（DI 已加载时幂等）；加载后刷新一次以还原锁定态。
-    unawaited(ParentalAttemptGate.instance.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    }));
+    unawaited(
+      ParentalAttemptGate.instance.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
     // 每秒刷新：短码倒计时与锁定剩余时间。
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -82,9 +88,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
   void dispose() {
     ParentalUnlockCodeController.instance.removeListener(_onCodesChanged);
     _ticker?.cancel();
-    if (_watchRemoteUnlock) {
-      KidWatchTimerController.instance.removeListener(_onTimerNotify);
-    }
+    _stopWatchingRemoteUnlock();
     _pinCtrl.dispose();
     super.dispose();
   }
@@ -94,11 +98,28 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     if (mounted) setState(() {});
   }
 
+  /// 停止观察远程解锁（本地验证通过 / 用户关闭 / 已开始收起时调用）。
+  void _stopWatchingRemoteUnlock() {
+    if (!_watchRemoteUnlock) return;
+    KidWatchTimerController.instance.removeListener(_onTimerNotify);
+    _watchRemoteUnlock = false;
+  }
+
+  /// 统一收口：只允许关闭一次，并立即停止监听控制器。
+  void _close(bool result) {
+    if (_closing || !mounted) return;
+    _closing = true;
+    _stopWatchingRemoteUnlock();
+    Navigator.of(context).pop(result);
+  }
+
   /// 远程解锁观察：锁由成立变为解除 → 验证通过，收起。
   void _onTimerNotify() {
+    if (_closing) return;
     final bool locked = KidWatchTimerController.instance.locked;
     if (_prevLocked && !locked && mounted) {
-      Navigator.of(context).pop(true);
+      _close(true);
+      return;
     }
     _prevLocked = locked;
   }
@@ -111,46 +132,59 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     final bool usePin = mode == 'pin' && config.pin.isNotEmpty;
     final TextTheme textTheme = Theme.of(context).textTheme;
 
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Icon(Icons.lock_outline,
-                      color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Text('家长验证', style: textTheme.titleLarge),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (gate.locked) ...<Widget>[
-                Text(
-                  '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 16,
-                  ),
+    return PopScope(
+      canPop: true,
+      // 返回键 / 点击遮罩关闭时也立即停止监听，避免关闭动画期间被控制器
+      // 通知二次 pop。
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (!didPop) return;
+        _closing = true;
+        _stopWatchingRemoteUnlock();
+      },
+      child: Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.lock_outline,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text('家长验证', style: textTheme.titleLarge),
+                  ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                if (gate.locked) ...<Widget>[
+                  Text(
+                    '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (mode == 'remote') ..._buildRemoteSection(gate),
+                if (usePin) ..._buildPinSection(gate, textTheme),
+                // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
+                if (mode == 'arith' ||
+                    (mode == 'pin' && !usePin) ||
+                    mode == 'remote')
+                  ..._buildArithSection(gate, textTheme),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => _close(false),
+                  child: const Text('关闭'),
+                ),
               ],
-              if (mode == 'remote') ..._buildRemoteSection(gate),
-              if (usePin) ..._buildPinSection(gate, textTheme),
-              // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
-              if (mode == 'arith' || (mode == 'pin' && !usePin) ||
-                  mode == 'remote')
-                ..._buildArithSection(gate, textTheme),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('关闭'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -183,9 +217,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         ),
       ]);
     } else if (codes.consumed) {
-      children.add(
-        const Text('解锁已确认', textAlign: TextAlign.center),
-      );
+      children.add(const Text('解锁已确认', textAlign: TextAlign.center));
     } else {
       children.addAll(<Widget>[
         Text(
@@ -201,15 +233,10 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       ]);
     }
     children.add(const SizedBox(height: 12));
-    children.add(
-      Divider(height: 1, color: Theme.of(context).dividerColor),
-    );
+    children.add(Divider(height: 1, color: Theme.of(context).dividerColor));
     children.add(const SizedBox(height: 12));
     children.add(
-      Text(
-        '断线兜底：在本机完成下方算术题即可解锁',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
+      Text('断线兜底：在本机完成下方算术题即可解锁', style: Theme.of(context).textTheme.bodySmall),
     );
     children.add(const SizedBox(height: 8));
     return children;
@@ -217,17 +244,15 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
 
   Future<void> _reissue() async {
     final KidWatchTimerController timer = KidWatchTimerController.instance;
-    final String reason =
-        timer.lockReason.isEmpty ? 'threshold' : timer.lockReason;
+    final String reason = timer.lockReason.isEmpty
+        ? 'threshold'
+        : timer.lockReason;
     await ParentalUnlockCodeController.instance.issue(reason);
   }
 
   // ---- pin：4 位数字输入 ----
 
-  List<Widget> _buildPinSection(
-    ParentalAttemptGate gate,
-    TextTheme textTheme,
-  ) {
+  List<Widget> _buildPinSection(ParentalAttemptGate gate, TextTheme textTheme) {
     return <Widget>[
       TextField(
         controller: _pinCtrl,
@@ -262,14 +287,15 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     if (entered.isNotEmpty &&
         entered == ParentalStateController.instance.config.pin) {
       await gate.recordSuccess();
-      if (mounted) Navigator.of(context).pop(true);
+      _close(true);
       return;
     }
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
       _pinCtrl.clear();
-      _pinError = 'PIN 错误，还可尝试 '
+      _pinError =
+          'PIN 错误，还可尝试 '
           '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
     });
   }
@@ -321,13 +347,14 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     if (gate.locked) return;
     if (value == _arithA + _arithB) {
       await gate.recordSuccess();
-      if (mounted) Navigator.of(context).pop(true);
+      _close(true);
       return;
     }
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
-      _arithError = '回答错误，还可尝试 '
+      _arithError =
+          '回答错误，还可尝试 '
           '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
       _newArith(); // 换一题，防背答案。
     });

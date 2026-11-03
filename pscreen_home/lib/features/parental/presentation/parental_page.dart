@@ -59,7 +59,22 @@ class _ParentalPageState extends State<ParentalPage> {
   @override
   void initState() {
     super.initState();
+    AccountSession.roleNotifier.addListener(_onRoleChanged);
     if (AccountSession.isParentOrAdmin) unawaited(_reload());
+  }
+
+  @override
+  void dispose() {
+    AccountSession.roleNotifier.removeListener(_onRoleChanged);
+    super.dispose();
+  }
+
+  /// 后台刷新登录可能在页面构建之后才写回角色；角色变化时重新判定权限。
+  void _onRoleChanged() {
+    if (!mounted) return;
+    final bool allowed = AccountSession.isParentOrAdmin;
+    setState(() {});
+    if (allowed && _machines.isEmpty) unawaited(_reload());
   }
 
   /// 拉设备清单（含 owner 过滤）→ 生效 parental 配置 → 事件历史。

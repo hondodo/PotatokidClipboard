@@ -10,12 +10,18 @@ const definds = require('./definds');
 const { createAccountStore, ACCOUNT_PATTERN } = require('./accounts');
 const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
+const { createTrafficTracker } = require('./traffic');
 
 const app = express();
 const PORT = config.port;
 
 // 配置信任代理，以便正确获取用户真实IP
 app.set('trust proxy', true);
+
+// 接口流量统计（HTTP + WebSocket）：必须在 body 解析之前挂，
+// 才能拿到原始上行字节；数据落 ../datas/stats/。
+const traffic = createTrafficTracker(path.join(__dirname, '../datas'));
+app.use(traffic.middleware);
 
 // 请求日志中间件
 app.use((req, res, next) => {
@@ -1688,10 +1694,43 @@ app.post('/api/clipboard', (req, res) => {
             });
         }
 
+        // 统一换行符：Windows(\r\n) 与 Linux/Android(\n) 在各端读回时会被系统
+        // 归一化，不统一存储会导致接收端把"归一化差异"当成新复制再上传一遍
+        const normalizedContent = String(content).replace(/\r\n?/g, '\n');
+
         // 创建用户剪贴板目录
         const saveDir = path.join(usersDir, username, 'clipboard');
         if (!fs.existsSync(saveDir)) {
             fs.mkdirSync(saveDir, { recursive: true });
+        }
+
+        // 与该用户最新一条去重：内容（归一化后）相同时幂等返回，不落盘、不推送，
+        // 拦住各端回声/重复上传，避免重复条目以"最新"身份触发其它设备覆盖剪贴板
+        const latestMatch = fs.readdirSync(saveDir)
+            .map((file) => /^clipboard_(\d+)\.txt$/.exec(file))
+            .filter(Boolean)
+            .sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+        if (latestMatch) {
+            try {
+                const latest = JSON.parse(
+                    fs.readFileSync(path.join(saveDir, latestMatch[0]), 'utf8')
+                );
+                if (typeof latest.content === 'string' &&
+                    latest.content.replace(/\r\n?/g, '\n') === normalizedContent) {
+                    console.log(`剪贴板内容未变化，去重跳过: ${username}/${latestMatch[0]}`);
+                    return res.json({
+                        [definds.txt.CODE]: definds.code.SUCCESS,
+                        [definds.txt.MSG]: '剪贴板内容未变化',
+                        [definds.txt.DATA]: {
+                            clipboard: req.body.summary === '1'
+                                ? clipboardSummary(latest)
+                                : latest
+                        }
+                    });
+                }
+            } catch (error) {
+                // 最新一条读取失败时按新内容正常处理
+            }
         }
 
         // 生成剪贴板ID和时间戳
@@ -1704,9 +1743,10 @@ app.post('/api/clipboard', (req, res) => {
         const clipboardContent = {
             id: clipboardId,
             username: username,
-            content: content,
+            content: normalizedContent,
             os: os,
-            deviceId: deviceId,
+            // trim：历史上有设备上传的 deviceId 带尾部换行，统一清洗
+            deviceId: typeof deviceId === 'string' ? deviceId.trim() : deviceId,
             createdAt: timestamp
         };
 
@@ -1892,6 +1932,8 @@ const adminHandle = attachAdmin(app, {
     onlineAccounts: () => (realtimeHandle ? realtimeHandle.onlineAccounts() : []),
     // admin 变更配置后按设备号推给在线 ws（realtime 尚未挂载时安全降级为无操作）。
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
+    // /api/admin/traffic 查询用
+    traffic,
 });
 
 // 处理所有其他路由，返回Flutter应用（SPA支持）
@@ -1929,6 +1971,8 @@ realtimeHandle = attachRealtime(httpServer, {
     clipboardPath: '/ws/clipboard',
     clipboardList: (account, fromId, summary) => readUserClipboards(account, fromId, summary),
     clipboardSummary,
+    // WS 流量统计：connection 建立后包装 send / 监听 message
+    traffic,
 });
 httpServer.listen(PORT, () => {
     console.log(`🚀 应用服务器运行在 http://localhost:${PORT}`);
