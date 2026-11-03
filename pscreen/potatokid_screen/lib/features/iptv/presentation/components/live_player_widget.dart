@@ -147,6 +147,17 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 代理也失败则换下一个代理继续试，试满 [_maxProxyAttempts] 次仍不行才回退到下一个源。
   String? _proxyUrl;
 
+  /// 【临时测试】手动指定的 HTTP 代理（`http://user:pass@host:port`），非空时每次起播强制走它。
+  /// mpv 只支持 `http://` 前缀的代理（socks5:// 会被静默忽略），用户名/密码中的
+  /// 特殊字符需 URL 编码。测完把值改回 '' 并删除 `_playCurrentSource` 中的引用。
+  static const String _testHttpProxy = '';
+
+  /// 【临时测试】云端 HLS 中转地址前缀，非空时每次起播把源地址改写为
+  /// `$_testRelay + Uri.encodeComponent(源地址)`，由云端 relay 代抓并改写分片，
+  /// 绕开 mpv 对 https 源走代理（CONNECT 认证）的缺陷。测完删除本常量
+  /// 及 `_playCurrentSource` 中的引用。
+  static const String _testRelay = '';
+
   /// 当前源已尝试过的代理个数（换源/换台时清零）。
   int _proxyAttempts = 0;
 
@@ -607,6 +618,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (channel == null || channel.sources.isEmpty) return;
     // 确保硬解设置已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
     await _hwdecReady;
+    // 【临时测试】每次起播强制走手动指定的 HTTP 代理，测完删除本段。
+    if (_testHttpProxy.isNotEmpty) _proxyUrl = _testHttpProxy;
     // 代理也需在 open 前设置（只影响之后打开的流）。
     await _applyProxySetting(_proxyUrl);
     // Android 音频输出后端（ao=audiotrack）：只在首次 open 前设一次。
@@ -628,11 +641,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _watchdog.arm();
     try {
       String source = channel.sources[idx];
+      // 【临时测试】播放地址改写为云端中转，测完删除本段（连同 _testRelay 常量）。
+      if (_testRelay.isNotEmpty) source = '$_testRelay${Uri.encodeComponent(source)}';
       Injection.get<LogService>().info(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source'
         '${_proxyUrl == null ? '' : '（代理 $_proxyUrl）'}',
       );
-      await _player?.open(Media(channel.sources[idx]));
+      await _player?.open(Media(source));
       _reportPlayback('play_start');
     } catch (e) {
       Injection.get<LogService>().error(
