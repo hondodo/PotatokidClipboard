@@ -255,8 +255,12 @@ void main() {
     test('持久化：重启（新实例 ensureLoaded）后 session/daily 不归零', () async {
       DateTime now = DateTime(2026, 11, 2, 10, 0);
       late KidWatchTimerController first;
+      // 与生产初始化一致（ParentalModule.register 先 await timer.ensureLoaded()）：
+      // 先落定 dateKey，否则首个 tick 误判「日期翻转」会多落盘一次，
+      // 把 5 秒节流基准后移 1 秒，末次落盘停在 26 而非 30。
+      first = KidWatchTimerController.debugCreateForTest(() => now);
+      await first.ensureLoaded();
       fakeAsync((FakeAsync async) {
-        first = KidWatchTimerController.debugCreateForTest(() => now);
         first.configure(
           enabled: true,
           profiles: <String, ChildProfile>{'c1': _child('c1')},
@@ -278,8 +282,6 @@ void main() {
 
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String? raw = prefs.getString(KidWatchTimerController.storageKey);
-      // ignore: avoid_print
-      print('DEBUG raw=$raw');
       expect(raw, isNotNull);
       final Map<String, dynamic> data =
           Map<String, dynamic>.from(jsonDecode(raw!) as Map);

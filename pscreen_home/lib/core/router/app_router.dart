@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/home/presentation/pages/device_detail_page.dart';
 import 'package:pscreen_home/features/home/presentation/pages/home_controll_board.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_page.dart';
 import 'package:pscreen_home/features/remote_control/presentation/remote_control_page.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/clock_page.dart';
@@ -54,7 +56,10 @@ class AppRouter {
     return _router!;
   }
 
-  String get _initialLocation => RouteNames.home;
+  /// 首页分流：`parent` 落家长视图，`admin` / `user` 进中控台。
+  /// 依赖启动时已在 [AccountSession.loginWithSaved] 完成登录。
+  String get _initialLocation =>
+      AccountSession.initialHomePathFor(AccountSession.role);
 
   GoRouter _createRouter() {
     return GoRouter(
@@ -101,6 +106,11 @@ class AppRouter {
             path: RouteNames.weather,
             name: RouteNames.weather,
             builder: (context, state) => const WeatherPage(),
+          ),
+          GoRoute(
+            path: RouteNames.parental,
+            name: RouteNames.parental,
+            builder: (context, state) => const ParentalPage(),
           ),
           GoRoute(
             path: RouteNames.settings,

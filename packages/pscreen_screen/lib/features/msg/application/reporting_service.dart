@@ -29,6 +29,7 @@ class ReportingService {
     required this.channelInfo,
     required this.liveChannel,
     required this.sceneProvider,
+    this.onChannelSwitch,
     DateTime Function()? now,
     Duration? heartbeatInterval,
   })  : _now = now ?? DateTime.now,
@@ -58,6 +59,11 @@ class ReportingService {
 
   /// 当前场景描述提供者（由宿主注入）。
   final CurrentSceneProvider sceneProvider;
+
+  /// 换台开始（上报频道与上一频道不同）时回调：让状态上报丢弃上一频道
+  /// 播放快照（`DeviceStateReporter.clearLastPlayback`）。离开直播的
+  /// `PlaybackStateProvider.clear()` 路径不触发它。
+  final void Function()? onChannelSwitch;
 
   final DateTime Function() _now;
 
@@ -207,7 +213,9 @@ class ReportingService {
         _pbStartedKeys.clear();
         _pbLastState = '';
         _pbRetryAt = null;
-        // 新频道尚未出结果：清掉上一频道的播放状态。
+        // 新频道尚未出结果：先让状态上报丢弃上一频道快照
+        //（clear 会同步触发一次 push，顺序反了会把旧快照发出去），再清空当前状态。
+        onChannelSwitch?.call();
         PlaybackStateProvider.instance.clear();
       }
       // 播放状态以「最新一次」为准（事件上报有去重/限流，状态不该被一并丢弃）。

@@ -101,13 +101,19 @@ class _ConversationListPageState extends State<ConversationListPage> {
         final bool renamed = target.alias.isNotEmpty;
         // 当前设备音量（0-100，被控端随 state 帧上报）。
         final int? volume = online ? device?.sceneVolume : null;
-        // 播放状态只有直播场景才有意义（其它页面播放器已销毁）。
-        final String playbackLabel = (online && device?.sceneKind == 'live') ? (device?.playbackLabel ?? '') : '';
+        // 是否显示由 playbackLabelOf 按端类型决定（电视端非直播也显示上次播放）。
+        final String playbackLabel = playbackLabelOf(online: online, device: device);
         return ListTile(
           leading: _OnlineDot(online: online),
           title: Row(
             children: [
-              Text(target.displayName),
+              Flexible(
+                child: Text(
+                  target.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (volume != null) ...[
                 const SizedBox(width: 8),
                 Row(

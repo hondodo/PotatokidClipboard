@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/router/app_router.dart';
+import 'package:potatokid_screen/core/router/route_params.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
@@ -986,7 +988,17 @@ class _ProfilePageState extends State<ProfilePage> {
       onTap: () => c.select(_versionRow),
       onStepLeft: () => c.select(_versionRow),
       onStepRight: () => c.select(_versionRow),
+      onLongPress: _openParentalDebug,
     );
+  }
+
+  /// 长按「版本」行 → 打开儿童模式本地临时配置调试入口（阶段 1 隐藏手势）。
+  ///
+  /// 选此入口而非占位页直开：不占 17 行焦点结构与 rowCount（阶段 4 约束），
+  /// 复用既有 settings sheet 路由（原为无调用方的孤儿路由）。
+  void _openParentalDebug() {
+    Injection.get<AppRouter>().pushSettingsSheet(
+        const SettingsSheetParams(from: 'profile_version_long_press'));
   }
 
   /// 「天气数据来源」行：只读说明行。
@@ -1023,6 +1035,7 @@ class _SettingRow extends StatelessWidget {
     required this.onTap,
     required this.onStepLeft,
     required this.onStepRight,
+    this.onLongPress,
     this.wrapValue = false,
   });
 
@@ -1034,6 +1047,9 @@ class _SettingRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onStepLeft;
   final VoidCallback onStepRight;
+
+  /// 长按回调（可选；「版本」行借此打开儿童模式调试入口，不影响焦点/步进）。
+  final VoidCallback? onLongPress;
   final bool wrapValue;
 
   @override
@@ -1045,6 +1061,7 @@ class _SettingRow extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
+      onLongPress: onLongPress,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),

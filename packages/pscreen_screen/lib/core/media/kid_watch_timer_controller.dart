@@ -87,6 +87,11 @@ class KidWatchTimerController extends ChangeNotifier {
   bool get locked => _locked;
   bool _locked = false;
 
+  /// 最近一次到阈值的原因（`quietHours` / `session:<id>` / `daily:<id>`）；
+  /// 解除后保留至下次到阈值，解锁请求的 `reason` 字段取此值。
+  String _lockReason = '';
+  String get lockReason => _lockReason;
+
   /// 当前是否在「计入」的观看场景。
   bool get counting => _enabled && _viewingScene && _appForeground && !_locked;
 
@@ -245,6 +250,7 @@ class KidWatchTimerController extends ChangeNotifier {
 
   void _fireThreshold(String reason) {
     _locked = true;
+    _lockReason = reason;
     _stopTicker();
     Log.i('[KidWatchTimer] 到阈值进锁屏: $reason');
     _save();
@@ -265,6 +271,10 @@ class KidWatchTimerController extends ChangeNotifier {
             : _activeChildIds;
     for (final String id in targets) {
       _unlockGraceUntilMs[id] = until;
+      // 单次 session 一并清零：session 维度没有放行窗口，不清零则
+      // _checkThreshold 立即回锁、解锁形同虚设（方案 §3.2 解锁后开启
+      // 新一轮单次观看；daily 靠放行窗口保持不动）。
+      _sessionSecByChild[id] = 0;
     }
     Log.i('[KidWatchTimer] 解锁，daily 放行窗口至 +${dailyUnlockGrace.inMinutes}min');
     _save();

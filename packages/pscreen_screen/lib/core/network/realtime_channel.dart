@@ -168,9 +168,10 @@ class RealtimeDeviceState {
   /// 频道列表版本（FNV-1a 摘要），列表未变时复用。
   final String listVersion;
 
-  /// 当前直播播放状态（`channel`/`state`/`label`/`ts`）；空 map = 未在播放。
+  /// 当前播放状态（`channel`/`state`/`label`/`ts`）；空 map = 未在播放。
   ///
-  /// 只有直播场景才会带值，离开直播后服务端会收到 null 并被清空。
+  /// 直播场景随 state 下发；电视端（`kind == 'tv'`）离开直播后仍保留
+  /// 「上次播放」，中控端（home）非直播场景收到 null 并被清空。
   final Map<String, Object?> playback;
 
   /// 服务端收到该状态的本地时间戳。
@@ -188,7 +189,7 @@ class RealtimeDeviceState {
   /// 当前播放频道名（直播场景才有）。
   String get channelName => '${scene['channelName'] ?? ''}';
 
-  /// 播放状态文案（如「播放正常」）；未直播/未上报时为空串。
+  /// 播放状态文案（如「播放正常」）；未在播放/未上报时为空串。
   String get playbackLabel => '${playback['label'] ?? ''}';
 
   /// 播放状态原始名（`play_ok` / `play_retry` / `play_fail` / `play_start`）。
@@ -344,6 +345,11 @@ class RealtimeChannel {
   RealtimeConnectionState get state => _state;
   bool get isConnected => _state == RealtimeConnectionState.connected;
   String get account => _account;
+
+  /// 本端设备类型：握手声明的 `kind`（`home` = 中控屏 / `tv` = 电视端）；
+  /// 旧连接未声明时按包名兜底（见 [kindOfApp]），空串 = 未知。
+  String get kind => _kind.isNotEmpty ? _kind : kindOfApp(_app);
+
   String? get lastError => _lastError;
   Set<String> get onlineAccounts => Set<String>.unmodifiable(_online);
 
@@ -748,7 +754,7 @@ class RealtimeChannel {
         if (from.isEmpty) return;
         final dynamic rawScene = frame['scene'];
         final dynamic rawChannels = frame['channels'];
-        // playback：键存在时必须处理（null = 已离开直播，清空）；
+        // playback：键存在时必须处理（null = 无播放，清空）；
         // 键缺失视为「沿用上次」（旧服务端/旧设备不会带这个字段）。
         Map<String, Object?>? playback;
         if (frame.containsKey('playback')) {
