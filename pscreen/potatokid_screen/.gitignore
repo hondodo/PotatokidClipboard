@@ -1,3 +1,6 @@
+# 本地环境配置（含密钥等个人信息，只提交 .env_example）
+.env
+
 # Miscellaneous
 *.class
 *.log

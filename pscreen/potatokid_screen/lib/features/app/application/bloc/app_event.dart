@@ -62,13 +62,6 @@ class SetRemoveInvalidSources extends AppEvent {
   final bool enabled;
 }
 
-/// 设置是否开启「代理重试」（默认关）
-class SetProxyRetry extends AppEvent {
-  const SetProxyRetry(this.enabled);
-
-  final bool enabled;
-}
-
 /// 设置是否开启「后台播放」（默认关：关闭时退到后台即暂停）
 class SetBackgroundPlayback extends AppEvent {
   const SetBackgroundPlayback(this.enabled);

@@ -31,6 +31,13 @@ class AppConfig {
   /// `.env` 兜底的 ptools 口令（`TOOLS_PASSWORD`，明文；提交前客户端做 MD5）。
   static String toolsPassword = '';
 
+  /// 云端 HLS 中转（relay）地址前缀（`.env` 的 `REPLY_SOURCE`）。
+  ///
+  /// 非空时起播把源地址改写为 `relaySource + Uri.encodeComponent(源地址)`，
+  /// 由云端 relay 代抓并改写分片，绕开 mpv 对 https 源走代理（CONNECT 认证）
+  /// 的缺陷；留空则直连播放。
+  static String relaySource = '';
+
   /// 「我的」页「天气城市」可选列表（不含「自动」——自动即空值，为隐式首项）。
   ///
   /// 实际取值由 DataFiles 决定（`weather_cities.txt`：git 同步结果 → 本地缓存 →
@@ -75,6 +82,8 @@ class AppConfig {
     toolsPassword = _readString('TOOLS_PASSWORD', toolsPassword);
 
     weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
+
+    relaySource = _readString('REPLY_SOURCE', relaySource);
 
     tvNameOrder = _readStringList('TV_NAME_ORDER', tvNameOrder);
     tvNameHide = _readStringList('TV_NAME_HIDE', tvNameHide);

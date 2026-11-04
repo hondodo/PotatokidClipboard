@@ -92,14 +92,11 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「复制失效源」行（只读动作行：按 OK 把已记录的失效地址复制到剪贴板）的序号。
   static const int _copyInvalidRow = 10;
 
-  /// 「代理重试」行在 [ProfileFocusController.row] 中的序号。
-  static const int _proxyRetryRow = 11;
-
   /// 「重置」行（清空全部持久化缓存并重启应用）的序号。
-  static const int _resetRow = 12;
+  static const int _resetRow = 11;
 
   /// 「远程」行（实时通道账号登录：常态展示账号+状态，激活后行内输入框）的序号。
-  static const int _remoteRow = 13;
+  static const int _remoteRow = 12;
 
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
@@ -355,10 +352,6 @@ class _ProfilePageState extends State<ProfilePage> {
         context.read<AppBloc>().add(SetRemoveInvalidSources(!isOn));
         context.read<IptvBloc>().add(FilterInvalidChannels(!isOn));
         break;
-      case _proxyRetryRow: // 代理重试：开/关切换
-        final bool isOn = context.read<AppBloc>().state.proxyRetryEnabled;
-        context.read<AppBloc>().add(SetProxyRetry(!isOn));
-        break;
       case _resetRow: // 重置（右/左/OK 均触发确认弹窗）
         _resetAll();
         break;
@@ -412,8 +405,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 KeyedSubtree(key: _rowKeys[_removeInvalidRow], child: _buildRemoveInvalidRow(inContent, c)),
                 const SizedBox(height: 12),
                 KeyedSubtree(key: _rowKeys[_copyInvalidRow], child: _buildCopyInvalidRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_proxyRetryRow], child: _buildProxyRetryRow(inContent, c)),
                 const SizedBox(height: 12),
                 KeyedSubtree(key: _rowKeys[_resetRow], child: _buildResetRow(inContent, c)),
                 const SizedBox(height: 12),
@@ -746,34 +737,6 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// 「代理重试」行：开/关切换。
-  ///
-  /// 开启后，直连打不开/卡死的源会改用免费代理池（proxy.scdn.io）里的 HTTP 代理
-  /// 重试一次同一个源；代理也失败才换下一个源。
-  Widget _buildProxyRetryRow(bool inContent, ProfileFocusController c) {
-    return BlocBuilder<AppBloc, AppState>(
-      builder: (context, state) {
-        final bool isOn = state.proxyRetryEnabled;
-        return _SettingRow(
-          highlighted: inContent && c.row == _proxyRetryRow,
-          label: 'settings_proxy_retry'.tr(),
-          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
-          canStepLeft: isOn,
-          canStepRight: !isOn,
-          onTap: () => c.select(_proxyRetryRow),
-          onStepLeft: () {
-            c.select(_proxyRetryRow);
-            c.step(-1);
-          },
-          onStepRight: () {
-            c.select(_proxyRetryRow);
-            c.step(1);
-          },
-        );
-      },
-    );
-  }
-
   /// 「重置」行：与「刷新频道」同样是按钮行，按下右箭头 / OK / 触摸即触发。
   ///
   /// 区别在于**必须先二次确认**（是否重置所有选项？重置后将退出应用。），
@@ -994,7 +957,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 长按「版本」行 → 打开儿童模式本地临时配置调试入口（阶段 1 隐藏手势）。
   ///
-  /// 选此入口而非占位页直开：不占 17 行焦点结构与 rowCount（阶段 4 约束），
+  /// 选此入口而非占位页直开：不占 16 行焦点结构与 rowCount（阶段 4 约束），
   /// 复用既有 settings sheet 路由（原为无调用方的孤儿路由）。
   void _openParentalDebug() {
     Injection.get<AppRouter>().pushSettingsSheet(

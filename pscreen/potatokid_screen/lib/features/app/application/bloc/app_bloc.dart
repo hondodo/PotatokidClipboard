@@ -14,7 +14,6 @@ class _PersistedSettingsLoaded extends AppEvent {
     required this.aspectMode,
     required this.weatherCity,
     required this.removeInvalidSources,
-    required this.proxyRetryEnabled,
     required this.backgroundPlayback,
   });
 
@@ -24,7 +23,6 @@ class _PersistedSettingsLoaded extends AppEvent {
   final VideoAspectMode aspectMode;
   final String weatherCity;
   final bool removeInvalidSources;
-  final bool proxyRetryEnabled;
   final bool backgroundPlayback;
 }
 
@@ -42,7 +40,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     on<ChangeAspectMode>(_onChangeAspectMode);
     on<ChangeWeatherCity>(_onChangeWeatherCity);
     on<SetRemoveInvalidSources>(_onSetRemoveInvalidSources);
-    on<SetProxyRetry>(_onSetProxyRetry);
     on<SetBackgroundPlayback>(_onSetBackgroundPlayback);
     on<_PersistedSettingsLoaded>(_onPersistedSettingsLoaded);
 
@@ -64,7 +61,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
         aspectMode: s.aspectMode,
         weatherCity: s.weatherCity,
         removeInvalidSources: s.removeInvalidSources,
-        proxyRetryEnabled: s.proxyRetryEnabled,
         backgroundPlayback: s.backgroundPlayback,
       ),
     );
@@ -79,7 +75,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
         aspectMode: event.aspectMode,
         weatherCity: event.weatherCity,
         removeInvalidSources: event.removeInvalidSources,
-        proxyRetryEnabled: event.proxyRetryEnabled,
         backgroundPlayback: event.backgroundPlayback,
       ),
     );
@@ -122,11 +117,6 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   void _onSetRemoveInvalidSources(SetRemoveInvalidSources event, Emitter<AppState> emit) {
     emit(state.copyWith(removeInvalidSources: event.enabled));
     AppSettings.instance.setRemoveInvalidSources(event.enabled);
-  }
-
-  void _onSetProxyRetry(SetProxyRetry event, Emitter<AppState> emit) {
-    emit(state.copyWith(proxyRetryEnabled: event.enabled));
-    AppSettings.instance.setProxyRetryEnabled(event.enabled);
   }
 
   void _onSetBackgroundPlayback(

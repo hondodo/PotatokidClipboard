@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
@@ -23,7 +24,6 @@ import 'package:pscreen_screen/features/iptv/application/live_channel_controller
 import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
-import 'package:pscreen_screen/features/iptv/data/datasources/remote/proxy_pool_service.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
@@ -62,8 +62,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   DateTime _lastOpenAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 播放失败重试状态机（共享包 `PlaybackRetryController`）：700ms 冷却、
-  /// 多源循环回退、一轮判定与 1→2→4→8s 退避都在它内部；换路由（代理）
-  /// 经 `retryWithRoute` 回调注入，失败现场上报经 `onEnterRetry` 注入。
+  /// 多源循环回退、一轮判定与 1→2→4→8s 退避都在它内部；失败现场上报经
+  /// `onEnterRetry` 注入。
   late final PlaybackRetryController _retry;
 
   /// 媒体类型判定（共享包 `MediaKindProbe`）：只看真实轨道区分音频台/视频台，
@@ -71,7 +71,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   late final MediaKindProbe _probe;
 
   /// 「打开后长时间无画面」看门狗（共享包 `PlaybackWatchdog`）：
-  /// 超时取 [_hangTimeoutNow]，到期按媒体类型分流结算，
+  /// 超时取 [_hangTimeout]，到期按媒体类型分流结算，
   /// 坏源经 [_onPlaybackIssue] 进入重试。
   late final PlaybackWatchdog _watchdog;
 
@@ -96,12 +96,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 是否已应用 Android 音频输出后端（全局选项，只需在首次 open 前设一次）。
   bool _audioOutputApplied = false;
 
-  /// 代理重试时的对应超时：免费代理普遍慢/不通，缩短以便尽快换下一个。
-  static const Duration _proxyHangTimeout = Duration(seconds: 20);
-
-  /// 当前生效的看门狗超时（代理模式更短），供 [PlaybackWatchdog] 取值。
-  Duration get _hangTimeoutNow => _proxyUrl == null ? _hangTimeout : _proxyHangTimeout;
-
   /// 进入播放即推进看门狗结算。
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<int?>? _widthSub;
@@ -124,12 +118,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   Duration _bufferingAccum = Duration.zero;
   static const Duration _bufferStallThreshold = Duration(seconds: 60);
 
-  /// 代理重试时的卡死阈值（同上，缩短）。
-  static const Duration _proxyStallThreshold = Duration(seconds: 20);
-
-  /// 当前生效的卡死阈值（代理模式更短）。
-  Duration get _stallThresholdNow => _proxyUrl == null ? _bufferStallThreshold : _proxyStallThreshold;
-
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
 
@@ -140,32 +128,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
   /// 确保进入播放前 hwdec 属性已正确设置）。
   Future<void>? _hwdecReady;
-
-  /// 当前正在使用的代理（`http://ip:port`）；null 表示直连。
-  ///
-  /// 「代理重试」开启时：直连失败会设上代理重试同一个源，成功后沿用；
-  /// 代理也失败则换下一个代理继续试，试满 [_maxProxyAttempts] 次仍不行才回退到下一个源。
-  String? _proxyUrl;
-
-  /// 【临时测试】手动指定的 HTTP 代理（`http://user:pass@host:port`），非空时每次起播强制走它。
-  /// mpv 只支持 `http://` 前缀的代理（socks5:// 会被静默忽略），用户名/密码中的
-  /// 特殊字符需 URL 编码。测完把值改回 '' 并删除 `_playCurrentSource` 中的引用。
-  static const String _testHttpProxy = '';
-
-  /// 【临时测试】云端 HLS 中转地址前缀，非空时每次起播把源地址改写为
-  /// `$_testRelay + Uri.encodeComponent(源地址)`，由云端 relay 代抓并改写分片，
-  /// 绕开 mpv 对 https 源走代理（CONNECT 认证）的缺陷。测完删除本常量
-  /// 及 `_playCurrentSource` 中的引用。
-  static const String _testRelay = '';
-
-  /// 当前源已尝试过的代理个数（换源/换台时清零）。
-  int _proxyAttempts = 0;
-
-  /// 单个源最多用几个代理去试（免费代理可用率低，多试几个才有机会）。
-  static const int _maxProxyAttempts = 3;
-
-  /// 已写入 mpv 的 `http-proxy` 值（null 表示还没写过），用于避免重复设置。
-  String? _appliedProxy;
 
   @override
   void initState() {
@@ -184,7 +146,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       probe: _probe,
       isPlaying: () => _player?.state.playing ?? false,
       onIssue: (String reason) => _onPlaybackIssue(reason: reason),
-      timeoutOf: () => _hangTimeoutNow,
+      timeoutOf: () => _hangTimeout,
       onTimeout: () {
         // 到期现场最有诊断价值：一并记下播放器状态。
         Injection.get<LogService>().info(
@@ -202,13 +164,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _retry = PlaybackRetryController(
       sourceCount: () => _currentChannel()?.sources.length ?? 0,
       open: (int sourceIndex) => _playCurrentSource(),
-      // 失败现场（必须在换源 / 换代理之前）：上报 play_retry + 统计失效源。
+      // 失败现场（必须在换源之前）：上报 play_retry + 统计失效源。
       onEnterRetry: (String reason) {
         _reportPlayback('play_retry', reason: reason);
         _recordInvalidSourceFailure(reason);
       },
-      // 换路由 = 代理池重试同一源（见 [_retryWithRoute]）。
-      retryWithRoute: _retryWithRoute,
       onBackoff: _onRoundBackoff,
       onSourceChanged: (int sourceIndex, String reason) {
         final IptvChannel? channel = _currentChannel();
@@ -470,9 +430,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     // 本次打开请求的序号：await 期间若又切了台，过期请求直接丢弃，
     // 避免两次 open 交错（重复 open/stop 正是长按卡顿的成因）。
     final int seq = ++_openSeq;
-    // 换台后重新从直连开始试（换台失败才会再走代理）。
-    _proxyUrl = null;
-    _proxyAttempts = 0;
     // 优先从上次可用源起播（记忆的 URL 已不在此频道则回落首源）。
     final String? preferred = await ChannelSourceCache.instance.preferredSourceOf(widget.channels[index].name);
     if (!mounted || seq != _openSeq) return;
@@ -514,7 +471,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool buffering = s.buffering;
     if (playing && buffering) {
       _bufferingAccum += const Duration(seconds: 1);
-      final Duration threshold = _stallThresholdNow;
+      final Duration threshold = _bufferStallThreshold;
       if (_bufferingAccum >= threshold) {
         final String name = _currentChannel()?.name ?? '?';
         Injection.get<LogService>().info(
@@ -556,7 +513,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         reason: reason,
         // failedRounds 从 0 计：对外语义是「正在尝试第几轮」（1 起）。
         round: _retry.failedRounds + 1,
-        viaProxy: _proxyUrl != null,
         elapsed: DateTime.now().difference(_lastOpenAt),
       );
     } catch (_) {
@@ -618,10 +574,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (channel == null || channel.sources.isEmpty) return;
     // 确保硬解设置已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
     await _hwdecReady;
-    // 【临时测试】每次起播强制走手动指定的 HTTP 代理，测完删除本段。
-    if (_testHttpProxy.isNotEmpty) _proxyUrl = _testHttpProxy;
-    // 代理也需在 open 前设置（只影响之后打开的流）。
-    await _applyProxySetting(_proxyUrl);
     // Android 音频输出后端（ao=audiotrack）：只在首次 open 前设一次。
     await _applyAudioOutput();
 
@@ -641,11 +593,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _watchdog.arm();
     try {
       String source = channel.sources[idx];
-      // 【临时测试】播放地址改写为云端中转，测完删除本段（连同 _testRelay 常量）。
-      if (_testRelay.isNotEmpty) source = '$_testRelay${Uri.encodeComponent(source)}';
+      // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`）：非空时把源地址改写为
+      // 中转前缀 + urlencode(源地址)，由 relay 代抓并改写分片；留空则直连。
+      final String relay = AppConfig.relaySource;
+      if (relay.isNotEmpty) source = '$relay${Uri.encodeComponent(source)}';
       Injection.get<LogService>().info(
-        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source'
-        '${_proxyUrl == null ? '' : '（代理 $_proxyUrl）'}',
+        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',
       );
       await _player?.open(Media(source));
       _reportPlayback('play_start');
@@ -683,32 +636,6 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool outputReady = _audioParamsReady || (_player?.state.playing ?? false);
     final bool active = _mediaKind == MediaKind.audio && outputReady;
     if (_barsActiveVN.value != active) _barsActiveVN.value = active;
-  }
-
-  /// 设置/清除 mpv 的 HTTP 代理（`http-proxy`）。
-  ///
-  /// media_kit 的 setProperty 不返回 mpv 的错误码，故设置后**读回校验**：
-  /// 读回值与写入值一致 → 说明 mpv 认这项属性（日志打「已生效」）；
-  /// 不一致 → 说明当前 mpv 不支持运行时改代理（日志打警告）。
-  /// 与上次相同的值会跳过，避免每次起播都重复设置/打日志。
-  Future<void> _applyProxySetting(String? proxy) async {
-    final String value = proxy ?? '';
-    if (_appliedProxy == value) return;
-    _appliedProxy = value;
-    final Player? p = _player;
-    if (p == null || p.platform is! NativePlayer) return;
-    try {
-      final NativePlayer native = p.platform as NativePlayer;
-      await native.setProperty('http-proxy', value);
-      final String readback = await native.getProperty('http-proxy');
-      if (readback == value) {
-        Injection.get<LogService>().info('[LivePlayerWidget] http-proxy 已生效: ${value.isEmpty ? '(直连)' : value}');
-      } else {
-        Injection.get<LogService>().warn('[LivePlayerWidget] http-proxy 设置未生效: 期望"$value" 实际"$readback"');
-      }
-    } catch (e) {
-      Injection.get<LogService>().warn('[LivePlayerWidget] 设置 http-proxy 失败: $e');
-    }
   }
 
   /// 频道在列表中的显示序号：从 1 开始，按频道总数的位数左侧补零，
@@ -758,50 +685,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   }
 
   /// 播放失败/结束/看门狗到期：交给共享重试状态机
-  /// （冷却过滤 → 失败现场上报 → 换路由[代理]重试同一源 → 一轮退避 → 循环换源，
+  /// （冷却过滤 → 失败现场上报 → 一轮退避 → 循环换源，
   /// 见 [PlaybackRetryController]）。
   void _onPlaybackIssue({String reason = '', bool bypassCooldown = false}) {
     unawaited(_retry.handleIssue(reason: reason, bypassCooldown: bypassCooldown));
-  }
-
-  /// 「换路由重试同一个源」= 代理池（状态机的 `retryWithRoute` 回调）：
-  /// 失败发生在代理上先换下一个代理；直连失败或代理还没试满则挑一个
-  /// **探测可用**的代理重开**同一个源**（探测能挡住「代理能连上但对这个源
-  /// 返回错误页」这类无效代理）。
-  ///
-  /// 返回 true = 已换代理重开同一源（状态机到此为止）；
-  /// 返回 false = 没有可用代理，由状态机继续走换源回退。
-  Future<bool> _retryWithRoute(int failedIndex, String reason) async {
-    final IptvChannel? channel = _currentChannel();
-    if (channel == null || channel.sources.isEmpty) return false;
-    final int idx = failedIndex.clamp(0, channel.sources.length - 1);
-    final String failedUrl = channel.sources[idx];
-    // 第一段：这次失败发生在代理上 → 换下一个代理继续试同一个源。
-    if (_proxyUrl != null) {
-      Injection.get<LogService>().info('[LivePlayerWidget] 代理未成功，换下一个: $_proxyUrl，原因: $reason');
-      _proxyUrl = null;
-    }
-    // 第二段：挑一个探测可用的代理重试同一个源。
-    if (AppSettings.instance.proxyRetryEnabled && _proxyAttempts < _maxProxyAttempts) {
-      final String? proxy = await ProxyPoolService.instance.nextUsableProxy(targetUrl: failedUrl);
-      // 等待探测期间可能已切台/切源，需复核。
-      if (proxy != null && mounted && _currentChannel()?.name == channel.name) {
-        _proxyAttempts++;
-        _proxyUrl = proxy;
-        _retry.sourceIndex = idx;
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] 改用代理重试(第$_proxyAttempts次):${channel.name},'
-          '源(${idx + 1}/${channel.sources.length}) 代理=$proxy，原因: $reason',
-        );
-        await _playCurrentSource();
-        if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
-        return true;
-      }
-      Injection.get<LogService>().info('[LivePlayerWidget] 未找到可用代理（已尝试 $_proxyAttempts 次），回退下一个源');
-    }
-    // 代理都没救活（或未开启）→ 交给状态机回退到下一个源，重新从直连开始。
-    _proxyAttempts = 0;
-    return false;
   }
 
   /// 该频道所有源都各试过一次 = 一轮失败（状态机的 `onBackoff` 回调）：

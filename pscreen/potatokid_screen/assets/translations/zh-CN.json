@@ -52,7 +52,6 @@
   "remote_logged_in": "已登录",
   "remote_error": "登录异常",
   "remote_input_hint": "输入实时通道账号",
-  "settings_proxy_retry": "代理重试",
   "settings_version": "版本",
   "video_aspect": "画面",
   "video_aspect_original": "原始",

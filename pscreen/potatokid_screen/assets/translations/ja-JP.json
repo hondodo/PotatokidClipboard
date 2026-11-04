@@ -52,7 +52,6 @@
   "remote_logged_in": "ログイン済み",
   "remote_error": "ログインエラー",
   "remote_input_hint": "リアルタイムアカウントを入力",
-  "settings_proxy_retry": "プロキシ再試行",
   "settings_version": "バージョン",
   "video_aspect": "画面",
   "video_aspect_original": "オリジナル",

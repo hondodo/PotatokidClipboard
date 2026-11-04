@@ -5,7 +5,7 @@
 
 服务端脚本：`/root/relay.py`（Python3 标准库，无需 pip）
 监听端口：`ABCD`（高位随机端口，防扫描）
-App 侧引用：`live_player_widget.dart` 中的 `_testRelay` 常量
+App 侧引用：根目录 `.env` 的 `REPLY_SOURCE`（读取见 `AppConfig.relaySource`）
 
 ---
 
@@ -60,8 +60,7 @@ kill <旧PID>
 nohup python3 /root/relay.py > /var/log/relay.log 2>&1 &
 ```
 
-**2.3 App 侧同步改**：`lib/features/iptv/presentation/components/live_player_widget.dart`
-中 `_testRelay` 常量的 `t=` 参数改成同一个新值，然后**完整重跑 App**（非热重载）。
+**2.3 App 侧同步改**：根目录 `.env` 中 `REPLY_SOURCE` 的 `t=` 参数改成同一个新值，然后**完整重跑 App**（非热重载）。
 
 > TOKEN 不匹配时服务返回 403，App 表现为打不开该源。
 
@@ -143,11 +142,9 @@ journalctl -u relay -f     # 看日志（此时日志不在 /var/log/relay.log�
 
 ---
 
-## 7. 测完还原 App（删除临时测试代码）
+## 7. 停用中转（App 侧改回直连）
 
-`lib/features/iptv/presentation/components/live_player_widget.dart`：
+中转走 `.env` 的 `REPLY_SOURCE` 配置（`AppConfig.relaySource`），无临时测试代码。
 
-1. 删除 `_testRelay` 常量（约 L155-160）
-2. 删除 `_playCurrentSource` 中的地址改写两行（约 L645-646）
-3. 如不再测 mpv 代理：删除 `_testHttpProxy` 常量及其在 `_playCurrentSource` 中的引用（约 L615-616）
-4. 完整重跑 App 验证恢复直连播放
+1. 把根目录 `.env` 里的 `REPLY_SOURCE=` 清空（留空 = 直连播放）
+2. **完整重跑 App**（非热重载，`.env` 改动需重新打包资产）

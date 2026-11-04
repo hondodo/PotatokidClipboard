@@ -12,7 +12,6 @@ class AppState {
     required this.aspectMode,
     required this.weatherCity,
     required this.removeInvalidSources,
-    required this.proxyRetryEnabled,
     required this.backgroundPlayback,
   });
 
@@ -30,7 +29,6 @@ class AppState {
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
     removeInvalidSources: false,
-    proxyRetryEnabled: false,
     backgroundPlayback: false,
   );
 
@@ -57,9 +55,6 @@ class AppState {
   /// 是否开启「清理失效源」（连续打不开的地址会被记录并移除）
   final bool removeInvalidSources;
 
-  /// 是否开启「代理重试」（直连失败的源会改用免费代理重试）
-  final bool proxyRetryEnabled;
-
   /// 是否开启「后台播放」（关闭时 App 退到后台即暂停，默认关闭）
   final bool backgroundPlayback;
 
@@ -72,7 +67,6 @@ class AppState {
     VideoAspectMode? aspectMode,
     String? weatherCity,
     bool? removeInvalidSources,
-    bool? proxyRetryEnabled,
     bool? backgroundPlayback,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
@@ -83,7 +77,6 @@ class AppState {
         aspectMode: aspectMode ?? this.aspectMode,
         weatherCity: weatherCity ?? this.weatherCity,
         removeInvalidSources: removeInvalidSources ?? this.removeInvalidSources,
-        proxyRetryEnabled: proxyRetryEnabled ?? this.proxyRetryEnabled,
         backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
       );
 }
