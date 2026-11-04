@@ -5,6 +5,7 @@ import 'package:pscreen_home/app/screensaver_host.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 
 class _FakeSettingsStore extends SettingsStore {
@@ -174,6 +175,54 @@ void main() {
 
     await tester.pump(const Duration(seconds: 31));
     expect(router.pushed, <String>[RouteNames.clockPath]);
+
+    await _disposeHost(tester, router);
+  });
+
+  testWidgets('家长身份不触发自动屏保（即使已配置屏保时长）', (WidgetTester tester) async {
+    AccountSession.roleNotifier.value = 'parent';
+    addTearDown(() => AccountSession.roleNotifier.value = '');
+    final _FakeAppRouter router = _FakeAppRouter(RouteNames.parentalPath);
+    final ScreensaverController controller = ScreensaverController(
+      _FakeSettingsStore(1),
+    );
+
+    await _pumpHost(tester, router, controller);
+    await tester.pump(const Duration(minutes: 3));
+    expect(router.pushed, isEmpty);
+
+    await _disposeHost(tester, router);
+  });
+
+  testWidgets('admin 身份保持原屏保规则', (WidgetTester tester) async {
+    AccountSession.roleNotifier.value = 'admin';
+    addTearDown(() => AccountSession.roleNotifier.value = '');
+    final _FakeAppRouter router = _FakeAppRouter(RouteNames.home);
+    final ScreensaverController controller = ScreensaverController(
+      _FakeSettingsStore(1),
+    );
+
+    await _pumpHost(tester, router, controller);
+    await tester.pump(const Duration(seconds: 61));
+    expect(router.pushed, <String>[RouteNames.clockPath]);
+
+    await _disposeHost(tester, router);
+  });
+
+  testWidgets('计时中切换为家长会取消待触发的屏保', (WidgetTester tester) async {
+    AccountSession.roleNotifier.value = 'admin';
+    addTearDown(() => AccountSession.roleNotifier.value = '');
+    final _FakeAppRouter router = _FakeAppRouter(RouteNames.home);
+    final ScreensaverController controller = ScreensaverController(
+      _FakeSettingsStore(1),
+    );
+
+    await _pumpHost(tester, router, controller);
+    await tester.pump(const Duration(seconds: 30));
+    AccountSession.roleNotifier.value = 'parent';
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 40));
+    expect(router.pushed, isEmpty);
 
     await _disposeHost(tester, router);
   });

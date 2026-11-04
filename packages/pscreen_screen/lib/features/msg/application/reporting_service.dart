@@ -17,8 +17,7 @@ abstract class MessageSender {
     required String toAccount,
     required String event,
     Map<String, Object?>? data,
-  }) async =>
-      false;
+  }) async => false;
 }
 
 /// 上行上报服务（设计 §3.2/§5.5）：登录两条、切台防抖、5 分钟心跳。
@@ -32,9 +31,12 @@ class ReportingService {
     this.onChannelSwitch,
     DateTime Function()? now,
     Duration? heartbeatInterval,
-  })  : _now = now ?? DateTime.now,
-        _heartbeatInterval =
-            heartbeatInterval ?? ReportingService.heartbeatInterval {
+    Duration? parentalWatchInterval,
+  }) : _now = now ?? DateTime.now,
+       _heartbeatInterval =
+           heartbeatInterval ?? ReportingService.heartbeatInterval,
+       _parentalWatchInterval =
+           parentalWatchInterval ?? ReportingService.parentalWatchInterval {
     _playCommitListener = () => notifyChannelCommitted();
     liveChannel.onPlayCommit.addListener(_playCommitListener);
   }
@@ -44,6 +46,14 @@ class ReportingService {
 
   /// 心跳间隔（默认 5 分钟，测试可注入短间隔）。
   static const Duration heartbeatInterval = Duration(minutes: 5);
+
+  /// 儿童观看分账（`parental_watch`）上报间隔：25 秒，独立于 5 分钟心跳。
+  /// 家长端「今日时长」的刷新节奏由它决定；事件量约为原心跳的 12 倍，
+  /// 服务端只对历史/落盘做 60 秒采样，实时推送仍逐帧下发。
+  static const Duration parentalWatchInterval = Duration(seconds: 25);
+
+  /// 选人 / 场景 / 锁屏变化后的补报去抖：连续变化只发最后一帧。
+  static const Duration parentalWatchDebounce = Duration(milliseconds: 400);
 
   /// 切台确认防抖。
   static const Duration channelDebounce = Duration(seconds: 1);
@@ -70,11 +80,16 @@ class ReportingService {
   /// 实际生效的心跳间隔（构造时可覆盖，默认 [heartbeatInterval]）。
   final Duration _heartbeatInterval;
 
+  /// 实际生效的观看分账上报间隔（构造时可覆盖，测试注入短间隔）。
+  final Duration _parentalWatchInterval;
+
   late final VoidCallback _playCommitListener;
 
   Timer? _heartbeat;
   Timer? _channelTimer;
   Timer? _sceneTimer;
+  Timer? _parentalWatchTimer;
+  Timer? _parentalWatchDebounceTimer;
   Listenable? _sceneChanges;
   String? _lastSceneKey;
   String? _lastChannelName;
@@ -116,12 +131,20 @@ class ReportingService {
     _send(_sceneLoginText());
     _heartbeat?.cancel();
     _heartbeat = Timer.periodic(_heartbeatInterval, (_) => _onHeartbeat());
+    // 观看分账独立于 5 分钟心跳：登录立即报一帧，之后每 25 秒采样一次。
+    _parentalWatchTimer?.cancel();
+    _parentalWatchTimer = Timer.periodic(
+      _parentalWatchInterval,
+      (_) => _reportParentalWatch(),
+    );
+    _reportParentalWatch();
 
     // 场景变化订阅：只有宿主提供 changes 时才启用。
     final SceneSnapshot initialScene = _snapshot();
     _lastSceneKey = initialScene.key;
-    _lastChannelName =
-        initialScene.kind == SceneKind.live ? initialScene.channelName : null;
+    _lastChannelName = initialScene.kind == SceneKind.live
+        ? initialScene.channelName
+        : null;
     // 除了聊天里的登录文案，再落一条结构化初始场景，便于后台直接按场景检索。
     reportEvent('scene_changed', initialScene.toJson());
     try {
@@ -145,6 +168,10 @@ class ReportingService {
     _channelTimer = null;
     _sceneTimer?.cancel();
     _sceneTimer = null;
+    _parentalWatchTimer?.cancel();
+    _parentalWatchTimer = null;
+    _parentalWatchDebounceTimer?.cancel();
+    _parentalWatchDebounceTimer = null;
     _sceneChanges?.removeListener(_onSceneChanged);
     _sceneChanges = null;
     _lastSceneKey = null;
@@ -223,7 +250,9 @@ class ReportingService {
       if (state == 'play_start') {
         // 每个源在本频道内只报首次 open：退避后重开同源、同一代理的重复尝试
         // 都不重复；但「直连 → 改代理重试」算一条新信息，单独放行一次。
-        if (!_pbStartedKeys.add('$sourceIndex/$sourceTotal/$sourceUrl${viaProxy ? '@proxy' : ''}')) {
+        if (!_pbStartedKeys.add(
+          '$sourceIndex/$sourceTotal/$sourceUrl${viaProxy ? '@proxy' : ''}',
+        )) {
           // 重开已报过的源 = 新一轮尝试：允许随后的 ok/fail 再次上报
           //（否则「失败 → 重新打开同源 → 再失败」的后续失败会被当成连续重复吞掉）。
           _pbLastState = '';
@@ -233,7 +262,8 @@ class ReportingService {
         // 坏台会以 1~8s 的节奏无限重试：首条立即发（让人知道在重试），
         // 之后按限流窗口发，恢复（play_ok）会重置状态使下一条立即可发。
         final DateTime now = _now();
-        if (_pbRetryAt != null && now.difference(_pbRetryAt!) < playbackRetryThrottle) {
+        if (_pbRetryAt != null &&
+            now.difference(_pbRetryAt!) < playbackRetryThrottle) {
           return;
         }
         _pbRetryAt = now;
@@ -250,7 +280,10 @@ class ReportingService {
         'source': _shortSource(sourceUrl),
         'round': round,
         if (viaProxy) 'viaProxy': true,
-        if (reason.isNotEmpty) 'reason': reason.length > 120 ? '${reason.substring(0, 120)}…' : reason,
+        if (reason.isNotEmpty)
+          'reason': reason.length > 120
+              ? '${reason.substring(0, 120)}…'
+              : reason,
         if (elapsed != null) 'elapsedMs': elapsed.inMilliseconds,
       });
     } catch (e) {
@@ -286,17 +319,16 @@ class ReportingService {
     } else {
       _send('已在线$minutes分钟，当前场景：${scene.title}${_playbackSuffix(scene)}');
     }
-    _reportParentalWatch();
   }
 
-  /// 心跳附带儿童观看分账（`parental_watch`）：按孩子分账的 session/daily 时长，
-  /// 家长端据此还原「谁看了多久」。未启用儿童模式时不发。
+  /// 儿童观看分账（`parental_watch`）：按孩子分账的 session/daily 时长，
+  /// 家长端据此还原「谁看了多久」。未启用儿童模式时不发；
+  /// 已启用但当前没选孩子时发 `childIds: []`，明确表达「无人在看」。
   void _reportParentalWatch() {
     try {
       final ParentalStateController parental = ParentalStateController.instance;
       if (!parental.enabled) return;
       final List<String> childIds = parental.activeChildIds;
-      if (childIds.isEmpty) return;
       reportEvent('parental_watch', <String, Object?>{
         'childIds': childIds,
         'sessionSecByChild': parental.timer.sessionSecByChild,
@@ -306,6 +338,17 @@ class ReportingService {
     } catch (e) {
       Log.error('[ReportingService] parental_watch 上报异常: $e');
     }
+  }
+
+  /// 儿童模式状态（选人 / 锁屏）或场景变化：去抖后立即补报一帧，
+  /// 不必等下一个 25 秒采样点。多次连续变化只保留最后一帧。
+  void notifyParentalStateChanged() {
+    if (!_started) return;
+    _parentalWatchDebounceTimer?.cancel();
+    _parentalWatchDebounceTimer = Timer(parentalWatchDebounce, () {
+      _parentalWatchDebounceTimer = null;
+      _reportParentalWatch();
+    });
   }
 
   /// 心跳里的播放状态后缀：只有直播场景才有（其它页面没有播放器）。
@@ -329,10 +372,11 @@ class ReportingService {
     sender
         .sendEvent(toAccount: adminAccount, event: event, data: data)
         .then((bool ok) {
-      if (!ok) Log.i('[ReportingService] 事件上报失败: $event');
-    }).catchError((Object e) {
-      Log.error('[ReportingService] 事件上报异常: $e');
-    });
+          if (!ok) Log.i('[ReportingService] 事件上报失败: $event');
+        })
+        .catchError((Object e) {
+          Log.error('[ReportingService] 事件上报异常: $e');
+        });
   }
 
   /// 上报链路不能因宿主路由/DI 尚未就绪而抛异常。
@@ -380,14 +424,19 @@ class ReportingService {
       // 离开直播（播放器已销毁）：播放状态作废，避免控制端显示过期状态。
       PlaybackStateProvider.instance.clear();
     }
+    // 进出 live / clock / screensaver / settings 都可能改变计时口径，立即补报。
+    notifyParentalStateChanged();
   }
 
   void _send(String text) {
-    sender.sendText(toAccount: adminAccount, text: text).then((bool ok) {
-      if (!ok) Log.i('[ReportingService] 上报发送失败: $text');
-    }).catchError((Object e) {
-      Log.error('[ReportingService] 上报异常: $e');
-    });
+    sender
+        .sendText(toAccount: adminAccount, text: text)
+        .then((bool ok) {
+          if (!ok) Log.i('[ReportingService] 上报发送失败: $text');
+        })
+        .catchError((Object e) {
+          Log.error('[ReportingService] 上报异常: $e');
+        });
   }
 
   static String _fmt(DateTime t) {

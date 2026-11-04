@@ -973,7 +973,8 @@ function attachAdmin(app, options = {}) {
             const user = req.adminUser;
             const machines = scopedMachines(user);
             const accounts = machineAccounts(machines);
-            const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 200);
+            // 观看心跳改为 25 秒后，放宽到内存上限 5000 条以保留接近一天的会话。
+            const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5000, 1), 5000);
             const watch = eventsForAccounts(accounts, { event: 'parental_watch', limit });
             const unlock = eventsForAccounts(accounts, { event: 'parental_unlock_request', limit });
             // 电视端同一解锁请求会「owner 直投 + 管理员」双发（id 不同、短码

@@ -24,10 +24,7 @@ class RealtimeMessageSender implements MessageSender {
   final RealtimeChannel _channel;
 
   @override
-  Future<bool> sendText({
-    required String toAccount,
-    required String text,
-  }) =>
+  Future<bool> sendText({required String toAccount, required String text}) =>
       _channel.sendText(to: toAccount, body: text);
 
   @override
@@ -35,12 +32,11 @@ class RealtimeMessageSender implements MessageSender {
     required String toAccount,
     required String event,
     Map<String, Object?>? data,
-  }) =>
-      _channel.sendEvent(
-        to: toAccount,
-        event: event,
-        data: data == null ? null : Map<String, dynamic>.from(data),
-      );
+  }) => _channel.sendEvent(
+    to: toAccount,
+    event: event,
+    data: data == null ? null : Map<String, dynamic>.from(data),
+  );
 }
 
 /// 消息模块：收消息路由 + 上报服务（依赖 RemoteModule 的 [RemoteLoginBloc]
@@ -84,7 +80,9 @@ class MsgModule {
         liveChannel: LiveChannelController.instance,
         channelInfo: ChannelInfoProvider.instance,
         // 宿主导航能力（中控屏/电视端各自注册；未注册时 nav 命令按未支持处理）。
-        navigator: it.isRegistered<HostNavigator>() ? it<HostNavigator>() : null,
+        navigator: it.isRegistered<HostNavigator>()
+            ? it<HostNavigator>()
+            : null,
         // 直播悬浮能力（仅中控屏注册；电视端无应用内悬浮小窗）。
         liveStage: it.isRegistered<LiveStageControl>()
             ? it<LiveStageControl>()
@@ -111,10 +109,17 @@ class MsgModule {
     // `parental_child_active` 事件（服务端按 event 落库，零改动）；
     // 未登录时 reportEvent 内部有 _started 门禁，不会误发。
     ParentalStateController.instance.onActiveChildrenChanged =
-        (List<String> childIds) => reporting.reportEvent(
-              'parental_child_active',
-              <String, Object?>{'childIds': childIds},
-            );
+        (List<String> childIds) {
+          reporting.reportEvent('parental_child_active', <String, Object?>{
+            'childIds': childIds,
+          });
+          // 选人变化立即补报一帧观看分账（空列表 = 当前无人在看）。
+          reporting.notifyParentalStateChanged();
+        };
+
+    // 锁屏 / 解锁同样立即补报，家长端不用等 25 秒采样点。
+    ParentalStateController.instance.timer.onLockStateChanged =
+        reporting.notifyParentalStateChanged;
 
     // 收消息：服务端只投递寻址到本账号的消息，直接交给路由。
     _sub = it<RealtimeChannel>().messages.listen((RealtimeMessage message) {
@@ -127,10 +132,9 @@ class MsgModule {
     // pushConfigToMachine 实时推送；交给 ParentalStateController 按
     // 「服务端 parental 为对象即为准」的双源规则应用并广播。
     _configSub = it<RealtimeChannel>().deviceConfigs.listen(
-          (Map<String, dynamic> config) => unawaited(
-            ParentalStateController.instance.applyServerConfig(config),
-          ),
-        );
+      (Map<String, dynamic> config) =>
+          unawaited(ParentalStateController.instance.applyServerConfig(config)),
+    );
 
     // 连接态边沿驱动上报启停。
     _stateSub = it<RemoteLoginBloc>().stream.listen((RemoteLoginState state) {
@@ -138,8 +142,9 @@ class MsgModule {
         // 中控屏以 ControlSettings 账号（controller）连接主通道，
         // 但 RemoteLoginBloc 可能没有账号；优先使用通道实际账号。
         final String channelAccount = it<RealtimeChannel>().account.trim();
-        final String account =
-            channelAccount.isNotEmpty ? channelAccount : state.account;
+        final String account = channelAccount.isNotEmpty
+            ? channelAccount
+            : state.account;
         if (account.isEmpty) return;
         if (_lastStartedAccount != account) {
           reporting.stop();
@@ -189,6 +194,7 @@ class MsgModule {
     _lastStartedAccount = '';
     // 回调随上报服务一起摘除，避免 ReportingService 销毁后仍被回调。
     ParentalStateController.instance.onActiveChildrenChanged = null;
+    ParentalStateController.instance.timer.onLockStateChanged = null;
     if (it.isRegistered<DeviceStateReporter>()) {
       await it.unregister<DeviceStateReporter>();
     }

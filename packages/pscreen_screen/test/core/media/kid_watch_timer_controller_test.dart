@@ -11,14 +11,13 @@ ChildProfile _child(
   int session = 0,
   int daily = 0,
   List<QuietHour> quiet = const <QuietHour>[],
-}) =>
-    ChildProfile(
-      id: id,
-      name: id,
-      sessionLimitMin: session,
-      dailyLimitMin: daily,
-      quietHours: quiet,
-    );
+}) => ChildProfile(
+  id: id,
+  name: id,
+  sessionLimitMin: session,
+  dailyLimitMin: daily,
+  quietHours: quiet,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -39,18 +38,18 @@ void main() {
     });
 
     test('mode=off 但有 children → 不启用（整层关闭）', () {
-      const ParentalConfig c =
-          ParentalConfig(mode: 'off', children: <ChildProfile>[
-        ChildProfile(id: 'c1', name: 'A'),
-      ]);
+      const ParentalConfig c = ParentalConfig(
+        mode: 'off',
+        children: <ChildProfile>[ChildProfile(id: 'c1', name: 'A')],
+      );
       expect(c.enabled, isFalse);
     });
 
     test('mode=on + children 非空 → 启用', () {
-      const ParentalConfig c =
-          ParentalConfig(mode: 'on', children: <ChildProfile>[
-        ChildProfile(id: 'c1', name: 'A'),
-      ]);
+      const ParentalConfig c = ParentalConfig(
+        mode: 'on',
+        children: <ChildProfile>[ChildProfile(id: 'c1', name: 'A')],
+      );
       expect(c.enabled, isTrue);
     });
 
@@ -117,6 +116,33 @@ void main() {
         async.elapse(const Duration(seconds: 2));
         expect(t.locked, isTrue);
         expect(fired, isTrue);
+        t.dispose();
+      });
+    });
+
+    test('进入锁屏/解锁各触发一次 onLockStateChanged', () {
+      fakeAsync((FakeAsync async) {
+        DateTime now = DateTime(2026, 11, 2, 10, 0);
+        final KidWatchTimerController t =
+            KidWatchTimerController.debugCreateForTest(() => now);
+        int changes = 0;
+        t.onLockStateChanged = () => changes++;
+
+        t.configure(
+          enabled: true,
+          profiles: <String, ChildProfile>{'c1': _child('c1', session: 1)},
+          quietHours: const <QuietHour>[],
+          activeChildIds: const <String>['c1'],
+        );
+        t.setViewingScene(true);
+
+        async.elapse(const Duration(seconds: 61));
+        expect(t.locked, isTrue);
+        expect(changes, 1); // 进入锁屏
+
+        t.unlock();
+        expect(t.locked, isFalse);
+        expect(changes, 2); // 解除锁屏
         t.dispose();
       });
     });
@@ -283,10 +309,12 @@ void main() {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String? raw = prefs.getString(KidWatchTimerController.storageKey);
       expect(raw, isNotNull);
-      final Map<String, dynamic> data =
-          Map<String, dynamic>.from(jsonDecode(raw!) as Map);
-      final Map<String, dynamic> session =
-          Map<String, dynamic>.from(data['sessionSecByChild'] as Map);
+      final Map<String, dynamic> data = Map<String, dynamic>.from(
+        jsonDecode(raw!) as Map,
+      );
+      final Map<String, dynamic> session = Map<String, dynamic>.from(
+        data['sessionSecByChild'] as Map,
+      );
       expect(session['c1'], 30);
 
       // 模拟重启：新实例读回。
@@ -333,9 +361,10 @@ void main() {
         t.configure(
           enabled: true,
           profiles: <String, ChildProfile>{
-            'c1': _child('c1', quiet: <QuietHour>[
-              QuietHour.tryParse('22:00-06:00')!,
-            ]),
+            'c1': _child(
+              'c1',
+              quiet: <QuietHour>[QuietHour.tryParse('22:00-06:00')!],
+            ),
           },
           quietHours: <QuietHour>[QuietHour.tryParse('22:00-06:00')!],
           activeChildIds: const <String>['c1'],

@@ -27,16 +27,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// `clearAllPersisted` 中被显式豁免（见该方法），家长解除时走显式清除入口。
 class KidWatchTimerController extends ChangeNotifier {
   KidWatchTimerController._({DateTime Function()? now})
-      : _now = now ?? DateTime.now;
+    : _now = now ?? DateTime.now;
 
   /// 全局单例（生产用真实时钟；测试经 [debugCreateForTest] 注入可控时钟）。
-  static final KidWatchTimerController instance =
-      KidWatchTimerController._();
+  static final KidWatchTimerController instance = KidWatchTimerController._();
 
   /// 仅供测试：用注入时钟构造独立实例（不触碰全局单例）。
   @visibleForTesting
-  static KidWatchTimerController debugCreateForTest(
-          DateTime Function() now) =>
+  static KidWatchTimerController debugCreateForTest(DateTime Function() now) =>
       KidWatchTimerController._(now: now);
 
   /// 时钟（测试注入；默认真实时间）。
@@ -78,6 +76,10 @@ class KidWatchTimerController extends ChangeNotifier {
   /// 到阈值（进锁屏）回调；宿主注入（阶段 1 先接占位锁屏）。
   VoidCallback? onThresholdReached;
 
+  /// 锁屏状态变化（进入/解除）回调；宿主用于立即补报观看分账，避免
+  /// 家长端等下一个上报采样点。
+  VoidCallback? onLockStateChanged;
+
   /// 解锁成功回调（宿主/命令执行器调用 [unlock] 后触发）。
   VoidCallback? onUnlocked;
 
@@ -104,8 +106,10 @@ class KidWatchTimerController extends ChangeNotifier {
   int dailySecOf(String childId) => _dailySecByChild[childId] ?? 0;
 
   /// 全部分账时长快照（上报用）。
-  Map<String, int> get sessionSecByChild => Map<String, int>.unmodifiable(_sessionSecByChild);
-  Map<String, int> get dailySecByChild => Map<String, int>.unmodifiable(_dailySecByChild);
+  Map<String, int> get sessionSecByChild =>
+      Map<String, int>.unmodifiable(_sessionSecByChild);
+  Map<String, int> get dailySecByChild =>
+      Map<String, int>.unmodifiable(_dailySecByChild);
 
   /// 单次连续剩余（秒）：取当前组合中**最先到阈值**的孩子的剩余时间
   ///（锁屏展示「剩余」用；无启用限额时返回 null）。
@@ -143,6 +147,7 @@ class KidWatchTimerController extends ChangeNotifier {
     required List<String> activeChildIds,
   }) {
     final bool wasEnabled = _enabled;
+    final bool wasLocked = _locked;
     _enabled = enabled;
     _profiles = profiles;
     _quietHours = quietHours;
@@ -154,6 +159,7 @@ class KidWatchTimerController extends ChangeNotifier {
       _ensureTicker();
       _checkThreshold();
     }
+    if (wasLocked && !_locked) onLockStateChanged?.call();
     if (wasEnabled != enabled) {
       _save();
     }
@@ -256,6 +262,7 @@ class KidWatchTimerController extends ChangeNotifier {
     _save();
     notifyListeners();
     onThresholdReached?.call();
+    onLockStateChanged?.call();
   }
 
   /// 解锁（远程命令 / PIN / 算术）。为 daily 锁的孩子写入放行窗口
@@ -263,12 +270,12 @@ class KidWatchTimerController extends ChangeNotifier {
   void unlock({String? childId}) {
     if (!_locked) return;
     _locked = false;
-    final int until = _now().millisecondsSinceEpoch +
-        dailyUnlockGrace.inMilliseconds;
+    final int until =
+        _now().millisecondsSinceEpoch + dailyUnlockGrace.inMilliseconds;
     final List<String> targets =
         childId != null && _activeChildIds.contains(childId)
-            ? <String>[childId]
-            : _activeChildIds;
+        ? <String>[childId]
+        : _activeChildIds;
     for (final String id in targets) {
       _unlockGraceUntilMs[id] = until;
       // 单次 session 一并清零：session 维度没有放行窗口，不清零则
@@ -281,11 +288,13 @@ class KidWatchTimerController extends ChangeNotifier {
     _ensureTicker();
     _checkThreshold();
     notifyListeners();
+    onLockStateChanged?.call();
     onUnlocked?.call();
   }
 
   /// 家长取消儿童模式 / 显式清除：清零全部计时与放行窗口。
   void clearAll() {
+    final bool wasLocked = _locked;
     _sessionSecByChild.clear();
     _dailySecByChild.clear();
     _unlockGraceUntilMs.clear();
@@ -295,6 +304,7 @@ class KidWatchTimerController extends ChangeNotifier {
     _stopTicker();
     _save();
     notifyListeners();
+    if (wasLocked) onLockStateChanged?.call();
   }
 
   void _resetSessions(String reason) {
@@ -354,8 +364,7 @@ class KidWatchTimerController extends ChangeNotifier {
       }
       final Object? decoded = jsonDecode(raw);
       if (decoded is! Map) return;
-      final Map<String, dynamic> data =
-          Map<String, dynamic>.from(decoded);
+      final Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
       _dateKey = (data['dateKey'] as String?) ?? _dateKeyOf(_now());
       _sessionSecByChild._addAllInt(data['sessionSecByChild']);
       _dailySecByChild._addAllInt(data['dailySecByChild']);

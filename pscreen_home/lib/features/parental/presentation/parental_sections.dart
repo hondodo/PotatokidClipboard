@@ -218,6 +218,7 @@ class WatchSection extends StatelessWidget {
   const WatchSection({
     super.key,
     required this.config,
+    required this.machine,
     required this.watchEvents,
     required this.activeEvents,
     this.sessions = const <ParentalSession>[],
@@ -225,24 +226,46 @@ class WatchSection extends StatelessWidget {
 
   final ParentalConfig config;
 
-  /// `parental_watch` 历史（按时间升序）。
+  /// 当前选中的电视；设备列表尚未加载时为 null（按无数据展示）。
+  final ParentalMachine? machine;
+
+  /// 全部 `parental_watch` 历史（可能来自多台电视，按时间升序）。
   final List<RealtimeEvent> watchEvents;
 
-  /// `parental_child_active` 历史（按时间升序）。
+  /// 全部 `parental_child_active` 历史（可能来自多台电视，按时间升序）。
   final List<RealtimeEvent> activeEvents;
 
   /// 服务端还原的会话级记录（跨设备）。
   final List<ParentalSession> sessions;
 
-  /// 合并两类上报取最新一份「当前在看」的 childIds；都没有时回落配置值。
-  List<String> _activeIds() {
-    final List<RealtimeEvent> merged = <RealtimeEvent>[
-      ...watchEvents,
-      ...activeEvents,
-    ]..sort((RealtimeEvent a, RealtimeEvent b) => b.ts.compareTo(a.ts));
+  /// 事件是否来自当前选中设备：`from` 是 TV 的通信账号（commAccount），
+  /// 少数旧记录用设备 id，两者都认，避免过滤后整块空白。
+  bool _fromSelected(RealtimeEvent event) {
+    final ParentalMachine? selected = machine;
+    if (selected == null) return false;
+    final String comm = selected.commAccount;
+    final String id = selected.id;
+    return (comm.isNotEmpty && event.from == comm) ||
+        (id.isNotEmpty && event.from == id);
+  }
+
+  List<RealtimeEvent> _watchForSelected() =>
+      watchEvents.where(_fromSelected).toList(growable: false);
+
+  List<RealtimeEvent> _activeForSelected() =>
+      activeEvents.where(_fromSelected).toList(growable: false);
+
+  /// 当前选中设备的最新 `childIds`；空列表 = 明确「无人在看」。
+  /// 该设备没有任何上报时才回落到配置默认预选。
+  List<String> _activeIds(
+    List<RealtimeEvent> watch,
+    List<RealtimeEvent> active,
+  ) {
+    final List<RealtimeEvent> merged = <RealtimeEvent>[...watch, ...active]
+      ..sort((RealtimeEvent a, RealtimeEvent b) => b.ts.compareTo(a.ts));
     for (final RealtimeEvent event in merged) {
       final dynamic raw = event.data['childIds'];
-      if (raw is List && raw.isNotEmpty) {
+      if (raw is List) {
         return raw
             .map((dynamic item) => '${item ?? ''}')
             .where((String item) => item.isNotEmpty)
@@ -252,22 +275,32 @@ class WatchSection extends StatelessWidget {
     return config.activeChildIds;
   }
 
-  /// 最新一份「今天」的分账时长（daily 累计到上报时刻的值）。
-  Map<String, int> _todayDailySec() {
+  /// 最新一份「今天」的分账时长（只算当前选中设备，按 childId 取各自
+  /// 最新；不做跨设备求和——多设备合计需产品确认后另行实现）。
+  Map<String, int> _todayDailySec(List<RealtimeEvent> watch) {
     final String today = _dateKey(DateTime.now());
-    RealtimeEvent? latest;
-    for (final RealtimeEvent event in watchEvents) {
+    final Map<String, int> result = <String, int>{};
+    for (final RealtimeEvent event in watch) {
       if ('${event.data['date'] ?? ''}' != today) continue;
+      final dynamic raw = event.data['dailySecByChild'];
+      if (raw is! Map) continue;
+      raw.forEach((dynamic key, dynamic value) {
+        if (value is num && value >= 0) {
+          // watch 按 ts 升序，后写即覆盖为该 childId 的最新值。
+          result['$key'] = value.toInt();
+        }
+      });
+    }
+    return result;
+  }
+
+  /// 当前选中设备最后一条 `parental_watch`（不按日期过滤，用于展示延迟）。
+  RealtimeEvent? _lastWatch(List<RealtimeEvent> watch) {
+    RealtimeEvent? latest;
+    for (final RealtimeEvent event in watch) {
       if (latest == null || event.ts > latest.ts) latest = event;
     }
-    if (latest == null) return <String, int>{};
-    final dynamic raw = latest.data['dailySecByChild'];
-    if (raw is! Map) return <String, int>{};
-    final Map<String, int> result = <String, int>{};
-    raw.forEach((dynamic key, dynamic value) {
-      if (value is num) result['$key'] = value.toInt();
-    });
-    return result;
+    return latest;
   }
 
   static String _dateKey(DateTime time) =>
@@ -292,6 +325,20 @@ class WatchSection extends StatelessWidget {
         '${two(time.hour)}:${two(time.minute)}';
   }
 
+  /// 相对时间：用服务端 `ts`（`Date.now()`）与中控本地时钟比较，
+  /// 仅用于「x 分钟前」的粗略感知，不参与「今日」判定。
+  static String _formatAgo(int ms, DateTime now) {
+    if (ms <= 0) return '';
+    final int minutes = now
+        .difference(DateTime.fromMillisecondsSinceEpoch(ms))
+        .inMinutes;
+    if (minutes <= 0) return '刚刚';
+    if (minutes < 60) return '$minutes 分钟前';
+    final int hours = minutes ~/ 60;
+    if (hours < 24) return '$hours 小时前';
+    return '${hours ~/ 24} 天前';
+  }
+
   String _nameOf(String childId) {
     for (final ParentalChild child in config.children) {
       if (child.id == childId) return child.name;
@@ -303,13 +350,17 @@ class WatchSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<String> activeIds = _activeIds();
-    final Map<String, int> daily = _todayDailySec();
+    final List<RealtimeEvent> watch = _watchForSelected();
+    final List<RealtimeEvent> active = _activeForSelected();
+    final List<String> activeIds = _activeIds(watch, active);
+    final Map<String, int> daily = _todayDailySec(watch);
+    final RealtimeEvent? lastWatch = _lastWatch(watch);
+    final DateTime now = DateTime.now();
 
-    if (watchEvents.isEmpty && activeEvents.isEmpty && sessions.isEmpty) {
+    if (watch.isEmpty && active.isEmpty && sessions.isEmpty) {
       return Center(
         child: Text(
-          '暂无观看上报（电视端心跳附带 parental_watch 后展示）',
+          machine == null ? '请先选择设备' : '暂无观看上报（电视端心跳附带 parental_watch 后展示）',
           style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
         ),
       );
@@ -359,6 +410,14 @@ class WatchSection extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
+        const SizedBox(height: 2),
+        Text(
+          lastWatch == null
+              ? '暂无上报记录'
+              : '最后上报 ${_formatTime(lastWatch.ts)}'
+                    '（${_formatAgo(lastWatch.ts, now)}，服务器时间）',
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+        ),
         const SizedBox(height: 8),
         if (config.children.isEmpty)
           Text(
@@ -381,13 +440,26 @@ class WatchSection extends StatelessWidget {
                 subtitle: child.dailyLimitMin == null
                     ? null
                     : Text('单日限额 ${child.dailyLimitMin} 分钟'),
-                trailing: Text(
-                  daily.containsKey(child.id)
-                      ? _formatDuration(daily[child.id]!)
-                      : '今日未上报',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                trailing: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Text(
+                      daily.containsKey(child.id)
+                          ? _formatDuration(daily[child.id]!)
+                          : '今日未上报',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (!daily.containsKey(child.id) && lastWatch != null)
+                      Text(
+                        '最后 ${_formatTime(lastWatch.ts)}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.outline,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),

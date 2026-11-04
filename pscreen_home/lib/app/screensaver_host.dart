@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 
 /// 全局屏保宿主：无触摸操作达到设定时长后进入时钟页。
@@ -45,6 +46,7 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     widget.router.routeChanges.addListener(_onRouteChanged);
     widget.controller.addListener(_onSettingsChanged);
     widget.live?.addListener(_onLiveChanged);
+    AccountSession.roleNotifier.addListener(_onRoleChanged);
     _schedule();
   }
 
@@ -72,6 +74,7 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     widget.router.routeChanges.removeListener(_onRouteChanged);
     widget.controller.removeListener(_onSettingsChanged);
     widget.live?.removeListener(_onLiveChanged);
+    AccountSession.roleNotifier.removeListener(_onRoleChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -97,6 +100,9 @@ class _ScreensaverHostState extends State<ScreensaverHost>
 
   void _onLiveChanged() => _schedule();
 
+  /// 登录角色变化（后台登录回写 / 账号切换）后重新判定是否允许屏保。
+  void _onRoleChanged() => _schedule();
+
   void _onPointerDown(PointerDownEvent event) {
     // 点击时钟页返回时，先退出屏保语义，再按新路由重新计时。
     widget.controller.active = false;
@@ -107,6 +113,10 @@ class _ScreensaverHostState extends State<ScreensaverHost>
     _timer?.cancel();
     _timer = null;
     if (!mounted) return;
+
+    // 家长身份不自动进入屏保：无论是否配置了屏保时长、是否到点都不触发；
+    // admin / 普通成员保持原规则。
+    if (AccountSession.isParent) return;
 
     final String path = widget.router.currentPath;
     if (path == RouteNames.livePath || path == RouteNames.clockPath) return;
@@ -120,6 +130,11 @@ class _ScreensaverHostState extends State<ScreensaverHost>
 
   void _enterScreensaver() {
     if (!mounted) return;
+    // 计时期间角色切换为家长时兜底取消（例如账号在后台刷新后变成 parent）。
+    if (AccountSession.isParent) {
+      _schedule();
+      return;
+    }
     final String path = widget.router.currentPath;
     if (path == RouteNames.livePath ||
         path == RouteNames.clockPath ||

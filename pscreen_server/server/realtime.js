@@ -11,6 +11,9 @@ const MAX_HISTORY = 20000;
 const MAX_EVENTS = 5000;
 const MAX_BODY_LENGTH = 16 * 1024;
 const MAX_EVENT_DATA_LENGTH = 16 * 1024;
+// parental_watch 在 TV 端已改为 25 秒采样：历史/落盘按设备+日期合并到 60 秒，
+// 实时推送仍逐帧下发，避免 events.jsonl 与内存历史增长 12 倍。
+const PARENTAL_WATCH_STORE_INTERVAL_MS = 60 * 1000;
 // 状态帧（场景 + 完整频道列表）比普通事件大得多：近千个频道名约 20KB。
 const MAX_STATE_LENGTH = 64 * 1024;
 const MAX_OUTBOX = 200;
@@ -150,6 +153,8 @@ function attachRealtime(httpServer, options = {}) {
             ? options.machineAccountsForParent
             : () => [];
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
+    /** parental_watch 历史采样游标：`from|date` -> 最近落库 ts / childIds。 */
+    const parentalWatchStored = new Map();
     const historyFile = path.join(dataDir, 'history.jsonl');
     const eventsFile = path.join(dataDir, 'events.jsonl');
     const outboxDir = path.join(dataDir, 'outbox');
@@ -330,10 +335,30 @@ function attachRealtime(httpServer, options = {}) {
         }
     }
 
+    /** parental_watch 落盘采样：同设备同日期同一孩子集合至少间隔 60 秒才写
+     *  events.jsonl；孩子集合变化（含清空）立即落盘。内存仍保留每次采样，
+     *  实时推送也不受影响。 */
+    function shouldPersistEvent(record) {
+        if (!record || record.event !== 'parental_watch') return true;
+        const data = record.data || {};
+        const key = `${record.from}|${data.date || ''}`;
+        const childKey = Array.isArray(data.childIds) ? data.childIds.join(',') : '';
+        const previous = parentalWatchStored.get(key);
+        if (previous && previous.childKey === childKey &&
+            record.ts - previous.ts < PARENTAL_WATCH_STORE_INTERVAL_MS) {
+            return false;
+        }
+        parentalWatchStored.set(key, { ts: record.ts, childKey });
+        return true;
+    }
+
     /** 结构化事件与聊天历史分开存放，避免动作/场景上报污染会话列表。 */
     function persistEvent(record) {
+        // 内存历史保留每次上报，保证「最后上报」与会话还原尽量新。
         events.push(record);
         if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+        // 只有 parental_watch 做落盘降频；实时投递在 case 'event' 中独立完成。
+        if (!shouldPersistEvent(record)) return;
         try {
             fs.appendFileSync(eventsFile, `${JSON.stringify(record)}\n`);
         } catch (error) {
@@ -342,11 +367,14 @@ function attachRealtime(httpServer, options = {}) {
     }
 
     function eventsForAccounts(accounts, frame = {}) {
-        const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 100, 1), 200);
+        // parental_watch 改为 25 秒上报后，200 条只覆盖约 50 分钟（两台电视）；
+        // 放宽到内存上限 5000，让会话记录仍能覆盖接近一天（默认事件保持 200）。
+        const maxLimit = frame.event === 'parental_watch' ? 5000 : 200;
+        const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 100, 1), maxLimit);
         const eventName = typeof frame.event === 'string' ? frame.event.trim() : '';
         const since = Math.max(parseInt(frame.since, 10) || 0, 0);
         const accountSet = new Set(accounts.filter(Boolean));
-        return events
+        const filtered = events
             .filter(
                 (item) =>
                     accountSet.has(item.from) ||
@@ -357,8 +385,20 @@ function attachRealtime(httpServer, options = {}) {
                         item.audience.some((name) => accountSet.has(name))),
             )
             .filter((item) => !eventName || item.event === eventName)
-            .filter((item) => !since || item.ts > since)
-            .slice(-limit);
+            .filter((item) => !since || item.ts > since);
+        let items = filtered.slice(-limit);
+        // parental_watch 已按 60 秒采样：limit 条可能覆盖不到整天。额外补上
+        // 每台设备的最新一条，保证中控切到静默设备时仍能看到「最后上报」。
+        if (eventName === 'parental_watch') {
+            const latestByFrom = new Map();
+            for (const item of filtered) latestByFrom.set(item.from, item);
+            const ids = new Set(items.map((item) => item.id));
+            for (const item of latestByFrom.values()) {
+                if (!ids.has(item.id)) items.push(item);
+            }
+            items.sort((a, b) => a.ts - b.ts);
+        }
+        return items;
     }
 
     function eventsFor(account, frame) {

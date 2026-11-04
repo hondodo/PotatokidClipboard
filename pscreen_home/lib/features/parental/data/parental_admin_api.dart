@@ -51,9 +51,26 @@ class ParentalAdminApi {
       notTipNetError: true,
     );
     final Map<String, dynamic> body = _dataOf(data);
-    final dynamic machines = body['machines'];
-    if (machines is! List) return const <ParentalMachine>[];
-    return machines
+    return _machinesOf(body['machines']);
+  }
+
+  /// 当前账号尚未绑定、可自助认领的电视（overview 的 `availableMachines`）。
+  ///
+  /// 解绑后设备不会从 `machines.json` 删除，而是回到这个列表，家长下次
+  /// 进入仍能看到并重新绑定。
+  Future<List<ParentalMachine>> fetchAvailableMachines() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/overview').toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    return _machinesOf(body['availableMachines']);
+  }
+
+  static List<ParentalMachine> _machinesOf(dynamic raw) {
+    if (raw is! List) return const <ParentalMachine>[];
+    return raw
         .whereType<Map>()
         .map(
           (Map item) =>
@@ -106,6 +123,21 @@ class ParentalAdminApi {
       url: _uri('/api/admin/machines/$deviceId').toString(),
       method: HttpMethod.PUT,
       params: <String, dynamic>{'parental': parental},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    _dataOf(data);
+  }
+
+  /// 家长自助绑定 / 解绑一台电视。
+  ///
+  /// 走 `POST /api/admin/parental/bind`：`bind:false` 只从 `parents` 数组
+  /// 移除当前账号，**不会删除设备记录**；重新绑定用 `bind:true` 即可恢复。
+  Future<void> bindDevice(String deviceId, {bool bind = true}) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/bind').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{'deviceId': deviceId, 'bind': bind},
       contentType: 'application/json',
       notTipNetError: true,
     );
