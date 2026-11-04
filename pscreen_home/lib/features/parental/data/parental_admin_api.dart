@@ -173,6 +173,7 @@ class ParentalMachine {
   const ParentalMachine({
     required this.id,
     required this.name,
+    required this.kind,
     required this.owner,
     required this.parents,
     required this.commAccount,
@@ -186,7 +187,11 @@ class ParentalMachine {
   /// 设备显示名。
   final String name;
 
-  /// 兼容旧数据的单一归属账号；新绑定关系以 [parents] 为准。
+  /// 设备类型：`tv`（电视）/ `home`（中控）/ 空字符串（尚未上报）。
+  /// 家长控制只处理电视，中控不参与儿童模式与家长绑定。
+  final String kind;
+
+  /// 设备所属中控账号（与家长绑定无关）。
   final String owner;
 
   /// 绑定到该设备的家长账号（可多个）。
@@ -201,6 +206,7 @@ class ParentalMachine {
       ParentalMachine(
         id: '${json['id'] ?? ''}',
         name: '${json['name'] ?? ''}',
+        kind: '${json['kind'] ?? ''}',
         owner: '${json['owner'] ?? ''}',
         parents: (json['parents'] is List)
             ? (json['parents'] as List)

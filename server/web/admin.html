@@ -147,6 +147,8 @@
     .badge.role-admin { color: #062023; background: var(--accent); border-color: transparent; font-weight: 700; }
     .badge.role-user { color: var(--muted); }
     .badge.role-parent { color: #1d4ed8; border-color: rgba(96, 165, 250, .35); background: rgba(96, 165, 250, .1); }
+    .badge.kind-tv { color: #047857; border-color: rgba(16, 185, 129, .35); background: rgba(16, 185, 129, .1); }
+    .badge.kind-home { color: #a16207; border-color: rgba(245, 158, 11, .35); background: rgba(245, 158, 11, .1); }
 
     .parent-chips { display: flex; gap: 6px; flex-wrap: wrap; }
     .parent-chip {
@@ -327,7 +329,8 @@
             <tr>
               <th style="width:86px">状态</th>
               <th>设备</th>
-              <th style="width:210px">家长</th>
+              <th style="width:74px">类型</th>
+              <th style="width:170px">所属中控</th>
               <th style="width:130px">通信账号</th>
               <th style="width:280px">可见家庭</th>
               <th style="width:120px">当前家庭</th>
@@ -756,7 +759,43 @@
       </div>`;
   }
 
+  function machineKind(machine) {
+    if (machine && (machine.kind === 'home' || machine.kind === 'tv')) return machine.kind;
+    const app = (machine && machine.commApp) || '';
+    if (app === 'potatokid.tools.homecontroller' || app === 'pscreen_home') return 'home';
+    if (app === 'screen.potatokid.tools' || app === 'screen.potatokid.potatokid_screen' || app === 'potatokid_screen') return 'tv';
+    return '';
+  }
+
+  function kindBadge(machine) {
+    const kind = machineKind(machine);
+    if (kind === 'tv') return '<span class="badge kind-tv">电视</span>';
+    if (kind === 'home') return '<span class="badge kind-home">中控</span>';
+    return '<span class="muted">—</span>';
+  }
+
+  /** 设备所属中控账号（owner）下拉：设备状态页负责设备 ↔ 中控绑定。 */
+  function ownerSelect(machine) {
+    const users = state.overview.users || [];
+    const current = machine.owner || '';
+    const options = ['<option value="">未关联</option>'].concat(
+      users.map((user) => {
+        const label = user.displayName && user.displayName !== user.name
+          ? `${user.displayName} (${user.name})`
+          : user.name;
+        return `<option value="${esc(user.name)}"${user.name === current ? ' selected' : ''}>${esc(label)}</option>`;
+      }),
+    );
+    if (current && !users.some((user) => user.name === current)) {
+      options.push(`<option value="${esc(current)}" selected>${esc(current)}（账号已删除）</option>`);
+    }
+    return `<select data-owner-select title="所属中控">${options.join('')}</select>`;
+  }
+
   function parentBadges(machine) {
+    if (machineKind(machine) === 'home') {
+      return '<span class="muted">中控端不支持</span>';
+    }
     const parents = Array.isArray(machine.parents) ? machine.parents : [];
     if (!parents.length) return '<span class="muted">未绑定</span>';
     return `<div class="badges">${parents.map((name) => `<span class="badge role-parent">${esc(name)}</span>`).join('')}</div>`;
@@ -766,11 +805,12 @@
     const body = $('machines-body');
     const machines = state.overview.machines || [];
     if (!machines.length) {
-      body.innerHTML = '<tr><td colspan="8"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="9"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
       return;
     }
     body.innerHTML = machines.map((machine) => {
       const online = machine.online === true;
+      const kind = machineKind(machine);
       return `
         <tr data-machine-id="${esc(machine.id)}">
           <td><span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span></td>
@@ -781,7 +821,8 @@
               <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
             </div>
           </td>
-          <td>${parentBadges(machine)}</td>
+          <td>${kindBadge(machine)}</td>
+          <td>${ownerSelect(machine)}</td>
           <td>${commCell(machine)}</td>
           <td>
             <div class="cell-stack">
@@ -794,7 +835,9 @@
           <td>
             <div class="row-actions">
               <button class="btn small" data-action="homes" type="button">家庭</button>
-              <button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>
+              ${kind === 'home'
+                ? '<span class="muted">中控端无儿童模式</span>'
+                : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
               <button class="btn small" data-action="rename" type="button">改名</button>
               <button class="btn small danger" data-action="delete" type="button">删除</button>
             </div>
@@ -814,8 +857,22 @@
           body: JSON.stringify({ homes }),
         }),
       }));
+      const ownerSelectEl = row.querySelector('[data-owner-select]');
+      if (ownerSelectEl) ownerSelectEl.addEventListener('change', async () => {
+        try {
+          await api(`/api/admin/machines/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ owner: ownerSelectEl.value }),
+          });
+          toast('已更新所属中控', 'ok');
+          await loadOverview(false);
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      });
       row.querySelector('[data-action="rename"]').addEventListener('click', () => editMachineName(machine));
-      row.querySelector('[data-action="parental"]').addEventListener('click', () => editParental(machine));
+      const parentalBtn = row.querySelector('[data-action="parental"]');
+      if (parentalBtn) parentalBtn.addEventListener('click', () => editParental(machine));
       row.querySelector('[data-action="delete"]').addEventListener('click', async () => {
         if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
         try {
@@ -1715,13 +1772,16 @@
   function renderParentalBinding() {
     const body = $('parental-bind-body');
     const parent = isParentRole();
-    const machines = state.overview.machines || [];
-    const available = state.overview.availableMachines || [];
+    // 家长控制只列电视：中控设备不参与家长绑定。
+    const machines = (state.overview.machines || [])
+      .filter((machine) => machineKind(machine) === 'tv');
+    const available = (state.overview.availableMachines || [])
+      .filter((machine) => machineKind(machine) === 'tv');
     if (parent) {
       const rows = machines.map((machine) => ({ machine, own: true }))
         .concat(available.map((machine) => ({ machine, own: false })));
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有可绑定设备。电视端注册后会出现在这里，未绑定设备可直接认领。</div></td></tr>';
+        body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有可绑定的电视。电视端注册后会出现在这里，未绑定电视可直接认领。</div></td></tr>';
         return;
       }
       body.innerHTML = rows.map(({ machine, own }) => `
@@ -1730,13 +1790,14 @@
             <div class="cell-stack">
               <span class="strong">${esc(machine.name)}</span>
               <span class="mono">${esc(machine.id)}</span>
+              <span class="badge kind-tv">电视</span>
               <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>
             </div>
           </td>
-          <td>${own ? parentBadges(machine) : '<span class="muted">未绑定（可认领）</span>'}</td>
+          <td>${parentBadges(machine)}</td>
           <td>
             <button class="btn small ${own ? 'danger' : 'primary'}" type="button"
-              data-bind-action="${own ? 'unbind' : 'bind'}">${own ? '解绑我' : '绑定到我'}</button>
+              data-bind-action="${own ? 'unbind' : 'bind'}">${own ? '解绑我' : '加入绑定'}</button>
           </td>
         </tr>`).join('');
       return;
@@ -1745,7 +1806,7 @@
     const parents = (state.overview.users || [])
       .filter((user) => user.role === 'parent' || user.role === 'admin');
     if (!machines.length) {
-      body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有设备注册。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="3"><div class="empty">还没有电视设备注册。中控设备不参与家长绑定。</div></td></tr>';
       return;
     }
     if (!parents.length) {
@@ -1765,6 +1826,7 @@
             <div class="cell-stack">
               <span class="strong">${esc(machine.name)}</span>
               <span class="mono">${esc(machine.id)}</span>
+              <span class="badge kind-tv">电视</span>
               <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>
             </div>
           </td>

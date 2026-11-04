@@ -153,14 +153,17 @@ class _ParentalPageState extends State<ParentalPage> {
         passwordMd5: DeviceCredentials.passwordMd5(),
       );
       final List<ParentalMachine> machines = await _api.fetchMachines();
-      // parent 只看绑定到自己名下的 TV（多家长绑定）；admin 放开代管全部。
+      // 家长控制只处理电视；中控没有儿童模式，也不参与家长绑定。
+      final List<ParentalMachine> tvs = machines
+          .where((ParentalMachine machine) => machine.kind != 'home')
+          .toList(growable: false);
+      // parent 只看绑定到自己名下的 TV（多家长绑定）；admin 放开全部电视。
       final List<ParentalMachine> visible = AccountSession.isAdmin
-          ? machines
-          : machines
+          ? tvs
+          : tvs
                 .where(
                   (ParentalMachine machine) =>
-                      machine.parents.contains(account) ||
-                      machine.owner == account,
+                      machine.parents.contains(account),
                 )
                 .toList(growable: false);
       // 重新拉取后设备列表是全新实例：按 id 找回选中项，且必须使用新列表
@@ -302,15 +305,22 @@ class _ParentalPageState extends State<ParentalPage> {
     _hint(ok ? '已发送' : '发送失败（设备离线或通道未连接）', error: !ok);
   }
 
-  /// 模块⑥ 账号一致性引导：当前登录账号 vs `parental.ownerAccount`
-  /// / `machine.owner` 不一致时提示收不到解锁请求直投。
+  /// 模块⑥ 账号一致性引导：以设备绑定的 `parents` 为准。
+  ///
+  /// 多家长模型下一台 TV 可绑定多个家长，只要当前登录账号在 `parents`
+  /// 中就算一致（解锁请求会经服务端扇出到所有绑定家长，无需再比对旧的
+  /// 单值 `ownerAccount`）。仅当 TV 尚未绑定任何家长（admin 视角）时才
+  /// 回落到 `parental.ownerAccount` / `machine.owner` 提示。
   Widget? _ownerBanner() {
     final ParentalMachine? machine = _selected;
     if (machine == null || _myAccount.isEmpty) return null;
-    final String expected = _config.ownerAccount.isNotEmpty
-        ? _config.ownerAccount
-        : machine.owner;
-    if (expected.isEmpty || expected == _myAccount) return null;
+    if (machine.parents.contains(_myAccount)) return null;
+    final String expected = machine.parents.isNotEmpty
+        ? machine.parents.join('、')
+        : (_config.ownerAccount.isNotEmpty
+              ? _config.ownerAccount
+              : machine.owner);
+    if (expected.isEmpty) return null;
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -323,7 +333,7 @@ class _ParentalPageState extends State<ParentalPage> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '账号不一致：当前登录 $_myAccount，这台 TV 的家长账号是 $expected，'
+                '账号不一致：当前登录 $_myAccount，这台 TV 的绑定家长是 $expected，'
                 '收不到解锁请求直投；仍可经该 TV 的会话线程只读查看。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
