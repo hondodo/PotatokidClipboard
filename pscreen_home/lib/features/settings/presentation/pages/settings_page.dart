@@ -54,6 +54,9 @@ class _SettingsPageState extends State<SettingsPage> {
   late int _sampleSeconds;
   late int _screensaverMinutes;
   late double _uiScale;
+
+  /// 滑块初值只在首次依赖解析时按当前屏幕算一次（显式值优先，否则自动适配）。
+  bool _uiScaleResolved = false;
   late final WallpaperController _wallpaper;
   late final TextEditingController _wallpaperApiController;
   late bool _wallpaperEnabled;
@@ -74,7 +77,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _serverController = TextEditingController(text: HaConfig.serverBaseUrl);
     _sampleSeconds = store.powerSampleSeconds;
     _screensaverMinutes = Injection.get<ScreensaverController>().minutes;
-    _uiScale = store.uiScale;
     _wallpaper = Injection.get<WallpaperController>();
     _wallpaperEnabled = _wallpaper.enabled;
     _wallpaperMinutes = _wallpaper.minutes;
@@ -93,6 +95,16 @@ class _SettingsPageState extends State<SettingsPage> {
         _hwdecEnabled = AppSettings.instance.hwdecEnabled;
       });
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_uiScaleResolved) return;
+    _uiScale = Injection.get<UiScaleController>().resolve(
+      MediaQuery.sizeOf(context),
+    );
+    _uiScaleResolved = true;
   }
 
   @override
@@ -662,7 +674,9 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '整块界面（卡片、字号、间距、点击热区）等比放大，适配 15 寸大屏远距离触控；松开滑块生效并自动保存。',
+            '整块界面（卡片、字号、间距、点击热区）等比放大，适配 15 寸大屏远距离触控；'
+            '未手动调整时按屏幕尺寸自动适配（大屏 150%、平板 125%、手机 100%），'
+            '拖动后保存为固定值。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),

@@ -18,6 +18,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// 首次加载后**后台**向服务端刷新一次，成功则更新内存与本地缓存
 /// （下一次切台即生效）；失败静默保留旧名单，不影响播放。
+///
+/// 电视端与中控端共用；中转前缀由各自 `.env` 的 `REPLY_SOURCE` 提供
+/// （[AppConfig.relaySource]）。
 class RelayPolicy {
   RelayPolicy._();
 

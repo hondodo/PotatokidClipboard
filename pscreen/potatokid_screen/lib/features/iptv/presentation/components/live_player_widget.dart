@@ -27,7 +27,7 @@ import 'package:pscreen_screen/features/iptv/application/playback_retry_controll
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
-import 'package:potatokid_screen/features/iptv/application/relay_policy.dart';
+import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';

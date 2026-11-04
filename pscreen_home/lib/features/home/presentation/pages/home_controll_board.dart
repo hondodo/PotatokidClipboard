@@ -166,6 +166,10 @@ class _HomeControllBoardState extends State<HomeControllBoard>
 
   @override
   Widget build(BuildContext context) {
+    // 手机（尤其竖屏）逻辑宽度只有 320~430dp：保留完整 AppBar 会放不下
+    // 标题和 6 个操作按钮，这里切成紧凑形态（标题只留时钟/日期，次要入口
+    // 收进「更多」菜单），大屏保持原样。
+    final bool compact = MediaQuery.sizeOf(context).width < 600;
     return MultiBlocListener(
       listeners: <BlocListener<dynamic, dynamic>>[
         // 连接就绪（含重连成功）时加载数据
@@ -196,57 +200,116 @@ class _HomeControllBoardState extends State<HomeControllBoard>
       ],
       child: Scaffold(
         appBar: AppBar(
-          // 标题含两行（时钟 + 日期），比默认单行 toolbar 略高。
-          toolbarHeight: 64,
-          title: const _HomeTitle(),
-          actions: <Widget>[
-            const _ConnectionStatus(),
-            const _SleepTimerBadge(),
-            const _RefreshAction(),
-            IconButton(
-              tooltip: '时钟',
-              icon: const Icon(Icons.schedule_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.clockPath),
-            ),
-            IconButton(
-              tooltip: '直播',
-              icon: const Icon(Icons.live_tv_rounded),
-              onPressed: () =>
-                  Injection.get<LiveStageController>().openFullscreen(),
-            ),
-            IconButton(
-              tooltip: '天气',
-              icon: const Icon(Icons.cloud_outlined),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.weatherPath),
-            ),
-            IconButton(
-              tooltip: '遥控',
-              icon: const Icon(Icons.cast_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.remoteControlPath),
-            ),
-            IconButton(
-              tooltip: '设置',
-              icon: const Icon(Icons.settings_rounded),
-              onPressed: () =>
-                  Injection.get<AppRouter>().push(RouteNames.settingsPath),
-            ),
-          ],
+          // 标题含两行（时钟 + 日期），比默认单行 toolbar 略高；紧凑形态用标准高度。
+          toolbarHeight: compact ? 56 : 64,
+          title: _HomeTitle(compact: compact),
+          actions: compact
+              ? <Widget>[
+                  const _ConnectionStatus(compact: true),
+                  const _SleepTimerBadge(),
+                  const _RefreshAction(),
+                  PopupMenuButton<_MoreAction>(
+                    tooltip: '更多',
+                    icon: const Icon(Icons.more_vert_rounded),
+                    onSelected: _onMoreAction,
+                    itemBuilder: (BuildContext context) =>
+                        const <PopupMenuEntry<_MoreAction>>[
+                          PopupMenuItem<_MoreAction>(
+                            value: _MoreAction.clock,
+                            child: Text('时钟'),
+                          ),
+                          PopupMenuItem<_MoreAction>(
+                            value: _MoreAction.live,
+                            child: Text('直播'),
+                          ),
+                          PopupMenuItem<_MoreAction>(
+                            value: _MoreAction.weather,
+                            child: Text('天气'),
+                          ),
+                          PopupMenuItem<_MoreAction>(
+                            value: _MoreAction.remote,
+                            child: Text('遥控'),
+                          ),
+                        ],
+                  ),
+                  IconButton(
+                    tooltip: '设置',
+                    icon: const Icon(Icons.settings_rounded),
+                    onPressed: () => Injection.get<AppRouter>().push(
+                      RouteNames.settingsPath,
+                    ),
+                  ),
+                ]
+              : <Widget>[
+                  const _ConnectionStatus(),
+                  const _SleepTimerBadge(),
+                  const _RefreshAction(),
+                  IconButton(
+                    tooltip: '时钟',
+                    icon: const Icon(Icons.schedule_rounded),
+                    onPressed: () =>
+                        Injection.get<AppRouter>().push(RouteNames.clockPath),
+                  ),
+                  IconButton(
+                    tooltip: '直播',
+                    icon: const Icon(Icons.live_tv_rounded),
+                    onPressed: () =>
+                        Injection.get<LiveStageController>().openFullscreen(),
+                  ),
+                  IconButton(
+                    tooltip: '天气',
+                    icon: const Icon(Icons.cloud_outlined),
+                    onPressed: () =>
+                        Injection.get<AppRouter>().push(RouteNames.weatherPath),
+                  ),
+                  IconButton(
+                    tooltip: '遥控',
+                    icon: const Icon(Icons.cast_rounded),
+                    onPressed: () => Injection.get<AppRouter>().push(
+                      RouteNames.remoteControlPath,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '设置',
+                    icon: const Icon(Icons.settings_rounded),
+                    onPressed: () => Injection.get<AppRouter>().push(
+                      RouteNames.settingsPath,
+                    ),
+                  ),
+                ],
         ),
         body: const _Body(),
       ),
     );
   }
+
+  /// 紧凑 AppBar「更多」菜单的跳转入口。
+  void _onMoreAction(_MoreAction action) {
+    switch (action) {
+      case _MoreAction.clock:
+        Injection.get<AppRouter>().push(RouteNames.clockPath);
+      case _MoreAction.live:
+        Injection.get<LiveStageController>().openFullscreen();
+      case _MoreAction.weather:
+        Injection.get<AppRouter>().push(RouteNames.weatherPath);
+      case _MoreAction.remote:
+        Injection.get<AppRouter>().push(RouteNames.remoteControlPath);
+    }
+  }
 }
+
+/// 紧凑 AppBar 中收进「更多」菜单的次要入口。
+enum _MoreAction { clock, live, weather, remote }
 
 /// AppBar 标题：时钟（数字等宽）+ 日期 / 农历 / 星期 + 当前天气。
 ///
 /// 天气取自全局 [WeatherBloc]，与天气页共享同一份数据；自动刷新由该状态机
-/// 内置的 5 分钟定时器驱动。时间每秒刷新。
+/// 内置的 5 分钟定时器驱动。时间每秒刷新。紧凑形态（手机竖屏）只保留
+/// 时钟 + 日期，避免标题把 AppBar 顶出屏幕。
 class _HomeTitle extends StatefulWidget {
-  const _HomeTitle();
+  const _HomeTitle({this.compact = false});
+
+  final bool compact;
 
   @override
   State<_HomeTitle> createState() => _HomeTitleState();
@@ -278,33 +341,36 @@ class _HomeTitleState extends State<_HomeTitle> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final Widget clockAndDate = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          formatClockTime(_now),
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            height: 1.05,
+            // 数字等宽：秒数跳动时标题宽度不抖动。
+            fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+          ),
+        ),
+        Text(
+          formatDate(_now),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            height: 1.2,
+          ),
+        ),
+      ],
+    );
+    // 手机竖屏只留时钟 + 日期，避免固定的农历 / 天气块把标题撑出 AppBar。
+    if (widget.compact) return clockAndDate;
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
         const _PinnedHomeBadge(),
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              formatClockTime(_now),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.05,
-                // 数字等宽：秒数跳动时标题宽度不抖动。
-                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-              ),
-            ),
-            Text(
-              formatDate(_now),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.2,
-              ),
-            ),
-          ],
-        ),
+        clockAndDate,
         const SizedBox(width: 8),
         Column(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -523,7 +589,10 @@ class _SleepTimerBadge extends StatelessWidget {
 /// 会和右侧固定的「刷新」并排，既重复又会让整排图标左右跳动。
 /// 固定宽度保证文案（已连接 / 重连中 / 认证失败）变化时其余图标不位移。
 class _ConnectionStatus extends StatelessWidget {
-  const _ConnectionStatus();
+  const _ConnectionStatus({this.compact = false});
+
+  /// 紧凑形态只显示状态点（文案进 Tooltip），给标题让出宽度。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -546,7 +615,7 @@ class _ConnectionStatus extends StatelessWidget {
         return Tooltip(
           message: detail == null || detail.isEmpty ? label : '$label：$detail',
           child: SizedBox(
-            width: 92,
+            width: compact ? 24 : 92,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: <Widget>[
@@ -558,15 +627,17 @@ class _ConnectionStatus extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium,
+                if (!compact) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

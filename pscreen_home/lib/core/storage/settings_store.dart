@@ -189,10 +189,13 @@ class SettingsStore {
     return value;
   }
 
-  /// 全局界面缩放倍数（未设置时回落 [defaultUiScale]）。
-  double get uiScale {
+  /// 用户手动设置的全局界面缩放；null = 未设置，按屏幕尺寸自动适配。
+  ///
+  /// 自动适配规则见 `defaultUiScaleFor(Size)`：15 寸 1920x1080 大屏 1.5、
+  /// 平板 1.25、手机（含竖屏）1.0，避免小屏被放大后 AppBar 放不下。
+  double? get uiScaleOverride {
     final double? value = _prefs?.getDouble(uiScaleKey);
-    if (value == null) return defaultUiScale;
+    if (value == null) return null;
     return normalizeUiScale(value);
   }
 
@@ -229,17 +232,12 @@ class SettingsStore {
     }
   }
 
-  /// 持久化界面缩放；等于默认值时移除键（回落默认）。
+  /// 持久化界面缩放（始终写入显式值；未设置时才走自动适配）。
   Future<void> saveUiScale(double value) async {
     final SharedPreferences? prefs = _prefs;
     if (prefs == null) return;
     try {
-      final double next = normalizeUiScale(value);
-      if ((next - defaultUiScale).abs() < 0.001) {
-        await prefs.remove(uiScaleKey);
-      } else {
-        await prefs.setDouble(uiScaleKey, next);
-      }
+      await prefs.setDouble(uiScaleKey, normalizeUiScale(value));
     } catch (e) {
       Injection.get<LogService>().warn('写入界面缩放失败：$e');
     }

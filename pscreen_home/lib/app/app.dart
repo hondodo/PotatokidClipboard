@@ -31,7 +31,9 @@ class App extends StatelessWidget {
       builder: (BuildContext context, Widget? child) => ListenableBuilder(
         listenable: uiScale,
         builder: (BuildContext context, Widget? _) => UiScaleScope(
-          scale: uiScale.scale,
+          // 未手动设置时按当前屏幕逻辑尺寸自动适配（手机竖屏不放大），
+          // 避免 1.5 倍把首页 AppBar 压到放不下。
+          scale: uiScale.resolve(MediaQuery.sizeOf(context)),
           // 解锁弹层挂在 UiScaleScope 内（享受等比缩放）、ScreensaverHost
           // 之外（弹层要盖过屏保）；Stack 形态不依赖 Navigator 祖先，
           // 因为 MaterialApp.builder 的 context 在 Navigator 之上。

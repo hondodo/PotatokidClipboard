@@ -76,9 +76,7 @@ class _ParentalPageState extends State<ParentalPage> {
   void initState() {
     super.initState();
     AccountSession.roleNotifier.addListener(_onRoleChanged);
-    _connSub = _channel?.connectionState.listen((
-      RealtimeConnectionState state,
-    ) {
+    _connSub = _channel?.connectionState.listen((RealtimeConnectionState state) {
       if (state != RealtimeConnectionState.connected) return;
       if (!AccountSession.isParentOrAdmin) return;
       unawaited(_loadEvents());
@@ -104,12 +102,7 @@ class _ParentalPageState extends State<ParentalPage> {
     } else if (event.event == 'parental_child_active') {
       setState(() => _activeEvents = _withEvent(_activeEvents, event));
     } else if (event.event == 'parental_unlock_request') {
-      setState(
-        () => _unlockEvents = _dedupeUnlock(<RealtimeEvent>[
-          ..._unlockEvents,
-          event,
-        ]),
-      );
+      setState(() => _unlockEvents = _dedupeUnlock(<RealtimeEvent>[..._unlockEvents, event]));
     }
   }
 
@@ -129,10 +122,7 @@ class _ParentalPageState extends State<ParentalPage> {
   }
 
   /// 按 id 去重（服务端双发/重连补发可能同 id），并按时间升序排列。
-  static List<RealtimeEvent> _withEvent(
-    List<RealtimeEvent> list,
-    RealtimeEvent event,
-  ) {
+  static List<RealtimeEvent> _withEvent(List<RealtimeEvent> list, RealtimeEvent event) {
     if (list.any((RealtimeEvent item) => item.id == event.id)) return list;
     final List<RealtimeEvent> next = <RealtimeEvent>[...list, event];
     next.sort((RealtimeEvent a, RealtimeEvent b) => a.ts.compareTo(b.ts));
@@ -156,13 +146,9 @@ class _ParentalPageState extends State<ParentalPage> {
     });
     try {
       final String account = (await DeviceCredentials.account()).trim();
-      await _api.ensureAdminSession(
-        username: account,
-        passwordMd5: DeviceCredentials.passwordMd5(),
-      );
+      await _api.ensureAdminSession(username: account, passwordMd5: DeviceCredentials.passwordMd5());
       final List<ParentalMachine> machines = await _api.fetchMachines();
-      final List<ParentalMachine> available = await _api
-          .fetchAvailableMachines();
+      final List<ParentalMachine> available = await _api.fetchAvailableMachines();
       // 家长控制只处理电视；中控没有儿童模式，也不参与家长绑定。
       final List<ParentalMachine> tvs = machines
           .where((ParentalMachine machine) => machine.kind != 'home')
@@ -173,12 +159,7 @@ class _ParentalPageState extends State<ParentalPage> {
       // parent 只看绑定到自己名下的 TV（多家长绑定）；admin 放开全部电视。
       final List<ParentalMachine> visible = AccountSession.isAdmin
           ? tvs
-          : tvs
-                .where(
-                  (ParentalMachine machine) =>
-                      machine.parents.contains(account),
-                )
-                .toList(growable: false);
+          : tvs.where((ParentalMachine machine) => machine.parents.contains(account)).toList(growable: false);
       // 重新拉取后设备列表是全新实例：按 id 找回选中项，且必须使用新列表
       // 里的同一个实例，否则 DropdownButton 按 == 比较会找不到匹配项。
       final String previousId = _selected?.id ?? '';
@@ -194,9 +175,7 @@ class _ParentalPageState extends State<ParentalPage> {
       setState(() {
         _myAccount = account;
         _machines = visible;
-        _availableMachines = AccountSession.isAdmin
-            ? const <ParentalMachine>[]
-            : availableTvs;
+        _availableMachines = AccountSession.isAdmin ? const <ParentalMachine>[] : availableTvs;
         _selected = selected;
       });
       await _loadConfig();
@@ -226,18 +205,9 @@ class _ParentalPageState extends State<ParentalPage> {
     final RealtimeChannel? channel = _channel;
     if (channel == null || !channel.isConnected) return;
     try {
-      final List<RealtimeEvent> watch = await channel.fetchEvents(
-        event: 'parental_watch',
-        limit: 100,
-      );
-      final List<RealtimeEvent> active = await channel.fetchEvents(
-        event: 'parental_child_active',
-        limit: 20,
-      );
-      final List<RealtimeEvent> unlock = await channel.fetchEvents(
-        event: 'parental_unlock_request',
-        limit: 50,
-      );
+      final List<RealtimeEvent> watch = await channel.fetchEvents(event: 'parental_watch', limit: 100);
+      final List<RealtimeEvent> active = await channel.fetchEvents(event: 'parental_child_active', limit: 20);
+      final List<RealtimeEvent> unlock = await channel.fetchEvents(event: 'parental_unlock_request', limit: 50);
       if (!mounted) return;
       setState(() {
         _watchEvents = watch;
@@ -262,9 +232,7 @@ class _ParentalPageState extends State<ParentalPage> {
 
   void _hint(String message, {bool error = false}) {
     if (!mounted) return;
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
-      context,
-    );
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
     messenger
       ..hideCurrentSnackBar()
@@ -303,12 +271,7 @@ class _ParentalPageState extends State<ParentalPage> {
         channel != null &&
         code.isNotEmpty &&
         to.isNotEmpty &&
-        await channel.sendText(
-          to: to,
-          body: buildCommandEnvelope('parental_unlock', <String, dynamic>{
-            'code': code,
-          }),
-        );
+        await channel.sendText(to: to, body: buildCommandEnvelope('parental_unlock', <String, dynamic>{'code': code}));
     _hint(ok ? '已发送解锁命令（短码有效性由电视端校验）' : '发送失败：实时通道未连接', error: !ok);
     if (ok) unawaited(_loadEvents());
   }
@@ -316,12 +279,11 @@ class _ParentalPageState extends State<ParentalPage> {
   /// 遥控快捷入口：命令信封直发被控设备（与会话页同一投递通道）。
   Future<void> _sendRemoteCommand(String to, String command) async {
     final RealtimeChannel? channel = _channel;
-    final bool ok =
-        channel != null && await channel.sendText(to: to, body: command);
+    final bool ok = channel != null && await channel.sendText(to: to, body: command);
     _hint(ok ? '已发送' : '发送失败（设备离线或通道未连接）', error: !ok);
   }
 
-  /// 家长身份右上角设置：只读展示「遥控（实时通道）」段。
+  /// 家长身份右上角设置：展示「遥控（实时通道）」状态并允许修改实时账号。
   Future<void> _openSettings() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -363,17 +325,11 @@ class _ParentalPageState extends State<ParentalPage> {
   Future<String?> _bindScannedAccount(String account) async {
     try {
       final List<ParentalMachine> bound = await _api.fetchMachines();
-      final List<ParentalMachine> available = await _api
-          .fetchAvailableMachines();
+      final List<ParentalMachine> available = await _api.fetchAvailableMachines();
       ParentalMachine? target;
-      for (final ParentalMachine machine in <ParentalMachine>[
-        ...bound,
-        ...available,
-      ]) {
+      for (final ParentalMachine machine in <ParentalMachine>[...bound, ...available]) {
         final String id = machine.id;
-        if (machine.commAccount == account ||
-            id == account ||
-            id.replaceAll('-', '') == account) {
+        if (machine.commAccount == account || id == account || id.replaceAll('-', '') == account) {
           target = machine;
           break;
         }
@@ -405,9 +361,7 @@ class _ParentalPageState extends State<ParentalPage> {
     if (machine.parents.contains(_myAccount)) return null;
     final String expected = machine.parents.isNotEmpty
         ? machine.parents.join('、')
-        : (_config.ownerAccount.isNotEmpty
-              ? _config.ownerAccount
-              : machine.owner);
+        : (_config.ownerAccount.isNotEmpty ? _config.ownerAccount : machine.owner);
     if (expected.isEmpty) return null;
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return Card(
@@ -448,10 +402,7 @@ class _ParentalPageState extends State<ParentalPage> {
                 const SizedBox(height: 12),
                 const Text('当前账号没有家长权限（需 parent / admin 角色）'),
                 const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => context.go(RouteNames.home),
-                  child: const Text('返回中控台'),
-                ),
+                FilledButton(onPressed: () => context.go(RouteNames.home), child: const Text('返回中控台')),
               ],
             ),
           ),
@@ -481,19 +432,11 @@ class _ParentalPageState extends State<ParentalPage> {
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.all(14),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                 )
               else
-                IconButton(
-                  tooltip: '刷新',
-                  icon: const Icon(Icons.refresh),
-                  onPressed: () => unawaited(_reload()),
-                ),
-              // 家长身份只开放「遥控（实时通道）」的只读状态，其它设置不可见。
+                IconButton(tooltip: '刷新', icon: const Icon(Icons.refresh), onPressed: () => unawaited(_reload())),
+              // 家长身份只开放「遥控（实时通道）」的状态与实时账号修改，其它设置不可见。
               if (AccountSession.isParent)
                 IconButton(
                   tooltip: '设置',
@@ -502,18 +445,12 @@ class _ParentalPageState extends State<ParentalPage> {
                 ),
               // admin 复用家长视图后的返回口（parent 的默认首页就是本页）。
               if (AccountSession.isAdmin)
-                TextButton(
-                  onPressed: () => context.go(RouteNames.home),
-                  child: const Text('中控台'),
-                ),
+                TextButton(onPressed: () => context.go(RouteNames.home), child: const Text('中控台')),
             ],
             bottom: TabBar(
               isScrollable: true,
               tabs: _tabs
-                  .map(
-                    (_TabSpec tab) =>
-                        Tab(icon: Icon(tab.icon, size: 20), text: tab.label),
-                  )
+                  .map((_TabSpec tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label))
                   .toList(growable: false),
             ),
           ),
@@ -527,12 +464,7 @@ class _ParentalPageState extends State<ParentalPage> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
                     child: Row(
                       children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            _error!,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
+                        Expanded(child: Text(_error!, style: Theme.of(context).textTheme.bodySmall)),
                         IconButton(
                           tooltip: '重试',
                           icon: const Icon(Icons.refresh, size: 18),
@@ -543,8 +475,7 @@ class _ParentalPageState extends State<ParentalPage> {
                   ),
                 ),
               // 家长即使暂时没有已绑定设备也保留入口，便于扫码添加。
-              if (_machines.isNotEmpty || AccountSession.isParent)
-                _buildMachineSelector(),
+              if (_machines.isNotEmpty || AccountSession.isParent) _buildMachineSelector(),
               ?ownerBanner,
               Expanded(
                 child: TabBarView(
@@ -588,9 +519,9 @@ class _ParentalPageState extends State<ParentalPage> {
             child: _machines.isEmpty
                 ? Text(
                     '未绑定设备，点右侧扫码添加',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
                   )
                 : DropdownButtonHideUnderline(
                     child: DropdownButton<ParentalMachine>(
@@ -598,12 +529,10 @@ class _ParentalPageState extends State<ParentalPage> {
                       value: selected,
                       items: _machines
                           .map(
-                            (
-                              ParentalMachine machine,
-                            ) => DropdownMenuItem<ParentalMachine>(
+                            (ParentalMachine machine) => DropdownMenuItem<ParentalMachine>(
                               value: machine,
                               child: Text(
-                                '${machine.name.isEmpty ? machine.id : machine.name}'
+                                '${(machine.name.isEmpty || machine.name == '未命名设备') ? machine.id : machine.name}'
                                 '${machine.online ? '' : '（离线）'}'
                                 '${machine.owner.isEmpty ? '' : ' · ${machine.owner}'}',
                                 maxLines: 1,
@@ -660,8 +589,7 @@ class _ParentalPageState extends State<ParentalPage> {
       child: TargetRemotePanel(
         account: account,
         title: machine?.name,
-        onCommand: (String command) =>
-            unawaited(_sendRemoteCommand(account, command)),
+        onCommand: (String command) => unawaited(_sendRemoteCommand(account, command)),
       ),
     );
   }

@@ -6,13 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
+import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 
@@ -25,7 +28,8 @@ import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 /// 播放失败重试 / 看门狗 / 媒体类型判定统一复用共享包三件套
 /// （[PlaybackRetryController] / [PlaybackWatchdog] / [MediaKindProbe]），
 /// 与电视端行为一致：多源循环回退、一轮退避 1→2→4→8s、打开后无画面超时回退；
-/// 触屏仅直连（不注入换路由），看门狗超时固定 60 秒。
+/// 触屏不注入 TV 的代理池换路由，但同样支持 `.env` 的 `REPLY_SOURCE`
+/// 云端 HLS 中转（命中白名单的源才改写）；看门狗超时固定 60 秒。
 /// 判定为音频时叠加「正在播放」层（收音机图标 + 频道名 + 贴底跳动声条氛围层）。
 ///
 /// 播放器**铺满父级**（由外层 [Stack] 的 `Positioned.fill` 约束），视频用
@@ -285,8 +289,22 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     final IptvChannel channel = widget.channels[index];
     if (channel.sources.isEmpty) return;
     final int idx = sourceIndex.clamp(0, channel.sources.length - 1);
-    final String url = channel.sources[idx];
+    String url = channel.sources[idx];
     if (url.isEmpty) return;
+    // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`，与电视端同源配置）：非空且
+    // 源域名命中服务端下发的中转白名单（/api/allow_reply_host，见 RelayPolicy）
+    // 时才改写为「中转前缀 + urlencode(源地址)」，未命中则直连播放。
+    // 末尾追加稳定设备号，relay 可识别同一设备换源并立即淘汰旧转码进程。
+    final String relay = AppConfig.relaySource;
+    if (relay.isNotEmpty && await RelayPolicy.instance.shouldRelay(url)) {
+      url = '$relay${Uri.encodeComponent(url)}';
+      try {
+        final String devId = await DeviceCredentials.deviceId();
+        if (devId.isNotEmpty) url = '$url&dev=$devId';
+      } catch (_) {
+        // 设备号不可用时省略 dev 参数，不阻断播放。
+      }
+    }
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道；
     // 声条一并停掉（此刻 playing 很可能还是上一个源的值，会误判成「已出声」）。
     _probe.reset();

@@ -1,25 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 
+/// 未手动设置缩放时的自动适配值。
+///
+/// [defaultUiScale] 是为 15 寸 1920x1080（逻辑尺寸约 1920x1080、密度 1x）
+/// 选定的；手机尤其是竖屏的逻辑短边只有 320~430dp，直接套 1.5 会把可用
+/// 逻辑宽度压到 240dp 左右，首页 AppBar 的标题和操作按钮放不下。
+/// 因此按逻辑短边分档：
+/// - ≥ 1000dp：大屏，保持 1.5；
+/// - 600~999dp：平板 / 小尺寸横屏，1.25；
+/// - < 600dp：手机（含竖屏），保持 1.0。
+double defaultUiScaleFor(Size size) {
+  final double shortest = size.shortestSide;
+  if (shortest >= 1000) return SettingsStore.defaultUiScale;
+  if (shortest >= 600) return 1.25;
+  return SettingsStore.minUiScale;
+}
+
 /// 全局界面缩放控制器。
 ///
 /// 中控屏固定安装、观看距离远，UI 尺寸不能只按手机 dp 设计：
 /// 15 寸 1920x1080 面板上 1dp = 1px ≈ 0.17mm，默认字号和卡片会偏小。
-/// 这里用一个全局倍数把整块界面等比放大，设置页可实时调整并持久化。
+/// 这里用一个全局倍数把整块界面等比放大，设置页可实时调整并持久化；
+/// 未手动设置时由 [resolve] 按当前屏幕尺寸选择自动适配值。
 class UiScaleController extends ChangeNotifier {
-  UiScaleController(this._store) : _scale = _store.uiScale;
+  UiScaleController(this._store) : _override = _store.uiScaleOverride;
 
   final SettingsStore _store;
-  double _scale;
 
-  /// 当前缩放倍数（1.0 = 原始尺寸）。
-  double get scale => _scale;
+  /// 显式设置的内存副本（null = 自动适配），保存完成前也能立即生效。
+  double? _override;
+
+  /// 当前生效的缩放倍数：显式设置优先，否则按 [size] 自动适配。
+  double resolve(Size size) => _override ?? defaultUiScaleFor(size);
 
   /// 立即生效（触发整棵树重新布局）并异步持久化。
   Future<void> update(double value) async {
     final double next = SettingsStore.normalizeUiScale(value);
-    if ((next - _scale).abs() < 0.001) return;
-    _scale = next;
+    if (_override == next) return;
+    _override = next;
     notifyListeners();
     await _store.saveUiScale(next);
   }
