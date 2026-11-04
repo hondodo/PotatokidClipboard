@@ -614,8 +614,20 @@ class _ParentalPageState extends State<ParentalPage> {
                           .toList(growable: false),
                       onChanged: (ParentalMachine? machine) {
                         if (machine == null) return;
+                        // 下拉菜单打开期间 _reload 可能已把 _machines 换成全新
+                        // 实例（菜单仍持有打开时捕获的旧实例），直接写入会导致
+                        // DropdownButton 按 == 找不到匹配项而断言失败；按 id 取回
+                        // 当前列表里的同一个实例。
+                        ParentalMachine? picked;
+                        for (final ParentalMachine item in _machines) {
+                          if (item.id == machine.id) {
+                            picked = item;
+                            break;
+                          }
+                        }
+                        if (picked == null) return; // 设备已被移除，忽略本次选择
                         setState(() {
-                          _selected = machine;
+                          _selected = picked;
                           _config = ParentalConfig.empty;
                         });
                         unawaited(_loadConfig());

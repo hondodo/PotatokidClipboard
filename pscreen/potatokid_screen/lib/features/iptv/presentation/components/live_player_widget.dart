@@ -593,10 +593,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _watchdog.arm();
     try {
       String source = channel.sources[idx];
+      // 测试特定地址
+      source = 'http://r.jdshipin.com/qrfbg';
+
       // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`）：非空时把源地址改写为
       // 中转前缀 + urlencode(源地址)，由 relay 代抓并改写分片；留空则直连。
       final String relay = AppConfig.relaySource;
       if (relay.isNotEmpty) source = '$relay${Uri.encodeComponent(source)}';
+
       Injection.get<LogService>().info(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',
       );
