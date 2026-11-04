@@ -27,6 +27,7 @@ import 'package:pscreen_screen/features/iptv/application/playback_retry_controll
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
+import 'package:potatokid_screen/features/iptv/application/relay_policy.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
@@ -597,10 +598,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       // 测试特定地址
       // source = 'http://r.jdshipin.com/CkuBd';
 
-      // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`）：非空时把源地址改写为
-      // 中转前缀 + urlencode(源地址)，由 relay 代抓并改写分片；留空则直连。
+      // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`）：非空且源域名命中服务端
+      // 下发的中转白名单（/api/allow_reply_host，见 RelayPolicy）时才改写为
+      // 中转前缀 + urlencode(源地址)；未命中（或 relay 为空）则直连播放。
       final String relay = AppConfig.relaySource;
-      if (relay.isNotEmpty) {
+      if (relay.isNotEmpty && await RelayPolicy.instance.shouldRelay(source)) {
         source = '$relay${Uri.encodeComponent(source)}';
         // 附带稳定设备号（16 位 hex）：relay 据此识别「同一设备换源」并
         // 立即淘汰旧转码进程，不再等 60s 空闲回收。设备号不可用则省略。

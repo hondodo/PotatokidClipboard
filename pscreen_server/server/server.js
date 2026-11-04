@@ -1922,6 +1922,37 @@ app.get('/api/clipboards/:id', (req, res) => {
     }
 });
 
+// IPTV relay 中转白名单：App 据此决定源地址走 reply 中转还是直连播放
+// （命中名单的域名才改写成 relay 地址，其余直连，不再全都走转发）。
+// 名单存本目录 allow-reply-host.json（JSON 数组，如 ["jdshipin.com"]），
+// 需与 relay 服务的 ACCEPT_HOST 保持一致；文件缺失或为空时用默认值。
+app.get('/api/allow_reply_host', (req, res) => {
+    try {
+        const hostsPath = path.join(__dirname, 'allow-reply-host.json');
+        let allowReplyHost = ['jdshipin.com'];
+        if (fs.existsSync(hostsPath)) {
+            const parsed = JSON.parse(fs.readFileSync(hostsPath, 'utf8'));
+            if (Array.isArray(parsed)) {
+                const hosts = parsed
+                    .filter((h) => typeof h === 'string' && h.trim() !== '')
+                    .map((h) => h.trim());
+                if (hosts.length > 0) allowReplyHost = hosts;
+            }
+        }
+        res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: '获取中转白名单成功',
+            [definds.txt.DATA]: { allow_reply_host: allowReplyHost },
+        });
+    } catch (error) {
+        console.error('获取中转白名单错误:', error);
+        res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
 // Admin 管理接口 / 设备配置与布局同步接口。
 // 必须在 SPA 兜底路由之前注册，否则 /api/admin/* 会被 index.html 接管。
 let realtimeHandle = null;
