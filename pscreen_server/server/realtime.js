@@ -140,6 +140,15 @@ function attachRealtime(httpServer, options = {}) {
     const updateDeviceReport =
         typeof options.updateDeviceReport === 'function' ? options.updateDeviceReport : () => null;
     const configForDevice = typeof options.configFor === 'function' ? options.configFor : () => null;
+    // 设备通信账号 → 绑定家长账号；parental_* 事件按家长扇出，家长端才能查到记录。
+    const parentAccountsFor =
+        typeof options.parentAccountsFor === 'function' ? options.parentAccountsFor : () => [];
+    // 家长账号 → 绑定设备的通信账号；家长端拉历史事件时并入，补上部署前
+    // 只投给管理员的 parental_* 旧记录。
+    const machineAccountsForParent =
+        typeof options.machineAccountsForParent === 'function'
+            ? options.machineAccountsForParent
+            : () => [];
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
     const historyFile = path.join(dataDir, 'history.jsonl');
     const eventsFile = path.join(dataDir, 'events.jsonl');
@@ -332,15 +341,30 @@ function attachRealtime(httpServer, options = {}) {
         }
     }
 
-    function eventsFor(account, frame) {
+    function eventsForAccounts(accounts, frame = {}) {
         const limit = Math.min(Math.max(parseInt(frame.limit, 10) || 100, 1), 200);
         const eventName = typeof frame.event === 'string' ? frame.event.trim() : '';
         const since = Math.max(parseInt(frame.since, 10) || 0, 0);
+        const accountSet = new Set(accounts.filter(Boolean));
         return events
-            .filter((item) => item.from === account || item.to === account)
+            .filter(
+                (item) =>
+                    accountSet.has(item.from) ||
+                    accountSet.has(item.to) ||
+                    // parental_* 事件按家长扇出：记录只落一条，用 audience 标记
+                    // 其他可见账号，避免每个家长各存一份副本造成重复历史。
+                    (Array.isArray(item.audience) &&
+                        item.audience.some((name) => accountSet.has(name))),
+            )
             .filter((item) => !eventName || item.event === eventName)
             .filter((item) => !since || item.ts > since)
             .slice(-limit);
+    }
+
+    function eventsFor(account, frame) {
+        const accounts = [account];
+        for (const bound of machineAccountsForParent(account)) accounts.push(bound);
+        return eventsForAccounts(accounts, frame);
     }
 
     /** account -> 已读游标，启动后只在内存更新，不再每次读盘 */
@@ -860,6 +884,17 @@ function attachRealtime(httpServer, options = {}) {
                         return;
                     }
 
+                    // parental_* 事件额外投递到设备绑定的所有家长。历史只落
+                    // 一条原始记录（audience 标记其它可见账号），避免每个家长
+                    // 各存副本导致记录页重复；实时投递时再按收件人改写 to。
+                    const audience = new Set();
+                    if (to) audience.add(to);
+                    if (eventName.startsWith('parental_')) {
+                        for (const parent of parentAccountsFor(account)) audience.add(parent);
+                    }
+                    const extraAudience = Array.from(audience).filter(
+                        (recipient) => recipient !== to,
+                    );
                     const record = {
                         id: clientId || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
                         from: account,
@@ -868,28 +903,31 @@ function attachRealtime(httpServer, options = {}) {
                         data,
                         ts: Date.now(),
                     };
+                    if (extraAudience.length > 0) record.audience = extraAudience;
                     persistEvent(record);
 
                     let delivered = false;
-                    if (to) {
-                        const targets = connections.get(to);
-                        if (targets) {
-                            for (const target of targets) {
-                                sendJson(target, { t: 'event', ...record });
-                                delivered = true;
-                            }
+                    for (const recipient of audience) {
+                        const copy = recipient === to ? record : { ...record, to: recipient };
+                        const targets = connections.get(recipient);
+                        if (!targets) continue;
+                        for (const target of targets) {
+                            sendJson(target, { t: 'event', ...copy });
+                            delivered = true;
                         }
                     }
                     console.log(
                         `[realtime] event ${account} event=${eventName} to=${to || '-'} id=${record.id} ` +
+                        `audience=${Array.from(audience).join(',') || '-'} ` +
                         `bytes=${dataText.length} delivered=${delivered}`,
                     );
 
                     // 同 msg：把管理员与设备之间的事件同步给线程订阅者。
-                    const eventTargets = to && connections.get(to);
+                    const eventTargets = Array.from(audience)
+                        .flatMap((recipient) => Array.from(connections.get(recipient) || []));
                     forwardThread(
                         { t: 'event', ...record },
-                        new Set([ws, ...(eventTargets ? Array.from(eventTargets) : [])]),
+                        new Set([ws, ...eventTargets]),
                     );
 
                     sendJson(ws, {
@@ -1180,7 +1218,7 @@ function attachRealtime(httpServer, options = {}) {
     });
 
     console.log(`[realtime] WebSocket 网关已挂载: ${wsPath} (剪贴板推送: ${clipboardPath})`);
-    return { wss, onlineAccounts, pushClipboard, pushToDevice };
+    return { wss, onlineAccounts, pushClipboard, pushToDevice, eventsFor, eventsForAccounts };
 }
 
 module.exports = { attachRealtime };
