@@ -11,6 +11,7 @@ import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
@@ -594,12 +595,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     try {
       String source = channel.sources[idx];
       // 测试特定地址
-      // source = 'http://r.jdshipin.com/qrfbg';
+      // source = 'http://r.jdshipin.com/CkuBd';
 
       // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`）：非空时把源地址改写为
       // 中转前缀 + urlencode(源地址)，由 relay 代抓并改写分片；留空则直连。
       final String relay = AppConfig.relaySource;
-      if (relay.isNotEmpty) source = '$relay${Uri.encodeComponent(source)}';
+      if (relay.isNotEmpty) {
+        source = '$relay${Uri.encodeComponent(source)}';
+        // 附带稳定设备号（16 位 hex）：relay 据此识别「同一设备换源」并
+        // 立即淘汰旧转码进程，不再等 60s 空闲回收。设备号不可用则省略。
+        final String devId = await DeviceCredentials.deviceId();
+        if (devId.isNotEmpty) source = '$source&dev=$devId';
+      }
 
       Injection.get<LogService>().info(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',

@@ -21,6 +21,16 @@ TOKEN = "xxxxxxx"   # 随机串，App 侧拼进 URL
 PORT = xxxxxx  # 监听端口，须与 BASE 中一致
 
 UA = {"User-Agent": "Mozilla/5.0"}
+ACCEPT_HOST = ['jdshipin.com']
+
+
+def _allowed_host(url):
+    """src 域名白名单：仅 ACCEPT_HOST 中的域名（含其子域）可访问，其余拒绝。"""
+    try:
+        host = (urlparse(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return any(host == d or host.endswith("." + d) for d in ACCEPT_HOST)
 
 
 def fetch(url):
@@ -53,9 +63,14 @@ FFMPEG = "ffmpeg"
 LIVE_HEIGHT = "360"  # 输出高度，宽度按比例（-2 保证偶数）
 LIVE_V_BITRATE = "800k"
 LIVE_HLS_TIME = 2  # 分片时长（秒）
-LIVE_LIST_SIZE = 6
+LIVE_LIST_SIZE = 12  # 加大窗口：mpv 落后 10-20 秒内仍能续上，不滚出丢段
+LIVE_HIDE_TAIL = 4  # 列表尾部隐藏的最新分片数（×2s≈8s 余量）：让 mpv 落在产出边缘后方，吸收分片产出抖动
 LIVE_IDLE_SECONDS = 60  # 会话空闲多久后杀 ffmpeg 并清临时目录
+LIVE_MAX_SESSIONS = 4  # 同时保留的转码会话上限：换源即杀旧会话，防多 ffmpeg 堆积挤爆 1 核
 LIVE_STARTUP_TIMEOUT = 25  # 等首个转码列表的最长时间（秒）
+LIVE_DEV_KILL_GRACE = 10  # 换源杀旧宽限（秒）：同设备仅杀 used 超过该时长的会话，防在途迟到请求误杀新会话
+LIVE_MAX_W = 1920  # 入站分辨率上限（宽）：超过则拒绝转码——4K 入站流量太大（按入站+出站计费）
+LIVE_MAX_H = 1080  # 入站分辨率上限（高）
 
 _hls_opts_cache = None
 
@@ -106,21 +121,74 @@ def _drop_session(sid):
     shutil.rmtree(s["dir"], ignore_errors=True)
 
 
-def _live_session(src):
-    """按源地址复用一个 ffmpeg 会话；进程已死则自动重建。调用方须持 _sessions_lock。"""
+_overlimit = set()  # 已判定入站分辨率超限的源 URL（进程内记忆：命中后 Popen 前直接拦截）
+
+
+def _probe_resolution(src):
+    """抓 1 秒内容探测入站视频分辨率，返回 (ok, w, h)；探测不到分辨率时 (False, 0, 0)。"""
+    try:
+        p = subprocess.run(
+            [FFMPEG, "-hide_banner", "-nostdin", "-loglevel", "info",
+             "-user_agent", UA["User-Agent"]] + _hls_allowed_opts() + [
+                "-i", src, "-t", "1", "-f", "null", "-",
+            ],
+            capture_output=True, timeout=20,
+        )
+    except Exception:
+        return False, 0, 0
+    for line in p.stderr.decode("utf-8", "replace").splitlines():
+        if "Video:" in line:
+            m = re.search(r"(\d{2,5})x(\d{2,5})", line)
+            if m:
+                return True, int(m.group(1)), int(m.group(2))
+    return False, 0, 0
+
+
+def _live_session(src, dev=""):
+    """按源地址复用一个 ffmpeg 会话；进程已死则自动重建。调用方须持 _sessions_lock。
+
+    dev 为 App 附带的设备号（可为空）：带 dev 的请求到来时，同设备名下
+    其它源的会话立即淘汰（换源即杀），不再等 60s 空闲回收。"""
+    if src in _overlimit:
+        # 已知超限源：Popen 之前拦截，连探测入站流量都不再产生
+        print("源已判定超限（>%dx%d），跳过转码: %s"
+              % (LIVE_MAX_W, LIVE_MAX_H, src), flush=True)
+        raise RuntimeError("源分辨率超限，已跳过转码")
     sid = _sid(src)
+    # 同设备换源即杀：淘汰该设备名下其它源的会话（当前源除外）。
+    # 宽限保护：只杀 used 距今超过 LIVE_DEV_KILL_GRACE 的旧会话——轮播切源时
+    # 上一源的迟到请求会晚一步到达，若无宽限它会把刚创建、还在等出列表的
+    # 新会话误杀（ffmpeg code=-9 → 502 → 播不出来死循环）
+    if dev:
+        now = time.time()
+        for other_sid in list(_sessions):
+            other = _sessions[other_sid]
+            if (other_sid != sid and other.get("dev") == dev
+                    and now - other.get("used", 0) >= LIVE_DEV_KILL_GRACE):
+                print("设备 %s 换源，立即淘汰旧会话 %s"
+                      % (dev, other.get("src", other_sid)), flush=True)
+                _drop_session(other_sid)
     s = _sessions.get(sid)
     if s and s["proc"].poll() is None:
         s["used"] = time.time()
+        if dev:
+            s["dev"] = dev
         return s
     if s:
         _drop_session(sid)
+    # 上限保护：起新会话前先杀掉最旧的其它会话（换源即顶替，防止转码进程堆积）
+    while len(_sessions) >= LIVE_MAX_SESSIONS:
+        old_sid, old = min(_sessions.items(), key=lambda kv: kv[1]["used"])
+        print("会话数已达上限(%d)，淘汰最旧会话 %s"
+              % (LIVE_MAX_SESSIONS, old.get("src", old_sid)), flush=True)
+        _drop_session(old_sid)
     d = tempfile.mkdtemp(prefix="relay_live_%s_" % sid)
     playlist = os.path.join(d, "out.m3u8")
     cmd = [
         FFMPEG, "-nostdin", "-loglevel", "error",
         "-user_agent", UA["User-Agent"],
     ] + _hls_allowed_opts() + [
+        "-re",  # 按实时节奏读输入：否则快于实时的源会让列表超前 mpv，导致跳段卡顿
         "-i", src,
         "-vf", "scale=-2:%s" % LIVE_HEIGHT,
         "-c:v", "libx264", "-preset", "veryfast",
@@ -151,8 +219,11 @@ def _live_session(src):
     except Exception:
         shutil.rmtree(d, ignore_errors=True)
         raise
-    s = {"proc": proc, "dir": d, "playlist": playlist, "used": time.time()}
+    s = {"proc": proc, "dir": d, "playlist": playlist, "used": time.time(),
+         "src": src, "dev": dev}
     _sessions[sid] = s
+    print("会话创建: %s dev=%s (当前 %d/%d)"
+          % (src, dev or "-", len(_sessions), LIVE_MAX_SESSIONS), flush=True)
     return s
 
 
@@ -212,7 +283,7 @@ class Relay(BaseHTTPRequestHandler):
             elif u.path == "/fetch":
                 self.serve_fetch(p["u"][0])
             elif u.path == "/live.m3u8":
-                self.serve_live_playlist(p["src"][0])
+                self.serve_live_playlist(p["src"][0], p.get("dev", [""])[0])
             elif u.path == "/liveseg":
                 self.serve_live_segment(p["sid"][0], p["f"][0])
             else:
@@ -245,6 +316,10 @@ class Relay(BaseHTTPRequestHandler):
         )
 
     def serve_playlist(self, src):
+        if not _allowed_host(src):
+            print("不支持的Host地址: %s" % src)
+            self.send_error(403, "src host not in ACCEPT_HOST")
+            return
         t0 = time.perf_counter()
         r = fetch(src)
         t1 = time.perf_counter()  # 上游 TTFB（含跳转）
@@ -328,19 +403,47 @@ class Relay(BaseHTTPRequestHandler):
                 nbytes,
             )
 
-    def serve_live_playlist(self, src):
+    def serve_live_playlist(self, src, dev=""):
         """起（或复用）ffmpeg 转码会话，返回分片地址改写为 /liveseg 的转码后列表。"""
+        if not _allowed_host(src):
+            print("live src host 不在 ACCEPT_HOST，拒绝: %s" % src, flush=True)
+            self.send_error(403, "src host not in ACCEPT_HOST")
+            return
         t0 = time.perf_counter()
         with _sessions_lock:
-            s = _live_session(src)
+            s = _live_session(src, dev)
+        if not s.get("probed"):
+            # 每个会话只探测一次入站分辨率：超 1080p（如 4K）即记黑名单并杀会话，
+            # 此后同源在 Popen 前被拦截，不再产生入站流量
+            ok, w, h = _probe_resolution(src)
+            s["probed"] = True
+            if ok and (w > LIVE_MAX_W or h > LIVE_MAX_H):
+                _overlimit.add(src)
+                with _sessions_lock:
+                    _drop_session(_sid(src))
+                print("探测到源分辨率 %dx%d 超过上限 %dx%d，拒绝转码: %s"
+                      % (w, h, LIVE_MAX_W, LIVE_MAX_H, src), flush=True)
+                raise RuntimeError("源分辨率超限，拒绝转码")
         if not _wait_ready(s):
             raise RuntimeError("ffmpeg 未生成转码列表（源不可读？）")
         with open(s["playlist"], "rb") as fh:
             body = fh.read()
+        # 掐掉最新几段（不回放给 mpv），使其贴在产出边缘后方 ~8s，吸收分片产出抖动；
+        # 但启动期段数少时最多掐到「至少保留 2 段」，否则新会话前 ~10s 返回空列表，
+        # 播放器无视频轨判成音频、一直缓冲，轮播时更易触发 60s 看门狗换源
+        lines = [l for l in body.decode("utf-8", "replace").splitlines() if l.strip()]
+        nseg = sum(1 for l in lines if not l.startswith("#"))
+        hide = min(LIVE_HIDE_TAIL, max(0, nseg - 2))
+        hidden = 0
+        while hidden < hide and lines and not lines[-1].startswith("#"):
+            lines.pop()  # 最新分片 URI
+            if lines and lines[-1].startswith("#EXTINF"):
+                lines.pop()  # 对应的 #EXTINF 行
+            hidden += 1
         sid = _sid(src)
         out = []
-        for line in body.decode("utf-8", "replace").splitlines():
-            if line.strip() and not line.startswith("#"):
+        for line in lines:
+            if not line.startswith("#"):
                 out.append(
                     "%s/liveseg?t=%s&sid=%s&f=%s"
                     % (BASE, TOKEN, sid, quote(os.path.basename(line.strip())))
