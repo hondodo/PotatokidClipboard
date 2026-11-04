@@ -28,6 +28,34 @@ const MAX_LAYOUT_HOMES = 100;
 // 儿童模式（方案 §2.2）：档案数量与各名单字段的上限。
 const MAX_PARENTAL_CHILDREN = 12;
 const MAX_PARENTAL_LIST = 200;
+// 一台设备可绑定的家长账号上限。
+const MAX_PARENT_ACCOUNTS = 20;
+// 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
+// （tv）可作为家长管控对象。
+const HOME_APP_IDS = new Set(['potatokid.tools.homecontroller', 'pscreen_home']);
+const TV_APP_IDS = new Set([
+    'screen.potatokid.tools',
+    'screen.potatokid.potatokid_screen',
+    'potatokid_screen',
+]);
+
+/** 设备类型：home（中控）/ tv（电视）/ ''（尚未上报包名）。 */
+function machineKind(machine) {
+    const app = machine && typeof machine.commApp === 'string' ? machine.commApp : '';
+    if (HOME_APP_IDS.has(app)) return 'home';
+    if (TV_APP_IDS.has(app)) return 'tv';
+    return '';
+}
+
+function isHomeMachine(machine) {
+    return machineKind(machine) === 'home';
+}
+
+function isTvMachine(machine) {
+    return machineKind(machine) === 'tv';
+}
+
+
 // 禁看时段条目格式 `HH:MM-HH:MM`（与 Flutter 端 QuietHour.tryParse 对齐，从严校验）。
 const PARENTAL_QUIET_HOURS_RE = /^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/;
 
@@ -335,6 +363,10 @@ function attachAdmin(app, options = {}) {
     const onlineAccounts = typeof options.onlineAccounts === 'function'
         ? options.onlineAccounts
         : () => [];
+    // realtime 未挂载时安全降级为空；parental 记录查询用。
+    const eventsForAccounts = typeof options.eventsForAccounts === 'function'
+        ? options.eventsForAccounts
+        : () => [];
     // 由 server.js 注入：把配置变更推给在线设备（realtime 在 admin 之后挂载）。
     const pushDeviceConfig = typeof options.pushDeviceConfig === 'function'
         ? options.pushDeviceConfig
@@ -477,14 +509,25 @@ function attachAdmin(app, options = {}) {
         } catch (_) {
             parental = null;
         }
+        const owner = typeof machine.owner === 'string' ? machine.owner.trim() : '';
+        const kind = machineKind(machine);
+        // `owner` 表示「设备所属中控账号」，`parents` 只表示家长绑定关系，
+        // 两者不再互相推导。中控设备不参与家长绑定：强制清空 parents 与
+        // parental，避免历史数据把中控误当成可管控的电视。
+        let parents = normalizeStringList(machine.parents, MAX_PARENT_ACCOUNTS);
+        if (kind === 'home') {
+            parents = [];
+        }
         return {
             id,
+            kind,
             name: typeof machine.name === 'string' && machine.name.trim()
                 ? machine.name.trim().slice(0, 40)
                 : '未命名设备',
-            owner: typeof machine.owner === 'string' ? machine.owner.trim() : '',
+            owner,
+            parents,
             homes,
-            parental,
+            parental: kind === 'home' ? null : parental,
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -541,6 +584,7 @@ function attachAdmin(app, options = {}) {
             homes,
             source,
             owner,
+            parents: machine.parents || (owner ? [owner] : []),
             ownerName: user ? user.displayName || user.name : '',
             layoutKey: owner || `device_${machine.id}`,
             // 儿童模式配置透传（方案 §2.2：parental 挂机器记录，经 config 帧下发）。
@@ -750,54 +794,81 @@ function attachAdmin(app, options = {}) {
     });
 
     function buildOverview(admin) {
+        const isParent = admin.role === 'parent';
         const users = listUsers();
         const usersByName = new Map(users.map((user) => [user.name, user]));
-        const machines = Object.values(readMachines()).map((machine) => {
+        const allMachines = Object.values(readMachines()).map((machine) => {
             const config = resolveMachineConfig(machine, usersByName);
             return {
                 ...machine,
+                kind: machineKind(machine),
                 ownerName: config.ownerName,
+                parents: config.parents,
                 effectiveHomes: config.homes,
                 homesSource: config.source,
                 layoutKey: config.layoutKey,
                 online: machine.lastSeen > 0 && nowMs() - machine.lastSeen < MACHINE_ONLINE_MS,
             };
         });
-        machines.sort((a, b) => {
+        allMachines.sort((a, b) => {
             if (a.online !== b.online) return a.online ? -1 : 1;
             return (b.lastSeen || 0) - (a.lastSeen || 0);
         });
+        // 家长只能看到绑定到自己名下的电视；中控设备不参与家长绑定。
+        // 未绑定的电视单独给出，供家长自助认领。
+        const tvMachines = allMachines.filter((machine) => machine.kind === 'tv');
+        const machines = isParent
+            ? tvMachines.filter((machine) => machine.parents.includes(admin.name))
+            : allMachines;
+        // 一台电视可被多个家长绑定，家长也可绑定任意多台电视：未包含当前
+        // 家长的电视都作为「可加入」项返回，不再要求设备完全未绑定。
+        const availableMachines = isParent
+            ? tvMachines.filter((machine) => !machine.parents.includes(admin.name))
+            : [];
 
         const homeSet = new Set();
         for (const machine of machines) {
             for (const home of machine.knownHomes) homeSet.add(home);
             if (machine.homes) for (const home of machine.homes) homeSet.add(home);
         }
-        for (const user of users) {
+        for (const user of (isParent ? users.filter((item) => item.name === admin.name) : users)) {
             if (user.homes) for (const home of user.homes) homeSet.add(home);
         }
         const homes = Array.from(homeSet).sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
-        const layouts = Object.entries(readLayouts()).map(([key, layout]) => ({
+        const allLayouts = Object.entries(readLayouts()).map(([key, layout]) => ({
             key,
             owner: key.startsWith('device_') ? '' : key,
             ...layout,
         }));
+        // 家长只能看到自己账号名下 / 自己绑定设备的布局，避免顺带拿到全部
+        // 家庭的数据（布局 Tab 本身已对家长隐藏，这里做服务端兜底）。
+        const layouts = isParent
+            ? allLayouts.filter(
+                (layout) => layout.owner === admin.name || machines.some((machine) => machine.layoutKey === layout.key),
+            )
+            : allLayouts;
 
-        const realtime = onlineAccounts();
+        const realtime = onlineAccounts() || [];
+        const visibleAccounts = new Set([admin.name]);
+        for (const machine of machines) {
+            if (machine.commAccount) visibleAccounts.add(machine.commAccount);
+            visibleAccounts.add(machine.id);
+        }
         return {
             serverTime: nowMs(),
             admin,
-            users: users.map((user) => ({
+            users: (isParent ? users.filter((user) => user.name === admin.name) : users).map((user) => ({
                 ...user,
-                machineCount: machines.filter((machine) => machine.owner === user.name).length,
+                machineCount: tvMachines.filter((machine) => machine.parents.includes(user.name)).length,
             })),
             machines,
+            availableMachines,
             homes,
             layouts,
-            realtimeOnline: Array.isArray(realtime) ? realtime : [],
+            realtimeOnline: isParent ? realtime.filter((account) => visibleAccounts.has(account)) : realtime,
             stats: {
-                users: users.length,
+                users: isParent ? 1 : users.length,
                 machines: machines.length,
                 online: machines.filter((machine) => machine.online).length,
                 homes: homes.length,
@@ -810,6 +881,127 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, buildOverview(req.adminUser));
         } catch (error) {
             console.error('[admin] 读取概览失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 儿童模式相关查询只涉及电视设备（中控不参与）。 */
+    function scopedMachines(user) {
+        const tvs = Object.values(readMachines()).filter((machine) => isTvMachine(machine));
+        if (user.role === 'admin') return tvs;
+        return tvs.filter((machine) => machine.parents.includes(user.name));
+    }
+
+    /** 设备对应的通信账号集合：事件 from/to 命中任一即可纳入记录。 */
+    function machineAccounts(machines) {
+        const accounts = new Set();
+        for (const machine of machines) {
+            if (machine.commAccount) accounts.add(machine.commAccount);
+            accounts.add(machine.id);
+        }
+        return Array.from(accounts);
+    }
+
+    function machineForEvent(machines, event) {
+        return machines.find((machine) => machine.commAccount === event.from || machine.id === event.from);
+    }
+
+    /**
+     * 从 `parental_watch` 心跳还原会话级观看记录。
+     *
+     * 心跳里带每个孩子的累计 `sessionSec`，因此可用 `event.ts - sessionSec`
+     * 反推本次会话起点；同一孩子会话内的心跳会命中同一段时间窗。
+     */
+    function deriveParentalSessions(machines, events) {
+        const sessions = [];
+        const lastByChild = new Map();
+        const seen = new Set();
+        const sorted = events
+            .filter((event) => event && event.event === 'parental_watch' && event.data)
+            .sort((a, b) => a.ts - b.ts);
+        for (const event of sorted) {
+            // 兼容旧版按家长扇出时落库的副本：同一事件 id 只处理一次。
+            if (event.id) {
+                if (seen.has(event.id)) continue;
+                seen.add(event.id);
+            }
+            const machine = machineForEvent(machines, event);
+            if (!machine) continue;
+            const data = event.data || {};
+            const childIds = Array.isArray(data.childIds) ? data.childIds : [];
+            const sessionSecByChild = data.sessionSecByChild && typeof data.sessionSecByChild === 'object'
+                ? data.sessionSecByChild
+                : {};
+            const dailySecByChild = data.dailySecByChild && typeof data.dailySecByChild === 'object'
+                ? data.dailySecByChild
+                : {};
+            for (const childId of childIds) {
+                const sessionSec = Number(sessionSecByChild[childId]);
+                if (!Number.isFinite(sessionSec) || sessionSec <= 0) continue;
+                const startMs = event.ts - sessionSec * 1000;
+                const key = `${machine.id}|${childId}`;
+                const last = lastByChild.get(key);
+                if (last && Math.abs(last.startMs - startMs) < 120000) {
+                    last.endMs = Math.max(last.endMs, event.ts);
+                    last.durationSec = Math.max(last.durationSec, sessionSec);
+                    last.dailySec = Math.max(last.dailySec, Number(dailySecByChild[childId]) || 0);
+                    continue;
+                }
+                const child = (machine.parental && machine.parental.children || [])
+                    .find((item) => item.id === childId);
+                const session = {
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    childId,
+                    childName: child ? child.name : childId,
+                    date: data.date || '',
+                    startMs,
+                    endMs: event.ts,
+                    durationSec: sessionSec,
+                    dailySec: Number(dailySecByChild[childId]) || 0,
+                };
+                sessions.push(session);
+                lastByChild.set(key, session);
+            }
+        }
+        sessions.sort((a, b) => b.endMs - a.endMs);
+        return sessions.slice(0, 200);
+    }
+
+    app.get('/api/admin/parental/records', requireParentOperator, (req, res) => {
+        try {
+            const user = req.adminUser;
+            const machines = scopedMachines(user);
+            const accounts = machineAccounts(machines);
+            const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 200);
+            const watch = eventsForAccounts(accounts, { event: 'parental_watch', limit });
+            const unlock = eventsForAccounts(accounts, { event: 'parental_unlock_request', limit });
+            // 电视端同一解锁请求会「owner 直投 + 管理员」双发（id 不同、短码
+            // 相同），按短码去重，避免记录页出现两条一样的请求。
+            const unlockSeen = new Set();
+            const uniqueUnlock = unlock.filter((event) => {
+                const code = String((event.data && event.data.code) || '').trim();
+                const key = code ? `${event.from}|${code}` : (event.id || `${event.ts}`);
+                if (unlockSeen.has(key)) return false;
+                unlockSeen.add(key);
+                return true;
+            });
+            return jsonOk(res, {
+                machines: machines.map((machine) => ({
+                    ...machine,
+                    online: machine.lastSeen > 0 && nowMs() - machine.lastSeen < MACHINE_ONLINE_MS,
+                })),
+                sessions: deriveParentalSessions(machines, watch),
+                unlockRequests: uniqueUnlock.map((event) => {
+                    const machine = machineForEvent(machines, event);
+                    return {
+                        ...event,
+                        machineName: machine ? machine.name : '',
+                    };
+                }),
+            });
+        } catch (error) {
+            console.error('[admin] 读取家长记录失败:', error);
             return jsonFail(res, error.message);
         }
     });
@@ -884,16 +1076,52 @@ function attachAdmin(app, options = {}) {
             const machine = machines[id];
             if (!machine) return jsonFail(res, '设备不存在');
             const usersByName = new Map(listUsers().map((user) => [user.name, user]));
+            const isParent = req.adminUser.role === 'parent';
+            const kind = machineKind(machine);
+            if (isParent && !machine.parents.includes(req.adminUser.name)) {
+                return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            }
+            if (kind === 'home' && Object.prototype.hasOwnProperty.call(req.body || {}, 'parents')) {
+                return jsonFail(res, '中控设备不支持绑定家长');
+            }
+            if (kind === 'home' && Object.prototype.hasOwnProperty.call(req.body || {}, 'parental')) {
+                return jsonFail(res, '中控设备没有儿童模式');
+            }
 
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
                 machine.name = String(req.body.name || '').trim().slice(0, 40) || '未命名设备';
             }
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'owner')) {
+                // 归属变更会重排 parents，家长无权改写（否则可挤掉其他家长）。
+                if (isParent) return jsonFail(res, '家长不能修改设备归属', 403, 403);
                 const owner = String(req.body.owner || '').trim();
                 if (owner && !usersByName.has(owner)) {
                     return jsonFail(res, '所属用户不存在');
                 }
                 machine.owner = owner;
+            }
+            if (Object.prototype.hasOwnProperty.call(req.body || {}, 'parents')) {
+                const raw = req.body.parents;
+                if (!Array.isArray(raw)) return jsonFail(res, 'parents 必须是账号数组');
+                const requested = normalizeStringList(raw, MAX_PARENT_ACCOUNTS);
+                for (const name of requested) {
+                    const user = usersByName.get(name);
+                    if (!user) return jsonFail(res, `家长账号不存在：${name}`);
+                    if (user.role !== 'parent' && user.role !== 'admin') {
+                        return jsonFail(res, `账号不是家长角色：${name}`);
+                    }
+                }
+                if (isParent) {
+                    const self = req.adminUser.name;
+                    const others = machine.parents.filter((name) => name !== self);
+                    if (requested.some((name) => name !== self)) {
+                        return jsonFail(res, '家长只能绑定自己，其他家长需由管理员分配', 403, 403);
+                    }
+                    // 已有其他家长时只允许增删自己，不能把别人挤掉。
+                    machine.parents = others.concat(requested.includes(self) ? [self] : []);
+                } else {
+                    machine.parents = requested;
+                }
             }
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'homes')) {
                 machine.homes = normalizeHomes(req.body.homes);
@@ -906,11 +1134,45 @@ function attachAdmin(app, options = {}) {
             }
             machines[id] = normalizeMachine(id, machine);
             saveMachines(machines);
-            console.log(`[admin] 更新设备 ${id}: owner=${machine.owner} homes=${JSON.stringify(machine.homes)} parental=${machine.parental ? machine.parental.mode : 'null'}`);
+            console.log(`[admin] 更新设备 ${id}: parents=${JSON.stringify(machine.parents)} homes=${JSON.stringify(machine.homes)} parental=${machine.parental ? machine.parental.mode : 'null'}`);
             pushConfigToMachine(machines[id], { reason: 'machine' });
             return jsonOk(res, { machine: machines[id] });
         } catch (error) {
             console.error('[admin] 更新设备失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    // 家长自助绑定/解绑：只能增删自己；一台电视可同时属于多个家长。
+    app.post('/api/admin/parental/bind', requireParentOperator, (req, res) => {
+        try {
+            const user = req.adminUser;
+            const id = safeDeviceId(req.body ? req.body.deviceId : '');
+            const bind = req.body ? req.body.bind !== false : true;
+            if (!id) return jsonFail(res, '设备 ID 无效');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '设备不存在');
+            if (machineKind(machine) === 'home') {
+                return jsonFail(res, '中控设备不支持绑定家长');
+            }
+            if (user.role === 'parent') {
+                machine.parents = bind
+                    ? Array.from(new Set(machine.parents.concat(user.name)))
+                    : machine.parents.filter((name) => name !== user.name);
+            } else {
+                // 管理员走完整 parents 分配（PUT），这里只做单账号增删。
+                const next = bind
+                    ? Array.from(new Set(machine.parents.concat(user.name)))
+                    : machine.parents.filter((name) => name !== user.name);
+                machine.parents = next;
+            }
+            machines[id] = normalizeMachine(id, machine);
+            saveMachines(machines);
+            pushConfigToMachine(machines[id], { reason: 'parent-bind' });
+            return jsonOk(res, { machine: machines[id] });
+        } catch (error) {
+            console.error('[admin] 家长绑定设备失败:', error);
             return jsonFail(res, error.message);
         }
     });
@@ -1039,11 +1301,16 @@ function attachAdmin(app, options = {}) {
     const TOUCH_THROTTLE_MS = 60 * 1000;
     const lastTouchAt = new Map();
 
-    /** 精确匹配优先，其次后缀匹配（ws 上报 16hex，表主键可能是 android_<hex>）。 */
+    /**
+     * 设备主键精确匹配。
+     *
+     * 不能再用后缀匹配：同一台物理设备上的中控（`android_<hex>`）与电视
+     * （裸 `<hex>`）会因此被并成一条记录，`commApp/commAccount` 被双方互相
+     * 覆盖，家长端也就无法区分中控和电视。
+     */
     function findMachineKey(machines, id) {
         if (!id) return null;
-        if (machines[id]) return id;
-        return Object.keys(machines).find((candidate) => candidate.endsWith(id)) || null;
+        return machines[id] ? id : null;
     }
 
     /** ws 连接 / ping 保活：仅刷新 lastSeen。 */
@@ -1233,8 +1500,7 @@ function attachAdmin(app, options = {}) {
     console.log(`[admin] Admin 页面: /admin（管理员账号: ${ADMIN_USERNAME}）`);
     // ws 握手成功后由 realtime 回写设备的通信账号与客户端标识
     // （app / version / build，仅更新已注册设备，不新建）。
-    // 客户端 ws 上报的是 16hex 设备号；admin 表主键可能是 `android_<hex>` /
-    // `gen_<hex>` 这类带前缀形式，故先精确匹配再按后缀匹配。
+    // 设备主键必须精确匹配：中控与电视是两个独立客户端，不能共享一条记录。
     function setCommInfo(deviceId, comm) {
         const id = safeDeviceId(deviceId);
         const info = comm && typeof comm === 'object' ? comm : {};
@@ -1246,15 +1512,35 @@ function attachAdmin(app, options = {}) {
         };
         if (!id || !Object.values(next).some((value) => value)) return;
         const machines = readMachines();
-        const key = machines[id]
-            ? id
-            : Object.keys(machines).find((candidate) => candidate.endsWith(id));
+        const key = machines[id] ? id : null;
         const machine = key ? machines[key] : null;
         if (!machine || Object.entries(next).every(([field, value]) => machine[field] === value)) return;
         Object.assign(machine, next);
         machines[key] = normalizeMachine(key, machine);
         saveMachines(machines);
     }
+    /** 设备通信账号 → 绑定家长账号（realtime 事件扇出用，仅电视）。 */
+    function parentAccountsFor(account) {
+        if (!account) return [];
+        const machines = readMachines();
+        const machine = Object.values(machines)
+            .find((item) => isTvMachine(item)
+                && (item.commAccount === account || item.id === account));
+        return machine ? machine.parents : [];
+    }
+
+    /** 家长账号 → 其绑定电视的通信账号（含设备 id），用于家长端补拉历史事件。 */
+    function machineAccountsForParent(account) {
+        if (!account) return [];
+        const accounts = [];
+        for (const machine of Object.values(readMachines())) {
+            if (!isTvMachine(machine) || !machine.parents.includes(account)) continue;
+            if (machine.commAccount) accounts.push(machine.commAccount);
+            accounts.push(machine.id);
+        }
+        return accounts;
+    }
+
     return {
         adminDir,
         ADMIN_USERNAME,
@@ -1265,6 +1551,10 @@ function attachAdmin(app, options = {}) {
         touchDevice,
         updateDeviceReport,
         configFor,
+        // parental 事件扇出：设备 → 绑定家长
+        parentAccountsFor,
+        // parental 历史补拉：家长 → 绑定设备账号
+        machineAccountsForParent,
     };
 }
 
