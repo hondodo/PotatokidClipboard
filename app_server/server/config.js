@@ -53,6 +53,11 @@ const DEFAULTS = {
     draftDays: 7,
   },
   ios: { mode: 'external-only' },
+  files: {
+    maxTotalBytes: 1073741824,
+    serviceToken: '',
+    checkIntervalMinutes: 60,
+  },
   https: { enabled: false, keyPath: '', certPath: '', redirectHttp: false },
   trustProxy: false,
 };
@@ -118,10 +123,21 @@ function loadConfig() {
   }
   ensureDir(cfg.storageRoot);
   ensureDir(cfg.tmpDir);
+  cfg.mirrorRoot = path.join(ROOT, 'uploads', 'mirror');
+  ensureDir(cfg.mirrorRoot);
+  ensureDir(path.join(cfg.mirrorRoot, '.tmp'));
 
   if (!cfg.apiKey || cfg.apiKey.length < 24) {
     cfg.apiKey = crypto.randomBytes(24).toString('hex');
     const persisted = { ...readJson(CONFIG_PATH), apiKey: cfg.apiKey };
+    writeFilePrivate(CONFIG_PATH, JSON.stringify(persisted, null, 2) + '\n');
+  }
+
+  // 文件镜像服务令牌：缺失时自动生成（32 字节 hex）并写回配置（0600）。
+  if (!cfg.files.serviceToken || String(cfg.files.serviceToken).length < 32) {
+    cfg.files.serviceToken = crypto.randomBytes(32).toString('hex');
+    const persisted = readJson(CONFIG_PATH);
+    persisted.files = { ...(persisted.files || {}), serviceToken: cfg.files.serviceToken };
     writeFilePrivate(CONFIG_PATH, JSON.stringify(persisted, null, 2) + '\n');
   }
 

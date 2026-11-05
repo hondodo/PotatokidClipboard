@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { ensureDir, writeFilePrivate } = require('./config');
 
 const PLATFORMS = ['windows', 'apk', 'ios', 'macos', 'linux'];
+const ROLES = ['admin', 'apps', 'files'];
 const APP_ID_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const VERSION_RE = /^[0-9]+(\.[0-9]+){1,3}$/;
 
@@ -23,13 +24,15 @@ function nowIso() {
 
 function emptyDb() {
   return {
-    version: 1,
+    version: 2,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     applications: {},
     releases: {},
     latest: {},
-    admin: null,
+    accounts: [],
+    tokens: {},
+    files: {},
     stats: { daily: {} },
   };
 }
@@ -53,6 +56,18 @@ function normalizePlatforms(input) {
     if (!out.includes(p)) out.push(p);
   }
   if (!out.length) throw new DataError(400005, 'platforms 至少选择一个平台');
+  return out;
+}
+
+function normalizeRoles(input) {
+  if (!Array.isArray(input)) throw new DataError(400005, 'roles 必须为数组');
+  const out = [];
+  for (const raw of input) {
+    const role = String(raw || '').trim().toLowerCase();
+    if (!ROLES.includes(role)) throw new DataError(400011, `未知角色：${raw}`);
+    if (!out.includes(role)) out.push(role);
+  }
+  if (!out.length) throw new DataError(400005, 'roles 至少选择一个角色');
   return out;
 }
 
@@ -98,6 +113,7 @@ class Store {
 
   init() {
     ensureDir(this.dataDir);
+    let migrated = false;
     if (fs.existsSync(this.dbPath)) {
       const raw = JSON.parse(fs.readFileSync(this.dbPath, 'utf8'));
       this.db = { ...emptyDb(), ...raw };
@@ -105,6 +121,34 @@ class Store {
       this.db.releases = raw.releases || {};
       this.db.latest = raw.latest || {};
       this.db.stats = raw.stats || { daily: {} };
+      this.db.accounts = Array.isArray(raw.accounts) ? raw.accounts : [];
+      this.db.tokens = raw.tokens || {};
+      this.db.files = raw.files || {};
+
+      // 向后兼容：v1 的单 admin 迁移为 accounts[0]，授予三角色，保留原密码哈希与会话状态。
+      if (!this.db.accounts.length && raw.admin) {
+        this.db.accounts = [
+          {
+            username: raw.admin.username,
+            passwordHash: raw.admin.passwordHash,
+            roles: ['admin', 'apps', 'files'],
+            createdAt: raw.admin.createdAt || nowIso(),
+            updatedAt: nowIso(),
+            disabled: false,
+            lastLoginAt: null,
+            mustChangePassword: Boolean(raw.admin.mustChangePassword),
+            authEpoch: Number(raw.admin.authEpoch) || 1,
+            sessionId: raw.admin.sessionId || null,
+            sessionIssuedAt: raw.admin.sessionIssuedAt || null,
+            sessionExpiresAt: raw.admin.sessionExpiresAt || null,
+          },
+        ];
+        delete this.db.admin;
+        this.db.version = 2;
+        migrated = true;
+      }
+      if (migrated) this.persistSync();
+      this.migratedFromV1 = migrated;
     } else {
       this.db = emptyDb();
       this.persistSync();
@@ -139,9 +183,114 @@ class Store {
     return this.queue;
   }
 
-  // ---- 管理员 ----
-  setAdmin(admin) {
-    this.db.admin = admin;
+  // ---- 账号 ----
+  findAccount(username) {
+    return (this.db.accounts || []).find((a) => a.username === username) || null;
+  }
+
+  listAccounts() {
+    return [...(this.db.accounts || [])].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  }
+
+  assertAccountUsername(username) {
+    const value = String(username || '').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/.test(value)) {
+      throw new DataError(400005, '用户名需为 2-32 位字母/数字/点/下划线/连字符，且以字母或数字开头');
+    }
+    return value;
+  }
+
+  createAccount({ username, passwordHash, roles }) {
+    const name = this.assertAccountUsername(username);
+    if (this.findAccount(name)) throw new DataError(400016, '账号已存在', 409);
+    const account = {
+      username: name,
+      passwordHash,
+      roles: normalizeRoles(roles),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      disabled: false,
+      lastLoginAt: null,
+      mustChangePassword: false,
+      authEpoch: 1,
+      sessionId: null,
+      sessionIssuedAt: null,
+      sessionExpiresAt: null,
+    };
+    this.db.accounts.push(account);
+    return account;
+  }
+
+  updateAccountRoles(username, roles) {
+    const account = this.findAccount(username);
+    if (!account) throw new DataError(400014, '账号不存在', 404);
+    const next = normalizeRoles(roles);
+    const admins = (this.db.accounts || []).filter((a) => !a.disabled && a.roles.includes('admin'));
+    if (account.roles.includes('admin') && !next.includes('admin') && admins.length <= 1) {
+      throw new DataError(400017, '至少保留一个 admin 角色账号');
+    }
+    account.roles = next;
+    account.authEpoch = Number(account.authEpoch || 1) + 1;
+    account.sessionId = null;
+    account.sessionIssuedAt = null;
+    account.sessionExpiresAt = null;
+    account.updatedAt = nowIso();
+    return account;
+  }
+
+  resetAccountPassword(username, passwordHash) {
+    const account = this.findAccount(username);
+    if (!account) throw new DataError(400014, '账号不存在', 404);
+    account.passwordHash = passwordHash;
+    account.mustChangePassword = true;
+    account.authEpoch = Number(account.authEpoch || 1) + 1;
+    account.sessionId = null;
+    account.sessionIssuedAt = null;
+    account.sessionExpiresAt = null;
+    account.updatedAt = nowIso();
+    return account;
+  }
+
+  deleteAccount(username) {
+    const account = this.findAccount(username);
+    if (!account) throw new DataError(400014, '账号不存在', 404);
+    const admins = (this.db.accounts || []).filter((a) => a.roles.includes('admin'));
+    if (account.roles.includes('admin') && admins.length <= 1) {
+      throw new DataError(400017, '至少保留一个 admin 角色账号，无法删除');
+    }
+    this.db.accounts = this.db.accounts.filter((a) => a.username !== username);
+    return true;
+  }
+
+  // ---- 临时访问口令 ----
+  getToken(tokenId) {
+    return (this.db.tokens || {})[tokenId] || null;
+  }
+
+  listTokens() {
+    return Object.values(this.db.tokens || {}).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  }
+
+  createTokenRecord(record) {
+    if (!this.db.tokens) this.db.tokens = {};
+    this.db.tokens[record.id] = record;
+    return record;
+  }
+
+  revokeToken(tokenId) {
+    const token = this.getToken(tokenId);
+    if (!token) throw new DataError(400013, '口令不存在', 404);
+    token.revokedAt = token.revokedAt || nowIso();
+    return token;
+  }
+
+  markTokenUsed(tokenId) {
+    const token = this.getToken(tokenId);
+    if (!token) return null;
+    token.lastUsedAt = nowIso();
+    if (!token.usedAt) token.usedAt = token.lastUsedAt;
+    token.useCount = Number(token.useCount || 0) + 1;
+    return token;
   }
 
   // ---- 应用 ----
@@ -271,7 +420,7 @@ class Store {
       fileAvailable: input.fileAvailable !== false,
       fileDeletedAt: null,
       notes: assertText(input.notes, 'notes', 2000),
-      forceUpdate: false, // iOS 恒为 false；其它平台发布时再决定
+      forceUpdate: input.forceUpdate === true, // 上传时预勾选；发布时再按 publish 传参决定
       status: 'draft',
       publishedAt: null,
       archivedAt: null,
@@ -309,14 +458,14 @@ class Store {
   publishRelease(releaseId, { forceUpdate, rollback = false } = {}) {
     const release = this.getRelease(releaseId);
     const app = this.getApplication(release.appId);
-    if (release.status === 'draft' && release.distribution === 'file' && !release.fileAvailable) {
-      throw new DataError(300008, '安装包文件不可用，无法发布');
+    if (release.distribution === 'file' && !release.fileAvailable) {
+      throw new DataError(300008, '安装包文件不可用，请重新上传', 410);
     }
     if (!rollback) {
       this.assertBuildMonotonic(app, release.platform, release.build);
     }
     const previousId = this.getLatestId(release.appId, release.platform);
-    if (previousId) {
+    if (previousId && previousId !== release.releaseId) {
       const previous = this.db.releases[previousId];
       if (previous) {
         previous.status = 'archived';
@@ -327,8 +476,10 @@ class Store {
     if (!this.db.latest[release.appId]) this.db.latest[release.appId] = {};
     this.db.latest[release.appId][release.platform] = release.releaseId;
     release.status = 'published';
+    release.archivedAt = null;
     release.publishedAt = release.publishedAt || nowIso();
-    release.forceUpdate = release.platform === 'ios' ? false : Boolean(forceUpdate);
+    const nextForce = forceUpdate === undefined ? Boolean(release.forceUpdate) : Boolean(forceUpdate);
+    release.forceUpdate = release.platform === 'ios' ? false : nextForce;
     return release;
   }
 
@@ -356,10 +507,12 @@ module.exports = {
   Store,
   DataError,
   PLATFORMS,
+  ROLES,
   APP_ID_RE,
   VERSION_RE,
   validateReleaseMeta,
   assertAppId,
   normalizePlatforms,
+  normalizeRoles,
   nowIso,
 };

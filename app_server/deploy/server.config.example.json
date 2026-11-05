@@ -45,6 +45,11 @@
   "ios": {
     "mode": "external-only"
   },
+  "files": {
+    "maxTotalBytes": 1073741824,
+    "serviceToken": "REPLACE_WITH_RANDOM_32_BYTES",
+    "checkIntervalMinutes": 60
+  },
   "https": {
     "enabled": false,
     "keyPath": "",

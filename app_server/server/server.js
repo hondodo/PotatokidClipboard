@@ -11,6 +11,10 @@ const { Store } = require('./store');
 const { createAudit } = require('./audit');
 const { ensureSecret, bootstrapAdmin } = require('./security');
 const { createAdminApp } = require('./admin');
+const { UploadManager } = require('./uploads');
+const { createUpdateRouter } = require('./update_api');
+const { createFilesRouter, startFilesScheduler } = require('./files');
+const { startCleanupScheduler } = require('./cleanup');
 const { ok, wrap, freeBytes, dirSizeBytes, securityHeaders, handleError } = require('./apiutil');
 
 const config = loadConfig();
@@ -21,13 +25,15 @@ store.init();
 const secret = ensureSecret(config.dataDir);
 const audit = createAudit(config.dataDir);
 
-if (!store.data.admin) {
+if (!store.data.accounts || !store.data.accounts.length) {
   const boot = bootstrapAdmin({ dataDir: config.dataDir, username: config.adminUsername });
   store.mutate(() => {
-    store.data.admin = boot.admin;
+    store.data.accounts.push(boot.account);
   });
-  console.log(`[init] 已创建初始管理员 ${config.adminUsername}`);
+  console.log(`[init] 已创建初始管理员 ${config.adminUsername}（角色 admin/apps/files）`);
   console.log(`[init] 初始密码仅写入：${boot.initialPasswordFile}（0600），首次登录必须改密，请勿提交到仓库`);
+} else if (store.migratedFromV1) {
+  console.log(`[init] 已将旧版单管理员迁移为 accounts[]，授予 admin/apps/files 三个角色`);
 }
 
 if (!fs.existsSync(`${config.dataDir}/db.json`)) {
@@ -69,6 +75,12 @@ function createBusinessApp() {
   app.get('/api/health', health);
   app.head('/healthz', (req, res) => res.status(200).end());
 
+  // 客户端查询 / 签名下载（业务端口）。
+  app.use(createUpdateRouter({ config, store, audit, secret }));
+
+  // 文件镜像上传（本地 pscreen_server 调用）：业务端口 + 服务令牌。
+  app.use(createFilesRouter({ config, store, audit }));
+
   // 管理面只存在于 47293：业务端口显式拒绝，避免误暴露。
   app.use(['/admin', '/api/admin'], (req, res) =>
     res.status(404).json({ code: 300000, msg: '接口不存在', data: null })
@@ -97,16 +109,23 @@ if (useTls && (!config.https.keyPath || !config.https.certPath)) {
   process.exit(1);
 }
 
+const uploads = new UploadManager({ config, store, audit });
+uploads.init();
+
 const businessApp = createBusinessApp();
-const adminApp = createAdminApp({ config, store, audit, secret });
+const adminApp = createAdminApp({ config, store, audit, secret, uploads });
 
 const servers = [
   listen(businessApp, config.port, '0.0.0.0', 'business', useTls),
   listen(adminApp, config.adminPort, config.adminBind || '0.0.0.0', 'admin', useTls),
 ];
 
+startCleanupScheduler({ config, store, audit, uploads });
+startFilesScheduler({ config, store, audit });
+
 console.log(`[start] 数据目录 ${config.dataDir}`);
 console.log(`[start] 管理页 ${useTls ? 'https' : 'http'}://${config.adminBind || '0.0.0.0'}:${config.adminPort}/admin`);
+console.log(`[start] 页面：/admin（账号） /apps（应用） /files（文件）`);
 
 function shutdown(signal) {
   console.log(`[shutdown] 收到 ${signal}，正在停止服务`);

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App 分发管理</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div>
+      <div class="brand">Potatokid App 分发管理</div>
+      <div class="who" id="whoLine">正在检查登录状态…</div>
+    </div>
+    <div class="actions">
+      <a href="/admin"><button class="small">登录</button></a>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid3" id="entries"></div>
+
+    <section class="card" style="margin-top:18px">
+      <h2>临时访问口令</h2>
+      <p class="hint">收到管理员发的口令？粘贴到这里，即可获得对应页面的只读访问。</p>
+      <form id="tokenForm">
+        <div class="row">
+          <label>口令<input id="tokenInput" type="text" placeholder="粘贴随机口令" required></label>
+        </div>
+        <button class="primary small" type="submit">使用口令</button>
+        <p id="tokenMsg" class="msg"></p>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const esc = (value) =>
+  String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+
+const PAGES = [
+  { key: 'accounts', href: '/admin', title: '账号管理', desc: '账号增删、角色分配、改密、临时访问口令' },
+  { key: 'apps', href: '/apps', title: '应用管理', desc: '应用 / 版本 / 分片上传 / 发布 / 强更 / 回滚 / 清理' },
+  { key: 'files', href: '/files', title: '文件管理', desc: '镜像文件列表 / 下载 / 删除 / 容量占用' },
+];
+
+async function getMe() {
+  try {
+    const res = await fetch('/api/admin/me', { credentials: 'same-origin' });
+    const payload = await res.json();
+    if (res.status === 401 || !payload || payload.code !== 0) return null;
+    return payload.data;
+  } catch (_) {
+    return null;
+  }
+}
+
+(async () => {
+  const me = await getMe();
+  if (!me) {
+    $('#whoLine').textContent = '未登录：请从下方入口进入后登录，或直接使用临时口令。';
+    $('#entries').innerHTML = PAGES.map((p) =>
+      `<a class="entry" href="${p.href}"><b>${esc(p.title)}</b><span>${esc(p.desc)}</span></a>`
+    ).join('');
+    return;
+  }
+
+  const perms = me.permissions || {};
+  const allowed = PAGES.filter((p) => perms[p.key]);
+  const label = me.name + '（' + ((me.roles && me.roles.length ? me.roles.join(' / ') : (me.scopes || []).join(' / ')) || '只读') + '）';
+  $('#whoLine').textContent = label + ' · 可访问 ' + (allowed.map((p) => p.title).join('、') || '无');
+
+  if (allowed.length === 1) {
+    location.replace(allowed[0].href);
+    return;
+  }
+  $('#entries').innerHTML = PAGES.map((p) =>
+    perms[p.key]
+      ? `<a class="entry" href="${p.href}"><b>${esc(p.title)}</b><span>${esc(p.desc)}</span></a>`
+      : `<div class="entry" style="opacity:.45;cursor:not-allowed"><b>${esc(p.title)}</b><span>无权限</span></div>`
+  ).join('');
+})();
+
+$('#tokenForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const token = $('#tokenInput').value.trim();
+  const res = await fetch('/api/admin/token-login', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' },
+    body: JSON.stringify({ token }),
+  });
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* ignore */ }
+  if (!payload || payload.code !== 0) {
+    $('#tokenMsg').textContent = (payload && payload.msg) || '口令无效';
+    $('#tokenMsg').className = 'msg err';
+    return;
+  }
+  const target = (payload.data.scopes || []).includes('apps:read') ? '/apps' : '/files';
+  location.replace(target);
+});
+</script>
+</body>
+</html>

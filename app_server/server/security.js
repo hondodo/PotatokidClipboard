@@ -7,6 +7,7 @@ const { ensureDir, writeFilePrivate } = require('./config');
 const { nowIso } = require('./store');
 
 const COOKIE_NAME = 'pk_app_admin';
+const VIEWER_COOKIE = 'pk_app_viewer';
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 function ensureSecret(dataDir) {
@@ -78,15 +79,19 @@ function bootstrapAdmin({ dataDir, username }) {
   const file = path.join(dataDir, 'initial_admin_password.txt');
   writeFilePrivate(file, password + '\n');
   return {
-    admin: {
+    account: {
       username,
       passwordHash: scryptHash(password),
+      roles: ['admin', 'apps', 'files'],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      disabled: false,
+      lastLoginAt: null,
       mustChangePassword: true,
       authEpoch: 1,
       sessionId: null,
       sessionIssuedAt: null,
       sessionExpiresAt: null,
-      updatedAt: nowIso(),
     },
     initialPasswordFile: file,
   };
@@ -148,6 +153,19 @@ class LoginLimiter {
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
+// 下载签名：sig = HMAC_SHA256(secret, releaseId + "." + exp)，有效期由 downloadTokenTtlSec 控制。
+function signDownload(secret, releaseId, exp) {
+  return crypto.createHmac('sha256', secret).update(`${releaseId}.${exp}`).digest('base64url');
+}
+
+function verifyDownload(secret, releaseId, exp, sig) {
+  if (!releaseId || !sig || !Number.isFinite(Number(exp))) return false;
+  const expected = signDownload(secret, releaseId, Number(exp));
+  const a = Buffer.from(String(sig));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 function signCookie(payload, secret) {
   const body = b64url(JSON.stringify(payload));
   const sig = b64url(crypto.createHmac('sha256', secret).update(body).digest());
@@ -179,38 +197,70 @@ function cookieOptions(config) {
   };
 }
 
-function issueSession(db, config) {
+function issueSession(account, config) {
   const hours = Number(config.admin.sessionHours) || 12;
   const now = Date.now();
-  const admin = db.admin;
-  admin.sessionId = crypto.randomBytes(16).toString('hex');
-  admin.sessionIssuedAt = new Date(now).toISOString();
-  admin.sessionExpiresAt = new Date(now + hours * 3600 * 1000).toISOString();
+  account.sessionId = crypto.randomBytes(16).toString('hex');
+  account.sessionIssuedAt = new Date(now).toISOString();
+  account.sessionExpiresAt = new Date(now + hours * 3600 * 1000).toISOString();
   return {
-    sid: admin.sessionId,
+    sid: account.sessionId,
     exp: Math.floor((now + hours * 3600 * 1000) / 1000),
-    expiresAt: admin.sessionExpiresAt,
+    expiresAt: account.sessionExpiresAt,
   };
 }
 
-function sessionPayload(admin, session) {
-  return { u: admin.username, sid: session.sid, e: admin.authEpoch, exp: session.exp };
+function sessionPayload(account, session) {
+  return { u: account.username, sid: session.sid, e: account.authEpoch, exp: session.exp };
 }
 
 function readSession(req, db, secret) {
   const raw = req.cookies ? req.cookies[COOKIE_NAME] : null;
   const payload = verifyCookie(raw, secret);
   if (!payload) return null;
-  const admin = db.admin;
-  if (!admin || !admin.sessionId) return null;
+  const account = (db.accounts || []).find((a) => a.username === payload.u);
+  if (!account || account.disabled || !account.sessionId) return null;
   if (Number(payload.exp) * 1000 <= Date.now()) return null;
-  if (payload.sid !== admin.sessionId || Number(payload.e) !== Number(admin.authEpoch)) return null;
-  if (payload.u !== admin.username) return null;
-  return { username: admin.username, sessionId: admin.sessionId, expiresAt: admin.sessionExpiresAt };
+  if (payload.sid !== account.sessionId || Number(payload.e) !== Number(account.authEpoch)) return null;
+  return {
+    type: 'account',
+    username: account.username,
+    roles: [...account.roles],
+    sessionId: account.sessionId,
+    expiresAt: account.sessionExpiresAt,
+    mustChangePassword: Boolean(account.mustChangePassword),
+  };
+}
+
+// 临时口令会话：Cookie 只保存 tokenId + scope + 到期时间，每次请求仍回查口令是否被吊销。
+function viewerPayload(tokenId, scopes, exp) {
+  return { t: tokenId, s: scopes, exp };
+}
+
+function readViewerSession(req, db, secret) {
+  const raw = req.cookies ? req.cookies[VIEWER_COOKIE] : null;
+  const payload = verifyCookie(raw, secret);
+  if (!payload || !payload.t) return null;
+  if (Number(payload.exp) * 1000 <= Date.now()) return null;
+  const record = (db.tokens || {})[payload.t];
+  if (!record || record.revokedAt) return null;
+  if (record.expiresAt && Number(record.expiresAt) <= Date.now()) return null;
+  const scopes = Array.isArray(payload.s) ? payload.s : [];
+  return {
+    type: 'viewer',
+    tokenId: record.id,
+    scopes,
+    expiresAt: new Date(Number(payload.exp) * 1000).toISOString(),
+  };
+}
+
+function generateAccessToken() {
+  return crypto.randomBytes(32).toString('base64url');
 }
 
 module.exports = {
   COOKIE_NAME,
+  VIEWER_COOKIE,
   ensureSecret,
   scryptHash,
   scryptVerify,
@@ -219,8 +269,13 @@ module.exports = {
   LoginLimiter,
   signCookie,
   verifyCookie,
+  signDownload,
+  verifyDownload,
   cookieOptions,
   issueSession,
   sessionPayload,
+  viewerPayload,
   readSession,
+  readViewerSession,
+  generateAccessToken,
 };

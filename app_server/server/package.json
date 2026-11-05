@@ -1,8 +1,8 @@
 {
   "name": "potatokid-app-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Potatokid 应用分发 / 更新服务（部署于 yuntu，阶段 0+1 骨架）",
+  "description": "Potatokid 应用分发 / 更新服务（部署于 yuntu，阶段 0-2：骨架 + 上传/发布/查询/清理）",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "busboy": "^1.6.0",
     "cookie-parser": "1.4.7",
     "express": "5.1.0"
   }

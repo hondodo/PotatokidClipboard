@@ -30,7 +30,7 @@ echo "==> 同步部署模板与前端"
 rsync -az "${HERE}/ecosystem.config.js" "${REMOTE}:${REMOTE_DIR}/server/ecosystem.config.js"
 rsync -az "${HERE}/deploy.sh" "${REMOTE}:${REMOTE_DIR}/server/deploy.sh"
 rsync -az "${HERE}/server.config.example.json" "${REMOTE}:${REMOTE_DIR}/deploy/server.config.example.json"
-rsync -az "${SRC}/web/admin.html" "${REMOTE}:${REMOTE_DIR}/build/web/admin.html"
+rsync -az "${SRC}/web/" "${REMOTE}:${REMOTE_DIR}/build/web/"
 
 echo "==> 安装依赖并重启 pm2"
 ssh "$REMOTE" "cd '${REMOTE_DIR}/server' && \

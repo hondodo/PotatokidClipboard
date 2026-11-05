@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>文件管理 · App 分发</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header id="topbar" class="topbar hidden">
+    <div>
+      <div class="brand">文件管理</div>
+      <div class="nav" id="navLinks"></div>
+      <div class="who"><span id="whoName"></span> · <span id="whoExp"></span></div>
+    </div>
+    <div class="actions">
+      <button id="btnPwd" class="small">修改密码</button>
+      <button id="btnLogout" class="small">退出</button>
+    </div>
+  </header>
+
+  <section id="loginView" class="card login-narrow hidden">
+    <h1>登录</h1>
+    <form id="loginForm">
+      <label>用户名<input id="lUser" type="text" autocomplete="username" required></label>
+      <label>密码<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">登录</button>
+      <p id="loginMsg" class="msg"></p>
+    </form>
+    <p class="hint">收到临时访问口令？在这些页面打开 /files?token=… 即可，无需账号。</p>
+  </section>
+
+  <section id="forcePwdView" class="card login-narrow hidden">
+    <h1>设置新密码</h1>
+    <p class="hint">新密码至少 6 位（最长 64 位）；不能为纯空白，也不能与用户名相同。</p>
+    <form id="forcePwdForm">
+      <label>当前密码<input id="fCur" type="password" autocomplete="current-password" required></label>
+      <label>新密码<input id="fNew" type="password" autocomplete="new-password" required></label>
+      <label>确认新密码<input id="fNew2" type="password" autocomplete="new-password" required></label>
+      <button class="primary" type="submit">保存并重新登录</button>
+      <p id="forcePwdMsg" class="msg"></p>
+    </form>
+  </section>
+
+  <main id="mainView" class="hidden">
+    <div id="readonlyNotice" class="notice hidden">当前为临时口令只读会话：可以查看与下载，删除等写操作会被服务端拒绝（400012）。</div>
+    <section class="card">
+      <div class="card-head">
+        <h2>镜像占用</h2>
+        <span class="hint" id="usageText">—</span>
+      </div>
+      <div class="usage-track"><div id="usageFill" class="usage-fill"></div></div>
+      <p class="hint" id="usageHint"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>镜像文件</h2>
+        <div class="ops">
+          <input id="search" type="text" placeholder="按名称 / 来源 / id 搜索" style="width:240px;margin:0">
+          <button id="btnRefresh" class="small">刷新</button>
+        </div>
+      </div>
+      <div id="filesTable" class="hint">加载中…</div>
+      <div class="ops" style="justify-content:flex-end;margin-top:12px">
+        <button id="btnPrev" class="small">上一页</button>
+        <span class="hint" id="pageInfo" style="align-self:center"></span>
+        <button id="btnNext" class="small">下一页</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="pwdDialog">
+  <h2>修改密码</h2>
+  <form id="pwdForm" method="dialog">
+    <p class="hint">新密码至少 6 位（最长 64 位）；不能为纯空白，也不能与用户名相同。</p>
+    <label>当前密码<input id="pCur" type="password" autocomplete="current-password" required></label>
+    <label>新密码<input id="pNew" type="password" autocomplete="new-password" required></label>
+    <label>确认新密码<input id="pNew2" type="password" autocomplete="new-password" required></label>
+    <div class="ops">
+      <button class="primary" type="submit">保存</button>
+      <button type="button" id="btnCancelPwd">取消</button>
+    </div>
+    <p id="pwdMsg" class="msg"></p>
+  </form>
+</dialog>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const esc = (value) =>
+  String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+const fmtSize = (bytes) => {
+  if (!bytes && bytes !== 0) return '—';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let n = Number(bytes), i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+};
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
+const setMsg = (sel, text, kind) => {
+  const el = $(sel);
+  el.textContent = text || '';
+  el.className = 'msg' + (kind ? ' ' + kind : '');
+};
+const passwordIssue = (pw) => {
+  if (pw.length < 6) return '密码长度至少 6 位';
+  if (pw.length > 64) return '密码长度不能超过 64 位';
+  if (!pw.trim()) return '密码不能为纯空白';
+  return null;
+};
+
+async function call(path, options = {}) {
+  const opts = {
+    method: options.method || 'GET',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' },
+  };
+  if (options.body !== undefined) opts.body = JSON.stringify(options.body);
+  const res = await fetch('/api/admin' + path, opts);
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* 非 JSON 响应 */ }
+  if (res.status === 401 && path !== '/login') {
+    showLogin();
+    throw Object.assign(new Error('会话已失效，请重新登录'), { code: 400001, http: 401 });
+  }
+  if (!payload || payload.code !== 0) {
+    throw Object.assign(new Error((payload && payload.msg) || `请求失败（HTTP ${res.status}）`), {
+      code: payload ? payload.code : 500000,
+      http: res.status,
+    });
+  }
+  return payload.data;
+}
+
+let state = { me: null, page: 1, pageSize: 20, query: '', total: 0, justLoggedPassword: '' };
+
+function showLogin(message) {
+  $('#topbar').classList.add('hidden');
+  $('#mainView').classList.add('hidden');
+  $('#forcePwdView').classList.add('hidden');
+  $('#loginView').classList.remove('hidden');
+  $('#lUser').focus();
+  setMsg('#loginMsg', message || '');
+}
+
+function showForcePwd() {
+  $('#topbar').classList.add('hidden');
+  $('#mainView').classList.add('hidden');
+  $('#loginView').classList.add('hidden');
+  $('#forcePwdView').classList.remove('hidden');
+  $('#fCur').value = state.justLoggedPassword;
+  $('#fNew').focus();
+}
+
+function renderNav(me) {
+  const p = me.permissions || {};
+  const parts = [];
+  if (p.accounts) parts.push('<a href="/admin">账号</a>');
+  if (p.apps) parts.push('<a href="/apps">应用</a>');
+  if (p.files) parts.push('<a href="/files" class="on">文件</a>');
+  $('#navLinks').innerHTML = parts.join('');
+}
+
+function showMain(me) {
+  state.me = me;
+  $('#loginView').classList.add('hidden');
+  $('#forcePwdView').classList.add('hidden');
+  $('#topbar').classList.remove('hidden');
+  $('#mainView').classList.remove('hidden');
+  renderNav(me);
+  $('#whoName').textContent = me.name + `（${(me.roles || []).join(' / ') || (me.scopes || []).join(' / ')}）`;
+  $('#whoExp').textContent = '会话到期 ' + fmtTime(me.expiresAt);
+  $('#readonlyNotice').classList.toggle('hidden', !me.readOnly);
+  $('#btnPwd').classList.toggle('hidden', Boolean(me.readOnly));
+  loadFiles();
+}
+
+async function boot() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (token) {
+    try {
+      const res = await fetch('/api/admin/token-login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' },
+        body: JSON.stringify({ token }),
+      });
+      let payload = null;
+      try { payload = await res.json(); } catch (_) { /* ignore */ }
+      history.replaceState(null, '', location.pathname);
+      if (!payload || payload.code !== 0) throw new Error((payload && payload.msg) || '临时口令无效');
+    } catch (err) {
+      showLogin(err.message);
+      return;
+    }
+  }
+  try {
+    const me = await call('/me');
+    if (me.mustChangePassword) {
+      state.me = me;
+      showForcePwd();
+    } else {
+      showMain(me);
+    }
+  } catch (err) {
+    if (err.http !== 401) showLogin(err.message);
+    else showLogin();
+  }
+}
+
+async function loadFiles() {
+  try {
+    const q = new URLSearchParams({ page: String(state.page), pageSize: String(state.pageSize) });
+    if (state.query) q.set('q', state.query);
+    const data = await call('/files/list?' + q.toString());
+    state.total = data.total || 0;
+    renderUsage(data.usage);
+    renderFiles(data.items || []);
+    const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
+    $('#pageInfo').textContent = `第 ${state.page} / ${pages} 页 · 共 ${state.total} 个`;
+    $('#btnPrev').disabled = state.page <= 1;
+    $('#btnNext').disabled = state.page >= pages;
+  } catch (err) {
+    $('#filesTable').innerHTML = `<span class="msg err">${esc(err.message)}</span>`;
+  }
+}
+
+function renderUsage(usage) {
+  if (!usage) return;
+  const pct = Number(usage.percent || 0);
+  $('#usageText').textContent = `${fmtSize(usage.usedBytes)} / ${fmtSize(usage.maxBytes)}（${pct}%）`;
+  $('#usageHint').textContent = `剩余 ${fmtSize(usage.remainingBytes)} · 共 ${usage.count} 个文件 · 超出上限时按创建时间最旧优先自动清理`;
+  const fill = $('#usageFill');
+  fill.style.width = Math.max(1, pct) + '%';
+  fill.className = 'usage-fill' + (pct >= 90 ? ' hot' : pct >= 70 ? ' warn' : '');
+}
+
+function renderFiles(items) {
+  if (!items.length) {
+    $('#filesTable').innerHTML = '<p class="hint">没有匹配的镜像文件。</p>';
+    return;
+  }
+  const rows = items.map((f) => `
+    <tr>
+      <td>
+        <div class="mono">${esc(f.name)}</div>
+        <div class="hint mono">${esc(f.id)}</div>
+      </td>
+      <td>${esc(f.originServer || '—')}${f.originPath ? `<div class="hint mono">${esc(f.originPath)}</div>` : ''}</td>
+      <td>${fmtSize(f.size)}</td>
+      <td>${fmtTime(f.createdAt)}</td>
+      <td><div class="mono" title="${esc(f.sha256)}">${esc(String(f.sha256 || '').slice(0, 12))}…</div></td>
+      <td><div class="ops">
+        <a class="button-link" href="/api/admin/files/${encodeURIComponent(f.id)}/download" target="_blank" rel="noopener"><button class="small">下载</button></a>
+        <button class="small danger" data-del="${esc(f.id)}">删除</button>
+      </div></td>
+    </tr>`).join('');
+  $('#filesTable').innerHTML = `
+    <table>
+      <thead><tr><th>文件名</th><th>来源</th><th>大小</th><th>创建时间</th><th>sha256</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+$('#btnRefresh').addEventListener('click', () => { state.page = 1; loadFiles(); });
+$('#search').addEventListener('input', () => {
+  state.query = $('#search').value.trim();
+  state.page = 1;
+  clearTimeout(state.searchTimer);
+  state.searchTimer = setTimeout(loadFiles, 300);
+});
+$('#btnPrev').addEventListener('click', () => { if (state.page > 1) { state.page -= 1; loadFiles(); } });
+$('#btnNext').addEventListener('click', () => { state.page += 1; loadFiles(); });
+
+$('#filesTable').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-del]');
+  if (!btn) return;
+  const id = btn.dataset.del;
+  if (!confirm(`确认删除镜像文件 ${id}？`)) return;
+  try {
+    await call('/files/' + encodeURIComponent(id), { method: 'DELETE' });
+    await loadFiles();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+$('#loginForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const username = $('#lUser').value.trim();
+  const password = $('#lPass').value;
+  setMsg('#loginMsg', '登录中…');
+  try {
+    const data = await call('/login', { method: 'POST', body: { username, password } });
+    state.justLoggedPassword = password;
+    if (data.mustChangePassword) showForcePwd();
+    else showMain(await call('/me'));
+  } catch (err) {
+    setMsg('#loginMsg', err.message, 'err');
+  }
+});
+
+$('#forcePwdForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const currentPassword = $('#fCur').value;
+  const newPassword = $('#fNew').value;
+  if ($('#fNew2').value !== newPassword) { setMsg('#forcePwdMsg', '两次输入的新密码不一致', 'err'); return; }
+  const issue = passwordIssue(newPassword);
+  if (issue) { setMsg('#forcePwdMsg', issue, 'err'); return; }
+  try {
+    await call('/password', { method: 'PUT', body: { currentPassword, newPassword } });
+    showLogin('密码已更新，请用新密码登录');
+  } catch (err) {
+    setMsg('#forcePwdMsg', err.message, 'err');
+  }
+});
+
+$('#btnPwd').addEventListener('click', () => {
+  $('#pwdForm').reset();
+  setMsg('#pwdMsg', '');
+  $('#pwdDialog').showModal();
+});
+$('#btnCancelPwd').addEventListener('click', () => $('#pwdDialog').close());
+$('#pwdForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const currentPassword = $('#pCur').value;
+  const newPassword = $('#pNew').value;
+  if ($('#pNew2').value !== newPassword) { setMsg('#pwdMsg', '两次输入的新密码不一致', 'err'); return; }
+  const issue = passwordIssue(newPassword);
+  if (issue) { setMsg('#pwdMsg', issue, 'err'); return; }
+  try {
+    await call('/password', { method: 'PUT', body: { currentPassword, newPassword } });
+    $('#pwdDialog').close();
+    showLogin('密码已更新，请重新登录');
+  } catch (err) {
+    setMsg('#pwdMsg', err.message, 'err');
+  }
+});
+
+$('#btnLogout').addEventListener('click', async () => {
+  try { await call('/logout', { method: 'POST' }); } catch (_) { /* ignore */ }
+  showLogin('已退出登录');
+});
+
+boot();
+</script>
+</body>
+</html>

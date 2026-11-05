@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>应用管理 · App 分发</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2430;
+    --line: #2b3441;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #4da3ff;
+    --danger: #e5534b;
+    --ok: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 16px;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  h2 { font-size: 16px; margin: 0; }
+  h3 { font-size: 14px; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
+  label { display: block; margin-bottom: 12px; color: var(--muted); font-size: 13px; }
+  input[type=text], input[type=password], textarea, select {
+    width: 100%; margin-top: 6px; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    font: inherit; outline: none;
+  }
+  input[type=number] {
+    width: 100%; margin-top: 6px; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    font: inherit; outline: none;
+  }
+  input[type=file] {
+    width: 100%; margin-top: 6px; padding: 8px; border-radius: 8px;
+    border: 1px dashed var(--line); background: var(--panel-2); color: var(--text); font: inherit;
+  }
+  progress { width: 100%; height: 14px; margin-top: 10px; accent-color: var(--accent); }
+  .subpanel { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin: 8px 0 16px; }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  textarea { min-height: 72px; resize: vertical; }
+  button {
+    cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); padding: 8px 14px; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; }
+  button.danger { border-color: var(--danger); color: var(--danger); }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 200px; }
+  .checks { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 14px; }
+  .checks label { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text); }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .brand { font-size: 17px; font-weight: 600; }
+  .who { color: var(--muted); font-size: 13px; }
+  .topbar .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .msg { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+  .msg.err { color: var(--danger); }
+  .msg.ok { color: var(--ok); }
+  .hint { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .badge {
+    display: inline-block; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); font-size: 12px; margin: 2px 4px 2px 0;
+  }
+  .badge.on { color: var(--ok); border-color: #24502f; }
+  .badge.off { color: var(--danger); border-color: #5a2a27; }
+  .ops { display: flex; gap: 6px; flex-wrap: wrap; }
+  .hidden { display: none !important; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 18px; }
+  .kv span { color: var(--muted); }
+  dialog {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+    color: var(--text); padding: 20px; width: min(420px, 92vw);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, .6); }
+  .login-narrow { max-width: 420px; margin: 8vh auto 0; }
+  .nav { display: flex; gap: 14px; margin-top: 6px; font-size: 13px; }
+  .nav a { color: var(--muted); text-decoration: none; }
+  .nav a.on, .nav a:hover { color: var(--accent); }
+  .notice { border: 1px solid #5a4a1f; background: #1f1a0d; color: #e3c85b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header id="topbar" class="topbar hidden">
+    <div>
+      <div class="brand">应用管理</div>
+      <div class="nav" id="navLinks"></div>
+      <div class="who"><span id="whoName"></span> · <span id="whoExp"></span></div>
+    </div>
+    <div class="actions">
+      <button id="btnPwd" class="small">修改密码</button>
+      <button id="btnRevoke" class="small">强制下线</button>
+      <button id="btnLogout" class="small">退出</button>
+    </div>
+  </header>
+
+  <section id="loginView" class="card login-narrow hidden">
+    <h1>管理员登录</h1>
+    <form id="loginForm">
+      <label>用户名<input id="lUser" type="text" autocomplete="username" required></label>
+      <label>密码<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">登录</button>
+      <p id="loginMsg" class="msg"></p>
+    </form>
+  </section>
+
+  <section id="forcePwdView" class="card login-narrow hidden">
+    <h1>首次登录：设置新密码</h1>
+    <p class="hint">初始密码仅用于首次登录。新密码至少 6 位（最长 64 位）；不能为纯空白，也不能与用户名相同。建议使用 8～10 位以上。</p>
+    <form id="forcePwdForm">
+      <label>当前（初始）密码<input id="fCur" type="password" autocomplete="current-password" required></label>
+      <label>新密码<input id="fNew" type="password" autocomplete="new-password" required></label>
+      <label>确认新密码<input id="fNew2" type="password" autocomplete="new-password" required></label>
+      <button class="primary" type="submit">保存并重新登录</button>
+      <p id="forcePwdMsg" class="msg"></p>
+    </form>
+  </section>
+
+  <main id="mainView" class="hidden">
+    <div id="readonlyNotice" class="notice hidden">当前为临时口令只读会话：只能查看，所有写操作都会被服务端拒绝（400012）。</div>
+    <section class="card">
+      <div class="card-head">
+        <h2>应用</h2>
+        <button id="btnNewApp" class="primary small">新建应用</button>
+      </div>
+      <div id="appsTable" class="hint">加载中…</div>
+    </section>
+
+    <section id="createPanel" class="card hidden">
+      <div class="card-head"><h2>新建应用</h2><button id="btnCancelCreate" class="small">取消</button></div>
+      <form id="createForm">
+        <div class="row">
+          <label>appId（2-48 位小写字母/数字/连字符）<input id="cAppId" type="text" placeholder="potatokid-home" required></label>
+          <label>展示名<input id="cName" type="text" placeholder="薯仔 Home" required></label>
+        </div>
+        <label>说明<textarea id="cDesc" placeholder="选填"></textarea></label>
+        <label>平台</label>
+        <div class="checks" id="cPlatforms"></div>
+        <button class="primary" type="submit">创建</button>
+        <p id="createMsg" class="msg"></p>
+      </form>
+    </section>
+
+    <section id="detailPanel" class="card hidden">
+      <div class="card-head">
+        <h2 id="dTitle">应用详情</h2>
+        <div class="ops">
+          <button id="btnCloseDetail" class="small">关闭</button>
+          <button id="btnDeleteApp" class="small danger">删除应用</button>
+        </div>
+      </div>
+      <form id="editForm">
+        <div class="row">
+          <label>展示名<input id="eName" type="text" required></label>
+          <label>状态
+            <select id="eEnabled">
+              <option value="true">启用</option>
+              <option value="false">停用（查询返回 300000）</option>
+            </select>
+          </label>
+        </div>
+        <label>说明<textarea id="eDesc"></textarea></label>
+        <label>平台</label>
+        <div class="checks" id="ePlatforms"></div>
+        <div class="ops">
+          <button class="primary small" type="submit">保存修改</button>
+          <button id="btnToggleEnabled" class="small" type="button">停用 / 启用</button>
+        </div>
+        <p id="editMsg" class="msg"></p>
+      </form>
+      <h3>各平台最新版本</h3>
+      <div id="dLatest" class="hint"></div>
+      <h3>上传新版本（分片，8 MiB/片）</h3>
+      <div class="subpanel">
+        <div class="row">
+          <label>平台<select id="uPlatform"></select></label>
+          <label>版本号（pubspec version）<input id="uVersion" type="text" placeholder="1.0.3"></label>
+          <label>build（pubspec 的 +N）<input id="uBuild" type="number" min="1" step="1" placeholder="8"></label>
+        </div>
+        <label>安装包文件<input id="uFile" type="file"></label>
+        <label>更新说明<textarea id="uNotes" placeholder="选填，≤2000 字"></textarea></label>
+        <div class="checks">
+          <label><input id="uPubspec" type="checkbox"> 已核对 pubspec.yaml 的 +N 与 build 一致</label>
+          <label><input id="uForce" type="checkbox"> 发布时默认开启强制更新</label>
+        </div>
+        <div class="ops">
+          <button id="btnUpload" class="primary small" type="button">开始分片上传</button>
+          <button id="btnResume" class="small hidden" type="button">续传上次上传</button>
+        </div>
+        <progress id="uProgress" max="100" value="0" class="hidden"></progress>
+        <p id="uploadMsg" class="msg"></p>
+        <p id="uploadHint" class="hint">浏览器会在本地计算 sha256（≤256 MiB）；更大文件以服务端合并后的 sha256 为准。</p>
+      </div>
+      <h3>iOS 外部链接（不上传安装包）</h3>
+      <div id="iosPanel" class="subpanel hidden">
+        <form id="iosForm">
+          <div class="row">
+            <label>版本号<input id="iVersion" type="text" placeholder="1.0.3"></label>
+            <label>build<input id="iBuild" type="number" min="1" step="1" placeholder="8"></label>
+          </div>
+          <label>外部链接（TestFlight / App Store）<input id="iUrl" type="text" placeholder="https://…"></label>
+          <label>说明<textarea id="iNotes" placeholder="选填"></textarea></label>
+          <div class="checks">
+            <label><input id="iPubspec" type="checkbox"> 已核对 pubspec 的 +N 与 build 一致</label>
+            <label><input id="iPublish" type="checkbox" checked> 创建后立即发布为 latest</label>
+          </div>
+          <button class="primary small" type="submit">保存 iOS 版本</button>
+          <p id="iosMsg" class="msg"></p>
+        </form>
+      </div>
+      <h3>版本记录</h3>
+      <div id="dReleases" class="hint"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>存储 / 维护</h2>
+        <div class="ops">
+          <button id="btnRefreshMaint" class="small">刷新</button>
+          <button id="btnCleanup" class="small">立即清理</button>
+        </div>
+      </div>
+      <div id="maintBox" class="hint">加载中…</div>
+    </section>
+  </main>
+</div>
+
+<dialog id="pwdDialog">
+  <h2>修改密码</h2>
+  <form id="pwdForm" method="dialog">
+    <p class="hint">新密码至少 6 位（最长 64 位）；不能为纯空白，也不能与用户名相同。</p>
+    <label>当前密码<input id="pCur" type="password" autocomplete="current-password" required></label>
+    <label>新密码<input id="pNew" type="password" autocomplete="new-password" required></label>
+    <label>确认新密码<input id="pNew2" type="password" autocomplete="new-password" required></label>
+    <div class="ops">
+      <button class="primary" type="submit">保存</button>
+      <button type="button" id="btnCancelPwd">取消</button>
+    </div>
+    <p id="pwdMsg" class="msg"></p>
+  </form>
+</dialog>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const PLATFORMS = [
+  ['windows', 'Windows'],
+  ['apk', 'Android / APK'],
+  ['ios', 'iOS（仅外部链接）'],
+  ['macos', 'macOS'],
+  ['linux', 'Linux'],
+];
+const esc = (value) =>
+  String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+const fmtSize = (bytes) => {
+  if (!bytes && bytes !== 0) return '—';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let n = Number(bytes), i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  return `${n.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+};
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
+const setMsg = (sel, text, kind) => {
+  const el = $(sel);
+  el.textContent = text || '';
+  el.className = 'msg' + (kind ? ' ' + kind : '');
+};
+const passwordIssue = (pw) => {
+  if (pw.length < 6) return '密码长度至少 6 位';
+  if (pw.length > 64) return '密码长度不能超过 64 位';
+  if (!pw.trim()) return '密码不能为纯空白';
+  return null;
+};
+
+async function call(path, options = {}) {
+  const opts = {
+    method: options.method || 'GET',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' },
+  };
+  if (options.body !== undefined) opts.body = JSON.stringify(options.body);
+  const res = await fetch('/api/admin' + path, opts);
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* 非 JSON 响应 */ }
+  if (res.status === 401 && path !== '/login') {
+    showLogin();
+    throw Object.assign(new Error('会话已失效，请重新登录'), { code: 400001, http: 401 });
+  }
+  if (!payload || payload.code !== 0) {
+    throw Object.assign(new Error((payload && payload.msg) || `请求失败（HTTP ${res.status}）`), {
+      code: payload ? payload.code : 500000,
+      http: res.status,
+    });
+  }
+  return payload.data;
+}
+
+let state = { me: null, apps: [], detail: null, justLoggedPassword: '' };
+
+function showLogin(message) {
+  $('#topbar').classList.add('hidden');
+  $('#mainView').classList.add('hidden');
+  $('#forcePwdView').classList.add('hidden');
+  $('#loginView').classList.remove('hidden');
+  $('#lUser').focus();
+  setMsg('#loginMsg', message || '');
+}
+
+function showForcePwd() {
+  $('#topbar').classList.add('hidden');
+  $('#mainView').classList.add('hidden');
+  $('#loginView').classList.add('hidden');
+  $('#forcePwdView').classList.remove('hidden');
+  $('#fCur').value = state.justLoggedPassword;
+  $('#fNew').focus();
+}
+
+function showMain(me) {
+  state.me = me;
+  $('#loginView').classList.add('hidden');
+  $('#forcePwdView').classList.add('hidden');
+  $('#topbar').classList.remove('hidden');
+  $('#mainView').classList.remove('hidden');
+  const roles = (me.roles || []).join(' / ') || (me.scopes || []).join(' / ') || '只读';
+  $('#whoName').textContent = me.name + `（${roles}）`;
+  $('#whoExp').textContent = '会话到期 ' + fmtTime(me.expiresAt);
+  const p = me.permissions || {};
+  const parts = [];
+  if (p.apps) parts.push('<a href="/apps" class="on">应用</a>');
+  if (p.files) parts.push('<a href="/files">文件</a>');
+  if (p.accounts) parts.push('<a href="/admin">账号</a>');
+  $('#navLinks').innerHTML = parts.join('');
+  $('#readonlyNotice').classList.toggle('hidden', !me.readOnly);
+}
+
+// 支持 /apps?token=xxx：先换取只读 viewer 会话，再从 URL 移除 token。
+async function consumeUrlToken() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (!token) return;
+  const res = await fetch('/api/admin/token-login', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Request': '1' },
+    body: JSON.stringify({ token }),
+  });
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* ignore */ }
+  if (location.search) history.replaceState(null, '', location.pathname);
+  if (!payload || payload.code !== 0) throw new Error((payload && payload.msg) || '临时口令无效');
+}
+
+async function boot() {
+  try {
+    await consumeUrlToken();
+    const me = await call('/me');
+    if (me.mustChangePassword) {
+      state.me = me;
+      showForcePwd();
+    } else {
+      showMain(me);
+      await Promise.all([loadApps(), loadMaintenance()]);
+    }
+  } catch (err) {
+    if (err.http !== 401) showLogin(err.message);
+    else showLogin();
+  }
+}
+
+function platformChecks(containerSel, selected) {
+  $(containerSel).innerHTML = PLATFORMS.map(([key, label]) =>
+    `<label><input type="checkbox" value="${key}" ${selected && selected.includes(key) ? 'checked' : ''}> ${label}</label>`
+  ).join('');
+}
+
+function checkedPlatforms(containerSel) {
+  return Array.from($(containerSel).querySelectorAll('input[type=checkbox]:checked')).map((el) => el.value);
+}
+
+function latestChips(latest) {
+  const keys = PLATFORMS.map(([key]) => key).filter((key) => latest && latest[key]);
+  if (!keys.length) return '<span class="hint">暂无版本</span>';
+  return keys.map((key) => {
+    const item = latest[key];
+    return `<span class="badge">${key} ${esc(item.version)} · b${item.build}</span>`;
+  }).join('');
+}
+
+function renderApps() {
+  if (!state.apps.length) {
+    $('#appsTable').innerHTML = '<p class="hint">还没有应用。点击右上角“新建应用”开始。</p>';
+    return;
+  }
+  const rows = state.apps.map((app) => `
+    <tr>
+      <td><div class="mono">${esc(app.appId)}</div><div class="hint">${esc(app.name)}</div></td>
+      <td>${app.platforms.map((p) => `<span class="badge">${p}</span>`).join('')}</td>
+      <td>${latestChips(app.latest)}</td>
+      <td><span class="badge ${app.enabled ? 'on' : 'off'}">${app.enabled ? '启用' : '停用'}</span></td>
+      <td><div class="ops">
+        <button class="small" data-act="detail" data-id="${esc(app.appId)}">详情</button>
+        <button class="small" data-act="toggle" data-id="${esc(app.appId)}">${app.enabled ? '停用' : '启用'}</button>
+        <button class="small danger" data-act="delete" data-id="${esc(app.appId)}">删除</button>
+      </div></td>
+    </tr>`).join('');
+  $('#appsTable').innerHTML = `
+    <table>
+      <thead><tr><th>应用</th><th>平台</th><th>最新版本</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadApps() {
+  const data = await call('/apps');
+  state.apps = data.items || [];
+  renderApps();
+}
+
+async function loadMaintenance() {
+  try {
+    const st = await call('/maintenance/status');
+    const cands = st.candidates || [];
+    $('#maintBox').innerHTML = `
+      <div class="kv">
+        <div><span>磁盘可用：</span>${fmtSize(st.diskFreeBytes)}${st.diskLow ? ' <span class="badge off">低于 1.5GiB</span>' : ' <span class="badge on">正常</span>'}</div>
+        <div><span>安装包占用：</span>${fmtSize(st.storageBytes)} / ${fmtSize(st.maxStorageBytes)}</div>
+        <div><span>清理触发阈值：</span>${fmtSize(st.cleanupTargetFreeBytes)}</div>
+        <div><span>停止上传阈值：</span>${fmtSize(st.stopUploadFreeBytes)}</div>
+        <div><span>已归档版本：</span>${st.archivedCount}（文件仍可用 ${st.archivedFileAvailableCount}，保留 previous=${st.keepPrevious}）</div>
+        <div><span>自动清理：</span>${st.cleanupImplemented ? '每小时检查（低于阈值时清理）' : '未启用'}</div>
+      </div>
+      ${cands.length ? `<p class="hint" style="margin-top:10px">当前低于阈值，预计清理 ${cands.length} 个归档文件：</p><div class="mono">${cands.map((c) => esc(`${c.appId}|${c.platform} b${c.build} · ${fmtSize(c.sizeBytes)}`)).join('<br>')}</div>` : ''}
+      <p class="hint" style="margin-top:10px">检查时间 ${fmtTime(st.checkedAt)}</p>`;
+  } catch (err) {
+    $('#maintBox').innerHTML = `<span class="msg err">${esc(err.message)}</span>`;
+  }
+}
+
+// ---- 分片上传 ----
+const UPLOAD_KEY = 'pkAppUpload';
+let uploadBusy = false;
+
+function getSavedUpload(appId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(UPLOAD_KEY) || '{}');
+    return all[appId] || null;
+  } catch (_) { return null; }
+}
+function setSavedUpload(appId, data) {
+  try {
+    const all = JSON.parse(localStorage.getItem(UPLOAD_KEY) || '{}');
+    all[appId] = data;
+    localStorage.setItem(UPLOAD_KEY, JSON.stringify(all));
+  } catch (_) { /* ignore */ }
+}
+function clearSavedUpload(appId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(UPLOAD_KEY) || '{}');
+    delete all[appId];
+    localStorage.setItem(UPLOAD_KEY, JSON.stringify(all));
+  } catch (_) { /* ignore */ }
+}
+
+// 浏览器端 sha256 预计算：≤256MiB 才计算，超大包以服务端合并结果为准。
+async function sha256OfFile(file) {
+  if (!(window.crypto && window.crypto.subtle) || file.size > 256 * 1024 * 1024) return '';
+  const buffer = await file.arrayBuffer();
+  const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function putChunkRaw(uploadId, index, blob) {
+  const res = await fetch(`/api/admin/uploads/${uploadId}/chunks/${index}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/octet-stream', 'X-Admin-Request': '1' },
+    body: blob,
+  });
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* ignore */ }
+  if (res.status === 401) { showLogin(); throw new Error('会话已失效，请重新登录'); }
+  if (!payload || payload.code !== 0) {
+    throw new Error((payload && payload.msg) || `分片 ${index} 上传失败（HTTP ${res.status}）`);
+  }
+  return payload.data;
+}
+
+async function pushChunks(uploadId, file, chunkSize, missing) {
+  const queue = missing.slice();
+  let done = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const idx = queue.shift();
+      const start = idx * chunkSize;
+      await putChunkRaw(uploadId, idx, file.slice(start, Math.min(start + chunkSize, file.size)));
+      done += 1;
+      const pct = Math.round((done * 100) / missing.length);
+      $('#uProgress').value = pct;
+      setMsg('#uploadMsg', `上传中 ${done}/${missing.length} 片（${pct}%）`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, missing.length) }, worker));
+}
+
+async function runUpload({ resume = false } = {}) {
+  if (uploadBusy || !state.detail) return;
+  const appId = state.detail.app.appId;
+  const file = $('#uFile').files[0];
+  if (!file) {
+    setMsg('#uploadMsg', '请先选择安装包文件', 'err');
+    return;
+  }
+
+  let meta = resume ? getSavedUpload(appId) : null;
+  if (resume) {
+    if (!meta) { setMsg('#uploadMsg', '没有可续传的上传任务', 'err'); return; }
+    if (meta.filename !== file.name || meta.size !== file.size) {
+      setMsg('#uploadMsg', '所选文件与上次不一致（文件名/大小不同），请选择同一文件后续传', 'err');
+      return;
+    }
+  } else {
+    const platform = $('#uPlatform').value;
+    const version = $('#uVersion').value.trim();
+    const build = Number($('#uBuild').value);
+    if (!platform) { setMsg('#uploadMsg', '该应用没有可上传平台', 'err'); return; }
+    if (!version) { setMsg('#uploadMsg', '请填写版本号（pubspec version）', 'err'); return; }
+    if (!Number.isInteger(build) || build <= 0) { setMsg('#uploadMsg', 'build 必须为正整数（pubspec 的 +N）', 'err'); return; }
+    if (!$('#uPubspec').checked) { setMsg('#uploadMsg', '请先勾选“已核对 pubspec 的 +N 与 build 一致”', 'err'); return; }
+    setMsg('#uploadMsg', '计算文件 sha256…');
+    const sha256 = await sha256OfFile(file);
+    clearSavedUpload(appId);
+    try {
+      const init = await call('/uploads/init', {
+        method: 'POST',
+        body: {
+          appId,
+          platform,
+          version,
+          build,
+          filename: file.name,
+          size: file.size,
+          sha256: sha256 || undefined,
+          notes: $('#uNotes').value.trim(),
+          forceUpdate: $('#uForce').checked,
+          pubspecBuildConfirmed: true,
+        },
+      });
+      meta = {
+        appId, platform, version, build,
+        filename: file.name, size: file.size, sha256,
+        uploadId: init.uploadId, chunkSize: init.chunkSize, totalChunks: init.totalChunks,
+      };
+      setSavedUpload(appId, meta);
+    } catch (err) {
+      setMsg('#uploadMsg', err.message, 'err');
+      return;
+    }
+  }
+
+  uploadBusy = true;
+  $('#btnUpload').disabled = true;
+  $('#btnResume').disabled = true;
+  $('#uProgress').classList.remove('hidden');
+  $('#uProgress').value = 0;
+  try {
+    const status = await call('/uploads/' + encodeURIComponent(meta.uploadId));
+    const missing = status.missing || [];
+    if (missing.length) await pushChunks(meta.uploadId, file, meta.chunkSize, missing);
+    setMsg('#uploadMsg', '分片齐全，合并并校验 sha256…');
+    const release = await call(`/uploads/${encodeURIComponent(meta.uploadId)}/complete`, {
+      method: 'POST',
+      body: { sha256: meta.sha256 || undefined },
+    });
+    clearSavedUpload(appId);
+    $('#uProgress').value = 100;
+    await refreshAll();
+    setMsg('#uploadMsg', `上传完成：${release.releaseId}（b${release.build}），sha256=${release.sha256}。请在下方版本表点击“发布”。`, 'ok');
+    await loadMaintenance();
+  } catch (err) {
+    setMsg('#uploadMsg', `${err.message}（已上传分片会保留，重新选择同一文件后可点“续传上次上传”）`, 'err');
+    $('#btnResume').classList.remove('hidden');
+  } finally {
+    uploadBusy = false;
+    $('#btnUpload').disabled = false;
+    $('#btnResume').disabled = false;
+  }
+}
+
+async function openDetail(appId) {
+  const data = await call('/apps/' + encodeURIComponent(appId));
+  state.detail = data;
+  const app = data.app;
+  $('#detailPanel').classList.remove('hidden');
+  $('#dTitle').textContent = `${app.name}（${app.appId}）`;
+  $('#eName').value = app.name;
+  $('#eDesc').value = app.description || '';
+  $('#eEnabled').value = app.enabled ? 'true' : 'false';
+  platformChecks('#ePlatforms', app.platforms);
+  setMsg('#editMsg', '');
+
+  const keys = PLATFORMS.map(([key]) => key).filter((key) => data.latest && data.latest[key]);
+  $('#dLatest').innerHTML = keys.length
+    ? `<table><thead><tr><th>平台</th><th>版本 / build</th><th>强更</th><th>文件</th><th>发布时间</th></tr></thead><tbody>` +
+      keys.map((key) => {
+        const item = data.latest[key];
+        return `<tr><td>${key}</td><td>${esc(item.version)} · b${item.build}</td>
+          <td>${item.forceUpdate ? '<span class="badge off">强制</span>' : '<span class="badge">否</span>'}</td>
+          <td>${item.fileAvailable ? '可用' : '<span class="badge off">已清理</span>'}</td>
+          <td>${fmtTime(item.publishedAt)}</td></tr>`;
+      }).join('') + '</tbody></table>'
+    : '<p class="hint">该应用尚未发布任何版本。</p>';
+
+  // 上传区：平台选择、iOS 面板、续传入口
+  const uploadable = app.platforms.filter((p) => p !== 'ios');
+  $('#uPlatform').innerHTML = uploadable.length
+    ? uploadable.map((p) => `<option value="${p}">${p}</option>`).join('')
+    : '<option value="">（该应用未启用可上传平台）</option>';
+  $('#iosPanel').classList.toggle('hidden', !app.platforms.includes('ios'));
+  $('#uFile').value = '';
+  $('#uProgress').classList.add('hidden');
+  $('#uProgress').value = 0;
+  setMsg('#uploadMsg', '');
+  setMsg('#iosMsg', '');
+  const saved = getSavedUpload(app.appId);
+  $('#btnResume').classList.toggle('hidden', !saved);
+  if (saved) setMsg('#uploadMsg', `有未完成上传：${saved.filename}（${fmtSize(saved.size)}），重新选择同一文件后点“续传上次上传”。`);
+
+  const latestIds = {};
+  Object.keys(data.latest || {}).forEach((key) => { latestIds[key] = data.latest[key].releaseId; });
+
+  const releases = data.releases || [];
+  $('#dReleases').innerHTML = releases.length
+    ? `<table><thead><tr><th>平台</th><th>版本 / build</th><th>状态</th><th>强更</th><th>文件</th><th>大小</th><th>操作</th></tr></thead><tbody>` +
+      releases.map((r) => {
+        const isLatest = latestIds[r.platform] === r.releaseId;
+        const ops = [];
+        if (r.status === 'draft') {
+          ops.push(`<button class="small primary" data-act="publish" data-id="${r.releaseId}">发布</button>`);
+          ops.push(`<button class="small danger" data-act="delete" data-id="${r.releaseId}">删除</button>`);
+        }
+        if (r.platform !== 'ios' && (r.status === 'published')) {
+          ops.push(`<button class="small" data-act="force" data-id="${r.releaseId}" data-next="${r.forceUpdate ? '0' : '1'}">${r.forceUpdate ? '关闭强更' : '开启强更'}</button>`);
+        }
+        if (r.status === 'archived') {
+          ops.push(`<button class="small" data-act="rollback" data-id="${r.releaseId}">回滚到此版本</button>`);
+        }
+        if (r.distribution === 'external' && r.externalUrl) {
+          ops.push(`<a class="badge" href="${esc(r.externalUrl)}" target="_blank" rel="noopener">外部链接</a>`);
+        }
+        return `<tr>
+          <td>${r.platform}${isLatest ? ' <span class="badge on">latest</span>' : ''}</td>
+          <td>${esc(r.version)} · b${r.build}</td>
+          <td><span class="badge ${r.status === 'published' ? 'on' : r.status === 'draft' ? '' : 'off'}">${r.status}</span></td>
+          <td>${r.forceUpdate ? '<span class="badge off">强制</span>' : '<span class="badge">否</span>'}</td>
+          <td>${r.distribution === 'external' ? '外部链接' : r.fileAvailable ? '可用' : '<span class="badge off">已清理</span>'}</td>
+          <td>${fmtSize(r.size)}</td>
+          <td><div class="ops">${ops.join('') || '<span class="hint">—</span>'}</div></td>
+        </tr>`;
+      }).join('') + '</tbody></table>'
+    : '<p class="hint">暂无版本记录。</p>';
+  $('#detailPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeDetail() {
+  state.detail = null;
+  $('#detailPanel').classList.add('hidden');
+}
+
+async function refreshAll() {
+  await loadApps();
+  if (state.detail) await openDetail(state.detail.app.appId);
+}
+
+// ---- 事件绑定 ----
+$('#loginForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const username = $('#lUser').value.trim();
+  const password = $('#lPass').value;
+  if (!username || !password) return;
+  setMsg('#loginMsg', '登录中…');
+  try {
+    const data = await call('/login', { method: 'POST', body: { username, password } });
+    state.justLoggedPassword = password;
+    $('#lPass').value = '';
+    if (data.mustChangePassword) {
+      showForcePwd();
+    } else {
+      showMain(data);
+      await Promise.all([loadApps(), loadMaintenance()]);
+    }
+  } catch (err) {
+    setMsg('#loginMsg', err.message, 'err');
+  }
+});
+
+$('#forcePwdForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const currentPassword = $('#fCur').value;
+  const newPassword = $('#fNew').value;
+  const issue = passwordIssue(newPassword);
+  if (issue) {
+    setMsg('#forcePwdMsg', issue, 'err');
+    return;
+  }
+  if (newPassword !== $('#fNew2').value) {
+    setMsg('#forcePwdMsg', '两次输入的新密码不一致', 'err');
+    return;
+  }
+  try {
+    await call('/password', { method: 'PUT', body: { currentPassword, newPassword } });
+    state.justLoggedPassword = '';
+    showLogin('密码已更新，所有会话已失效，请使用新密码重新登录');
+    setMsg('#loginMsg', '密码已更新，请重新登录', 'ok');
+  } catch (err) {
+    setMsg('#forcePwdMsg', err.message, 'err');
+  }
+});
+
+$('#btnNewApp').addEventListener('click', () => {
+  $('#createPanel').classList.remove('hidden');
+  $('#createForm').reset();
+  platformChecks('#cPlatforms', ['windows', 'apk']);
+  setMsg('#createMsg', '');
+  $('#cAppId').focus();
+});
+$('#btnCancelCreate').addEventListener('click', () => $('#createPanel').classList.add('hidden'));
+
+$('#createForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const body = {
+    appId: $('#cAppId').value.trim(),
+    name: $('#cName').value.trim(),
+    description: $('#cDesc').value.trim(),
+    platforms: checkedPlatforms('#cPlatforms'),
+  };
+  try {
+    await call('/apps', { method: 'POST', body });
+    $('#createPanel').classList.add('hidden');
+    await loadApps();
+  } catch (err) {
+    setMsg('#createMsg', err.message, 'err');
+  }
+});
+
+$('#appsTable').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-act]');
+  if (!button) return;
+  const appId = button.dataset.id;
+  const act = button.dataset.act;
+  if (act === 'detail') return openDetail(appId);
+  if (act === 'toggle') {
+    const app = state.apps.find((item) => item.appId === appId);
+    try {
+      await call('/apps/' + encodeURIComponent(appId), { method: 'PUT', body: { enabled: !app.enabled } });
+      await refreshAll();
+    } catch (err) { alert(err.message); }
+    return;
+  }
+  if (act === 'delete') {
+    const typed = prompt(`删除不可恢复。请输入 appId 确认：\n${appId}`);
+    if (typed !== appId) return;
+    try {
+      await call('/apps/' + encodeURIComponent(appId), { method: 'DELETE' });
+      closeDetail();
+      await loadApps();
+    } catch (err) { alert(err.message); }
+  }
+});
+
+$('#editForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.detail) return;
+  try {
+    await call('/apps/' + encodeURIComponent(state.detail.app.appId), {
+      method: 'PUT',
+      body: {
+        name: $('#eName').value.trim(),
+        description: $('#eDesc').value.trim(),
+        platforms: checkedPlatforms('#ePlatforms'),
+        enabled: $('#eEnabled').value === 'true',
+      },
+    });
+    setMsg('#editMsg', '已保存', 'ok');
+    await refreshAll();
+  } catch (err) {
+    setMsg('#editMsg', err.message, 'err');
+  }
+});
+
+$('#btnToggleEnabled').addEventListener('click', async () => {
+  if (!state.detail) return;
+  const next = !state.detail.app.enabled;
+  try {
+    await call('/apps/' + encodeURIComponent(state.detail.app.appId), { method: 'PUT', body: { enabled: next } });
+    await refreshAll();
+  } catch (err) { alert(err.message); }
+});
+
+$('#btnCloseDetail').addEventListener('click', closeDetail);
+
+$('#btnDeleteApp').addEventListener('click', async () => {
+  if (!state.detail) return;
+  const appId = state.detail.app.appId;
+  const typed = prompt(`删除不可恢复。请输入 appId 确认：\n${appId}`);
+  if (typed !== appId) return;
+  try {
+    await call('/apps/' + encodeURIComponent(appId), { method: 'DELETE' });
+    closeDetail();
+    await loadApps();
+  } catch (err) { alert(err.message); }
+});
+
+$('#btnRefreshMaint').addEventListener('click', loadMaintenance);
+
+$('#btnUpload').addEventListener('click', () => runUpload({ resume: false }));
+$('#btnResume').addEventListener('click', () => runUpload({ resume: true }));
+
+// 版本表操作：发布 / 强更 / 回滚 / 删除草稿
+$('#dReleases').addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-act]');
+  if (!btn || !state.detail) return;
+  const releaseId = btn.dataset.id;
+  const release = (state.detail.releases || []).find((r) => r.releaseId === releaseId);
+  if (!release) return;
+  try {
+    if (btn.dataset.act === 'publish') {
+      let force = false;
+      if (release.platform !== 'ios') {
+        force = confirm('发布后该版本成为 latest。\n是否同时开启强制更新？（确定=开启，取消=不开启）');
+      }
+      await call(`/releases/${releaseId}/publish`, { method: 'POST', body: { forceUpdate: force } });
+      await refreshAll();
+      await loadMaintenance();
+      alert('已发布');
+    } else if (btn.dataset.act === 'force') {
+      await call(`/releases/${releaseId}`, { method: 'PUT', body: { forceUpdate: btn.dataset.next === '1' } });
+      await refreshAll();
+    } else if (btn.dataset.act === 'rollback') {
+      const typed = prompt(`回滚会把 ${release.version} (b${release.build}) 设为 latest。\n请输入 releaseId 后 4 位确认：\n${releaseId}`);
+      if (!typed || typed.trim() !== releaseId.slice(-4)) return;
+      await call(`/releases/${releaseId}/rollback`, { method: 'POST', body: {} });
+      await refreshAll();
+      alert('已回滚');
+    } else if (btn.dataset.act === 'delete') {
+      const typed = prompt(`删除草稿不可恢复。请输入 releaseId 后 4 位确认：\n${releaseId}`);
+      if (!typed || typed.trim() !== releaseId.slice(-4)) return;
+      await call(`/releases/${releaseId}`, { method: 'DELETE' });
+      await refreshAll();
+    }
+  } catch (err) { alert(err.message); }
+});
+
+// iOS 外部链接版本
+$('#iosForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.detail) return;
+  try {
+    await call('/releases', {
+      method: 'POST',
+      body: {
+        appId: state.detail.app.appId,
+        platform: 'ios',
+        distribution: 'external',
+        externalUrl: $('#iUrl').value.trim(),
+        version: $('#iVersion').value.trim(),
+        build: Number($('#iBuild').value),
+        notes: $('#iNotes').value.trim(),
+        pubspecBuildConfirmed: $('#iPubspec').checked,
+        status: $('#iPublish').checked ? 'published' : 'draft',
+      },
+    });
+    setMsg('#iosMsg', '已保存', 'ok');
+    await refreshAll();
+    setMsg('#iosMsg', '已保存 iOS 外部链接版本', 'ok');
+  } catch (err) {
+    setMsg('#iosMsg', err.message, 'err');
+  }
+});
+
+$('#btnCleanup').addEventListener('click', async () => {
+  try {
+    const preview = await call('/maintenance/cleanup', { method: 'POST', body: { dryRun: true } });
+    if (!preview.candidates.length) {
+      alert('当前磁盘可用空间充足，无需清理归档文件。');
+      return;
+    }
+    const size = preview.candidates.reduce((sum, item) => sum + Number(item.sizeBytes || 0), 0);
+    const list = preview.candidates
+      .map((item) => `${item.appId}|${item.platform} b${item.build} · ${fmtSize(item.sizeBytes)}`)
+      .join('\n');
+    if (!confirm(`预演：将删除 ${preview.candidates.length} 个归档文件，释放约 ${fmtSize(size)}：\n${list}\n\n确认执行真实清理？`)) return;
+    const result = await call('/maintenance/cleanup', { method: 'POST', body: { dryRun: false } });
+    alert(`清理完成，释放 ${fmtSize(result.freedBytes)}`);
+    await Promise.all([loadMaintenance(), refreshAll()]);
+  } catch (err) { alert(err.message); }
+});
+
+$('#btnPwd').addEventListener('click', () => {
+  $('#pwdForm').reset();
+  setMsg('#pwdMsg', '');
+  $('#pwdDialog').showModal();
+});
+$('#btnCancelPwd').addEventListener('click', () => $('#pwdDialog').close());
+$('#pwdForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const issue = passwordIssue($('#pNew').value);
+  if (issue) {
+    setMsg('#pwdMsg', issue, 'err');
+    return;
+  }
+  if ($('#pNew').value !== $('#pNew2').value) {
+    setMsg('#pwdMsg', '两次输入的新密码不一致', 'err');
+    return;
+  }
+  try {
+    await call('/password', {
+      method: 'PUT',
+      body: { currentPassword: $('#pCur').value, newPassword: $('#pNew').value },
+    });
+    $('#pwdDialog').close();
+    showLogin('密码已更新，所有会话已失效，请重新登录');
+    setMsg('#loginMsg', '密码已更新，请重新登录', 'ok');
+  } catch (err) {
+    setMsg('#pwdMsg', err.message, 'err');
+  }
+});
+
+$('#btnRevoke').addEventListener('click', async () => {
+  if (!confirm('强制下线会使当前及所有其他会话立即失效，确认继续？')) return;
+  try {
+    await call('/sessions/revoke', { method: 'POST', body: {} });
+    showLogin('已强制下线，请重新登录');
+    setMsg('#loginMsg', '已强制下线', 'ok');
+  } catch (err) { alert(err.message); }
+});
+
+$('#btnLogout').addEventListener('click', async () => {
+  try { await call('/logout', { method: 'POST', body: {} }); } catch (_) { /* ignore */ }
+  showLogin('已退出登录');
+});
+
+boot();
+</script>
+</body>
+</html>

@@ -11,30 +11,57 @@ const {
   clientIp,
   securityHeaders,
   csrfGuard,
-  freeBytes,
-  dirSizeBytes,
   handleError,
 } = require('./apiutil');
 const {
   COOKIE_NAME,
+  VIEWER_COOKIE,
   scryptVerify,
   scryptHash,
   validatePassword,
   LoginLimiter,
-  signCookie,
   cookieOptions,
-  issueSession,
-  sessionPayload,
-  readSession,
 } = require('./security');
 const { createAppsRouter } = require('./apps');
+const { createReleasesRouter } = require('./releases');
+const { maintenanceStatus, runCleanup } = require('./cleanup');
+const { createAccountsRouter, tokenLogin, setAccountCookie } = require('./accounts');
+const { createFilesAdminRouter } = require('./files');
+const { authenticate, requireAccountRole, requireRole } = require('./auth');
+const { issueSession } = require('./security');
 const { nowIso } = require('./store');
 
-const CHANGE_PASSWORD_PREFIX = '/api/admin/password';
-const ME_PREFIX = '/api/admin/me';
-const LOGOUT_PREFIX = '/api/admin/logout';
+const OPEN_AFTER_LOGIN = ['/api/admin/me', '/api/admin/logout', '/api/admin/password', '/api/admin/sessions/revoke'];
 
-function createAdminRouter({ config, store, audit, secret }) {
+function permissionPayload(principal) {
+  if (!principal) return { accounts: false, apps: false, files: false };
+  if (principal.type === 'viewer') {
+    return {
+      accounts: false,
+      apps: principal.scopes.includes('apps:read'),
+      files: principal.scopes.includes('files:read'),
+    };
+  }
+  return {
+    accounts: principal.roles.includes('admin'),
+    apps: principal.roles.includes('apps') || principal.roles.includes('admin'),
+    files: principal.roles.includes('files') || principal.roles.includes('admin'),
+  };
+}
+
+// 按路径分组鉴权：/accounts、/tokens 只允许 admin 账号；/files 允许 files 或 admin；其余应用相关要求 apps。
+function guardByPath(req, res, next) {
+  // 挂载在 '/api/admin' 上，req.path 已去掉前缀，必须用 originalUrl 判断完整路径。
+  const url = req.originalUrl.split('?')[0];
+  if (OPEN_AFTER_LOGIN.includes(url)) return next();
+  if (url.startsWith('/api/admin/accounts') || url.startsWith('/api/admin/tokens')) {
+    return requireAccountRole('admin')(req, res, next);
+  }
+  if (url.startsWith('/api/admin/files')) return requireRole('files')(req, res, next);
+  return requireRole('apps')(req, res, next);
+}
+
+function createAdminRouter({ config, store, audit, secret, uploads }) {
   const router = express.Router();
   const limiter = new LoginLimiter({
     ipLimit: 5,
@@ -50,7 +77,6 @@ function createAdminRouter({ config, store, audit, secret }) {
     next();
   });
 
-  // 登录不需要会话；其余 /api/admin/* 全部要求已登录。
   router.post(
     '/api/admin/login',
     wrap(async (req, res) => {
@@ -75,8 +101,8 @@ function createAdminRouter({ config, store, audit, secret }) {
         throw new ApiError(429, 400002, `登录失败次数过多，请 ${Math.ceil(lock.retryAfterSec / 60)} 分钟后再试`);
       }
 
-      const admin = store.data.admin;
-      const valid = Boolean(admin) && username === admin.username && scryptVerify(password, admin.passwordHash);
+      const account = store.findAccount(username);
+      const valid = Boolean(account) && !account.disabled && scryptVerify(password, account.passwordHash);
       if (!valid) {
         const state = limiter.fail({ ip, username });
         await audit.log({
@@ -94,10 +120,13 @@ function createAdminRouter({ config, store, audit, secret }) {
       }
 
       limiter.success({ ip, username });
-      const session = await store.mutate(() => issueSession(store.data, config));
-      const token = signCookie(sessionPayload(store.data.admin, session), secret);
-      const hours = Number(config.admin.sessionHours) || 12;
-      res.cookie(COOKIE_NAME, token, { ...cookieOptions(config), maxAge: hours * 3600 * 1000 });
+      const session = await store.mutate(() => {
+        const sessionValue = issueSession(account, config);
+        account.lastLoginAt = nowIso();
+        account.updatedAt = nowIso();
+        return sessionValue;
+      });
+      setAccountCookie(res, config, account, session, secret);
 
       await audit.log({
         actor: username,
@@ -105,23 +134,29 @@ function createAdminRouter({ config, store, audit, secret }) {
         action: 'login_success',
         target: username,
         before: null,
-        after: { sessionId: session.sid, expiresAt: session.expiresAt },
+        after: { sessionId: session.sid, expiresAt: session.expiresAt, roles: account.roles },
       });
 
       ok(res, {
         name: username,
-        role: 'admin',
         username,
+        role: 'admin',
+        roles: [...account.roles],
+        permissions: permissionPayload({ type: 'account', roles: account.roles }),
         expiresAt: session.expiresAt,
-        mustChangePassword: Boolean(store.data.admin.mustChangePassword),
+        mustChangePassword: Boolean(account.mustChangePassword),
       });
     })
   );
+
+  // 临时口令登录（仅写只读 viewer 会话）：同样要求 X-Admin-Request 防 CSRF。
+  router.post('/api/admin/token-login', csrfGuard, tokenLogin({ config, store, audit, secret }));
 
   router.post(
     '/api/admin/logout',
     wrap(async (req, res) => {
       res.clearCookie(COOKIE_NAME, cookieOptions(config));
+      res.clearCookie(VIEWER_COOKIE, cookieOptions(config));
       await audit.log({
         actor: 'anonymous',
         ip: req.clientIp,
@@ -134,17 +169,16 @@ function createAdminRouter({ config, store, audit, secret }) {
     })
   );
 
-  // 以下全部需要有效会话。
+  // 以下全部需要有效会话（账号或临时口令）。
+  router.use('/api/admin', authenticate({ store, secret }));
+
   router.use(
     '/api/admin',
     wrap((req, res, next) => {
-      const session = readSession(req, store.data, secret);
-      if (!session) throw new ApiError(401, 400001, '未登录或会话已过期');
-      req.admin = session;
-      const admin = store.data.admin;
+      const p = req.principal;
+      if (!p) throw new ApiError(401, 400001, '未登录或会话已过期');
       const url = req.originalUrl.split('?')[0];
-      const allowed = url === ME_PREFIX || url === CHANGE_PASSWORD_PREFIX || url === LOGOUT_PREFIX;
-      if (admin.mustChangePassword && !allowed) {
+      if (p.type === 'account' && p.mustChangePassword && !OPEN_AFTER_LOGIN.includes(url)) {
         throw new ApiError(403, 400010, '首次登录请先修改初始密码');
       }
       next();
@@ -152,16 +186,23 @@ function createAdminRouter({ config, store, audit, secret }) {
   );
 
   router.use('/api/admin', csrfGuard);
+  router.use('/api/admin', guardByPath);
 
   router.get(
     '/api/admin/me',
     wrap((req, res) => {
+      const p = req.principal;
       ok(res, {
-        name: req.admin.username,
-        username: req.admin.username,
-        role: 'admin',
-        expiresAt: req.admin.expiresAt,
-        mustChangePassword: Boolean(store.data.admin.mustChangePassword),
+        type: p.type,
+        name: p.type === 'account' ? p.username : `临时口令 ${p.tokenId}`,
+        username: p.type === 'account' ? p.username : null,
+        role: p.type === 'account' && p.roles.includes('admin') ? 'admin' : p.type,
+        roles: p.type === 'account' ? [...p.roles] : [],
+        scopes: p.type === 'viewer' ? [...p.scopes] : [],
+        permissions: permissionPayload(p),
+        readOnly: p.type === 'viewer',
+        expiresAt: p.expiresAt,
+        mustChangePassword: Boolean(p.mustChangePassword),
       });
     })
   );
@@ -169,27 +210,28 @@ function createAdminRouter({ config, store, audit, secret }) {
   router.put(
     '/api/admin/password',
     wrap(async (req, res) => {
+      if (req.principal.type !== 'account') throw new ApiError(403, 400011, '临时口令不能修改密码');
       const body = req.body || {};
       const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
       const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
-      const admin = store.data.admin;
+      const account = store.findAccount(req.principal.username);
+      if (!account) throw new ApiError(401, 400001, '账号不存在');
 
-      if (!scryptVerify(currentPassword, admin.passwordHash)) {
+      if (!scryptVerify(currentPassword, account.passwordHash)) {
         throw new ApiError(401, 400001, '当前密码不正确');
       }
-      const reason = validatePassword(newPassword, admin.username, config.password);
+      const reason = validatePassword(newPassword, account.username, config.password);
       if (reason) throw new ApiError(200, 400005, reason);
       if (newPassword === currentPassword) throw new ApiError(200, 400005, '新密码不能与当前密码相同');
 
       await store.mutate(() => {
-        const db = store.data;
-        db.admin.passwordHash = scryptHash(newPassword);
-        db.admin.mustChangePassword = false;
-        db.admin.authEpoch = Number(db.admin.authEpoch) + 1;
-        db.admin.sessionId = null;
-        db.admin.sessionIssuedAt = null;
-        db.admin.sessionExpiresAt = null;
-        db.admin.updatedAt = nowIso();
+        account.passwordHash = scryptHash(newPassword);
+        account.mustChangePassword = false;
+        account.authEpoch = Number(account.authEpoch) + 1;
+        account.sessionId = null;
+        account.sessionIssuedAt = null;
+        account.sessionExpiresAt = null;
+        account.updatedAt = nowIso();
       });
       res.clearCookie(COOKIE_NAME, cookieOptions(config));
       // 初始密码文件已完成使命，改密成功后立即删除。
@@ -199,10 +241,10 @@ function createAdminRouter({ config, store, audit, secret }) {
         /* 文件可能已不存在 */
       }
       await audit.log({
-        actor: req.admin.username,
+        actor: req.principal.username,
         ip: req.clientIp,
         action: 'password_change',
-        target: req.admin.username,
+        target: req.principal.username,
         before: { mustChangePassword: true },
         after: { mustChangePassword: false, allSessionsRevoked: true },
       });
@@ -213,45 +255,36 @@ function createAdminRouter({ config, store, audit, secret }) {
   router.post(
     '/api/admin/sessions/revoke',
     wrap(async (req, res) => {
+      if (req.principal.type !== 'account') throw new ApiError(403, 400011, '临时口令不能执行该操作');
+      const account = store.findAccount(req.principal.username);
       await store.mutate(() => {
-        const db = store.data;
-        db.admin.authEpoch = Number(db.admin.authEpoch) + 1;
-        db.admin.sessionId = null;
-        db.admin.sessionIssuedAt = null;
-        db.admin.sessionExpiresAt = null;
-        db.admin.updatedAt = nowIso();
+        account.authEpoch = Number(account.authEpoch) + 1;
+        account.sessionId = null;
+        account.sessionIssuedAt = null;
+        account.sessionExpiresAt = null;
+        account.updatedAt = nowIso();
       });
       res.clearCookie(COOKIE_NAME, cookieOptions(config));
       await audit.log({
-        actor: req.admin.username,
+        actor: req.principal.username,
         ip: req.clientIp,
         action: 'sessions_revoke',
-        target: req.admin.username,
-        before: { sessionId: req.admin.sessionId },
-        after: { authEpoch: store.data.admin.authEpoch },
+        target: req.principal.username,
+        before: { sessionId: req.principal.sessionId },
+        after: { authEpoch: account.authEpoch },
       });
       ok(res, { mustReLogin: true }, '已强制下线全部会话');
     })
   );
 
-  // 维护占位：阶段 0/1 只提供状态查询，实际清理在阶段 2 的 cleanup.js 实现。
+  // 账号管理 + 临时口令（仅 admin 角色）。
+  router.use('/api/admin', createAccountsRouter({ config, store, audit, secret }));
+
+  // 维护：状态查询 + 手动清理（默认 dryRun）；自动清理由 cleanup.js 每小时执行。
   router.get(
     '/api/admin/maintenance/status',
     wrap((req, res) => {
-      const free = freeBytes(config.storageRoot);
-      const archived = Object.values(store.data.releases).filter((r) => r.status === 'archived');
-      ok(res, {
-        diskFreeBytes: free,
-        diskLow: free !== null && free < config.retention.cleanupTargetFreeBytes,
-        stopUploadFreeBytes: config.retention.stopUploadFreeBytes,
-        cleanupTargetFreeBytes: config.retention.cleanupTargetFreeBytes,
-        maxStorageBytes: config.maxStorageBytes,
-        storageBytes: dirSizeBytes(config.storageRoot),
-        archivedCount: archived.length,
-        archivedFileAvailableCount: archived.filter((r) => r.fileAvailable).length,
-        cleanupImplemented: false,
-        checkedAt: nowIso(),
-      });
+      ok(res, maintenanceStatus({ config, store }));
     })
   );
 
@@ -260,49 +293,50 @@ function createAdminRouter({ config, store, audit, secret }) {
     wrap(async (req, res) => {
       const body = req.body || {};
       const dryRun = body.dryRun === undefined ? true : Boolean(body.dryRun);
-      await audit.log({
+      const result = await runCleanup({
+        config,
+        store,
+        audit,
         actor: req.admin.username,
         ip: req.clientIp,
-        action: 'cleanup_manual',
-        target: 'storage',
-        before: { dryRun },
-        after: { implemented: false, candidates: [] },
+        dryRun,
+        targetFreeBytes: body.targetFreeBytes,
+        reason: 'manual',
       });
-      ok(
-        res,
-        {
-          implemented: false,
-          dryRun,
-          candidates: [],
-          freedBytes: 0,
-          diskFreeBytes: freeBytes(config.storageRoot),
-        },
-        '阶段 1 尚未实现自动/手动清理，将在阶段 2 提供'
-      );
+      ok(res, result, dryRun ? '预演完成（未删除任何文件）' : '清理完成');
     })
   );
 
+  if (uploads) router.use('/api/admin/uploads', uploads.router());
+  router.use('/api/admin', createReleasesRouter({ config, store, audit, secret }));
   router.use('/api/admin', createAppsRouter({ store, audit }));
+
+  // 文件镜像管理（files 角色）。
+  router.use('/api/admin', createFilesAdminRouter({ config, store, audit }));
 
   return router;
 }
 
-function createAdminApp({ config, store, audit, secret }) {
+function webDir(config) {
+  const candidates = [path.join(config.root, 'build', 'web'), path.join(__dirname, '..', 'web')];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+}
+
+function createAdminApp({ config, store, audit, secret, uploads }) {
   const app = express();
   if (config.trustProxy) app.set('trust proxy', true);
   app.disable('x-powered-by');
   app.use(express.json({ limit: '32kb' }));
   app.use(express.urlencoded({ extended: false, limit: '32kb' }));
   app.use(cookieParser());
-  app.use(createAdminRouter({ config, store, audit, secret }));
+  app.use('/static', express.static(webDir(config), { index: false, maxAge: '5m' }));
+  app.use(createAdminRouter({ config, store, audit, secret, uploads }));
 
-  const pageCandidates = [
-    path.join(config.root, 'build', 'web', 'admin.html'),
-    path.join(__dirname, '..', 'web', 'admin.html'),
-  ];
-  const page = pageCandidates.find((candidate) => fs.existsSync(candidate)) || pageCandidates[0];
-  app.get(['/admin', '/admin/'], (req, res) => res.sendFile(page));
-  app.get('/', (req, res) => res.redirect('/admin'));
+  const page = (name) => (req, res) => res.sendFile(path.join(webDir(config), name));
+  app.get(['/admin', '/admin/'], page('admin.html'));
+  app.get(['/apps', '/apps/'], page('apps.html'));
+  app.get(['/files', '/files/'], page('files.html'));
+  app.get('/', page('index.html'));
   app.get('/favicon.ico', (req, res) => res.status(204).end());
 
   app.use((req, res) => res.status(404).json({ code: 300000, msg: '接口不存在', data: null }));
