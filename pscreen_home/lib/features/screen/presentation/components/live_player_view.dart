@@ -62,6 +62,10 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   StreamSubscription<Tracks>? _tracksSub;
   StreamSubscription<int?>? _widthSub;
   StreamSubscription<AudioParams>? _audioParamsSub;
+  /// 卡顿事件记账（buffering 边沿，毫秒级）：playing 期间 buffering=true
+  /// 记起点，恢复时超过 1s 打一条——用于与 relay 侧的请求空窗对表。
+  StreamSubscription<bool>? _bufferingSub;
+  DateTime? _stallStart;
 
   /// 播放失败重试状态机（共享包）：冷却 / 多源循环回退 / 一轮退避 1→2→4→8s。
   late final PlaybackRetryController _retry;
@@ -187,6 +191,22 @@ class _LivePlayerViewState extends State<LivePlayerView> {
         if (_mediaKind == MediaKind.audio) _maybeReportOk();
       }
     });
+    // 卡顿事件记账（毫秒级边沿）：playing 期间进入 buffering 即记起点，
+    // 恢复时超过 1s 打一条「卡顿 X.Xs 后恢复」——与 relay 侧请求空窗对表。
+    _bufferingSub = _player.stream.buffering.listen((bool b) {
+      if (!mounted) return;
+      if (b) {
+        // 门控：只记「已经在播」的卡，首次 open 的 buffering 是正常起播。
+        if (_player.state.playing) _stallStart ??= DateTime.now();
+      } else if (_stallStart != null) {
+        final int ms = DateTime.now().difference(_stallStart!).inMilliseconds;
+        _stallStart = null;
+        if (ms >= 1000) {
+          debugPrint('[LivePlayerView] 卡顿 ${(ms / 1000).toStringAsFixed(1)}s 后恢复 '
+              '源(${_retry.sourceIndex + 1}) width=${_player.state.width}');
+        }
+      }
+    });
     // 每秒把播放状态喂给两级缓冲看门狗（playing 且 buffering 才累计计时，
     // 出过画面补满重载额度，恢复即清零）。
     _bufferStallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -220,6 +240,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     _tracksSub?.cancel();
     _widthSub?.cancel();
     _audioParamsSub?.cancel();
+    _bufferingSub?.cancel();
     _bufferStallTimer?.cancel();
     _watchdog.dispose();
     _probe.dispose();
@@ -345,6 +366,8 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道；
     // 声条一并停掉（此刻 playing 很可能还是上一个源的值，会误判成「已出声」）。
     _probe.reset();
+    // 开新流：丢弃上一条流未收尾的卡顿起点，避免跨 open 误记时长。
+    _stallStart = null;
     _barsActiveVN.value = false;
     _watchdog.arm();
     _lastOpenAt = DateTime.now();

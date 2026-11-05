@@ -63,7 +63,7 @@ def rewrite_playlist(body, base):
 # 适用「只有高码率源、客户端下行带宽不足」的场景；每路占用一个 ffmpeg 进程。
 FFMPEG = "ffmpeg"
 LIVE_HEIGHT = "360"  # 输出高度，宽度按比例（-2 保证偶数）
-LIVE_V_BITRATE = "600k"
+LIVE_V_BITRATE = "670k"
 LIVE_HLS_TIME = 2  # 分片时长（秒）
 LIVE_LIST_SIZE = 12  # 加大窗口：mpv 落后 10-20 秒内仍能续上，不滚出丢段
 LIVE_HIDE_TAIL = 4  # 列表尾部隐藏的最新分片数（×2s≈8s 余量）：让 mpv 落在产出边缘后方，吸收分片产出抖动

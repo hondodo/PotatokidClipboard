@@ -102,6 +102,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 进入播放即推进看门狗结算。
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<int?>? _widthSub;
+  /// 卡顿事件记账（buffering 边沿）：playing 期间 buffering=true 记起点，
+  /// 恢复时超过 1s 打一条日志——用于与 relay 侧的请求空窗对表。
+  StreamSubscription<bool>? _bufferingSub;
+  DateTime? _stallStart;
 
   /// 当前源是否已记录过一次「忽略音频解码错误」，避免同一错误反复刷日志。
   bool _audioDecodeErrorLogged = false;
@@ -244,6 +248,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       _syncBarsActive();
       // 进入播放是成功证据之一（视频仍需画面帧配合，见方法内判据）。
       if (value) _maybeReportPlaybackOk();
+    });
+    // 卡顿事件记账（毫秒级边沿）：playing 期间进入 buffering 即记起点，
+    // 恢复时超过 1s 打一条「卡顿 X.Xs 后恢复」——与 relay 侧请求空窗对表。
+    _bufferingSub = player.stream.buffering.listen((bool b) {
+      if (!mounted) return;
+      if (b) {
+        // 门控：只记「已经在播」的卡，首次 open 的 buffering 是正常起播。
+        if (_player?.state.playing == true) _stallStart ??= DateTime.now();
+      } else if (_stallStart != null) {
+        final int ms = DateTime.now().difference(_stallStart!).inMilliseconds;
+        _stallStart = null;
+        if (ms >= 1000) {
+          Injection.get<LogService>().info(
+            '[LivePlayerWidget] 卡顿 ${(ms / 1000).toStringAsFixed(1)}s 后恢复 '
+            '源(${_currentSource + 1}) width=${_player?.state.width}',
+          );
+        }
+      }
     });
     // 出过视频帧（width>0）→ 视为有画面，取消黑屏看门狗。
     _widthSub = player.stream.width.listen((w) {
@@ -600,6 +622,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _audioDecodeErrorLogged = false;
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道。
     _probe.reset();
+    // 开新流：丢弃上一条流未收尾的卡顿起点，避免跨 open 误记时长。
+    _stallStart = null;
     // 此刻 playing 还是上一个源的值，声条直接停掉（新源真正出声再跳）。
     _barsActiveVN.value = false;
     _watchdog.arm();
@@ -775,6 +799,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _completedSub?.cancel();
     _playingSub?.cancel();
     _widthSub?.cancel();
+    _bufferingSub?.cancel();
     _tracksSub?.cancel();
     _audioParamsSub?.cancel();
     _player?.dispose();
