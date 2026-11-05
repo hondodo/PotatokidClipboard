@@ -12,6 +12,7 @@ const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
 const { attachAppUpdateProxy } = require('./app_update_proxy');
 const { createTrafficTracker } = require('./traffic');
+const { createForwarder } = require('./forward');
 
 const app = express();
 const PORT = config.port;
@@ -94,6 +95,10 @@ const uploadDir = path.join(__dirname, config.directories.uploads);
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+// 上传镜像转发：本地落盘后异步转发到公网 yuntu，失败不影响上传响应。
+const projectRoot = path.join(__dirname, '..');
+const forwarder = createForwarder({ datasDir });
 
 // 配置multer用于文件上传
 const storage = multer.diskStorage({
@@ -454,6 +459,14 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         const duration = Date.now() - startTime;
         console.log(`[文件上传] 成功: ${req.file.originalname} (${req.file.size} bytes) - ${duration}ms`);
         console.log(`[文件上传] 详情: 保存路径=${req.file.path}, 文件名=${req.file.filename}`);
+
+        // 异步镜像转发（不 await）：本地已落盘，转发失败只写日志，不影响本次响应。
+        try {
+            const originPath = path.relative(projectRoot, req.file.path).split(path.sep).join('/');
+            forwarder.mirrorToYuntu(req.file.path, originPath);
+        } catch (error) {
+            console.error('[文件上传] 启动镜像转发失败:', error.message);
+        }
 
         res.json({
             [definds.txt.CODE]: definds.code.SUCCESS,
@@ -1969,6 +1982,8 @@ const adminHandle = attachAdmin(app, {
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
     // /api/admin/traffic 查询用
     traffic,
+    // /api/admin/forward/status 查询用（上传镜像转发统计）
+    forward: forwarder,
 });
 
 // App 更新查询代理（本地 → yuntu app_server，只代理元数据，不转发安装包字节）。

@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "baseUrl": "http://143.203.52.132:47292",
+  "serviceToken": "",
+  "timeoutMs": 30000,
+  "retries": 2,
+  "excludePatterns": [],
+  "originServer": ""
+}

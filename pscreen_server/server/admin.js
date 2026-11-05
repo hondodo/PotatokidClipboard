@@ -380,6 +380,8 @@ function attachAdmin(app, options = {}) {
     const pushDeviceConfig = typeof options.pushDeviceConfig === 'function'
         ? options.pushDeviceConfig
         : () => {};
+    // 上传镜像转发实例（forward.js）；未注入时状态接口降级为不可用。
+    const forward = options.forward || null;
 
     const adminDir = path.join(datasDir, 'admin');
     fs.mkdirSync(adminDir, { recursive: true });
@@ -1035,6 +1037,17 @@ function attachAdmin(app, options = {}) {
             });
         } catch (error) {
             console.error('[admin] 读取流量统计失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    // 上传镜像转发状态（只读，admin 权限；不含 serviceToken 明文）。
+    app.get('/api/admin/forward/status', requireAdmin, (req, res) => {
+        try {
+            if (!forward) return jsonFail(res, '镜像转发未启用');
+            return jsonOk(res, forward.status());
+        } catch (error) {
+            console.error('[admin] 读取镜像转发状态失败:', error);
             return jsonFail(res, error.message);
         }
     });
