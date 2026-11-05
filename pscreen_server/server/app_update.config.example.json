@@ -1,0 +1,27 @@
+{
+  "_notes": [
+    "部署位置：<pscreen_server 数据目录>/app_update/config.json；也可用环境变量 APP_UPDATE_CONFIG 指向别的路径。",
+    "改 baseUrl / apiKey 后无需重启 pm2：进程每 5s 检查文件 mtime，变更后下一次请求即生效（最多等 5s）。",
+    "改地址步骤：1) 编辑本文件 baseUrl（含协议与端口，不带结尾斜杠）；2) 保存；3) 等 ≤5s；",
+    "4) curl http://127.0.0.1:<本地端口>/api/app_update/health?probe=1 看到 ok:true 即生效；",
+    "5) 若 health 报 100101/400001，检查 yuntu 端口可达性与 apiKey 是否与 server.config.json 一致。",
+    "apiKey 必须与 yuntu datas/app_update/server.config.json 的 apiKey 完全一致；本代理只转发元数据，不转发安装包字节。"
+  ],
+  "_appIdMapping": {
+    "TV tv": "potatokid-screen-tv",
+    "TV phone": "potatokid-screen-phone",
+    "TV board": "potatokid-screen-board",
+    "home phone": "potatokid-home-phone",
+    "home board": "potatokid-home-board",
+    "home parent": "potatokid-home-parent"
+  },
+  "enabled": true,
+  "baseUrl": "http://143.203.52.132:47292",
+  "apiKey": "请填写与 yuntu datas/app_update/server.config.json 中的 apiKey 一致的值",
+  "timeoutMs": 3000,
+  "cacheTtlMs": 60000,
+  "staleTtlMs": 86400000,
+  "failMode": "open",
+  "allowDirectDownload": true,
+  "rateLimitPerMinute": 60
+}

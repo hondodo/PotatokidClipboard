@@ -10,6 +10,7 @@ const definds = require('./definds');
 const { createAccountStore, ACCOUNT_PATTERN } = require('./accounts');
 const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
+const { attachAppUpdateProxy } = require('./app_update_proxy');
 const { createTrafficTracker } = require('./traffic');
 
 const app = express();
@@ -1969,6 +1970,11 @@ const adminHandle = attachAdmin(app, {
     // /api/admin/traffic 查询用
     traffic,
 });
+
+// App 更新查询代理（本地 → yuntu app_server，只代理元数据，不转发安装包字节）。
+// yuntu 地址/端口/API Key 来自运行期配置 datas/app_update/config.json（mtime 热加载）。
+// 同样必须注册在 SPA 兜底之前，否则 /api/app_update/* 会被 index.html 接管。
+attachAppUpdateProxy(app, { datasDir, logger: console });
 
 // 处理所有其他路由，返回Flutter应用（SPA支持）
 app.use((req, res) => {
