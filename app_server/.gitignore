@@ -1,0 +1,8 @@
+node_modules/
+datas/
+uploads/
+logs/
+backups/
+*.log
+*.bak-*
+.initial_admin_password

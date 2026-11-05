@@ -1,0 +1,55 @@
+{
+  "port": 47292,
+  "adminPort": 47293,
+  "adminBind": "0.0.0.0",
+  "publicBaseUrl": "http://143.203.52.132:47292",
+  "apiKey": "REPLACE_WITH_RANDOM_32_BYTES",
+  "adminUsername": "honghao",
+  "admin": {
+    "ipAllowlist": [],
+    "singleSession": true,
+    "sessionHours": 12,
+    "cookieSecure": false,
+    "lockMinutes": 30,
+    "totpEnabled": false
+  },
+  "password": {
+    "minLength": 6,
+    "maxLength": 64
+  },
+  "storageRoot": "/home/honghao/services/app_server/uploads/packages",
+  "tmpDir": "/home/honghao/services/app_server/uploads/tmp",
+  "maxUploadBytes": 1073741824,
+  "maxStorageBytes": 4294967296,
+  "minFreeBytes": 1073741824,
+  "downloadTokenTtlSec": 600,
+  "download": {
+    "maxConcurrentPerIp": 4,
+    "linksPer10Min": 20
+  },
+  "chunk": {
+    "sizeBytes": 8388608,
+    "maxConcurrentPerUpload": 3,
+    "maxActivePerAdmin": 2,
+    "expireHours": 24,
+    "tmpQuotaBytes": 2147483648
+  },
+  "retention": {
+    "mode": "space-adaptive",
+    "keepPrevious": 1,
+    "checkIntervalMinutes": 60,
+    "cleanupTargetFreeBytes": 1610612736,
+    "stopUploadFreeBytes": 1073741824,
+    "draftDays": 7
+  },
+  "ios": {
+    "mode": "external-only"
+  },
+  "https": {
+    "enabled": false,
+    "keyPath": "",
+    "certPath": "",
+    "redirectHttp": false
+  },
+  "trustProxy": false
+}
