@@ -9,6 +9,7 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
+import 'package:pscreen_screen/features/iptv/application/buffer_stall_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -25,9 +26,11 @@ import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 /// TV 专属逻辑。频道切换统一走共享包的 [LiveChannelController]
 /// （触屏点选走 `select`，立即提交播放，不延迟）。
 ///
-/// 播放失败重试 / 看门狗 / 媒体类型判定统一复用共享包三件套
-/// （[PlaybackRetryController] / [PlaybackWatchdog] / [MediaKindProbe]），
-/// 与电视端行为一致：多源循环回退、一轮退避 1→2→4→8s、打开后无画面超时回退；
+/// 播放失败重试 / 看门狗 / 媒体类型判定 / 缓冲卡死恢复统一复用共享包四件套
+/// （[PlaybackRetryController] / [PlaybackWatchdog] / [MediaKindProbe] /
+/// [BufferStallWatchdog]），与电视端行为一致：多源循环回退、一轮退避
+/// 1→2→4→8s、打开后无画面超时回退；出画面后持续缓冲 10s 先**原地重载同源**
+/// （吸收 relay 会话重建空窗），额度用尽仍卡 60s 才换源回退；
 /// 触屏不注入 TV 的代理池换路由，但同样支持 `.env` 的 `REPLY_SOURCE`
 /// 云端 HLS 中转（命中白名单的源才改写）；看门狗超时固定 60 秒。
 /// 判定为音频时叠加「正在播放」层（收音机图标 + 频道名 + 贴底跳动声条氛围层）。
@@ -69,6 +72,12 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   /// 「打开后长时间无画面」看门狗（共享包）：超时固定 [_watchdogTimeout]。
   late final PlaybackWatchdog _watchdog;
 
+  /// 「持续缓冲卡死」两级看门狗（共享包 `BufferStallWatchdog`）：
+  /// 一级 10s 原地重载同源（吸收 relay 会话重建空窗）、二级 60s 换源回退；
+  /// 重载额度在正常 open 与出过画面（width>0）时补满。
+  late final BufferStallWatchdog _bufferStall;
+  Timer? _bufferStallTimer;
+
   /// 打开后多久没进入播放 / 没出画面即判坏源回退（与电视端直连一致）。
   static const Duration _watchdogTimeout = Duration(seconds: 60);
 
@@ -90,13 +99,25 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     super.initState();
     _player = Player();
     _videoController = VideoController(_player);
-    // ---- 共享包三件套（媒体判定 / 看门狗 / 重试状态机），先建再挂订阅 ----
+    // ---- 共享包四件套（媒体判定 / 看门狗 / 重试状态机 / 缓冲卡死看门狗），先建再挂订阅 ----
     _probe = MediaKindProbe(onChanged: _onProbeChanged);
     _watchdog = PlaybackWatchdog(
       probe: _probe,
       isPlaying: () => _player.state.playing,
       onIssue: (String reason) => _onIssue(reason: reason),
       timeoutOf: () => _watchdogTimeout,
+    );
+    // 两级「持续缓冲」看门狗：一级原地重载同源（与电视端同参数 10s/60s/2 次），
+    // 二级才进重试换源。
+    _bufferStall = BufferStallWatchdog(
+      onReload: (int attempt) {
+        debugPrint('[LivePlayerView] 一级看门狗 原地重载 源(${_retry.sourceIndex + 1}) (第$attempt/${_bufferStall.reloadMax} 次)');
+        unawaited(_openSource(_retry.sourceIndex, isReload: true));
+      },
+      onStuck: (Duration accum) {
+        debugPrint('[LivePlayerView] 看门狗 持续缓冲卡死 源(${_retry.sourceIndex + 1}) 累计${accum.inSeconds}s width=${_player.state.width}');
+        _onIssue(reason: '持续缓冲卡死(${accum.inSeconds}s)');
+      },
     );
     _retry = PlaybackRetryController(
       sourceCount: _currentSourceCount,
@@ -166,6 +187,17 @@ class _LivePlayerViewState extends State<LivePlayerView> {
         if (_mediaKind == MediaKind.audio) _maybeReportOk();
       }
     });
+    // 每秒把播放状态喂给两级缓冲看门狗（playing 且 buffering 才累计计时，
+    // 出过画面补满重载额度，恢复即清零）。
+    _bufferStallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final dynamic s = _player.state;
+      _bufferStall.notifyState(
+        playing: s.playing,
+        buffering: s.buffering,
+        hasFrame: (s.width ?? 0) > 0,
+      );
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _openCurrent());
   }
 
@@ -188,6 +220,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     _tracksSub?.cancel();
     _widthSub?.cancel();
     _audioParamsSub?.cancel();
+    _bufferStallTimer?.cancel();
     _watchdog.dispose();
     _probe.dispose();
     _barsActiveVN.dispose();
@@ -282,8 +315,12 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   }
 
   /// 打开当前频道的第 [sourceIndex] 个源（重试状态机的 open 回调）。
-  Future<void> _openSource(int sourceIndex) async {
+  ///
+  /// [isReload] = 一级看门狗的原地重载：沿用同一源，**不清零**重载额度
+  /// （否则额度永不消耗会无限重载）；其余调用恢复满额。
+  Future<void> _openSource(int sourceIndex, {bool isReload = false}) async {
     if (!mounted) return;
+    if (!isReload) _bufferStall.onFreshOpen();
     final int index = LiveChannelController.instance.index;
     if (index < 0 || index >= widget.channels.length) return;
     final IptvChannel channel = widget.channels[index];
