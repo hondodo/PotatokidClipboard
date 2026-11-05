@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -61,7 +62,7 @@ def rewrite_playlist(body, base):
 # 适用「只有高码率源、客户端下行带宽不足」的场景；每路占用一个 ffmpeg 进程。
 FFMPEG = "ffmpeg"
 LIVE_HEIGHT = "360"  # 输出高度，宽度按比例（-2 保证偶数）
-LIVE_V_BITRATE = "800k"
+LIVE_V_BITRATE = "600k"
 LIVE_HLS_TIME = 2  # 分片时长（秒）
 LIVE_LIST_SIZE = 12  # 加大窗口：mpv 落后 10-20 秒内仍能续上，不滚出丢段
 LIVE_HIDE_TAIL = 4  # 列表尾部隐藏的最新分片数（×2s≈8s 余量）：让 mpv 落在产出边缘后方，吸收分片产出抖动
@@ -98,12 +99,16 @@ def _hls_allowed_opts():
     if "extension_picky" in text:
         # 默认 true：严格校验「URL 后缀 ↔ 探测出的内容格式」，.jpg 伪装分片必挂，关掉
         opts += ["-extension_picky", "0"]
+    if "seg_max_retry" in text:
+        # 单分片失败重试次数（默认 5）：上游抖动多扛几跳，减少断流导致的进程退出重建
+        opts += ["-seg_max_retry", "10"]
     _hls_opts_cache = opts
     print("live: ffmpeg hls 放行选项 %s" % (opts or "(未探测到)"), flush=True)
     return opts
 
 _sessions = {}  # sid -> {proc, dir, playlist, used}
 _sessions_lock = threading.Lock()
+_segno = {}  # sid -> 已产出的最大分片号（跨重建记忆，供 -start_number 续号）
 
 
 def _sid(src):
@@ -114,6 +119,16 @@ def _drop_session(sid):
     s = _sessions.pop(sid, None)
     if not s:
         return
+    # 记录已产出的最大分片号：会话重建时用 -start_number 续号，
+    # 避免 MEDIA-SEQUENCE 归零让播放器把新列表当成失效列表而干等
+    try:
+        with open(s["playlist"], "rb") as fh:
+            text = fh.read().decode("utf-8", "replace")
+        nums = [int(m) for m in re.findall(r"seg(\d+)\.ts", text)]
+        if nums:
+            _segno[sid] = max(nums)
+    except Exception:
+        pass
     try:
         s["proc"].kill()
     except Exception:
@@ -184,10 +199,19 @@ def _live_session(src, dev=""):
         _drop_session(old_sid)
     d = tempfile.mkdtemp(prefix="relay_live_%s_" % sid)
     playlist = os.path.join(d, "out.m3u8")
+    # 重建续号：从上次会话最大段号 +1 继续（序号单调递增，播放器把它当作
+    # 正常推进的 live 而非归零的失效列表，重建空窗从 30s+ 缩到 1~2 个轮询）
+    start_no = _segno.get(sid, -1) + 1
+    # HTTP 协议级重连：上游短暂断流先自愈，减少进程退出（退出即重建）
+    retry_opts = (
+        ["-reconnect", "1", "-reconnect_streamed", "1",
+         "-reconnect_delay_max", "5"]
+        if src.startswith(("http://", "https://")) else []
+    )
     cmd = [
         FFMPEG, "-nostdin", "-loglevel", "error",
         "-user_agent", UA["User-Agent"],
-    ] + _hls_allowed_opts() + [
+    ] + _hls_allowed_opts() + retry_opts + [
         "-re",  # 按实时节奏读输入：否则快于实时的源会让列表超前 mpv，导致跳段卡顿
         "-i", src,
         "-vf", "scale=-2:%s" % LIVE_HEIGHT,
@@ -202,6 +226,7 @@ def _live_session(src, dev=""):
         "-hls_delete_threshold", "10",  # 滚出列表后再留 10 个才删，防 mpv 慢半拍取到列表却 404
         "-hls_flags", "delete_segments",
         "-hls_segment_filename", os.path.join(d, "seg%05d.ts"),
+        "-start_number", str(start_no),  # 重建续号，序号跨会话单调递增
         playlist,
     ]
     try:
@@ -502,6 +527,22 @@ class Relay(BaseHTTPRequestHandler):
         )
 
 
+class _QuietHTTPServer(ThreadingHTTPServer):
+    """压掉 keep-alive 噪音：客户端提前重置/断开连接（切源、原地重载、
+    播放器超时挂断）时，socketserver 默认打印整屏 traceback，冲掉有用日志。"""
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            print(
+                "%s client断开 keep-alive 连接(errno=%s) %s"
+                % (time.strftime("%H:%M:%S"), getattr(exc, "errno", "?"), client_address),
+                flush=True,
+            )
+            return
+        super().handle_error(request, client_address)
+
+
 if __name__ == "__main__":
     threading.Thread(target=_reaper_loop, daemon=True).start()
     print(
@@ -509,4 +550,4 @@ if __name__ == "__main__":
         % (BASE, TOKEN, LIVE_HEIGHT, LIVE_V_BITRATE, os.cpu_count() or 0),
         flush=True,
     )
-    ThreadingHTTPServer(("0.0.0.0", PORT), Relay).serve_forever()
+    _QuietHTTPServer(("0.0.0.0", PORT), Relay).serve_forever()

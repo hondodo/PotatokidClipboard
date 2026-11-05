@@ -148,3 +148,17 @@ journalctl -u relay -f     # 看日志（此时日志不在 /var/log/relay.log�
 
 1. 把根目录 `.env` 里的 `REPLY_SOURCE=` 清空（留空 = 直连播放）
 2. **完整重跑 App**（非热重载，`.env` 改动需重新打包资产）
+
+
+
+复制文件
+scp "E:\Code\potatokid_clipboard\pscreen\potatokid_screen\relay_upload.py" xxx@xxxxxxx:~/relay.py
+关闭并重启
+pkill -f "python3 relay.py"; cd ~ && nohup python3 relay.py >> relay.log 2>&1 &
+查看日志
+tail -f ~/relay.log
+
+grep -E "会话创建|淘汰最旧" ~/relay.log | tail -20
+
+查看有多少ffmpeg进程
+ps -ef | grep [f]fmpeg

@@ -120,6 +120,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   Duration _bufferingAccum = Duration.zero;
   static const Duration _bufferStallThreshold = Duration(seconds: 60);
 
+  /// 一级看门狗：同一源持续缓冲先**原地重载**（不换源），吸收 relay 会话
+  /// 重建之类的瞬时空窗；重载额度用尽仍卡才升级到 60s 换源看门狗。
+  /// 额度在正常 open（切台/换源/重试）时补满，出过画面（width>0）也补满。
+  static const Duration _bufferReloadThreshold = Duration(seconds: 10);
+  static const int _bufferReloadMax = 2;
+  int _bufferReloadUsed = 0;
+
   /// 最近一次记住的「频道|源URL」，避免重复写盘。
   String? _lastRemembered;
 
@@ -473,6 +480,20 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool buffering = s.buffering;
     if (playing && buffering) {
       _bufferingAccum += const Duration(seconds: 1);
+      // 一级：缓冲达 10s 且本源仍有原地重载额度 → 不换源、原地重开同一地址，
+      // 让播放器拿到 relay 新会话的健康列表（吸收会话重建空窗等瞬时故障）。
+      if (_bufferingAccum >= _bufferReloadThreshold &&
+          _bufferReloadUsed < _bufferReloadMax) {
+        _bufferReloadUsed++;
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 一级看门狗 原地重载 频道${_currentChannel()?.name ?? '?'}'
+          '源(${_currentSource + 1}) 缓冲${_bufferingAccum.inSeconds}s '
+          '(第$_bufferReloadUsed/$_bufferReloadMax 次)',
+        );
+        _bufferingAccum = Duration.zero;
+        unawaited(_playCurrentSource(isReload: true));
+        return;
+      }
       final Duration threshold = _bufferStallThreshold;
       if (_bufferingAccum >= threshold) {
         final String name = _currentChannel()?.name ?? '?';
@@ -485,6 +506,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         _onPlaybackIssue(reason: '持续缓冲卡死(${threshold.inSeconds}s)');
       }
     } else {
+      // 出过真实画面 = 已恢复健康，给下一阶段原地重载重新补满额度。
+      if ((s.width ?? 0) > 0) _bufferReloadUsed = 0;
       _bufferingAccum = Duration.zero;
     }
   }
@@ -571,9 +594,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   bool _isPlaybackHealthy() => _playedVideo || _mediaKind == MediaKind.video || (_player?.state.playing ?? false);
 
   /// 打开当前频道的当前源。
-  Future<void> _playCurrentSource() async {
+  ///
+  /// [isReload] = 一级看门狗的原地重载：沿用同一源，**不清零**重载额度；
+  /// 其余调用（切台/换源/重试）恢复满额。
+  Future<void> _playCurrentSource({bool isReload = false}) async {
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
+    if (!isReload) _bufferReloadUsed = 0;
     // 确保硬解设置已应用到播放器（mpv 的 hwdec 需在 open 前设置才生效）。
     await _hwdecReady;
     // Android 音频输出后端（ao=audiotrack）：只在首次 open 前设一次。
