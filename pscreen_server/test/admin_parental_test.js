@@ -5,7 +5,7 @@
 
 const assert = require('assert');
 const path = require('path');
-const { normalizeParental } = require(path.join(__dirname, '..', 'server', 'admin.js'));
+const { normalizeParental, normalizeQuizQuestions } = require(path.join(__dirname, '..', 'server', 'admin.js'));
 
 let passed = 0;
 function ok(name, fn) {
@@ -121,5 +121,132 @@ reject('quietHours 起止相同拒绝', {
 }, '相同');
 reject('parental 非对象拒绝', ['off'], '对象');
 reject('locked 非布尔拒绝', { mode: 'on', children: [{ id: 'c1', name: 'a', locked: 'yes' }] }, 'locked');
+
+ok('unlockMode 允许 quiz', () => {
+    const result = normalizeParental({ mode: 'on', unlockMode: 'quiz' });
+    assert.strictEqual(result.unlockMode, 'quiz');
+});
+
+// ---- 答题题库校验 ----
+console.log('[admin quiz] 校验测试');
+
+function rejectQuiz(name, input, keyword) {
+    ok(name, () => {
+        assert.throws(() => normalizeQuizQuestions(input), (error) => {
+            assert.ok(
+                String(error.message).includes(keyword),
+                `期望错误信息含「${keyword}」，实际：${error.message}`,
+            );
+            return true;
+        });
+    });
+}
+
+ok('选择题归一：字符串选项、答案去重、多选', () => {
+    const [q] = normalizeQuizQuestions([
+        {
+            id: 'q1',
+            type: 'choice',
+            prompt: ' 选出偶数 ',
+            multiple: true,
+            options: ['2', '3', '4'],
+            answers: [0, 2, 2],
+        },
+    ]);
+    assert.strictEqual(q.prompt, '选出偶数');
+    assert.strictEqual(q.multiple, true);
+    assert.deepStrictEqual(q.options.map((o) => o.text), ['2', '3', '4']);
+    assert.deepStrictEqual(q.answers, [0, 2]);
+});
+
+ok('填空题归一：答案裁剪去重、忽略多余字段', () => {
+    const [q] = normalizeQuizQuestions([
+        {
+            id: 'q2',
+            type: 'fill',
+            prompt: '中国首都？',
+            accept: [' 北京 ', 'Beijing', '北京'],
+            options: ['x'],
+            answers: [0],
+        },
+    ]);
+    assert.strictEqual(q.type, 'fill');
+    assert.deepStrictEqual(q.accept, ['北京', 'Beijing']);
+    assert.deepStrictEqual(q.options, []);
+    assert.deepStrictEqual(q.answers, []);
+});
+
+ok('空题库允许（表示清空）', () => {
+    assert.deepStrictEqual(normalizeQuizQuestions([]), []);
+    assert.deepStrictEqual(normalizeQuizQuestions(undefined), []);
+});
+
+ok('题库图片必须是本站地址', () => {
+    const [q] = normalizeQuizQuestions([
+        {
+            id: 'q3',
+            type: 'choice',
+            promptImage: '/api/parental/quiz-image/abc123.png',
+            options: [{ text: 'A' }, { image: '/api/parental/quiz-image/def456.jpg' }],
+            answers: [0],
+        },
+    ]);
+    assert.strictEqual(q.promptImage, '/api/parental/quiz-image/abc123.png');
+    assert.strictEqual(q.options[1].image, '/api/parental/quiz-image/def456.jpg');
+});
+
+rejectQuiz('题库非数组拒绝', { questions: [] }, 'questions');
+rejectQuiz('题目类型枚举外拒绝', [{ id: 'q1', type: 'essay', prompt: 'x' }], 'type');
+rejectQuiz('题目 id 重复拒绝', [
+    { id: 'q1', type: 'fill', prompt: 'a', accept: ['a'] },
+    { id: 'q1', type: 'fill', prompt: 'b', accept: ['b'] },
+], '重复');
+rejectQuiz('题干与图片同时为空拒绝', [{ id: 'q1', type: 'fill', accept: ['a'] }], '题干');
+rejectQuiz('选项少于 2 个拒绝', [
+    { id: 'q1', type: 'choice', prompt: 'x', options: ['a'], answers: [0] },
+], '2~10');
+rejectQuiz('选项超过 10 个拒绝', [
+    {
+        id: 'q1',
+        type: 'choice',
+        prompt: 'x',
+        options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
+        answers: [0],
+    },
+], '2~10');
+rejectQuiz('答案下标越界拒绝', [
+    { id: 'q1', type: 'choice', prompt: 'x', options: ['a', 'b'], answers: [2] },
+], 'answers');
+rejectQuiz('单选题多个答案拒绝', [
+    { id: 'q1', type: 'choice', prompt: 'x', options: ['a', 'b'], answers: [0, 1] },
+], '单选题');
+rejectQuiz('选择题未给答案拒绝', [
+    { id: 'q1', type: 'choice', prompt: 'x', options: ['a', 'b'] },
+], 'answers');
+rejectQuiz('填空题无可接受答案拒绝', [{ id: 'q1', type: 'fill', prompt: 'x', accept: [] }], 'accept');
+rejectQuiz('选项外链图片拒绝', [
+    {
+        id: 'q1',
+        type: 'choice',
+        prompt: 'x',
+        options: [{ text: 'a' }, { image: 'https://evil.example/a.png' }],
+        answers: [0],
+    },
+], '.image');
+rejectQuiz('题干外链图片拒绝', [
+    {
+        id: 'q1',
+        type: 'choice',
+        promptImage: 'https://evil.example/a.png',
+        options: ['a', 'b'],
+        answers: [0],
+    },
+], 'promptImage');
+rejectQuiz('题库超过 200 题拒绝', new Array(201).fill(null).map((_, index) => ({
+    id: `q${index}`,
+    type: 'fill',
+    prompt: 'x',
+    accept: ['x'],
+})), '200');
 
 console.log(`[admin parental] 通过 ${passed} 项`);

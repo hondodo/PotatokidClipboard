@@ -1350,14 +1350,20 @@
     bindRadioChips(modeRow);
 
     // —— 解锁方式 ——
-    const unlock = current && ['remote', 'pin', 'arith'].indexOf(current.unlockMode) >= 0 ? current.unlockMode : 'remote';
+    const unlock = current && ['remote', 'pin', 'arith', 'quiz'].indexOf(current.unlockMode) >= 0 ? current.unlockMode : 'remote';
     const unlockRow = chipRow('unlock-mode', [
       ['remote', '远程确认'],
       ['pin', 'PIN'],
       ['arith', '算术题'],
+      ['quiz', '答题解锁'],
     ], unlock);
     wrap.appendChild(unlockRow);
     bindRadioChips(unlockRow);
+    const quizNote = document.createElement('p');
+    quizNote.className = 'field-note';
+    quizNote.textContent = '答题解锁：只能通过儿童题库答题解锁，题库请在 App「家长视图 → 档案 → 题库」中维护；题库为空时电视端回退算术题。';
+    quizNote.hidden = unlock !== 'quiz';
+    wrap.appendChild(quizNote);
 
     const pinLabel = document.createElement('label');
     pinLabel.textContent = 'PIN（仅「PIN 解锁」时使用）';
@@ -1365,7 +1371,9 @@
     pinLabel.hidden = unlock !== 'pin';
     wrap.appendChild(pinLabel);
     unlockRow.addEventListener('change', () => {
-      pinLabel.hidden = unlockRow.querySelector('input[type="radio"]:checked').value !== 'pin';
+      const next = unlockRow.querySelector('input[type="radio"]:checked').value;
+      pinLabel.hidden = next !== 'pin';
+      quizNote.hidden = next !== 'quiz';
     });
 
     const ownerLabel = document.createElement('label');

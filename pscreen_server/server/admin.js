@@ -28,6 +28,15 @@ const MAX_LAYOUT_HOMES = 100;
 // 儿童模式（方案 §2.2）：档案数量与各名单字段的上限。
 const MAX_PARENTAL_CHILDREN = 12;
 const MAX_PARENTAL_LIST = 200;
+// 答题解锁题库：单档案题量、单题选项数、题干/选项文案长度、图片体积上限。
+const MAX_QUIZ_PER_CHILD = 200;
+const MAX_QUIZ_OPTIONS = 10;
+const MAX_QUIZ_TEXT = 300;
+// 上传走 JSON base64（express jsonLimit 5MB），原图上限取 3MB 留出编码余量。
+const MAX_QUIZ_IMAGE_BYTES = 3 * 1024 * 1024;
+// 题库图片只接受本服务自己生成的 URL（禁止外链，避免电视端加载任意地址）。
+const QUIZ_IMAGE_URL_RE = /^\/api\/parental\/quiz-image\/[a-z0-9]+\.(?:png|jpg|jpeg|webp|gif)$/;
+const QUIZ_IMAGE_FILE_RE = /^[a-z0-9]+\.(?:png|jpg|jpeg|webp|gif)$/;
 // 一台设备可绑定的家长账号上限。
 const MAX_PARENT_ACCOUNTS = 20;
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
@@ -194,8 +203,8 @@ function normalizeParental(value) {
     // 解锁方式：缺失默认 remote（与客户端 fromJson 一致）；给出但非法 → 拒绝。
     let unlockMode = 'remote';
     if (value.unlockMode !== undefined && value.unlockMode !== null) {
-        if (value.unlockMode !== 'remote' && value.unlockMode !== 'pin' && value.unlockMode !== 'arith') {
-            throw new Error('parental.unlockMode 必须是 remote、pin 或 arith');
+        if (value.unlockMode !== 'remote' && value.unlockMode !== 'pin' && value.unlockMode !== 'arith' && value.unlockMode !== 'quiz') {
+            throw new Error('parental.unlockMode 必须是 remote、pin、arith 或 quiz');
         }
         unlockMode = value.unlockMode;
     }
@@ -336,6 +345,85 @@ function normalizeParentalQuietHours(value, field) {
     return list;
 }
 
+/**
+ * 答题解锁题库校验（单档案整库替换语义，PUT /api/admin/parental/quiz 用）。
+ *
+ * 结构/类型/范围非法一律 throw（整体拒绝），避免家长以为题目已生效；
+ * 文案裁剪、选项去重属于安全归一。题量上限 [MAX_QUIZ_PER_CHILD]。
+ */
+function normalizeQuizQuestions(value) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new Error('questions 必须是数组');
+    if (value.length > MAX_QUIZ_PER_CHILD) {
+        throw new Error(`单档案题库最多 ${MAX_QUIZ_PER_CHILD} 题`);
+    }
+    const seenIds = new Set();
+    const list = value.map((raw, index) => {
+        const at = `questions[${index}]`;
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            throw new Error(`${at} 必须是对象`);
+        }
+        if (typeof raw.id !== 'string' || !raw.id.trim() || raw.id.trim().length > 64) {
+            throw new Error(`${at}.id 必须是非空字符串（≤64 字符）`);
+        }
+        const id = raw.id.trim();
+        if (seenIds.has(id)) throw new Error(`${at}.id 重复：${id}`);
+        seenIds.add(id);
+        const type = raw.type === 'fill' ? 'fill' : (raw.type === 'choice' ? 'choice' : null);
+        if (!type) throw new Error(`${at}.type 必须是 choice 或 fill`);
+        const prompt = typeof raw.prompt === 'string' ? raw.prompt.trim().slice(0, MAX_QUIZ_TEXT) : '';
+        const promptImage = typeof raw.promptImage === 'string' ? raw.promptImage.trim() : '';
+        if (promptImage && !QUIZ_IMAGE_URL_RE.test(promptImage)) {
+            throw new Error(`${at}.promptImage 必须是题库图片地址`);
+        }
+        if (!prompt && !promptImage) throw new Error(`${at} 题干文案与题干图片不能同时为空`);
+        if (type === 'choice') {
+            if (!Array.isArray(raw.options) || raw.options.length < 2 || raw.options.length > MAX_QUIZ_OPTIONS) {
+                throw new Error(`${at}.options 必须是 2~${MAX_QUIZ_OPTIONS} 个选项`);
+            }
+            const options = raw.options.map((option, optionIndex) => {
+                const oat = `${at}.options[${optionIndex}]`;
+                const source = typeof option === 'string' ? { text: option } : option;
+                if (!source || typeof source !== 'object' || Array.isArray(source)) {
+                    throw new Error(`${oat} 必须是对象或字符串`);
+                }
+                const text = typeof source.text === 'string' ? source.text.trim().slice(0, MAX_QUIZ_TEXT) : '';
+                const image = typeof source.image === 'string' ? source.image.trim() : '';
+                if (image && !QUIZ_IMAGE_URL_RE.test(image)) {
+                    throw new Error(`${oat}.image 必须是题库图片地址`);
+                }
+                if (!text && !image) throw new Error(`${oat} 文案与图片不能同时为空`);
+                return { text, image };
+            });
+            const multiple = raw.multiple === true;
+            const rawAnswers = Array.isArray(raw.answers) ? raw.answers : [];
+            const answers = [];
+            for (const item of rawAnswers) {
+                if (typeof item !== 'number' || !Number.isInteger(item) || item < 0 || item >= options.length) {
+                    throw new Error(`${at}.answers 必须是选项下标的整数数组`);
+                }
+                if (!answers.includes(item)) answers.push(item);
+            }
+            if (answers.length === 0) throw new Error(`${at}.answers 至少包含一个正确选项`);
+            if (!multiple && answers.length !== 1) throw new Error(`${at} 单选题只能有一个正确选项`);
+            if (multiple && answers.length > options.length) throw new Error(`${at}.answers 超出选项范围`);
+            return { id, type, prompt, promptImage, multiple, options, answers };
+        }
+        const rawAccept = Array.isArray(raw.accept) ? raw.accept : [];
+        const accept = [];
+        for (const item of rawAccept) {
+            if (typeof item !== 'string') throw new Error(`${at}.accept 的元素必须是字符串`);
+            const text = item.trim().slice(0, MAX_QUIZ_TEXT);
+            if (!text) continue;
+            if (!accept.includes(text)) accept.push(text);
+            if (accept.length >= MAX_QUIZ_OPTIONS) break;
+        }
+        if (accept.length === 0) throw new Error(`${at}.accept 至少包含一个可接受答案`);
+        return { id, type, prompt, promptImage, multiple: false, options: [], answers: [], accept };
+    });
+    return list;
+}
+
 function normalizeByHome(value) {
     const result = {};
     if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
@@ -389,6 +477,10 @@ function attachAdmin(app, options = {}) {
     const machinesFile = path.join(adminDir, 'machines.json');
     const layoutsFile = path.join(adminDir, 'layouts.json');
     const secretFile = path.join(adminDir, 'secret.key');
+    // 答题解锁题库：按「设备 → 儿童档案」独立存储，不塞进 machines.json，
+    // 避免管理页保存 parental 时把题库冲掉，也避开 ws config 帧 128KiB 上限。
+    const quizFile = path.join(adminDir, 'parental_quizzes.json');
+    const quizImageDir = path.join(adminDir, 'parental-quiz-images');
 
     // 会话签名密钥：首次启动生成，之后保持不变（重启不会踢掉已登录会话）。
     let secret;
@@ -578,6 +670,50 @@ function attachAdmin(app, options = {}) {
 
     function saveLayouts(layouts) {
         writeJson(layoutsFile, layouts);
+    }
+
+    // ------------------------------------------------------------ 答题题库
+
+    /** 读题库存储（坏条目容错丢弃，单条损坏不能让整份 JSON 读不出来）。 */
+    function readQuizStore() {
+        const raw = readJson(quizFile, {});
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const result = {};
+        for (const [deviceId, children] of Object.entries(raw)) {
+            if (!safeDeviceId(deviceId) || !children || typeof children !== 'object' || Array.isArray(children)) continue;
+            const banks = {};
+            for (const [childId, bank] of Object.entries(children)) {
+                const id = String(childId || '').trim();
+                if (!id || id.length > 64) continue;
+                try {
+                    banks[id] = {
+                        updatedAt: Math.max(0, Math.trunc(Number(bank && bank.updatedAt) || 0)),
+                        questions: normalizeQuizQuestions(bank && bank.questions),
+                    };
+                } catch (error) {
+                    console.warn(`[quiz] 丢弃损坏题库 ${deviceId}/${id}: ${error.message}`);
+                }
+            }
+            result[deviceId] = banks;
+        }
+        return result;
+    }
+
+    function saveQuizStore(store) {
+        writeJson(quizFile, store);
+    }
+
+    /** 家长操作权限：parent 只能改自己绑定电视的题库，admin 全放行。 */
+    function canEditMachineQuizzes(req, machine) {
+        if (!machine) return false;
+        if (req.adminUser.role === 'parent') return machine.parents.includes(req.adminUser.name);
+        return true;
+    }
+
+    /** 儿童档案必须属于该电视的 parental（防止往不存在的档塞题库）。 */
+    function childExists(machine, childId) {
+        const children = machine.parental && Array.isArray(machine.parental.children) ? machine.parental.children : [];
+        return children.some((child) => child.id === childId);
     }
 
     /** 机器 → 生效配置：机器设置 > 所属用户设置 > 未配置（App 回落 .env）。 */
@@ -1174,6 +1310,140 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    // ------------------------------------------------------------ 答题解锁题库
+
+    /** 读取某台电视 / 某个儿童档案的题库（家长视图编辑前拉取）。 */
+    app.get('/api/admin/parental/quiz', requireParentOperator, (req, res) => {
+        try {
+            const id = safeDeviceId(req.query.deviceId);
+            const childId = String(req.query.childId || '').trim();
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            if (!childId) return jsonFail(res, 'childId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
+            if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            const bank = (readQuizStore()[id] || {})[childId] || { updatedAt: 0, questions: [] };
+            return jsonOk(res, { deviceId: id, childId, updatedAt: bank.updatedAt, questions: bank.questions });
+        } catch (error) {
+            console.error('[quiz] 读取失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 整库替换保存（先读后改再全量回传；空数组 = 清空该档案题库）。 */
+    app.put('/api/admin/parental/quiz', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            const childId = String(body.childId || '').trim();
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            if (!childId) return jsonFail(res, 'childId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
+            if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            if (machine.parental && !childExists(machine, childId)) {
+                return jsonFail(res, '儿童档案不存在');
+            }
+            const questions = normalizeQuizQuestions(body.questions);
+            const store = readQuizStore();
+            if (!store[id]) store[id] = {};
+            store[id][childId] = { updatedAt: Date.now(), questions };
+            saveQuizStore(store);
+            console.log(`[quiz] 保存 ${id}/${childId}: ${questions.length} 题`);
+            return jsonOk(res, { deviceId: id, childId, updatedAt: store[id][childId].updatedAt, questions }, '题库已保存');
+        } catch (error) {
+            console.error('[quiz] 保存失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 题干 / 选项配图上传：base64 落盘，题目里只存 URL。 */
+    app.post('/api/admin/parental/quiz/image', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            const childId = String(body.childId || '').trim();
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            if (!childId) return jsonFail(res, 'childId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
+            if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            const mimeToExt = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+            let data = typeof body.data === 'string' ? body.data : '';
+            let mime = typeof body.mime === 'string' ? body.mime.toLowerCase() : '';
+            const dataUrl = data.match(/^data:(image\/[a-z+]+);base64,([\s\S]*)$/i);
+            if (dataUrl) {
+                mime = dataUrl[1].toLowerCase();
+                data = dataUrl[2];
+            }
+            const ext = mimeToExt[mime];
+            if (!ext) return jsonFail(res, '仅支持 PNG / JPEG / WebP / GIF 图片');
+            if (!data) return jsonFail(res, '图片内容为空');
+            const buffer = Buffer.from(data, 'base64');
+            if (!buffer.length) return jsonFail(res, '图片内容为空');
+            if (buffer.length > MAX_QUIZ_IMAGE_BYTES) {
+                return jsonFail(res, `图片不能超过 ${MAX_QUIZ_IMAGE_BYTES / 1024 / 1024}MB`);
+            }
+            fs.mkdirSync(quizImageDir, { recursive: true });
+            const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+            fs.writeFileSync(path.join(quizImageDir, name), buffer);
+            return jsonOk(res, { url: `/api/parental/quiz-image/${name}` }, '图片已上传');
+        } catch (error) {
+            console.error('[quiz] 图片上传失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 电视端拉取题库：不走管理会话，用登录后的 `username` cookie 鉴权
+     * （电视用设备账号登录，与 commAccount / owner / 绑定家长比对）。
+     */
+    app.get('/api/parental/quiz', (req, res) => {
+        try {
+            const id = safeDeviceId(req.query.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const username = String((req.cookies && req.cookies.username) || '').trim();
+            // 用业务码 100000（而不是 HTTP 401）才能被电视端 fetchUrl 识别并自动重登。
+            if (!username) return jsonFail(res, '未登录', definds.code.UNLOGIN);
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备未注册', 404, 404);
+            if (username !== ADMIN_USERNAME) {
+                const accounts = [machine.owner, machine.commAccount, ...(machine.parents || [])].filter(Boolean);
+                if (accounts.length > 0 && !accounts.includes(username)) {
+                    return jsonFail(res, '无权读取该设备题库', 403, 403);
+                }
+                if (!listUsers().some((user) => user.name === username)) {
+                    return jsonFail(res, '账号不存在', definds.code.UNLOGIN);
+                }
+            }
+            const banks = readQuizStore()[id] || {};
+            return jsonOk(res, {
+                deviceId: id,
+                banks: Object.entries(banks).map(([childId, bank]) => ({
+                    childId,
+                    updatedAt: bank.updatedAt,
+                    questions: bank.questions,
+                })),
+            });
+        } catch (error) {
+            console.error('[quiz] 电视拉取失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 题库配图静态读取（随机文件名不可枚举，家庭场景不做额外鉴权）。 */
+    app.get('/api/parental/quiz-image/:name', (req, res) => {
+        const name = String(req.params.name || '');
+        if (!QUIZ_IMAGE_FILE_RE.test(name)) return res.status(404).end();
+        const file = path.join(quizImageDir, name);
+        if (!fs.existsSync(file)) return res.status(404).end();
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        return res.sendFile(file);
+    });
+
     // 家长自助绑定/解绑：只能增删自己；一台电视可同时属于多个家长。
     app.post('/api/admin/parental/bind', requireParentOperator, (req, res) => {
         try {
@@ -1589,5 +1859,11 @@ function attachAdmin(app, options = {}) {
     };
 }
 
-// normalizeParental 导出仅供测试直接驱动校验逻辑（attachAdmin 需要完整服务环境）。
-module.exports = { attachAdmin, ADMIN_USERNAME, normalizeParental };
+// normalizeParental / normalizeQuizQuestions 导出仅供测试直接驱动校验逻辑
+//（attachAdmin 需要完整服务环境）。
+module.exports = {
+    attachAdmin,
+    ADMIN_USERNAME,
+    normalizeParental,
+    normalizeQuizQuestions,
+};

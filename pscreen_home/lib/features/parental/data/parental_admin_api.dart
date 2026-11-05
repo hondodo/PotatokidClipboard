@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:pscreen_home/core/server/server_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
@@ -138,6 +140,74 @@ class ParentalAdminApi {
       notTipNetError: true,
     );
     _dataOf(data);
+  }
+
+  /// 读取某个儿童档案的题库（服务端已归一化，直接回传原始题目 Map）。
+  Future<List<Map<String, dynamic>>> fetchQuiz(
+    String deviceId,
+    String childId,
+  ) async {
+    final dynamic data = await DioManager().send(
+      url: _uri(
+        '/api/admin/parental/quiz',
+        queryParameters: <String, dynamic>{
+          'deviceId': deviceId,
+          'childId': childId,
+        },
+      ).toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic raw = body['questions'];
+    if (raw is! List) return <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((Map item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// 整库替换保存（空列表 = 清空该档案题库）。
+  Future<void> saveQuiz(
+    String deviceId,
+    String childId,
+    List<Map<String, dynamic>> questions,
+  ) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/quiz').toString(),
+      method: HttpMethod.PUT,
+      params: <String, dynamic>{
+        'deviceId': deviceId,
+        'childId': childId,
+        'questions': questions,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    _dataOf(data);
+  }
+
+  /// 上传题干 / 选项配图，返回服务端相对 URL（题目里只存这个地址）。
+  Future<String> uploadQuizImage(
+    String deviceId,
+    String childId, {
+    required List<int> bytes,
+    required String mime,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/quiz/image').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'deviceId': deviceId,
+        'childId': childId,
+        'mime': mime,
+        'data': base64Encode(bytes),
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    return '${body['url'] ?? ''}';
   }
 
   /// 家长自助绑定 / 解绑一台电视。

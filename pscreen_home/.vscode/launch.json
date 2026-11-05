@@ -82,11 +82,28 @@
             "flutterMode": "release"
         },
         {
-            "name": "potatokid_home mi10s wifi (Debug)",
+            "name": "potatokid_home mi10s wifi phone (Debug)",
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "192.168.31.237:42485"
+            "deviceId": "192.168.31.237:43471",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
         },
+        {
+            "name": "potatokid_home mi10s wifi parent (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.237:43471",
+            "toolArgs": [
+                "--flavor",
+                "parent",
+                "--dart-define=APP_FLAVOR=parent"
+            ]
+        }
     ]
 }

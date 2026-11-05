@@ -265,7 +265,9 @@ class ParentalConfig {
           ? 'pin'
           : json['unlockMode'] == 'arith'
               ? 'arith'
-              : 'remote',
+              : json['unlockMode'] == 'quiz'
+                  ? 'quiz'
+                  : 'remote',
       pin: (json['pin'] as String?) ?? '',
       ownerAccount: (json['ownerAccount'] as String?)?.trim() ?? '',
     );

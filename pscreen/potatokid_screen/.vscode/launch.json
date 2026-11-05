@@ -62,11 +62,16 @@
             }
         },
         {
-            "name": "potatokid_screen mi10s wifi (Debug)",
+            "name": "potatokid_screen mi10s wifi phone (Debug)",
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "192.168.70.14:38799"
-        },
+            "deviceId": "192.168.31.237:43471",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
+        }
     ]
 }

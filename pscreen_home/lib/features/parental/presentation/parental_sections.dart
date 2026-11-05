@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/presentation/child_profile_editor.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_quiz_editor.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 模块① 儿童档案：总开关 + 档案列表（增删改，按档位显隐字段在编辑器内）。
@@ -10,12 +11,16 @@ class ChildrenSection extends StatelessWidget {
     super.key,
     required this.config,
     required this.onSave,
+    this.deviceId,
   });
 
   final ParentalConfig config;
 
   /// 保存整份 parental 配置（页面负责调用服务端并给出结果提示）。
   final Future<void> Function(ParentalConfig next) onSave;
+
+  /// 当前选中的电视；为空时不显示「题库」入口（题库按设备 + 档案存储）。
+  final String? deviceId;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +85,13 @@ class ChildrenSection extends StatelessWidget {
         for (int i = 0; i < config.children.length; i++)
           _ChildCard(
             child: config.children[i],
+            onQuiz: deviceId == null
+                ? null
+                : () => ParentalQuizEditorSheet.show(
+                    context,
+                    deviceId: deviceId!,
+                    child: config.children[i],
+                  ),
             onEdit: () async {
               final ParentalChild? next = await ChildProfileEditorSheet.show(
                 context,
@@ -128,11 +140,15 @@ class _ChildCard extends StatelessWidget {
     required this.child,
     required this.onEdit,
     required this.onDelete,
+    this.onQuiz,
   });
 
   final ParentalChild child;
   final Future<void> Function() onEdit;
   final Future<void> Function() onDelete;
+
+  /// 答题解锁题库入口；未选中设备时不显示。
+  final Future<void> Function()? onQuiz;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +194,12 @@ class _ChildCard extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.only(left: 4),
                     child: Icon(Icons.lock, size: 16),
+                  ),
+                if (onQuiz != null)
+                  IconButton(
+                    tooltip: '题库（答题解锁）',
+                    icon: const Icon(Icons.quiz_outlined, size: 20),
+                    onPressed: () => onQuiz?.call(),
                   ),
                 IconButton(
                   tooltip: '编辑',
@@ -528,20 +550,46 @@ class UnlockSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    if (events.isEmpty) {
-      return Center(
-        child: Text(
-          '暂无解锁请求记录',
-          style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+    final Widget hint = Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      child: ListTile(
+        dense: true,
+        leading: Icon(Icons.tips_and_updates_outlined, size: 20, color: scheme.primary),
+        title: const Text('解锁方式在「设置」标签页切换'),
+        subtitle: const Text(
+          '可选远程确认 / PIN / 算术题 / 答题解锁；'
+          '答题解锁需先在「档案」里给儿童维护题库，题库为空时电视回退算术题。',
         ),
+        trailing: TextButton(
+          onPressed: () => DefaultTabController.of(context).animateTo(4),
+          child: const Text('去设置'),
+        ),
+      ),
+    );
+    if (events.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: <Widget>[
+          hint,
+          const SizedBox(height: 32),
+          Center(
+            child: Text(
+              '暂无解锁请求记录',
+              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+            ),
+          ),
+        ],
       );
     }
     final DateTime now = DateTime.now();
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      itemCount: events.length,
+      // index 0 是解锁方式提示卡，其余才是请求记录。
+      itemCount: events.length + 1,
       itemBuilder: (BuildContext context, int index) {
-        final RealtimeEvent event = events[events.length - 1 - index];
+        if (index == 0) return hint;
+        final RealtimeEvent event = events[events.length - index];
         final String code = '${event.data['code'] ?? ''}'.trim();
         final String reason = '${event.data['reason'] ?? ''}'.trim();
         final DateTime ts = DateTime.fromMillisecondsSinceEpoch(event.ts);
@@ -628,6 +676,7 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
     'remote': '远程确认（手机弹层）',
     'pin': 'PIN 兜底',
     'arith': '算术题兜底',
+    'quiz': '答题解锁（使用儿童题库）',
   };
 
   @override
@@ -680,6 +729,17 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
               )
               .toList(growable: false),
         ),
+        if (_unlockMode == 'quiz')
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '答题模式只能用题库解锁；题库在「儿童档案」卡片里维护，'
+              '多个孩子取年龄最大的一份，同岁合并。全部无题时回退算术题。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ),
         const SizedBox(height: 12),
         if (_unlockMode == 'pin')
           TextField(

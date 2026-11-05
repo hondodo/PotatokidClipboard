@@ -1,5 +1,6 @@
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
@@ -105,6 +106,11 @@ class MessageCommandExecutor {
   /// 任一校验失败按未知命令返回 false（不抛异常），由 Router 记日志。
   /// 短码状态见 [ParentalUnlockCodeController]（锁屏 UI 同源展示）。
   bool _parentalUnlock(Map<String, dynamic>? args) {
+    // 答题模式只允许本机答题解锁：远程解锁（含后台补发短码）一律拒绝，
+    // 否则家长选中的「只能答题」会被一条命令绕过。
+    if (ParentalStateController.instance.config.unlockMode == 'quiz') {
+      return false;
+    }
     final dynamic raw = args?['code'];
     if (raw is! String) return false;
     if (!ParentalUnlockCodeController.instance.consume(raw)) return false;

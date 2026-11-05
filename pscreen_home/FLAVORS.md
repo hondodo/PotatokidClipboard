@@ -15,9 +15,13 @@
 
 ## 构建命令
 
+### 分包
+```bash
+--split-per-abi
+
 ```bash
 # release（board 沿用现有 debug 签名配置，与已上线包一致）
-flutter build apk --release --flavor board  --dart-define=APP_FLAVOR=board
+flutter build apk --release --flavor board  --dart-define=APP_FLAVOR=board 
 flutter build apk --release --flavor phone  --dart-define=APP_FLAVOR=phone
 flutter build apk --release --flavor parent --dart-define=APP_FLAVOR=parent
 

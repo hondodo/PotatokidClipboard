@@ -490,7 +490,11 @@ class _ParentalPageState extends State<ParentalPage> {
                 child: TabBarView(
                   children: <Widget>[
                     _buildRemoteTab(),
-                    ChildrenSection(config: _config, onSave: _saveConfig),
+                    ChildrenSection(
+                      config: _config,
+                      onSave: _saveConfig,
+                      deviceId: _selected?.id,
+                    ),
                     WatchSection(
                       config: _config,
                       machine: _selected,
