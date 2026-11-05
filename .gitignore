@@ -13,3 +13,7 @@ acl-recovery/
 */linux/flutter/generated_plugin_registrant.cc
 */linux/flutter/generated_plugin_registrant.h
 */linux/flutter/generated_plugins.cmake
+# 本地服务运行期数据（含 app_update/config.json 的 apiKey，禁止入库）
+pscreen_server/datas/
+pscreen_server/uploads/
+pscreen_server/backups/
