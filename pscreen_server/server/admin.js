@@ -31,18 +31,27 @@ const MAX_PARENTAL_LIST = 200;
 // 一台设备可绑定的家长账号上限。
 const MAX_PARENT_ACCOUNTS = 20;
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
-// （tv）可作为家长管控对象。
-const HOME_APP_IDS = new Set(['potatokid.tools.homecontroller', 'pscreen_home']);
+// （tv）可作为家长管控对象；家长端（parent）只是控制端，也不是管控对象，
+// 但同样上报心跳、走实时通道、可遥控电视。
+const HOME_APP_IDS = new Set([
+    'potatokid.tools.homecontroller',
+    'potatokid.tools.homecontroller.phone',
+    'pscreen_home',
+]);
+const PARENT_APP_IDS = new Set(['potatokid.tools.homecontroller.parent']);
 const TV_APP_IDS = new Set([
     'screen.potatokid.tools',
+    'screen.potatokid.tools.phone',
+    'screen.potatokid.tools.board',
     'screen.potatokid.potatokid_screen',
     'potatokid_screen',
 ]);
 
-/** 设备类型：home（中控）/ tv（电视）/ ''（尚未上报包名）。 */
+/** 设备类型：home（中控）/ tv（电视）/ parent（家长端）/ ''（尚未上报包名）。 */
 function machineKind(machine) {
     const app = machine && typeof machine.commApp === 'string' ? machine.commApp : '';
     if (HOME_APP_IDS.has(app)) return 'home';
+    if (PARENT_APP_IDS.has(app)) return 'parent';
     if (TV_APP_IDS.has(app)) return 'tv';
     return '';
 }
@@ -512,8 +521,9 @@ function attachAdmin(app, options = {}) {
         const owner = typeof machine.owner === 'string' ? machine.owner.trim() : '';
         const kind = machineKind(machine);
         // `owner` 表示「设备所属中控账号」，`parents` 只表示家长绑定关系，
-        // 两者不再互相推导。中控设备不参与家长绑定：强制清空 parents 与
-        // parental，避免历史数据把中控误当成可管控的电视。
+        // 两者不再互相推导。中控设备不参与家长绑定：强制清空 parents，避免
+        // 历史数据把中控误当成可管控的电视。家长端（parent）不是管控对象，
+        // 但也不强行清空 parents（历史数据保留，其它按 tv 过滤的逻辑不会纳入它）。
         let parents = normalizeStringList(machine.parents, MAX_PARENT_ACCOUNTS);
         if (kind === 'home') {
             parents = [];
@@ -527,7 +537,8 @@ function attachAdmin(app, options = {}) {
             owner,
             parents,
             homes,
-            parental: kind === 'home' ? null : parental,
+            // 儿童模式只对电视生效：home / parent 即便带了历史字段也一律置空。
+            parental: kind === 'tv' ? parental : null,
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -1088,6 +1099,12 @@ function attachAdmin(app, options = {}) {
             if (kind === 'home' && Object.prototype.hasOwnProperty.call(req.body || {}, 'parental')) {
                 return jsonFail(res, '中控设备没有儿童模式');
             }
+            if (kind === 'parent' && Object.prototype.hasOwnProperty.call(req.body || {}, 'parents')) {
+                return jsonFail(res, '家长端设备不支持绑定家长');
+            }
+            if (kind === 'parent' && Object.prototype.hasOwnProperty.call(req.body || {}, 'parental')) {
+                return jsonFail(res, '家长端设备没有儿童模式');
+            }
 
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
                 machine.name = String(req.body.name || '').trim().slice(0, 40) || '未命名设备';
@@ -1154,8 +1171,8 @@ function attachAdmin(app, options = {}) {
             const machines = readMachines();
             const machine = machines[id];
             if (!machine) return jsonFail(res, '设备不存在');
-            if (machineKind(machine) === 'home') {
-                return jsonFail(res, '中控设备不支持绑定家长');
+            if (machineKind(machine) !== 'tv') {
+                return jsonFail(res, '只有电视设备支持绑定家长');
             }
             if (user.role === 'parent') {
                 machine.parents = bind

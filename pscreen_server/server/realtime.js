@@ -21,13 +21,17 @@ const HEARTBEAT_MS = 30000;
 const ACCOUNT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 const EVENT_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 
-/** 面板类型：中控屏 home / 电视端 tv。 */
+/** 面板类型：中控屏 home / 电视端 tv / 家长端 parent。 */
 const KIND_PATTERN = /^[A-Za-z0-9_.:-]{1,16}$/;
 
 /** 旧版客户端不显式声明 kind 时，按包名兜底推断（与服务端/客户端同一张表）。 */
 const APP_KIND_ALIASES = {
     'potatokid.tools.homecontroller': 'home',
+    'potatokid.tools.homecontroller.phone': 'home',
+    'potatokid.tools.homecontroller.parent': 'parent',
     'screen.potatokid.tools': 'tv',
+    'screen.potatokid.tools.phone': 'tv',
+    'screen.potatokid.tools.board': 'tv',
     'screen.potatokid.potatokid_screen': 'tv',
     potatokid_screen: 'tv',
 };

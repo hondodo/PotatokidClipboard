@@ -223,6 +223,7 @@ class _ChatPageState extends State<ChatPage> {
                     Text(switch (kind) {
                       'home' => '中控屏',
                       'tv' => '电视',
+                      'parent' => '家长端',
                       _ => '未知设备',
                     }, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ],

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
@@ -43,8 +44,12 @@ class AccountSession {
   /// 登录分流：`parent` 默认进家长视图；`admin` / `user` 进现有中控台
   ///（现状没有独立 admin 视图，admin 走「现状 + 设置页家长视图入口」，
   ///  进入家长视图后放开 owner 过滤代管全部 TV，见方案 4.2 风险 #13）。
+  /// `parent` flavor（[AppFlavorConfig.isParentOnly]）只有家长端功能，
+  /// 无论登录角色一律落家长视图，不进入中控台。
   static String initialHomePathFor(String homeRole) =>
-      homeRole == 'parent' ? RouteNames.parentalPath : RouteNames.home;
+      AppFlavorConfig.isParentOnly || homeRole == 'parent'
+          ? RouteNames.parentalPath
+          : RouteNames.home;
 
   /// 用当前生效凭据登录（设置自定义 > `.env` > 设备号 + 默认口令），
   /// 成功后刷新 [role]。失败返回 false，不抛异常。

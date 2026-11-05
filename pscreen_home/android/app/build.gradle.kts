@@ -28,6 +28,37 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 各 flavor 会覆盖 app_name；这里作为兜底，避免未配置时引用 @string/app_name 失败。
+        resValue("string", "app_name", "薯仔的中控台")
+        manifestPlaceholders["pkFlavor"] = "board"
+    }
+
+    // `board` 沿用已上线包名 potatokid.tools.homecontroller（服务端 kindOfApp()
+    // 按包名识别 home，且该包当前就以 HOME 方式作为桌面运行）；
+    // phone / parent 用后缀区分，可同机安装共存。
+    flavorDimensions += "product"
+
+    productFlavors {
+        create("board") {
+            dimension = "product"
+            applicationId = "potatokid.tools.homecontroller"
+            resValue("string", "app_name", "薯仔的中控台")
+            manifestPlaceholders["pkFlavor"] = "board"
+        }
+        create("phone") {
+            dimension = "product"
+            applicationId = "potatokid.tools.homecontroller.phone"
+            versionNameSuffix = "-phone"
+            resValue("string", "app_name", "薯仔手机端")
+            manifestPlaceholders["pkFlavor"] = "phone"
+        }
+        create("parent") {
+            dimension = "product"
+            applicationId = "potatokid.tools.homecontroller.parent"
+            versionNameSuffix = "-parent"
+            resValue("string", "app_name", "薯仔家长端")
+            manifestPlaceholders["pkFlavor"] = "parent"
+        }
     }
 
     buildTypes {

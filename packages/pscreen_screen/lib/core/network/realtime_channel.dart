@@ -120,12 +120,17 @@ class RealtimePresence {
 
 /// 面板类型推断：旧服务端/旧客户端不回显 `kind` 时按包名兜底。
 ///
-/// 返回值：`home`（中控屏）、`tv`（电视端）、空串（未知）。
+/// 返回值：`home`（中控屏）、`tv`（电视端）、`parent`（家长端）、空串（未知）。
 String kindOfApp(String app) {
   switch (app) {
     case 'potatokid.tools.homecontroller':
+    case 'potatokid.tools.homecontroller.phone':
       return 'home';
+    case 'potatokid.tools.homecontroller.parent':
+      return 'parent';
     case 'screen.potatokid.tools':
+    case 'screen.potatokid.tools.phone':
+    case 'screen.potatokid.tools.board':
     case 'screen.potatokid.potatokid_screen':
     case 'potatokid_screen':
       return 'tv';

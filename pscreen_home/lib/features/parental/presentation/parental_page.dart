@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
@@ -149,12 +150,13 @@ class _ParentalPageState extends State<ParentalPage> {
       await _api.ensureAdminSession(username: account, passwordMd5: DeviceCredentials.passwordMd5());
       final List<ParentalMachine> machines = await _api.fetchMachines();
       final List<ParentalMachine> available = await _api.fetchAvailableMachines();
-      // 家长控制只处理电视；中控没有儿童模式，也不参与家长绑定。
+      // 家长控制只处理电视；中控屏（home）与家长端（parent）都没有儿童模式，
+      // 也不参与家长绑定。
       final List<ParentalMachine> tvs = machines
-          .where((ParentalMachine machine) => machine.kind != 'home')
+          .where((ParentalMachine machine) => machine.kind == 'tv')
           .toList(growable: false);
       final List<ParentalMachine> availableTvs = available
-          .where((ParentalMachine machine) => machine.kind != 'home')
+          .where((ParentalMachine machine) => machine.kind == 'tv')
           .toList(growable: false);
       // parent 只看绑定到自己名下的 TV（多家长绑定）；admin 放开全部电视。
       final List<ParentalMachine> visible = AccountSession.isAdmin
@@ -402,7 +404,9 @@ class _ParentalPageState extends State<ParentalPage> {
                 const SizedBox(height: 12),
                 const Text('当前账号没有家长权限（需 parent / admin 角色）'),
                 const SizedBox(height: 12),
-                FilledButton(onPressed: () => context.go(RouteNames.home), child: const Text('返回中控台')),
+                // parent 变体没有中控台，不提供「返回中控台」入口。
+                if (!AppFlavorConfig.isParentOnly)
+                  FilledButton(onPressed: () => context.go(RouteNames.home), child: const Text('返回中控台')),
               ],
             ),
           ),
@@ -420,7 +424,11 @@ class _ParentalPageState extends State<ParentalPage> {
       canPop: !locked,
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop || !locked) return;
-        _hint('家长视图已锁定，无法返回中控台');
+        _hint(
+          AppFlavorConfig.isParentOnly
+              ? '家长视图已锁定'
+              : '家长视图已锁定，无法返回中控台',
+        );
       },
       child: DefaultTabController(
         length: _tabs.length,
@@ -444,7 +452,8 @@ class _ParentalPageState extends State<ParentalPage> {
                   onPressed: () => unawaited(_openSettings()),
                 ),
               // admin 复用家长视图后的返回口（parent 的默认首页就是本页）。
-              if (AccountSession.isAdmin)
+              // parent 变体没有中控台，即使 admin 登录也不提供该入口。
+              if (AccountSession.isAdmin && !AppFlavorConfig.isParentOnly)
                 TextButton(onPressed: () => context.go(RouteNames.home), child: const Text('中控台')),
             ],
             bottom: TabBar(

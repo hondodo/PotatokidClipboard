@@ -221,6 +221,7 @@ class _ConversationListPageState extends State<ConversationListPage> {
     final String kind = switch (device?.kind) {
       'home' => '中控屏',
       'tv' => '电视',
+      'parent' => '家长端',
       null || '' => '未知设备',
       _ => '设备',
     };

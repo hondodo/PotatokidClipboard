@@ -9,6 +9,7 @@ import 'package:pscreen_home/core/network/ha_connection_label.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
+import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_state.dart';
@@ -207,6 +208,7 @@ class _HomeControllBoardState extends State<HomeControllBoard>
               ? <Widget>[
                   const _ConnectionStatus(compact: true),
                   const _SleepTimerBadge(),
+                  const AppUpdatePill(compact: true),
                   const _RefreshAction(),
                   PopupMenuButton<_MoreAction>(
                     tooltip: '更多',
@@ -243,6 +245,7 @@ class _HomeControllBoardState extends State<HomeControllBoard>
               : <Widget>[
                   const _ConnectionStatus(),
                   const _SleepTimerBadge(),
+                  const AppUpdatePill(),
                   const _RefreshAction(),
                   IconButton(
                     tooltip: '时钟',

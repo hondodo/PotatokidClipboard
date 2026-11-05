@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/settings/presentation/widgets/realtime_status_section.dart';
@@ -86,7 +87,9 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
-            name: '中控台',
+            // 家长端默认 `parent`，其余 `home`。
+            kind: AppFlavorConfig.deviceKind,
+            name: AppFlavorConfig.deviceName,
             app: info.app,
             version: info.version,
             build: info.build,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/home_remote_panel.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/parent_remote_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/tv_remote_panel.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
@@ -30,7 +31,7 @@ class RemotePanelContext {
   /// 不占布局、不遮挡面板；为空时不提示。
   final void Function(String message, {bool error})? onHint;
 
-  /// 面板类型：`home` / `tv` / 空串（未知）。
+  /// 面板类型：`home` / `tv` / `parent` / 空串（未知）。
   String get kind => device?.kind ?? '';
 }
 
@@ -38,9 +39,10 @@ typedef RemotePanelBuilder = Widget Function(RemotePanelContext context);
 
 /// 面板注册表：被控设备类型 → 遥控面板。
 ///
-/// 默认注册 `home`（中控屏：场景按钮 + 直播场景下的直播遥控）与 `tv`
-/// （电视端：页面切换行 + 直播控制行，两行始终可见）；未知类型回落
-/// 电视面板，保证旧设备仍可操作。
+/// 默认注册 `home`（中控屏：场景按钮 + 直播场景下的直播遥控）、`tv`
+/// （电视端：页面切换行 + 直播控制行，两行始终可见）与 `parent`
+/// （家长端：仅音量与消息，无中控场景）；未知类型回落电视面板，
+/// 保证旧设备仍可操作。
 class RemotePanelRegistry {
   RemotePanelRegistry._();
 
@@ -48,6 +50,7 @@ class RemotePanelRegistry {
       <String, RemotePanelBuilder>{
     'home': (RemotePanelContext ctx) => HomeRemotePanel(panel: ctx),
     'tv': (RemotePanelContext ctx) => TvRemotePanel(panel: ctx),
+    'parent': (RemotePanelContext ctx) => ParentRemotePanel(panel: ctx),
   };
 
   /// 注册/覆盖某类型的面板（宿主可扩展）。

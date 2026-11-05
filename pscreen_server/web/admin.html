@@ -149,6 +149,7 @@
     .badge.role-parent { color: #1d4ed8; border-color: rgba(96, 165, 250, .35); background: rgba(96, 165, 250, .1); }
     .badge.kind-tv { color: #047857; border-color: rgba(16, 185, 129, .35); background: rgba(16, 185, 129, .1); }
     .badge.kind-home { color: #a16207; border-color: rgba(245, 158, 11, .35); background: rgba(245, 158, 11, .1); }
+    .badge.kind-parent { color: #1d4ed8; border-color: rgba(96, 165, 250, .35); background: rgba(96, 165, 250, .1); }
 
     .parent-chips { display: flex; gap: 6px; flex-wrap: wrap; }
     .parent-chip {
@@ -760,10 +761,11 @@
   }
 
   function machineKind(machine) {
-    if (machine && (machine.kind === 'home' || machine.kind === 'tv')) return machine.kind;
+    if (machine && (machine.kind === 'home' || machine.kind === 'tv' || machine.kind === 'parent')) return machine.kind;
     const app = (machine && machine.commApp) || '';
-    if (app === 'potatokid.tools.homecontroller' || app === 'pscreen_home') return 'home';
-    if (app === 'screen.potatokid.tools' || app === 'screen.potatokid.potatokid_screen' || app === 'potatokid_screen') return 'tv';
+    if (app === 'potatokid.tools.homecontroller' || app === 'potatokid.tools.homecontroller.phone' || app === 'pscreen_home') return 'home';
+    if (app === 'potatokid.tools.homecontroller.parent') return 'parent';
+    if (app === 'screen.potatokid.tools' || app === 'screen.potatokid.tools.phone' || app === 'screen.potatokid.tools.board' || app === 'screen.potatokid.potatokid_screen' || app === 'potatokid_screen') return 'tv';
     return '';
   }
 
@@ -771,6 +773,7 @@
     const kind = machineKind(machine);
     if (kind === 'tv') return '<span class="badge kind-tv">电视</span>';
     if (kind === 'home') return '<span class="badge kind-home">中控</span>';
+    if (kind === 'parent') return '<span class="badge kind-parent">家长端</span>';
     return '<span class="muted">—</span>';
   }
 
@@ -793,8 +796,12 @@
   }
 
   function parentBadges(machine) {
-    if (machineKind(machine) === 'home') {
+    const kind = machineKind(machine);
+    if (kind === 'home') {
       return '<span class="muted">中控端不支持</span>';
+    }
+    if (kind === 'parent') {
+      return '<span class="muted">家长端不支持</span>';
     }
     const parents = Array.isArray(machine.parents) ? machine.parents : [];
     if (!parents.length) return '<span class="muted">未绑定</span>';
@@ -837,7 +844,9 @@
               <button class="btn small" data-action="homes" type="button">家庭</button>
               ${kind === 'home'
                 ? '<span class="muted">中控端无儿童模式</span>'
-                : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
+                : kind === 'parent'
+                  ? '<span class="muted">家长端无儿童模式</span>'
+                  : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
               <button class="btn small" data-action="rename" type="button">改名</button>
               <button class="btn small danger" data-action="delete" type="button">删除</button>
             </div>

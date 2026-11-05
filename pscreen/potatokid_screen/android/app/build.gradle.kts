@@ -40,6 +40,36 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 各 flavor 会覆盖 app_name；这里作为兜底，避免未配置时引用 @string/app_name 失败。
+        resValue("string", "app_name", "薯仔看电视")
+        manifestPlaceholders["pkFlavor"] = "tv"
+    }
+
+    // `tv` 沿用已上线包名 screen.potatokid.tools（服务端 kindOfApp() 按包名识别电视端），
+    // 其它 flavor 用后缀区分，可同机安装共存。
+    flavorDimensions += "product"
+
+    productFlavors {
+        create("tv") {
+            dimension = "product"
+            applicationId = "screen.potatokid.tools"
+            resValue("string", "app_name", "薯仔看电视")
+            manifestPlaceholders["pkFlavor"] = "tv"
+        }
+        create("phone") {
+            dimension = "product"
+            applicationId = "screen.potatokid.tools.phone"
+            versionNameSuffix = "-phone"
+            resValue("string", "app_name", "薯仔看电视")
+            manifestPlaceholders["pkFlavor"] = "phone"
+        }
+        create("board") {
+            dimension = "product"
+            applicationId = "screen.potatokid.tools.board"
+            versionNameSuffix = "-board"
+            resValue("string", "app_name", "薯仔电视桌面")
+            manifestPlaceholders["pkFlavor"] = "board"
+        }
     }
 
     buildTypes {

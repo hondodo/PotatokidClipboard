@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- board flavor：注册为系统桌面（HOME + DEFAULT）。
+         其它 flavor 的 main manifest 只有 LAUNCHER 入口，不含这两个 category。 -->
+    <application>
+        <activity
+            android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
