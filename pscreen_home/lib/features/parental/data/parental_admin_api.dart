@@ -18,14 +18,22 @@ class ParentalAdminApi {
   const ParentalAdminApi();
 
   /// `/api/admin/*` 与 `/api/login` 同源：取登录地址的路径根拼接。
-  static Uri _uri(String path) {
+  ///
+  /// `path` 只能传纯路径；查询参数必须通过 [queryParameters] 传入，由
+  /// `Uri` 负责编码。若把 `?limit=200` 拼进 `path`，`Uri.replace` 会把
+  /// `?` 转义成 `%3F`，服务端收到 `/api/admin/parental/records%3Flimit=200`
+  /// 后无法命中路由，落到 SPA 兜底返回 HTML。
+  static Uri _uri(String path, {Map<String, dynamic>? queryParameters}) {
     final Uri login = Uri.parse(AppConstants.ptoolsLoginUrl);
     const String loginPath = '/api/login';
     final String fullPath = login.path;
     final String root = fullPath.endsWith(loginPath)
         ? fullPath.substring(0, fullPath.length - loginPath.length)
         : '';
-    return login.replace(path: '$root$path', queryParameters: null);
+    return login.replace(
+      path: '$root$path',
+      queryParameters: queryParameters,
+    );
   }
 
   /// 用当前生效凭据换管理会话；失败抛 [ServerApiException]。
@@ -82,7 +90,10 @@ class ParentalAdminApi {
   /// 家长可见的会话级观看记录（服务端由 parental_watch 心跳还原）。
   Future<List<ParentalSession>> fetchParentalSessions() async {
     final dynamic data = await DioManager().send(
-      url: _uri('/api/admin/parental/records?limit=200').toString(),
+      url: _uri(
+        '/api/admin/parental/records',
+        queryParameters: <String, dynamic>{'limit': '200'},
+      ).toString(),
       method: HttpMethod.GET,
       notTipNetError: true,
     );
