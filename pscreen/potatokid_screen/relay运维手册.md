@@ -161,4 +161,6 @@ tail -f ~/relay.log
 grep -E "会话创建|淘汰最旧" ~/relay.log | tail -20
 
 查看有多少ffmpeg进程
+ps -ef | grep [f]fmpeg | wc -l
+查看正在运行的ffmpeg命令
 ps -ef | grep [f]fmpeg

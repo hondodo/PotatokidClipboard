@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -131,6 +132,12 @@ def _drop_session(sid):
         pass
     try:
         s["proc"].kill()
+    except Exception:
+        pass
+    try:
+        # kill 后同步收尸：不留 <defunct> 僵尸壳。若该 Popen 还被某个
+        # 处理线程引用着，Python 会等 GC 才延迟回收，壳就一直挂着。
+        s["proc"].wait(timeout=5)
     except Exception:
         pass
     shutil.rmtree(s["dir"], ignore_errors=True)
@@ -543,7 +550,39 @@ class _QuietHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def _sweep_orphans():
+    """启动时清扫上次异常退出遗留的孤儿转码进程。
+
+    pkill 停 relay 只杀 python，ffmpeg 孩子会被过继给 init 成为孤儿，
+    而 reaper 随旧进程一起死亡，再无人回收（实测堆积 3 个持续烧 CPU
+    与上游入站流量）。ffmpeg 命令行必然含临时目录串 `relay_live_`，
+    本进程是 `python3 relay.py` 不含该串，pkill -f 不会误伤自己。"""
+    try:
+        r = subprocess.run(["pkill", "-f", "relay_live_"], capture_output=True, timeout=10)
+    except Exception:
+        return
+    if r.returncode == 0:
+        print("清扫: 已清理上次遗留的孤儿 ffmpeg 转码进程", flush=True)
+
+
+def _on_shutdown(signum, _frame):
+    """SIGTERM（pkill）/ SIGINT（Ctrl+C）时带走全部转码进程，不产生孤儿。
+
+    不取 _sessions_lock：信号打断的是主线程，锁可能正被工作线程持有，
+    拿锁有死锁风险；_drop_session 内部 pop 幂等，重复/并发调用无害。"""
+    print("收到信号 %s，清理全部转码会话后退出" % signum, flush=True)
+    for sid in list(_sessions):
+        try:
+            _drop_session(sid)
+        except Exception:
+            pass
+    os._exit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _on_shutdown)
+    signal.signal(signal.SIGINT, _on_shutdown)
+    _sweep_orphans()
     threading.Thread(target=_reaper_loop, daemon=True).start()
     print(
         "relay on %s (token=%s) live=ffmpeg %sp/%s x%d"
