@@ -6,6 +6,7 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/live_player_widget.dart';
+import 'package:potatokid_screen/features/update/presentation/update_pill.dart';
 
 /// 首页（电视）：「首页」Tab 主体为全屏 IPTV 直播。
 /// 频道列表由全局 [IptvBloc] 提供（main 中已用缓存优先加载并自动播放首个频道），
@@ -26,6 +27,12 @@ class HomePage extends StatelessWidget {
               if (state.isRefreshing) const _RefreshingBadge(),
               // 定时关闭倒计时：左上角按秒刷新，未开启时自动隐藏。
               const Positioned(left: 16, top: 16, child: _SleepCountdownBadge()),
+              // 更新胶囊：右上角悬浮，仅在「有更新 + 下载中/已就绪」时出现。
+              const Positioned(
+                right: 16,
+                top: 16,
+                child: SafeArea(child: TvUpdatePill()),
+              ),
               // // 天气小组件：右上角悬浮，无数据时自动隐藏。
               // const Positioned(
               //   top: 12,

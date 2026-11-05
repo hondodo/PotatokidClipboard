@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
+import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
@@ -20,10 +21,13 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_sta
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/settings/presentation/widgets/realtime_status_section.dart';
+import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
@@ -208,7 +212,9 @@ class _SettingsPageState extends State<SettingsPage> {
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
-            name: '中控台',
+            // 家长端默认 `parent`，其余 `home`；服务端据此在 roster 回显设备类型。
+            kind: AppFlavorConfig.deviceKind,
+            name: AppFlavorConfig.deviceName,
             app: info.app,
             version: info.version,
             build: info.build,
@@ -331,11 +337,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // parent flavor 只保留遥控（实时通道）/ 设备列表 / 儿童模式相关设置：
+    // HA 中控地址与令牌、天气、功率采样、屏保、壁纸、解码、缩放等中控专属项全部隐藏。
+    final bool parentOnly = AppFlavorConfig.isParentOnly;
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
+          if (!parentOnly) ...<Widget>[
           TextField(
             controller: _hostController,
             decoration: InputDecoration(
@@ -371,6 +381,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             maxLines: 1,
           ),
+          ],
           const SizedBox(height: 24),
           Text(
             'Admin 服务端（可选）',
@@ -380,9 +391,12 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '填写运行 Admin 管理页的服务器地址（如 http://192.168.31.2:3000）。'
-            '配置后由 Admin 决定本机可见家庭，并把首页卡片顺序同步到服务端；'
-            '留空则完全按 .env 的 HONE_MANE 运行。',
+            parentOnly
+                ? '填写本地 pscreen_server 服务地址（如 http://192.168.31.2:3000）。'
+                    '遥控、设备列表与 App 更新检查都走它；留空则用 .env 的 SERVER_BASE_URL。'
+                : '填写运行 Admin 管理页的服务器地址（如 http://192.168.31.2:3000）。'
+                    '配置后由 Admin 决定本机可见家庭，并把首页卡片顺序同步到服务端；'
+                    '留空则完全按 .env 的 HONE_MANE 运行。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
@@ -436,6 +450,7 @@ class _SettingsPageState extends State<SettingsPage> {
               );
             },
           ),
+          if (!parentOnly) ...<Widget>[
           const SizedBox(height: 24),
           Text(
             '天气城市',
@@ -706,6 +721,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+          ],
           const SizedBox(height: 8),
           FilledButton.icon(
             onPressed: _saving ? null : _save,
@@ -760,8 +776,48 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 10),
           const RealtimeStatusSection(),
+          // 关于 / 版本：展示当前版本 + 更新状态（非强更可一直忽略）。
           const SizedBox(height: 24),
-          const _ConnectionStatusLine(),
+          ValueListenableBuilder<AppUpdateState>(
+            valueListenable: AppUpdateController.instance,
+            builder: (BuildContext context, AppUpdateState update, Widget? _) {
+              final bool hasUpdate = update.result?.hasUpdate ?? false;
+              final String latest = update.result?.latest?.version ?? '';
+              final String status;
+              if (!hasUpdate) {
+                status = '已是最新版本';
+              } else if (update.phase == AppUpdatePhase.ready ||
+                  update.phase == AppUpdatePhase.installing) {
+                status = '新版本 v$latest 已就绪，点右侧「更新」安装';
+              } else if (update.phase == AppUpdatePhase.downloading) {
+                final int percent = ((update.progress ?? 0) * 100).round();
+                status = '正在后台下载 v$latest（$percent%）';
+              } else {
+                status = '发现新版本 v$latest';
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.info_outline_rounded),
+                    title: const Text('当前版本'),
+                    subtitle: Text('${Injection.get<AppVersion>().display} · $status'),
+                    trailing: const AppUpdatePill(),
+                  ),
+                  if (update.result?.iosHintOnly == true)
+                    OutlinedButton.icon(
+                      onPressed: () => AppUpdateController.instance.openExternalUrl(),
+                      icon: const Icon(Icons.open_in_new_rounded),
+                      label: const Text('前往应用商店更新'),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          // HA 连接状态属于中控专属信息，parent flavor 不展示。
+          if (!parentOnly) const _ConnectionStatusLine(),
         ],
       ),
     );

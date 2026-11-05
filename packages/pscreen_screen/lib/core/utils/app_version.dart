@@ -15,6 +15,8 @@ class AppVersion {
   static const String fallback = 'v—';
 
   String _display = fallback;
+  String _version = '';
+  String _build = '';
 
   /// 读取平台版本号并构造实例（启动阶段调用一次，失败则用 [fallback]）。
   static Future<AppVersion> load() async {
@@ -23,6 +25,8 @@ class AppVersion {
       final PackageInfo packageInfo = await PackageInfo.fromPlatform();
       final String version = packageInfo.version.trim();
       final String build = packageInfo.buildNumber.trim();
+      info._version = version;
+      info._build = build;
       if (version.isNotEmpty) {
         info._display = build.isEmpty ? 'v$version' : 'v$version+$build';
       }
@@ -34,4 +38,10 @@ class AppVersion {
 
   /// 展示文案：`v1.0.0+1`（读取失败时为 [fallback]）。
   String get display => _display;
+
+  /// 原始 versionName（用于更新接口 `version` 参数）。
+  String get version => _version;
+
+  /// 原始 versionCode（用于更新接口 `build` 参数），非数字时为 0。
+  int get build => int.tryParse(_build) ?? 0;
 }

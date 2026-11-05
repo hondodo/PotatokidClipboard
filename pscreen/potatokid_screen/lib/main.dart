@@ -1,16 +1,22 @@
 import 'dart:async';
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:potatokid_screen/app/app.dart';
+import 'package:potatokid_screen/app/app_flavor.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
+import 'package:pscreen_screen/core/update/app_update_models.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
@@ -93,6 +99,23 @@ void main() {
         if (account.isNotEmpty && savedAccount != account) {
           await AppSettings.instance.setRemoteAccount(account);
         }
+      }
+
+      // 4.06 App 更新：启动查一次（走本地 pscreen_server 代理，fail-open）。
+      //      非强更静默下载后只在右上角提示；强更也要等下载校验通过才拦截。
+      final String? updatePlatform = updatePlatformOf(defaultTargetPlatform);
+      if (updatePlatform != null) {
+        final AppVersion appVersion = Injection.get<AppVersion>();
+        AppUpdateController.instance.configure(
+          AppUpdateRuntime(
+            appId: AppFlavorConfig.updateAppId,
+            platform: updatePlatform,
+            baseUrl: AppConstants.toolsBaseUrl,
+            version: appVersion.version,
+            build: appVersion.build,
+            deviceId: deviceId,
+          ),
+        );
       }
 
       // 4.1 实时通道自动连接（不阻塞启动）。

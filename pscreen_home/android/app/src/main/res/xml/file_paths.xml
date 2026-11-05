@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用内更新：安装包缓存在 App 私有目录（path_provider 的 support/files 目录），
+     这里把 files/cache 根目录开放给 FileProvider，供系统安装器读取。 -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="app_files" path="." />
+    <cache-path name="app_cache" path="." />
+</paths>

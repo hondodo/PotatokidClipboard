@@ -10,6 +10,7 @@ import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/core/router/route_params.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
@@ -942,16 +943,27 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 值来自 [AppVersion]（DI 单例，启动时用 package_info_plus 读取平台打包信息，
   /// 即 pubspec 的 `version:`），因此发版只需改 pubspec、无需改代码。
   Widget _buildVersionRow(bool inContent, ProfileFocusController c) {
-    return _SettingRow(
-      highlighted: inContent && c.row == _versionRow,
-      label: 'settings_version'.tr(),
-      value: Injection.get<AppVersion>().display,
-      canStepLeft: false,
-      canStepRight: false,
-      onTap: () => c.select(_versionRow),
-      onStepLeft: () => c.select(_versionRow),
-      onStepRight: () => c.select(_versionRow),
-      onLongPress: _openParentalDebug,
+    // 有更新时在版本行追加提示（下载中/已就绪由 AppUpdatePill 在首页展示）。
+    return ValueListenableBuilder<AppUpdateState>(
+      valueListenable: AppUpdateController.instance,
+      builder: (BuildContext context, AppUpdateState update, Widget? _) {
+        String value = Injection.get<AppVersion>().display;
+        final String? latest = update.result?.latest?.version;
+        if (update.showPill && latest != null) {
+          value = '$value · 可更新 v$latest';
+        }
+        return _SettingRow(
+          highlighted: inContent && c.row == _versionRow,
+          label: 'settings_version'.tr(),
+          value: value,
+          canStepLeft: false,
+          canStepRight: false,
+          onTap: () => c.select(_versionRow),
+          onStepLeft: () => c.select(_versionRow),
+          onStepRight: () => c.select(_versionRow),
+          onLongPress: _openParentalDebug,
+        );
+      },
     );
   }
 

@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:pscreen_home/app/app.dart';
+import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
@@ -20,6 +22,9 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
+import 'package:pscreen_screen/core/update/app_update_models.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
@@ -62,6 +67,22 @@ void main() {
         token: Injection.get<SettingsStore>().tokenOverride,
         serverBaseUrl: Injection.get<SettingsStore>().serverBaseUrlOverride,
       );
+
+      // 3.0 App 更新：启动查一次（走本地 pscreen_server 代理，fail-open）。
+      //     非强更静默下载后只在 AppBar 提示；强更也在下载校验通过后才拦截。
+      final String? updatePlatform = updatePlatformOf(defaultTargetPlatform);
+      if (updatePlatform != null) {
+        final AppVersion appVersion = Injection.get<AppVersion>();
+        AppUpdateController.instance.configure(
+          AppUpdateRuntime(
+            appId: AppFlavorConfig.updateAppId,
+            platform: updatePlatform,
+            baseUrl: HaConfig.serverBaseUrl,
+            version: appVersion.version,
+            build: appVersion.build,
+          ),
+        );
+      }
 
       // 3.1 向 Admin 服务端注册设备并拉取「可见家庭 + 首页布局」。
       //     与路由初始化并行，服务端不可达时超时降级，不阻塞启动。
@@ -117,10 +138,10 @@ void main() {
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
-            // 目标设备类型：中控屏（服务端据此在 roster/presence 回显，
-            // 控制端据此选择遥控面板）。
-            kind: 'home',
-            name: '中控台',
+            // 目标设备类型：中控屏 `home` / 家长端 `parent`（服务端据此在
+            // roster/presence 回显，控制端据此选择遥控面板）。
+            kind: AppFlavorConfig.deviceKind,
+            name: AppFlavorConfig.deviceName,
             app: info.app,
             version: info.version,
             build: info.build,

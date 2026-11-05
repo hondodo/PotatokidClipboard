@@ -1,7 +1,9 @@
 package screen.potatokid.tools
 
+import android.content.Intent
 import android.media.AudioManager
 import android.media.MediaDrm
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -10,11 +12,14 @@ import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import androidx.core.content.FileProvider
+import java.io.File
 import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "potatokid/volume"
     private val APP_CHANNEL = "potatokid/app"
+    private val UPDATER_CHANNEL = "potatokid/updater"
 
     /** Widevine 的 UUID：MediaDrm 设备唯一 ID 只在 Widevine 下可取。 */
     private val WIDEVINE_UUID = UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)
@@ -90,6 +95,53 @@ class MainActivity : FlutterActivity() {
                             { Process.killProcess(Process.myPid()) },
                             300L,
                         )
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        // 应用内更新：拉起系统安装器 / 打开外部链接（iOS 不走这里）。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UPDATER_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "install" -> {
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("invalid_arguments", "安装包路径为空", null)
+                        } else {
+                            try {
+                                val file = File(path)
+                                val uri = FileProvider.getUriForFile(
+                                    this,
+                                    "${packageName}.fileprovider",
+                                    file
+                                )
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, "application/vnd.android.package-archive")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("install_failed", e.message ?: "无法拉起安装器", null)
+                            }
+                        }
+                    }
+                    "openUrl" -> {
+                        val url = call.argument<String>("url")
+                        if (url.isNullOrBlank()) {
+                            result.error("invalid_arguments", "链接为空", null)
+                        } else {
+                            try {
+                                startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("open_failed", e.message ?: "无法打开链接", null)
+                            }
+                        }
                     }
                     else -> result.notImplemented()
                 }

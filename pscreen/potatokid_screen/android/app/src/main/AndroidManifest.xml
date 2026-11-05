@@ -2,7 +2,7 @@
     <!-- IPTV：联网拉取 m3u / 播放网络直播流 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="薯仔看电视"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:usesCleartextTraffic="true">
@@ -14,7 +14,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
+            android:taskAffinity="${applicationId}"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -39,6 +39,23 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 编译期产品变体标识（tv / phone / board），由 Gradle flavor 注入 -->
+        <meta-data
+            android:name="potatokid.app.flavor"
+            android:value="${pkFlavor}" />
+        <!-- 应用内更新：把私有目录里的 APK 通过 FileProvider 交给系统安装器
+             （ACTION_VIEW + application/vnd.android.package-archive）。
+             authorities 用 ${applicationId}，各 flavor 的包名后缀自动匹配；
+             不需要 REQUEST_INSTALL_PACKAGES，安装确认由系统「安装未知应用」页完成。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
