@@ -22,6 +22,20 @@ BASE = os.environ.get("RELAY_BASE", "http://143.203.52.132:47291")  # 本机公�
 TOKEN = os.environ.get("RELAY_TOKEN", "hhpotatokidtoken")   # 随机串，App 侧拼进 URL
 PORT = int(os.environ.get("RELAY_PORT", "47291"))  # 监听端口，须与 BASE 中一致
 # =================================================
+# ===== 转换流量历史（按转码源；只存主机名+短哈希，不落完整 URL/token） =====
+TRAFFIC_FILE = os.environ.get(
+    "RELAY_TRAFFIC_FILE", "/var/log/potatokid-relay-traffic.jsonl")
+TRAFFIC_INTERVAL = max(2, int(os.environ.get("RELAY_TRAFFIC_INTERVAL", "10")))
+TRAFFIC_RETENTION = max(60, int(os.environ.get("RELAY_TRAFFIC_RETENTION", "86400")))
+TRAFFIC_MAX_BYTES = max(
+    256 * 1024,
+    int(os.environ.get("RELAY_TRAFFIC_MAX_BYTES", str(8 * 1024 * 1024))))
+TRAFFIC_TRIM_EVERY = 300  # 秒：常规修剪周期（文件超限时每次采样都会触发）
+# 入站口径：auto=优先用 ss 的 TCP bytes_received（rchar 在 Debian 6.1 上不计 socket 读），
+# rchar=强制走 /proc/io（仅本地文件读，网络入站会接近 0，仅作降级）。
+TRAFFIC_INBOUND = os.environ.get("RELAY_TRAFFIC_INBOUND", "auto").lower()
+SS_BIN = shutil.which("ss") or "/usr/bin/ss"
+# =========================================================================
 ALLOW_HOST_API = os.environ.get(
     "ALLOW_HOST_API", "http://100.83.142.107:3000/api/allow_reply_host")
 ALLOW_HOST_CACHE = os.environ.get(
@@ -236,6 +250,266 @@ _segno = {}  # sid -> 已产出的最大分片号（跨重建记忆，供 -start
 
 def _sid(src):
     return hashlib.md5(src.encode("utf-8")).hexdigest()[:12]
+
+
+# ===== 流量采样：出站读 ffmpeg 的 /proc/<pid>/io(wchar)，入站读 TCP bytes_received =====
+# 实测 Debian 6.1 内核下 rchar 不计 socket recv（5MB 下载仅 +96B），所以入站默认用
+# `ss -tinp` 的 bytes_received 按源会话汇总；rchar 仅作 ss 不可用时的降级口径。
+# 只记录主机名 + 源地址短哈希（即 /live.m3u8 里已出现的 sid），
+# 不写完整 URL、query、token；采样失败只打日志，绝不影响转发。
+_traffic_lock = threading.Lock()
+_traffic_prev = {}  # sid -> {pid,t,rchar,wchar,sockets,in_total,out_total}
+_traffic_last_trim = 0.0
+
+
+def _traffic_source(src):
+    """把源地址压成 (主机名, 12 位短哈希)；URL 其余部分全部丢弃。"""
+    try:
+        host = (urlparse(src).hostname or "").lower().rstrip(".")
+    except ValueError:
+        host = ""
+    return host or "-", _sid(src)
+
+
+def _read_proc_io(pid):
+    """读取 /proc/<pid>/io 的 rchar/wchar；进程已退或权限不足返回 None。"""
+    try:
+        vals = {}
+        with open("/proc/%d/io" % pid, "r") as fh:
+            for line in fh:
+                key, sep, value = line.partition(":")
+                if sep and key in ("rchar", "wchar"):
+                    vals[key] = int(value.strip())
+        if "rchar" in vals and "wchar" in vals:
+            return vals["rchar"], vals["wchar"]
+    except Exception:
+        pass
+    return None
+
+
+def _read_ss_all():
+    """一次 ss 采样，返回 {pid: {local_addr: bytes_received}}；不可用返回 None。
+
+    ffmpeg 以长连接读 HLS，socket 的 bytes_received 是累计值，按源会话求增量。"""
+    if TRAFFIC_INBOUND == "rchar":
+        return None
+    try:
+        out = subprocess.run([SS_BIN, "-tinp"], capture_output=True, timeout=5)
+        if out.returncode != 0:
+            return None
+        text = out.stdout.decode("utf-8", "replace")
+    except Exception:
+        return None
+    result = {}
+    cur_pid = None
+    cur_local = ""
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if line[0] not in (" ", "\t"):
+            parts = line.split()
+            cur_local = parts[3] if len(parts) >= 4 else ""
+            m = re.search(r"pid=(\d+)", line)
+            cur_pid = int(m.group(1)) if m else None
+        elif cur_pid is not None:
+            m = re.search(r"bytes_received:(\d+)", line)
+            if m:
+                result.setdefault(cur_pid, {})[cur_local] = int(m.group(1))
+    return result
+
+
+def _traffic_sample_once():
+    """采样一次全部存活转码会话；增量按上次采样时间折算。"""
+    now = time.time()
+    with _sessions_lock:
+        sessions = [
+            (sid, s.get("src", ""), s["proc"].pid)
+            for sid, s in _sessions.items()
+            if s["proc"].poll() is None
+        ]
+    ss_data = _read_ss_all()
+    rows = []
+    with _traffic_lock:
+        alive = set()
+        for sid, src, pid in sessions:
+            io = _read_proc_io(pid)
+            if io is None:
+                continue
+            rchar, wchar = io
+            sockets = None if ss_data is None else ss_data.get(pid, {})
+            alive.add(sid)
+            prev = _traffic_prev.get(sid)
+            if prev is None or prev.get("pid") != pid:
+                # 首次采样/同 sid 换进程：只建基线，不写零值记录
+                _traffic_prev[sid] = {
+                    "pid": pid, "t": now, "rchar": rchar, "wchar": wchar,
+                    "sockets": sockets or {}, "in_total": 0, "out_total": 0,
+                }
+                continue
+            dt = now - prev["t"]
+            if dt <= 0:
+                continue
+            dw = wchar - prev["wchar"]
+            if dw < 0:
+                _traffic_prev[sid] = {
+                    "pid": pid, "t": now, "rchar": rchar, "wchar": wchar,
+                    "sockets": sockets or {}, "in_total": 0, "out_total": 0,
+                }
+                continue
+            if sockets is not None:
+                base = prev.get("sockets") or {}
+                di = 0
+                for addr, value in sockets.items():
+                    old = base.get(addr)
+                    if old is not None and value >= old:
+                        di += value - old
+                    else:
+                        di += value  # 新连接（或端口复用）：从 0 起算
+                isrc = "ss"
+            else:
+                dr = rchar - prev["rchar"]
+                if dr < 0:
+                    _traffic_prev[sid] = {
+                        "pid": pid, "t": now, "rchar": rchar, "wchar": wchar,
+                        "sockets": {}, "in_total": 0, "out_total": 0,
+                    }
+                    continue
+                di = dr
+                isrc = "rchar"
+            in_total = prev["in_total"] + di
+            out_total = prev["out_total"] + dw
+            host, short = _traffic_source(src)
+            rows.append({
+                "t": round(now, 3),
+                "host": host,
+                "sid": short,
+                "din": di,
+                "dout": dw,
+                "in": in_total,
+                "out": out_total,
+                "dt": round(dt, 3),
+                "iv": TRAFFIC_INTERVAL,
+                "ret": TRAFFIC_RETENTION,
+                "isrc": isrc,
+            })
+            _traffic_prev[sid] = {
+                "pid": pid, "t": now, "rchar": rchar, "wchar": wchar,
+                "sockets": sockets or {}, "in_total": in_total,
+                "out_total": out_total,
+            }
+        for sid in list(_traffic_prev):
+            if sid not in alive:
+                _traffic_prev.pop(sid, None)
+    if rows:
+        _traffic_write(rows)
+    _traffic_maybe_trim(now)
+
+
+def _traffic_write(rows):
+    try:
+        text = "".join(
+            json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for row in rows)
+        with open(TRAFFIC_FILE, "a", encoding="utf-8") as fh:
+            fh.write(text)
+    except Exception as e:
+        print("流量采样写入失败(不影响转发): %s" % e, flush=True)
+
+
+def _traffic_maybe_trim(now):
+    global _traffic_last_trim
+    try:
+        size = os.path.getsize(TRAFFIC_FILE)
+    except OSError:
+        return
+    # 文件超限每次都修剪；否则最多每 5 分钟按时间清一次旧记录
+    if size <= TRAFFIC_MAX_BYTES and now - _traffic_last_trim < TRAFFIC_TRIM_EVERY:
+        return
+    _traffic_last_trim = now
+    _traffic_trim(now)
+
+
+def _traffic_trim(now=None):
+    """按保留时长与文件大小滚动修剪；任何异常只打日志。"""
+    now = now or time.time()
+    cutoff = now - TRAFFIC_RETENTION
+    try:
+        current_size = os.path.getsize(TRAFFIC_FILE)
+    except OSError:
+        return
+    # 超限时一次裁到 90%，避免每轮采样都重写整份文件（1 核机器上必须留余量）
+    target = (int(TRAFFIC_MAX_BYTES * 0.9)
+              if current_size > TRAFFIC_MAX_BYTES else TRAFFIC_MAX_BYTES)
+    keep = []
+    stale = 0
+    try:
+        with open(TRAFFIC_FILE, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    t = float(json.loads(line).get("t") or 0)
+                except Exception:
+                    continue
+                if t >= cutoff:
+                    keep.append(line)
+                else:
+                    stale += 1
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        print("流量历史修剪读取失败(不影响转发): %s" % e, flush=True)
+        return
+    total = sum(len(line.encode("utf-8")) + 1 for line in keep)
+    drop = 0
+    while total > target and drop < len(keep):
+        total -= len(keep[drop].encode("utf-8")) + 1
+        drop += 1
+    keep = keep[drop:]
+    if not stale and not drop:
+        return
+    tmp = TRAFFIC_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("".join(line + "\n" for line in keep))
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, TRAFFIC_FILE)
+        print("流量历史修剪: 清理过期 %d 行、超限 %d 行，保留 %d 行/%d 字节"
+              % (stale, drop, len(keep), total), flush=True)
+    except Exception as e:
+        print("流量历史修剪写入失败(不影响转发): %s" % e, flush=True)
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+
+def _traffic_start():
+    """创建流量文件并启动采样线程；失败不影响 relay 主服务。"""
+    try:
+        parent = os.path.dirname(TRAFFIC_FILE)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
+        if not os.path.exists(TRAFFIC_FILE):
+            with open(TRAFFIC_FILE, "a", encoding="utf-8"):
+                pass
+        os.chmod(TRAFFIC_FILE, 0o644)  # app_server 以非 root 读取
+        threading.Thread(target=_traffic_loop, daemon=True).start()
+        print("流量采样已启动: %s 间隔=%ds 保留=%ds 上限=%d 字节"
+              % (TRAFFIC_FILE, TRAFFIC_INTERVAL, TRAFFIC_RETENTION,
+                 TRAFFIC_MAX_BYTES), flush=True)
+    except Exception as e:
+        print("流量采样初始化失败(不影响转发): %s" % e, flush=True)
+
+
+def _traffic_loop():
+    while True:
+        try:
+            _traffic_sample_once()
+        except Exception as e:
+            print("流量采样异常(不影响转发): %s" % e, flush=True)
+        time.sleep(TRAFFIC_INTERVAL)
 
 
 def _drop_session(sid):
@@ -713,6 +987,7 @@ if __name__ == "__main__":
     _sweep_orphans()
     _init_allow_hosts()
     threading.Thread(target=_reaper_loop, daemon=True).start()
+    _traffic_start()
     print(
         "relay on %s (token=%s) live=ffmpeg %sp/%s x%d"
         % (BASE, TOKEN, LIVE_HEIGHT, LIVE_V_BITRATE, os.cpu_count() or 0),
