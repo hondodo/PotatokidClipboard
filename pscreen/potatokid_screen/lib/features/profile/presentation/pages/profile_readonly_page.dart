@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/features/parental/presentation/widgets/device_account_label.dart';
 import 'package:potatokid_screen/features/parental/presentation/widgets/parental_verification_sheet.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
@@ -87,6 +88,9 @@ class _ProfileReadonlyPageState extends State<ProfileReadonlyPage> {
                     onPressed: _openVerify,
                     child: const Text('请求解锁'),
                   ),
+                  const SizedBox(height: 20),
+                  // 固定显示本机派生账号，多台电视时可确认正在操作哪一台。
+                  const DeviceAccountLabel(color: Colors.white38),
                 ],
               ),
             ),

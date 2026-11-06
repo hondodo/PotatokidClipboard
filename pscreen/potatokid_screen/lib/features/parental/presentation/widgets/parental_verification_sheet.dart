@@ -10,6 +10,8 @@ import 'package:pscreen_screen/core/parental/parental_quiz.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 
+import 'device_account_label.dart';
+
 /// 家长验证层（锁屏解锁与后续选人页 `locked` 闸门共用的统一入口）。
 ///
 /// 验证方式按 [ParentalConfig.unlockMode]（方案 §4.2 离线兜底）：
@@ -208,7 +210,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
                         Text('家长验证', style: textTheme.titleLarge),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 4),
+                    DeviceAccountLabel(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(height: 12),
                     if (gate.locked) ...<Widget>[
                       Text(
                         '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',

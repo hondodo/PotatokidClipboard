@@ -8,6 +8,7 @@ import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 
+import 'device_account_label.dart';
 import 'parental_quiz_page.dart';
 import 'parental_verification_sheet.dart';
 
@@ -184,7 +185,16 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
               SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
               SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
             },
-            child: _quizMode ? _buildQuizPage() : const _LockScreenPage(),
+            child: _quizMode
+                ? _buildQuizPage()
+                : _LockScreenPage(
+                    // 已选答题模式但题库为空 / 只有填空题：明确提示回退原因，
+                    // 不再静默装作短码就是所选模式。
+                    quizFallback:
+                        _quizLoaded &&
+                        ParentalStateController.instance.config.unlockMode ==
+                            'quiz',
+                  ),
           ),
         );
       },
@@ -197,10 +207,18 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
     final int? remainDaily = timer.remainingDailySec;
     return ParentalQuizPage(
       questions: _quizQuestions,
-      header: Text(
-        '单次剩余：${remainSession == null ? '未启用' : _LockScreenPageState._fmt(remainSession)}'
-        '　　当日剩余：${remainDaily == null ? '未启用' : _LockScreenPageState._fmt(remainDaily)}',
-        style: const TextStyle(color: Colors.white70, fontSize: 14),
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            '单次剩余：${remainSession == null ? '未启用' : _LockScreenPageState._fmt(remainSession)}'
+            '　　当日剩余：${remainDaily == null ? '未启用' : _LockScreenPageState._fmt(remainDaily)}',
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          const DeviceAccountLabel(color: Colors.white38),
+        ],
       ),
       onSolved: () async {
         KidWatchTimerController.instance.unlock();
@@ -221,7 +239,10 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
 /// 锁屏页：已看/剩余时长 + 6 位短码（含倒计时 / 过期重新请求）+
 /// 家长验证入口（`ParentalVerificationSheet`：远程等待 + PIN/算术兜底）。
 class _LockScreenPage extends StatefulWidget {
-  const _LockScreenPage();
+  const _LockScreenPage({this.quizFallback = false});
+
+  /// 家长已选答题模式，但题库为空或只有填空题 → 回退短码，需要明确告知。
+  final bool quizFallback;
 
   @override
   State<_LockScreenPage> createState() => _LockScreenPageState();
@@ -328,6 +349,25 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                     ),
                   ),
                 ),
+              if (widget.quizFallback) ...<Widget>[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+                  ),
+                  child: Text(
+                    '答题解锁未生效：当前儿童档案题库为空或只有填空题，已回退短码解锁。'
+                    '请家长先在儿童档案中添加选择题。',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.amber,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               ..._buildCodeArea(codes, theme),
               const SizedBox(height: 24),
@@ -337,6 +377,8 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                 onPressed: _openVerify,
                 child: const Text('家长验证解锁'),
               ),
+              const SizedBox(height: 16),
+              const DeviceAccountLabel(color: Colors.white38),
             ],
           ),
         ),
