@@ -82,7 +82,7 @@ void main() {
       cache: AppUpdateCache(tmp),
       downloader: AppUpdateDownloader(),
     );
-    controller.configure(const AppUpdateRuntime(
+    await controller.configure(const AppUpdateRuntime(
       appId: 'potatokid-home',
       platform: 'apk',
       baseUrl: 'http://127.0.0.1:9',
@@ -121,7 +121,7 @@ void main() {
       platform: 'ios',
     );
     final controller = AppUpdateController(api: _FakeApi(() async => result), cache: AppUpdateCache(tmp));
-    controller.configure(const AppUpdateRuntime(
+    await controller.configure(const AppUpdateRuntime(
       appId: 'potatokid-home',
       platform: 'ios',
       baseUrl: 'http://127.0.0.1:9',
@@ -150,7 +150,7 @@ void main() {
       cache: cache,
       downloader: AppUpdateDownloader(),
     );
-    controller.configure(const AppUpdateRuntime(
+    await controller.configure(const AppUpdateRuntime(
       appId: 'potatokid-home',
       platform: 'apk',
       baseUrl: 'http://127.0.0.1:9',
@@ -172,7 +172,7 @@ void main() {
       cache: AppUpdateCache(tmp),
       downloader: _FailingDownloader(),
     );
-    controller.configure(const AppUpdateRuntime(
+    await controller.configure(const AppUpdateRuntime(
       appId: 'potatokid-home',
       platform: 'apk',
       baseUrl: 'http://127.0.0.1:9',
@@ -185,4 +185,120 @@ void main() {
     expect(controller.state.forceBlocked, isFalse);
     controller.dispose();
   });
+
+  test('强更 pending 在 checking/failed 期间保持拦截', () async {
+    final List<int> bytes = List<int>.generate(10, (int i) => i);
+    final AppUpdateCache cache = AppUpdateCache(tmp);
+    final File probe = File('${tmp.path}/probe2.bin')..writeAsBytesSync(bytes);
+    final String realSha = await AppUpdateCache.sha256OfFile(probe);
+    probe.deleteSync();
+    final File file = cache.finalFile(
+      appId: 'potatokid-home',
+      releaseId: 'rel_9',
+      sha256: realSha,
+    );
+    file.writeAsBytesSync(bytes);
+    final AppUpdateCheckResult forced =
+        _apkResult(force: true, sha: realSha, size: bytes.length);
+
+    bool fail = false;
+    final controller = AppUpdateController(
+      api: _FakeApi(() async {
+        if (fail) {
+          throw const AppUpdateException(100101, '应用服务器暂时不可用');
+        }
+        return forced;
+      }),
+      cache: cache,
+    );
+    await controller.configure(const AppUpdateRuntime(
+      appId: 'potatokid-home',
+      platform: 'apk',
+      baseUrl: 'http://127.0.0.1:9',
+      version: '1.0.3',
+      build: 8,
+    ));
+    await controller.check();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(controller.state.forceBlocked, isTrue);
+
+    fail = true;
+    await controller.check();
+    expect(controller.state.phase, AppUpdatePhase.failed);
+    expect(controller.state.forceBlocked, isTrue);
+    controller.dispose();
+  });
+
+  test('启动时恢复已持久化的粘性强更', () async {
+    final AppUpdateCache cache = AppUpdateCache(tmp);
+    final File file = cache.finalFile(
+      appId: 'potatokid-home',
+      releaseId: 'rel_9',
+      sha256: 'cafe',
+    );
+    file.writeAsBytesSync(<int>[1, 2, 3]);
+    await cache.savePendingForce(
+      appId: 'potatokid-home',
+      releaseId: 'rel_9',
+      path: file.path,
+      sha256: 'cafe',
+      version: '1.0.4',
+      build: 9,
+    );
+
+    final controller = AppUpdateController(
+      api: _FakeApi(
+        () async => throw const AppUpdateException(100101, '应用服务器暂时不可用'),
+      ),
+      cache: cache,
+    );
+    await controller.configure(const AppUpdateRuntime(
+      appId: 'potatokid-home',
+      platform: 'apk',
+      baseUrl: 'http://127.0.0.1:9',
+      version: '1.0.3',
+      build: 8,
+    ));
+    expect(controller.state.forceBlocked, isTrue);
+    expect(controller.state.cachedPath, file.path);
+    controller.dispose();
+  });
+
+  test('前台补查阈值 foregroundCheckAfter 独立于后台周期', () async {
+    DateTime now = DateTime(2026, 1, 1, 8);
+    int checks = 0;
+    final controller = AppUpdateController(
+      api: _FakeApi(() async {
+        checks += 1;
+        return AppUpdateCheckResult.none(appId: 'potatokid-home', platform: 'apk');
+      }),
+      cache: AppUpdateCache(tmp),
+      now: () => now,
+    );
+    await controller.configure(const AppUpdateRuntime(
+      appId: 'potatokid-home',
+      platform: 'apk',
+      baseUrl: 'http://127.0.0.1:9',
+      version: '1.0.3',
+      build: 8,
+      checkInterval: Duration(hours: 12),
+      foregroundCheckAfter: Duration(hours: 1),
+    ));
+    await controller.check();
+    expect(checks, 1);
+
+    // 59 分钟：未超过前台阈值，即使远未到 12 小时周期也不补查。
+    now = now.add(const Duration(minutes: 59));
+    controller.onForeground();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(checks, 1);
+
+    // 61 分钟：超过前台阈值，补查一次。
+    now = now.add(const Duration(minutes: 2));
+    controller.onForeground();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(checks, 2);
+    controller.dispose();
+  });
 }
+

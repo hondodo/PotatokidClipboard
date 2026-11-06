@@ -236,6 +236,67 @@ void main() {
     expect(hits, 2);
     expect(out.readAsBytesSync(), bytes);
   });
+
+  test('配置限速后平均速率受控', () async {
+    final Directory throttleTmp = Directory.systemTemp.createTempSync('pk_update_throttle_');
+    addTearDown(() {
+      if (throttleTmp.existsSync()) throttleTmp.deleteSync(recursive: true);
+    });
+
+    final Uint8List full = Uint8List.fromList(List<int>.generate(256 * 1024, (int i) => i % 251));
+    final String sha = _sha(full);
+    final HttpServer server = await _serveBytes(full);
+    addTearDown(() => server.close(force: true));
+
+    final AppUpdateCache throttleCache = AppUpdateCache(throttleTmp);
+    final AppUpdateDownloader downloader = AppUpdateDownloader(maxBytesPerSecond: 256 * 1024);
+
+    final Stopwatch watch = Stopwatch()..start();
+    await downloader.download(
+      appId: 'potatokid-tv',
+      result: _resultFor('http://127.0.0.1:${server.port}/update.apk', size: full.length, sha: sha),
+      cache: throttleCache,
+      onProgress: (_, _) {},
+    );
+    watch.stop();
+
+    // 256 KiB / 256 KiB/s 理论约 1000ms；40ms 粒度允许少量误差。
+    expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(700));
+  });
+
+  test('续传时限速按本次连接字节计算，不因历史字节长时间休眠', () async {
+    final Directory resumeTmp = Directory.systemTemp.createTempSync('pk_update_resume_');
+    addTearDown(() {
+      if (resumeTmp.existsSync()) resumeTmp.deleteSync(recursive: true);
+    });
+
+    const int existingSize = 2 * 1024 * 1024;
+    const int restSize = 64 * 1024;
+    final Uint8List full = Uint8List.fromList(
+      List<int>.generate(existingSize + restSize, (int i) => i % 251),
+    );
+    final String sha = _sha(full);
+    final HttpServer server = await _serveBytes(full);
+    addTearDown(() => server.close(force: true));
+
+    final AppUpdateCache resumeCache = AppUpdateCache(resumeTmp);
+    final File part = resumeCache.partFile(appId: 'potatokid-tv', releaseId: 'rel_t', sha256: sha);
+    part.writeAsBytesSync(Uint8List.sublistView(full, 0, existingSize));
+
+    final AppUpdateDownloader downloader = AppUpdateDownloader(maxBytesPerSecond: 1024 * 1024);
+
+    final Stopwatch watch = Stopwatch()..start();
+    await downloader.download(
+      appId: 'potatokid-tv',
+      result: _resultFor('http://127.0.0.1:${server.port}/update.apk', size: full.length, sha: sha),
+      cache: resumeCache,
+      onProgress: (_, _) {},
+    );
+    watch.stop();
+
+    // 旧实现会把 2MB 历史字节算进“落后”，在 1MiB/s 下额外睡约 2s；本次应只按 64KiB 计。
+    expect(watch.elapsedMilliseconds, lessThan(600));
+  });
 }
 
 Future<bool> appCacheReady(AppUpdateCache cache, String sha) =>
@@ -245,6 +306,29 @@ Future<HttpServer> _serve(Future<void> Function(HttpRequest request) handler) as
   final HttpServer server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((HttpRequest request) {
     handler(request);
+  });
+  return server;
+}
+
+Future<HttpServer> _serveBytes(Uint8List full) async {
+  final HttpServer server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((HttpRequest request) {
+    final String? range = request.headers.value(HttpHeaders.rangeHeader);
+    if (range != null) {
+      final int start = int.parse(range.replaceAll('bytes=', '').split('-').first);
+      final Uint8List rest = Uint8List.sublistView(full, start);
+      request.response
+        ..statusCode = HttpStatus.partialContent
+        ..headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-${full.length - 1}/${full.length}')
+        ..contentLength = rest.length
+        ..add(rest)
+        ..close();
+      return;
+    }
+    request.response
+      ..contentLength = full.length
+      ..add(full)
+      ..close();
   });
   return server;
 }
