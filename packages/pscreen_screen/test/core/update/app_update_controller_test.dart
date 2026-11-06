@@ -263,4 +263,42 @@ void main() {
     expect(controller.state.cachedPath, file.path);
     controller.dispose();
   });
+
+  test('前台补查阈值 foregroundCheckAfter 独立于后台周期', () async {
+    DateTime now = DateTime(2026, 1, 1, 8);
+    int checks = 0;
+    final controller = AppUpdateController(
+      api: _FakeApi(() async {
+        checks += 1;
+        return AppUpdateCheckResult.none(appId: 'potatokid-home', platform: 'apk');
+      }),
+      cache: AppUpdateCache(tmp),
+      now: () => now,
+    );
+    await controller.configure(const AppUpdateRuntime(
+      appId: 'potatokid-home',
+      platform: 'apk',
+      baseUrl: 'http://127.0.0.1:9',
+      version: '1.0.3',
+      build: 8,
+      checkInterval: Duration(hours: 12),
+      foregroundCheckAfter: Duration(hours: 1),
+    ));
+    await controller.check();
+    expect(checks, 1);
+
+    // 59 分钟：未超过前台阈值，即使远未到 12 小时周期也不补查。
+    now = now.add(const Duration(minutes: 59));
+    controller.onForeground();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(checks, 1);
+
+    // 61 分钟：超过前台阈值，补查一次。
+    now = now.add(const Duration(minutes: 2));
+    controller.onForeground();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(checks, 2);
+    controller.dispose();
+  });
 }
+

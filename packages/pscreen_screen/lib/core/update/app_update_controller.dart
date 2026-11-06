@@ -88,6 +88,7 @@ class AppUpdateRuntime {
     this.maxBytesPerSecond,
     this.checkInterval = const Duration(hours: 12),
     this.checkJitter = const Duration(minutes: 30),
+    this.foregroundCheckAfter = const Duration(hours: 1),
     this.canStartDownload,
   });
 
@@ -111,9 +112,14 @@ class AppUpdateRuntime {
   /// 首次检查的随机抖动上限：按 deviceId 稳定派生，避免断电重启后同时请求。
   final Duration checkJitter;
 
+  /// 前台补查阈值：从上次成功检查起算，超过该间隔且发生 `resumed` 才补查。
+  ///
+  /// 与 [checkInterval] 独立：后台周期检查仍按 12 小时，前台回来时更积极。
+  final Duration foregroundCheckAfter;
+
   /// 当前场景是否允许开始静默下载；null 表示不限制。
   ///
-  /// 由宿主注入：TV 看当前是否仍在直播页，中控看直播/屏保是否活跃。
+  /// 由宿主注入：TV 不限页面（靠 [maxBytesPerSecond] 限速），中控按屏保开关与直播状态判断。
   /// 强更与普通更新都遵守该判定，只有用户手动点「重试/立即安装」才绕过。
   final bool Function()? canStartDownload;
 }
@@ -492,7 +498,7 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
     final AppUpdateRuntime? runtime = _runtime;
     if (runtime != null) {
       final DateTime? last = _lastCheckAt;
-      if (last == null || _now().difference(last) >= runtime.checkInterval) {
+      if (last == null || _now().difference(last) >= runtime.foregroundCheckAfter) {
         unawaited(check());
         return;
       }
