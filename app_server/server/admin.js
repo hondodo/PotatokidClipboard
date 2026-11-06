@@ -27,6 +27,7 @@ const { createReleasesRouter } = require('./releases');
 const { maintenanceStatus, runCleanup } = require('./cleanup');
 const { createAccountsRouter, tokenLogin, setAccountCookie } = require('./accounts');
 const { createFilesAdminRouter } = require('./files');
+const { createRelayRouter } = require('./relay');
 const { authenticate, requireAccountRole, requireRole } = require('./auth');
 const { issueSession } = require('./security');
 const { nowIso } = require('./store');
@@ -54,6 +55,7 @@ function guardByPath(req, res, next) {
   // 挂载在 '/api/admin' 上，req.path 已去掉前缀，必须用 originalUrl 判断完整路径。
   const url = req.originalUrl.split('?')[0];
   if (OPEN_AFTER_LOGIN.includes(url)) return next();
+  if (url.startsWith('/api/admin/relay')) return requireAccountRole('admin')(req, res, next);
   if (url.startsWith('/api/admin/accounts') || url.startsWith('/api/admin/tokens')) {
     return requireAccountRole('admin')(req, res, next);
   }
@@ -276,6 +278,9 @@ function createAdminRouter({ config, store, audit, secret, uploads }) {
       ok(res, { mustReLogin: true }, '已强制下线全部会话');
     })
   );
+
+  // relay 运维（仅 admin 角色）：status / logs / start / stop / restart。
+  router.use('/api/admin', createRelayRouter({ audit }));
 
   // 账号管理 + 临时口令（仅 admin 角色）。
   router.use('/api/admin', createAccountsRouter({ config, store, audit, secret }));
