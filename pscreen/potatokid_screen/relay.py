@@ -207,6 +207,11 @@ LIVE_IDLE_SECONDS = 60  # 会话空闲多久后杀 ffmpeg 并清临时目录
 LIVE_MAX_SESSIONS = 4  # 同时保留的转码会话上限：换源即杀旧会话，防多 ffmpeg 堆积挤爆 1 核
 LIVE_STARTUP_TIMEOUT = 25  # 等首个转码列表的最长时间（秒）
 LIVE_DEV_KILL_GRACE = 10  # 换源杀旧宽限（秒）：同设备仅杀 used 超过该时长的会话，防在途迟到请求误杀新会话
+# ===== 会话临时目录清理（relay_live_*） =====
+SESSION_DIR_PREFIX = "relay_live_"  # mkdtemp 前缀；清扫只认这个前缀，不按通配符扫一整片
+SESSION_SWEEP_SECONDS = max(
+    60, int(float(os.environ.get("RELAY_SESSION_SWEEP_SECONDS", str(6 * 3600))))
+)  # 启动清扫阈值：目录 mtime 超过该秒数才删（默认 6 小时），兜住 SIGKILL/断电
 LIVE_MAX_W = 1920  # 入站分辨率上限（宽）：超过则拒绝转码——4K 入站流量太大（按入站+出站计费）
 LIVE_MAX_H = 1080  # 入站分辨率上限（高）
 
@@ -250,6 +255,51 @@ _segno = {}  # sid -> 已产出的最大分片号（跨重建记忆，供 -start
 
 def _sid(src):
     return hashlib.md5(src.encode("utf-8")).hexdigest()[:12]
+
+
+# ===== 会话临时目录归属：只清理本进程自己创建的目录，绝不按前缀扫删别人的 =====
+_own_dirs = set()  # 本进程创建的会话临时目录
+_own_dirs_lock = threading.RLock()  # 信号处理器在主线程重入，用可重入锁防自锁
+
+
+def _register_own_dir(path):
+    try:
+        with _own_dirs_lock:
+            _own_dirs.add(path)
+    except Exception as e:
+        print("会话目录登记失败(不影响转发): %s" % e, flush=True)
+
+
+def _forget_own_dir(path):
+    try:
+        with _own_dirs_lock:
+            _own_dirs.discard(path)
+    except Exception:
+        pass
+
+
+def _remove_own_dir(path, why="会话回收"):
+    """删除本进程登记的会话目录；失败只打日志，绝不抛出、绝不影响退出或转发。"""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print("清理会话目录失败(%s) %s: %s" % (why, path, e), flush=True)
+    finally:
+        _forget_own_dir(path)
+
+
+def _cleanup_own_dirs(why="进程退出"):
+    """正常退出路径：删掉本进程登记过的全部会话目录。"""
+    try:
+        with _own_dirs_lock:
+            dirs = list(_own_dirs)
+    except Exception as e:
+        print("读取会话目录清单失败(不影响退出): %s" % e, flush=True)
+        return
+    for d in dirs:
+        _remove_own_dir(d, why)
 
 
 # ===== 流量采样：出站读 ffmpeg 的 /proc/<pid>/io(wchar)，入站读 TCP bytes_received =====
@@ -536,7 +586,7 @@ def _drop_session(sid):
         s["proc"].wait(timeout=5)
     except Exception:
         pass
-    shutil.rmtree(s["dir"], ignore_errors=True)
+    _remove_own_dir(s["dir"])
 
 
 _overlimit = set()  # 已判定入站分辨率超限的源 URL（进程内记忆：命中后 Popen 前直接拦截）
@@ -600,7 +650,8 @@ def _live_session(src, dev=""):
         print("会话数已达上限(%d)，淘汰最旧会话 %s"
               % (LIVE_MAX_SESSIONS, old.get("src", old_sid)), flush=True)
         _drop_session(old_sid)
-    d = tempfile.mkdtemp(prefix="relay_live_%s_" % sid)
+    d = tempfile.mkdtemp(prefix="%s%s_" % (SESSION_DIR_PREFIX, sid))
+    _register_own_dir(d)
     playlist = os.path.join(d, "out.m3u8")
     # 重建续号：从上次会话最大段号 +1 继续（序号单调递增，播放器把它当作
     # 正常推进的 live 而非归零的失效列表，重建空窗从 30s+ 缩到 1~2 个轮询）
@@ -645,7 +696,7 @@ def _live_session(src, dev=""):
         finally:
             errf.close()
     except Exception:
-        shutil.rmtree(d, ignore_errors=True)
+        _remove_own_dir(d, "会话启动失败")
         raise
     s = {"proc": proc, "dir": d, "playlist": playlist, "used": time.time(),
          "src": src, "dev": dev}
@@ -965,6 +1016,84 @@ def _sweep_orphans():
         return
     if r.returncode == 0:
         print("清扫: 已清理上次遗留的孤儿 ffmpeg 转码进程", flush=True)
+        # 等被 pkill 的进程真正退出再扫目录：残留进程会让目录清扫误判「仍被引用」
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            if subprocess.run(
+                    ["pgrep", "-f", SESSION_DIR_PREFIX],
+                    capture_output=True).returncode != 0:
+                break
+            time.sleep(0.1)
+
+
+def _dir_in_use(path):
+    """保守判断目录是否仍被某个进程引用（例如另一个 relay 实例的 ffmpeg）。
+
+    /proc 读不了时一律当作「在用」：宁可漏删，也不误删别的实例的目录。"""
+    try:
+        names = os.listdir("/proc")
+    except Exception:
+        return True
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % name, "rb") as fh:
+                cmd = fh.read().decode("utf-8", "replace").replace("\x00", " ")
+        except Exception:
+            continue
+        if path in cmd:
+            return True
+    return False
+
+
+def _sweep_stale_dirs():
+    """启动时清扫上一个实例跑不到退出路径（SIGKILL/断电）遗留的会话目录。
+
+    保守三条：只认自己的命名前缀；目录 mtime 超过 SESSION_SWEEP_SECONDS；
+    且未被本进程会话或其它进程引用。删除失败只打日志，不影响启动。"""
+    try:
+        with _sessions_lock:
+            active = {s["dir"] for s in _sessions.values()}
+    except Exception:
+        active = set()
+    try:
+        with _own_dirs_lock:
+            active |= set(_own_dirs)
+    except Exception:
+        pass
+    tmproot = tempfile.gettempdir()
+    try:
+        entries = list(os.scandir(tmproot))
+    except Exception as e:
+        print("清扫: 无法读取临时目录 %s: %s" % (tmproot, e), flush=True)
+        return
+    now = time.time()
+    removed = 0
+    for ent in entries:
+        try:
+            if not ent.name.startswith(SESSION_DIR_PREFIX):
+                continue
+            if ent.is_symlink() or not ent.is_dir():
+                continue
+            if ent.path in active:
+                continue
+            st = ent.stat()
+            if now - st.st_mtime < SESSION_SWEEP_SECONDS:
+                continue
+            if _dir_in_use(ent.path):
+                print("清扫: 目录仍被进程引用，跳过 %s" % ent.path, flush=True)
+                continue
+            shutil.rmtree(ent.path)
+            removed += 1
+            print("清扫: 已删除过期会话目录 %s (mtime %s)"
+                  % (ent.path,
+                     time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+                     ), flush=True)
+        except Exception as e:
+            print("清扫: 处理 %s 失败(不影响启动): %s" % (ent.path, e), flush=True)
+    if removed:
+        print("清扫: 共删除 %d 个过期会话目录" % removed, flush=True)
 
 
 def _on_shutdown(signum, _frame):
@@ -973,11 +1102,16 @@ def _on_shutdown(signum, _frame):
     不取 _sessions_lock：信号打断的是主线程，锁可能正被工作线程持有，
     拿锁有死锁风险；_drop_session 内部 pop 幂等，重复/并发调用无害。"""
     print("收到信号 %s，清理全部转码会话后退出" % signum, flush=True)
-    for sid in list(_sessions):
-        try:
-            _drop_session(sid)
-        except Exception:
-            pass
+    try:
+        for sid in list(_sessions):
+            try:
+                _drop_session(sid)
+            except Exception:
+                pass
+    except Exception as e:
+        print("退出清理会话失败(继续退出): %s" % e, flush=True)
+    # 兜底：登记过但已不在 _sessions 里的目录（如并发创建中途）也删掉
+    _cleanup_own_dirs("收到信号 %s" % signum)
     os._exit(0)
 
 
@@ -985,6 +1119,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _on_shutdown)
     signal.signal(signal.SIGINT, _on_shutdown)
     _sweep_orphans()
+    _sweep_stale_dirs()
     _init_allow_hosts()
     threading.Thread(target=_reaper_loop, daemon=True).start()
     _traffic_start()
@@ -993,4 +1128,8 @@ if __name__ == "__main__":
         % (BASE, TOKEN, LIVE_HEIGHT, LIVE_V_BITRATE, os.cpu_count() or 0),
         flush=True,
     )
-    _QuietHTTPServer(("0.0.0.0", PORT), Relay).serve_forever()
+    try:
+        _QuietHTTPServer(("0.0.0.0", PORT), Relay).serve_forever()
+    finally:
+        # 非信号退出路径（serve_forever 抛异常/返回）也要清掉自己创建的目录
+        _cleanup_own_dirs("进程退出")
