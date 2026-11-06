@@ -327,7 +327,7 @@ def _traffic_sample_once():
             for sid, s in _sessions.items()
             if s["proc"].poll() is None
         ]
-    ss_data = _read_ss_all()
+    ss_data = _read_ss_all() if sessions else None
     rows = []
     with _traffic_lock:
         alive = set()
