@@ -7,24 +7,23 @@ import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/domain/models/final_channels.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeIptvRepository implements IptvRepository {
   @override
-  Future<List<IptvChannel>> fetchRemoteChannels() async => const <IptvChannel>[
-    IptvChannel(name: 'CCTV-1', sources: <String>['http://example.com/1.m3u8']),
-    IptvChannel(name: 'CCTV-5', sources: <String>['http://example.com/5.m3u8']),
-  ];
-
-  @override
-  Future<List<IptvChannel>> loadDefaultRemoteChannels() async =>
-      const <IptvChannel>[];
-
-  @override
-  Future<List<IptvChannel>> buildPlaylist(List<IptvChannel> remote) async =>
-      remote;
+  Future<FinalChannelsPayload?> fetchFinalChannels({String? version}) async =>
+      const FinalChannelsPayload(
+        version: 'test',
+        updatedAt: 0,
+        channels: <IptvChannel>[
+          IptvChannel(name: 'CCTV-1', sources: <String>['http://example.com/1.m3u8']),
+          IptvChannel(name: 'CCTV-5', sources: <String>['http://example.com/5.m3u8']),
+        ],
+        protectedSources: <String>[],
+      );
 }
 
 /// 搭起 [LivePage] 并加载频道，直到首个频道出现在右侧浮层列表里。

@@ -11,6 +11,9 @@ import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 中控屏与 Admin 服务端的同步器。
 ///
@@ -239,6 +242,7 @@ class DeviceReporter {
       owner: config.owner,
       layoutKey: config.layoutKey,
     );
+    unawaited(_applyProgramsUpdate(config.programsUpdatedAt));
     final String after = HaConfig.visibleHomes.join('\u0000');
     if (!dispatch || before == after) return;
     _log.info('[服务端] 家庭白名单已更新: [$after]');
@@ -246,6 +250,27 @@ class DeviceReporter {
       Injection.get<HomeBloc>().add(
         ApplyHomeVisibility(HaConfig.visibleHomes),
       );
+    }
+  }
+
+  /// 节目文件版本（管理端保存频道/源列表后递增）。
+  ///
+  /// config 帧只带版本号，不带文件本体；比本地记录新就派发一次
+  /// [LoadIptv.isRefresh]，由 IPTV 链路重新拉取 DataFiles 与频道列表。
+  static const String _programsVersionKey = 'programs_updated_at_v1';
+
+  Future<void> _applyProgramsUpdate(int updatedAt) async {
+    if (updatedAt <= 0) return;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int applied = prefs.getInt(_programsVersionKey) ?? 0;
+      if (updatedAt <= applied) return;
+      if (!Injection.isRegistered<IptvBloc>()) return;
+      Injection.get<IptvBloc>().add(const LoadIptv(isRefresh: true));
+      await prefs.setInt(_programsVersionKey, updatedAt);
+      _log.info('[服务端] 节目文件已更新，重新拉取频道: $updatedAt');
+    } catch (error) {
+      _log.warn('[服务端] 应用节目版本失败: $error');
     }
   }
 

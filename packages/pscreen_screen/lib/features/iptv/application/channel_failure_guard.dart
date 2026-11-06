@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/hosts/app_hosts.dart';
 import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
-import 'package:pscreen_screen/features/iptv/data/datasources/local/iptv_source_rules.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 「清理失效源」的判定、确认与持久化（全局单例）。
@@ -26,8 +25,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 只记 **URL** 不记频道名：接口更新后若频道带来新地址，新地址不在黑名单里，
 /// 频道会自动重新显示；旧地址仍被剔除。
 ///
-/// `assets/datas/not_remove_source.txt` 里的源强制保留，永不记入黑名单
-/// （`remove_source.txt` 的强制移除由 [IptvBloc] 统一处理）。
+/// 服务端 `final_channels.json` 的 `protectedSources`（原 `not_remove_source.txt`）
+/// 里的源强制保留，永不记入黑名单。
 ///
 /// 数据为 JSON 字符串数组，键 `iptv_invalid_sources_v1`；读写失败都不阻断播放。
 class ChannelFailureGuard extends ChangeNotifier {
@@ -78,6 +77,10 @@ class ChannelFailureGuard extends ChangeNotifier {
 
   final Set<String> _invalidUrls = <String>{};
   bool _loaded = false;
+
+  /// 由服务端随最终频道列表下发的「强制保留」地址（原 `not_remove_source.txt`）。
+  /// 这些地址永不记入失效黑名单。
+  Set<String> protectedUrls = <String>{};
 
   /// 是否有一轮确认正在进行（避免同时发起多轮探测）。
   bool _confirming = false;
@@ -184,12 +187,10 @@ class ChannelFailureGuard extends ChangeNotifier {
     List<String> confirmed;
     try {
       confirmed = await _confirmInvalid(candidates);
-      // `not_remove_source.txt` 里的源强制保留：永不记入黑名单。
-      final IptvSourceRules rules = IptvSourceRules.instance;
-      await rules.ensureLoaded();
-      if (rules.protectedUrls.isNotEmpty) {
+      // 服务端下发的「强制保留」源永不记入黑名单。
+      if (protectedUrls.isNotEmpty) {
         confirmed = confirmed
-            .where((String url) => !rules.protectedUrls.contains(url))
+            .where((String url) => !protectedUrls.contains(url))
             .toList(growable: false);
       }
     } catch (_) {

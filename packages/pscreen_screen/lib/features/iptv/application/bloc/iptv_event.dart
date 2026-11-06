@@ -12,11 +12,11 @@ class LoadIptv extends IptvEvent {
   /// 需要用完即弃的异步事件时传递，调用方 `await completer.future` 拿结果。
   final Completer<bool>? completer;
 
-  /// 初始加载是否先读取持久化缓存：有缓存则先展示、再后台刷新替换；
-  /// 无缓存则全屏转圈等网络。手动刷新请用 [isRefresh]。
+  /// 初始加载是否优先使用持久化缓存：有缓存直接起播，再后台做版本比对；
+  /// 无缓存则进入加载态等待服务端返回。手动刷新请用 [isRefresh]。
   final bool useCache;
 
-  /// 是否手动/后台刷新：保留当前频道，加载失败保持现状（不切错误页）。
+  /// 是否手动/后台刷新：保留当前频道，加载失败继续使用现状（不切错误页）。
   final bool isRefresh;
 }
 

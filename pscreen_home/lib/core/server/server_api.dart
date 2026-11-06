@@ -28,6 +28,7 @@ class ServerDeviceConfig {
     required this.ownerName,
     required this.layoutKey,
     required this.layoutUpdatedAt,
+    required this.programsUpdatedAt,
   });
 
   final List<String>? homes;
@@ -36,6 +37,9 @@ class ServerDeviceConfig {
   final String ownerName;
   final String layoutKey;
   final int layoutUpdatedAt;
+
+  /// 节目文件版本（管理端保存频道/源列表后递增）。
+  final int programsUpdatedAt;
 
   factory ServerDeviceConfig.fromJson(Map<String, dynamic> json) {
     final dynamic rawHomes = json['homes'];
@@ -54,6 +58,7 @@ class ServerDeviceConfig {
       ownerName: '${json['ownerName'] ?? ''}',
       layoutKey: '${json['layoutKey'] ?? ''}',
       layoutUpdatedAt: (json['layoutUpdatedAt'] as num?)?.toInt() ?? 0,
+      programsUpdatedAt: (json['programsUpdatedAt'] as num?)?.toInt() ?? 0,
     );
   }
 }

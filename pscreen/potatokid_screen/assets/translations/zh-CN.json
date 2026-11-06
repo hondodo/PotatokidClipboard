@@ -2,6 +2,8 @@
   "app_name": "薯仔的工具",
   "common_loading": "加载中...",
   "common_retry": "重试",
+  "channels_loading": "正在获取频道列表…",
+  "channels_cached_notice": "当前使用的是上次的频道列表",
   "common_empty": "暂无数据",
   "common_on": "开",
   "common_off": "关",

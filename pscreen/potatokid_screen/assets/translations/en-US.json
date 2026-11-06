@@ -2,6 +2,8 @@
   "app_name": "薯仔的工具",
   "common_loading": "Loading...",
   "common_retry": "Retry",
+  "channels_loading": "Fetching channel list…",
+  "channels_cached_notice": "Using the last channel list",
   "common_empty": "No data",
   "common_on": "On",
   "common_off": "Off",

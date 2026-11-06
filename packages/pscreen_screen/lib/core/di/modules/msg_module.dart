@@ -6,6 +6,8 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
+import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
@@ -16,6 +18,7 @@ import 'package:pscreen_screen/features/msg/application/message_router.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_bloc.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// RealtimeChannel 包装的发送器。
 class RealtimeMessageSender implements MessageSender {
@@ -124,7 +127,7 @@ class MsgModule {
     // 收消息：服务端只投递寻址到本账号的消息，直接交给路由。
     _sub = it<RealtimeChannel>().messages.listen((RealtimeMessage message) {
       if (message.body.isNotEmpty) {
-        router.handleIncoming(message.body);
+        router.handleIncoming(message.body, actor: message.from);
       }
     });
 
@@ -132,8 +135,10 @@ class MsgModule {
     // pushConfigToMachine 实时推送；交给 ParentalStateController 按
     // 「服务端 parental 为对象即为准」的双源规则应用并广播。
     _configSub = it<RealtimeChannel>().deviceConfigs.listen(
-      (Map<String, dynamic> config) =>
-          unawaited(ParentalStateController.instance.applyServerConfig(config)),
+      (Map<String, dynamic> config) {
+        unawaited(ParentalStateController.instance.applyServerConfig(config));
+        unawaited(_applyProgramsUpdate(config, it));
+      },
     );
 
     // 连接态边沿驱动上报启停。
@@ -156,7 +161,7 @@ class MsgModule {
         unawaited(ParentalUnlockCodeController.instance.flushPending());
         // 主动拉一次最新生效配置：`config` 帧只在管理端改动时推送（握手不推），
         // report 回包自带服务端配置（含 parental），登录后即与管理端对齐。
-        unawaited(_pullServerConfig(it<RealtimeChannel>()));
+        unawaited(_pullServerConfig(it<RealtimeChannel>(), it));
       } else if (state.status == RemoteLoginStatus.error ||
           (state.status == RemoteLoginStatus.notConfigured &&
               it<RealtimeChannel>().account.trim().isEmpty)) {
@@ -171,15 +176,52 @@ class MsgModule {
 
   /// 登录成功后主动上报一次，取回服务端生效配置（`report` 回包自带
   /// config，含 parental）并交给 ParentalStateController 应用。
-  static Future<void> _pullServerConfig(RealtimeChannel channel) async {
+  static Future<void> _pullServerConfig(
+    RealtimeChannel channel,
+    GetIt it,
+  ) async {
     try {
       final Map<String, dynamic>? config = await channel.sendReport();
       if (config != null) {
         await ParentalStateController.instance.applyServerConfig(config);
+        await _applyProgramsUpdate(config, it);
       }
     } catch (e) {
       Log.error('[MsgModule] 拉取服务端配置失败: $e');
     }
+  }
+
+  /// 节目文件版本（管理端保存频道/源列表后递增）。
+  ///
+  /// config 帧只带版本号，不带文件本体；发现比本地记录新就派发一次
+  /// [LoadIptv.isRefresh]，由 IPTV 链路带本地 version 重新校验最终频道列表。
+  static const String _programsVersionKey = 'programs_updated_at_v1';
+
+  static Future<void> _applyProgramsUpdate(
+    Map<String, dynamic> config,
+    GetIt it,
+  ) async {
+    final int updatedAt = _asInt(config['programsUpdatedAt']);
+    if (updatedAt <= 0) return;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int applied = prefs.getInt(_programsVersionKey) ?? 0;
+      if (updatedAt <= applied) return;
+      // IptvModule 注册在本模块之后；未就绪时先不落版本号，避免漏掉这次刷新。
+      if (!it.isRegistered<IptvBloc>()) return;
+      it<IptvBloc>().add(const LoadIptv(isRefresh: true));
+      await prefs.setInt(_programsVersionKey, updatedAt);
+      Log.i('[MsgModule] 节目文件已更新，重新拉取频道: $updatedAt');
+    } catch (e) {
+      Log.error('[MsgModule] 应用节目版本失败: $e');
+    }
+  }
+
+  static int _asInt(Object? raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    return 0;
   }
 
   static Future<void> unregister(GetIt it) async {

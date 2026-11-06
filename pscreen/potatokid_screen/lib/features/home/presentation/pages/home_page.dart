@@ -25,6 +25,8 @@ class HomePage extends StatelessWidget {
             children: <Widget>[
               LivePlayerWidget(channels: state.channels),
               if (state.isRefreshing) const _RefreshingBadge(),
+              if (state.usingCachedList)
+                Positioned(left: 16, bottom: 16, child: const _CachedListNotice()),
               // 定时关闭倒计时：左上角按秒刷新，未开启时自动隐藏。
               const Positioned(left: 16, top: 16, child: _SleepCountdownBadge()),
               // 更新胶囊：右上角悬浮，仅在「有更新 + 下载中/已就绪」时出现。
@@ -44,7 +46,7 @@ class HomePage extends StatelessWidget {
         }
         // 暂无频道：加载中 / 出错 / 空。
         if (state.isLoading || state.isRefreshing) {
-          return const Center(child: CircularProgressIndicator(color: Colors.white));
+          return const _LoadingView();
         }
         if (state.errorMessage != null) {
           return _ErrorView(
@@ -134,6 +136,48 @@ class _SleepCountdownBadge extends StatelessWidget {
   }
 }
 
+/// 首次启动（无本地缓存）的加载态：进度指示 + 明确文案，避免白屏干等。
+class _LoadingView extends StatelessWidget {
+  const _LoadingView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const CircularProgressIndicator(color: Colors.white),
+          const SizedBox(height: 16),
+          Text(
+            'channels_loading'.tr(),
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 拉取失败但本地有缓存时的轻提示：不打断播放。
+class _CachedListNotice extends StatelessWidget {
+  const _CachedListNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        'channels_cached_notice'.tr(),
+        style: const TextStyle(color: Colors.white70, fontSize: 12),
+      ),
+    );
+  }
+}
+
 class _ErrorView extends StatelessWidget {
   const _ErrorView({required this.message, required this.onRetry});
 
@@ -148,7 +192,7 @@ class _ErrorView extends StatelessWidget {
         children: <Widget>[
           Text(message, style: const TextStyle(color: Colors.white)),
           const SizedBox(height: 12),
-          FilledButton(onPressed: onRetry, child: Text('common_retry'.tr())),
+          FilledButton(autofocus: true, onPressed: onRetry, child: Text('common_retry'.tr())),
         ],
       ),
     );

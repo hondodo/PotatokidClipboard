@@ -10,6 +10,7 @@ const definds = require('./definds');
 const { createAccountStore, ACCOUNT_PATTERN } = require('./accounts');
 const { attachRealtime } = require('./realtime');
 const { attachAdmin } = require('./admin');
+const { buildFinalChannels } = require('./programs');
 const { attachAppUpdateProxy } = require('./app_update_proxy');
 const { createTrafficTracker } = require('./traffic');
 const { createForwarder } = require('./forward');
@@ -878,6 +879,46 @@ app.get('/api/download/:filename', (req, res) => {
 // 文件位置：../datas/screen/datas/
 // 例：GET /api/screen/source.txt
 // 约定：HTTP 状态码统一 200，业务结果看响应体 code
+
+// 设备侧最终频道列表：服务端已完成合并 / 隐藏 / 置顶 / 强制移除源。
+// 必须注册在 /api/screen/:filename 之前，否则会被当成普通文件请求。
+// - 内容未变时 ETag 不变，设备带 If-None-Match 可拿到 304，避免重复下载；
+// - 不设有效期：设备只要版本一致就一直用本地缓存，版本变化（保存节目后
+//   programsUpdatedAt 递增触发）才重新拉取。
+app.get('/api/screen/final_channels.json', (req, res) => {
+    try {
+        const username = req.cookies?.username;
+        if (!username || !fs.existsSync(path.join(registerUsersDir, username))) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.UNLOGIN,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+
+        const built = buildFinalChannels(screenDatasDir);
+        const etag = `"${built.version}"`;
+
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('ETag', etag);
+        if (req.headers['if-none-match'] === etag) {
+            return res.status(304).end();
+        }
+
+        return res.status(200).json({
+            version: built.version,
+            updatedAt: built.updatedAt,
+            channels: built.channels,
+            protectedSources: built.protectedSources,
+        });
+    } catch (error) {
+        console.error('[channels] 生成最终频道列表失败:', error);
+        return res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
 app.get('/api/screen/:filename', (req, res) => {
     try {
         // 校验登录状态（cookie 中的 username，需对应已注册用户）

@@ -9,6 +9,7 @@ class IptvState {
     required this.errorMessage,
     required this.errorType,
     required this.channels,
+    required this.usingCachedList,
   });
 
   /// 是否加载中（全屏转圈，通常发生在无缓存的首启）。
@@ -26,12 +27,16 @@ class IptvState {
   /// 解析出的频道列表
   final List<IptvChannel> channels;
 
+  /// 本次拉取失败、正在使用上次的频道列表（页面可做轻提示，不打断播放）。
+  final bool usingCachedList;
+
   factory IptvState.initial() => const IptvState._(
         isLoading: false,
         isRefreshing: false,
         errorMessage: null,
         errorType: null,
         channels: <IptvChannel>[],
+        usingCachedList: false,
       );
 
   IptvState copyWith({
@@ -41,6 +46,7 @@ class IptvState {
     String? errorMessage,
     NetErrorType? errorType,
     List<IptvChannel>? channels,
+    bool? usingCachedList,
   }) {
     return IptvState._(
       isLoading: isLoading ?? this.isLoading,
@@ -48,6 +54,7 @@ class IptvState {
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       errorType: clearError ? null : (errorType ?? this.errorType),
       channels: channels ?? this.channels,
+      usingCachedList: usingCachedList ?? this.usingCachedList,
     );
   }
 }

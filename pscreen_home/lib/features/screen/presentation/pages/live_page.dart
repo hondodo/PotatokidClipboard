@@ -174,11 +174,38 @@ class _LivePageState extends State<LivePage> {
         },
         builder: (BuildContext context, IptvState state) {
           if (state.isLoading && state.channels.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('正在获取频道列表…', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+            );
           }
           if (state.errorMessage != null && state.channels.isEmpty) {
             return Center(
-              child: Text(state.errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      state.errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    autofocus: true,
+                    onPressed: () => context.read<IptvBloc>().add(const LoadIptv(isRefresh: true)),
+                    child: const Text('重试'),
+                  ),
+                ],
+              ),
             );
           }
           final List<IptvChannel> channels = state.channels;
@@ -215,6 +242,13 @@ class _LivePageState extends State<LivePage> {
                     left: 8,
                     bottom: 8,
                     child: IgnorePointer(child: _ChannelNameBadge(channels: channels, compact: true)),
+                  ),
+                if (state.usingCachedList)
+                  Positioned(
+                    left: floating ? 8 : 12,
+                    top: floating ? 8 : null,
+                    bottom: floating ? null : 48,
+                    child: const _CachedListNotice(),
                   ),
                 if (!floating) ...<Widget>[
                   // 定时关闭倒计时：直播页没有 AppBar，单独挂在左上角
@@ -317,6 +351,25 @@ class LiveSleepTimerBadge extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// 拉取失败但本地有缓存时的轻提示：继续播放旧列表，不打断观看。
+class _CachedListNotice extends StatelessWidget {
+  const _CachedListNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+        child: const Text(
+          '当前使用的是上次的频道列表',
+          style: TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ),
     );
   }
 }

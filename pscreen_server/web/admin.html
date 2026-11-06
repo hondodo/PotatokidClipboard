@@ -199,6 +199,41 @@
     .order-key { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; word-break: break-all; }
     .order-row .btn { padding: 4px 7px; font-size: 11px; }
 
+    /* 节目编辑：左侧文件列表 + 右侧文本编辑 + 下方最终效果预览 */
+    .program-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .program-side { padding: 14px; }
+    .program-side h3 { margin: 0 0 10px; font-size: 13px; }
+    .program-list { display: grid; gap: 6px; max-height: 62vh; overflow: auto; }
+    .program-item {
+      width: 100%; text-align: left; border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
+      border-radius: 10px; padding: 9px 11px; color: var(--text); font-size: 12px;
+    }
+    .program-item:hover { background: rgba(255, 255, 255, .05); }
+    .program-item.active { border-color: rgba(95, 211, 196, .45); background: rgba(95, 211, 196, .08); }
+    .program-item .sub { display: block; color: var(--muted-2); font-size: 10.5px; margin-top: 3px; }
+    .program-item .tag {
+      float: right; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+      font-size: 10px; border: 1px solid var(--line); color: var(--muted);
+    }
+    .program-item .tag.editable { color: var(--accent); border-color: rgba(95, 211, 196, .35); }
+    .program-main { padding: 16px; min-height: 340px; }
+    .program-main-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .program-main-head h3 { margin: 0 0 4px; font-size: 14px; }
+    .program-status { min-height: 17px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+    .program-status.ok { color: var(--ok); }
+    .program-status.error { color: #fca5a5; }
+    .program-editor {
+      width: 100%; min-height: 46vh; resize: vertical; border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(4, 10, 15, .55); color: var(--text); padding: 12px; outline: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+      line-height: 1.55; white-space: pre; overflow: auto; tab-size: 2;
+    }
+    .program-editor:focus { border-color: rgba(95, 211, 196, .55); box-shadow: 0 0 0 3px rgba(95, 211, 196, .1); }
+    .program-editor:disabled { opacity: .65; cursor: not-allowed; }
+    .program-preview { padding: 16px; margin-top: 14px; }
+    .program-preview-wrap { max-height: 42vh; }
+    .program-preview-wrap table { min-width: 560px; }
+
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);
       display: grid; place-items: center; padding: 18px; z-index: 50;
@@ -312,6 +347,7 @@
       <button class="tab" type="button" data-tab="layouts">首页布局</button>
       <button class="tab" type="button" data-tab="parental" hidden>家长控制</button>
       <button class="tab" type="button" data-tab="traffic">流量统计</button>
+      <button class="tab" type="button" data-tab="programs">节目编辑</button>
     </nav>
 
     <section id="tab-machines" class="panel">
@@ -486,6 +522,69 @@
       <div id="traffic-ws-accounts" style="margin-top:12px"></div>
       <div id="traffic-summary" style="margin-top:12px"></div>
     </section>
+
+    <section id="tab-programs" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>节目编辑</h2>
+          <p>全局一份，仅管理员可改。保存直接写入服务端 screen/datas，并通知在线电视 / 中控重新拉取频道；离线设备在下次启动或手动刷新频道时生效。</p>
+        </div>
+        <div class="panel-actions">
+          <span class="pill" id="programs-version">版本：—</span>
+          <button class="btn small" id="programs-refresh" type="button">刷新列表</button>
+          <button class="btn small primary" id="programs-push" type="button">通知设备刷新</button>
+        </div>
+      </div>
+      <div class="program-grid">
+        <div class="card program-side">
+          <h3>文件</h3>
+          <div class="program-list" id="programs-list"><div class="empty">加载中…</div></div>
+        </div>
+        <div class="card program-main">
+          <div class="program-main-head">
+            <div>
+              <h3 id="programs-title">选择左侧文件</h3>
+              <p class="hint" id="programs-meta">m3u 与规则文本可直接编辑；source.txt / git_source.txt / weather_cities.txt 只读。</p>
+            </div>
+            <div class="row-actions">
+              <button class="btn small" id="programs-reload" type="button" disabled>放弃修改并重载</button>
+              <select id="programs-backups" class="btn small" disabled></select>
+              <button class="btn small" id="programs-restore" type="button" disabled>回退备份</button>
+              <button class="btn small primary" id="programs-save" type="button" disabled>保存</button>
+            </div>
+          </div>
+          <div id="programs-status" class="program-status"></div>
+          <textarea id="programs-editor" class="program-editor" spellcheck="false" disabled placeholder="选择左侧文件后在这里编辑"></textarea>
+          <div id="programs-warnings" class="hint"></div>
+        </div>
+      </div>
+      <div class="card program-preview">
+        <div class="program-main-head">
+          <div>
+            <h3>最终效果预览</h3>
+            <p class="hint">按客户端同一套规则合成 collect → 接口列表 → audio，再应用隐藏 / 置顶 / 移除源。不含设备本地的「失效源清理」与家长模式过滤。</p>
+          </div>
+          <div class="panel-actions">
+            <span class="pill" id="programs-preview-counts">—</span>
+            <button class="btn small" id="programs-preview-refresh" type="button">重新预览</button>
+          </div>
+        </div>
+        <div class="table-wrap program-preview-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:60px">#</th>
+                <th>频道</th>
+                <th style="width:180px">分组</th>
+                <th style="width:90px">源数</th>
+              </tr>
+            </thead>
+            <tbody id="programs-preview-body"><tr><td colspan="4" class="empty">加载中…</td></tr></tbody>
+          </table>
+        </div>
+        <div id="programs-preview-notes" class="hint"></div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -504,6 +603,10 @@
     layoutDraft: null,
     parentalRecords: null,
     parentalLoading: false,
+    programs: null,
+    programFile: null,
+    programDirty: false,
+    programPreview: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -590,7 +693,7 @@
   function applyRoleLayout() {
     const parent = isParentRole();
     document.querySelectorAll('[data-tab]').forEach((btn) => {
-      const adminOnly = ['machines', 'users', 'layouts', 'traffic'].includes(btn.dataset.tab);
+      const adminOnly = ['machines', 'users', 'layouts', 'traffic', 'programs'].includes(btn.dataset.tab);
       btn.hidden = parent && adminOnly;
     });
     $('stats').hidden = parent;
@@ -1931,6 +2034,219 @@
     loadParentalRecords(true);
   });
 
+  // ------------------------------------------------------------ 节目编辑
+
+  function formatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  function formatDateTime(ms) {
+    if (!ms) return '—';
+    return new Date(Number(ms)).toLocaleString('zh-CN', { hour12: false });
+  }
+
+  function setProgramStatus(message, kind = '') {
+    const el = $('programs-status');
+    el.textContent = message || '';
+    el.className = `program-status ${kind}`;
+  }
+
+  function renderProgramsList() {
+    const box = $('programs-list');
+    if (!state.programs) return;
+    const files = state.programs.files || [];
+    box.innerHTML = files.map((file) => `
+      <button class="program-item${state.programFile && state.programFile.name === file.name ? ' active' : ''}" type="button" data-program-name="${esc(file.name)}">
+        <span class="tag ${file.editable ? 'editable' : ''}">${file.editable ? '可编辑' : '只读'}</span>
+        ${esc(file.label || file.name)}
+        <span class="sub">${esc(file.name)} · ${formatBytes(file.size)} · ${esc(formatDateTime(file.mtime))} · ${file.backups} 个备份</span>
+      </button>
+    `).join('') || '<div class="empty">没有可展示的文件</div>';
+    const updatedAt = state.programs.updatedAt;
+    $('programs-version').innerHTML = `版本：<strong>${updatedAt ? esc(formatDateTime(updatedAt)) : '尚未保存'}</strong>`;
+  }
+
+  async function loadPrograms() {
+    try {
+      const data = await api('/api/admin/programs');
+      state.programs = data;
+      renderProgramsList();
+    } catch (error) {
+      $('programs-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`;
+      toast(error.message, 'error');
+    }
+  }
+
+  async function selectProgram(name, force = false) {
+    if (!name) return;
+    if (!force && state.programDirty && state.programFile && state.programFile.name !== name) {
+      if (!window.confirm('当前文件有未保存修改，确定放弃并切换？')) return;
+    }
+    setProgramStatus('加载中…');
+    try {
+      const data = await api(`/api/admin/programs/${encodeURIComponent(name)}`);
+      state.programFile = data;
+      state.programDirty = false;
+      const editable = !!data.editable;
+      $('programs-title').textContent = data.label || data.name;
+      $('programs-meta').textContent = `${data.name} · ${formatBytes(data.size)} · ${data.lines} 行 · 修改于 ${formatDateTime(data.mtime)} · ${(data.backups || []).length} 个备份${editable ? '' : ' · 只读'}`;
+      const editor = $('programs-editor');
+      editor.value = data.content || '';
+      editor.disabled = !editable;
+      $('programs-save').disabled = !editable;
+      $('programs-reload').disabled = !editable;
+      const backups = data.backups || [];
+      $('programs-restore').disabled = !editable || !backups.length;
+      const select = $('programs-backups');
+      select.innerHTML = backups.length
+        ? backups.map((item) => `<option value="${esc(item.timestamp)}">${esc(item.timestamp)} · ${esc(formatBytes(item.size))}</option>`).join('')
+        : '<option value="">暂无备份</option>';
+      select.disabled = !editable || !backups.length;
+      $('programs-warnings').textContent = '';
+      setProgramStatus(editable ? '已加载，可直接编辑' : '只读文件，不提供写入口', 'ok');
+      renderProgramsList();
+    } catch (error) {
+      setProgramStatus(`加载失败：${error.message}`, 'error');
+      toast(error.message, 'error');
+    }
+  }
+
+  async function saveProgram() {
+    const file = state.programFile;
+    if (!file || !file.editable) return;
+    const btn = $('programs-save');
+    btn.disabled = true;
+    setProgramStatus('保存中…');
+    try {
+      const data = await api(`/api/admin/programs/${encodeURIComponent(file.name)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content: $('programs-editor').value, expectedMtime: file.mtime }),
+      });
+      const warnings = data.warnings || [];
+      const warningText = warnings.length ? `提示：${warnings.join('；')}` : '';
+      const message = `已保存 · ${formatBytes(data.size)} · 备份 ${data.backup || '—'} · ${data.pushed > 0
+        ? `已通知 ${data.pushed} 个在线连接`
+        : '当前离线设备下次上线/手动刷新时生效'}`;
+      toast('保存成功', 'ok');
+      await loadPrograms();
+      await selectProgram(file.name, true);
+      $('programs-warnings').textContent = warningText;
+      setProgramStatus(message, 'ok');
+      await loadProgramPreview();
+    } catch (error) {
+      setProgramStatus(`保存失败：${error.message}`, 'error');
+      toast(error.message, 'error');
+    } finally {
+      btn.disabled = !state.programFile || !state.programFile.editable;
+    }
+  }
+
+  async function restoreProgram() {
+    const file = state.programFile;
+    const timestamp = $('programs-backups').value;
+    if (!file || !file.editable || !timestamp) {
+      toast('请先选择要回退的备份', 'error');
+      return;
+    }
+    if (!window.confirm(`确定把 ${file.name} 回退到 ${timestamp}？当前版本会先自动备份。`)) return;
+    setProgramStatus('回退中…');
+    try {
+      const data = await api(`/api/admin/programs/${encodeURIComponent(file.name)}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ timestamp }),
+      });
+      const message = `已回退到 ${data.restoredFrom} · 当前版本已备份为 ${data.backup || '—'} · ${data.pushed > 0
+        ? `已通知 ${data.pushed} 个在线连接`
+        : '当前离线设备下次上线/手动刷新时生效'}`;
+      toast('回退成功', 'ok');
+      await loadPrograms();
+      await selectProgram(file.name, true);
+      setProgramStatus(message, 'ok');
+      await loadProgramPreview();
+    } catch (error) {
+      setProgramStatus(`回退失败：${error.message}`, 'error');
+      toast(error.message, 'error');
+    }
+  }
+
+  async function loadProgramPreview() {
+    const body = $('programs-preview-body');
+    body.innerHTML = '<tr><td colspan="4" class="empty">加载中…</td></tr>';
+    try {
+      const data = await api('/api/admin/programs/preview');
+      state.programPreview = data;
+      const counts = data.counts || {};
+      $('programs-preview-counts').textContent = `最终 ${counts.final || 0} 个频道`;
+      const channels = data.channels || [];
+      body.innerHTML = channels.slice(0, 1200).map((channel, index) => `
+        <tr>
+          <td class="muted">${index + 1}</td>
+          <td><span class="strong">${esc(channel.name)}</span></td>
+          <td class="muted">${esc(channel.group || '—')}</td>
+          <td>${channel.sources}</td>
+        </tr>
+      `).join('') || '<tr><td colspan="4" class="empty">当前规则下没有频道</td></tr>';
+      const parts = [
+        `接口文件 ${data.remoteFile}`,
+        `collect ${counts.collect} + 接口 ${counts.remote} + audio ${counts.audio} = 合并 ${counts.merged}`,
+        `隐藏 ${counts.hidden}`,
+        `置顶 ${counts.ordered}`,
+        `移除频道 ${counts.removedChannels} / 移除源 ${counts.removedSources}`,
+        `最终 ${counts.final}`,
+      ];
+      if (data.truncated || channels.length > 1200) parts.push('列表较长，仅展示前 1200 个');
+      $('programs-preview-notes').textContent = parts.join(' · ');
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="4" class="empty">预览失败：${esc(error.message)}</td></tr>`;
+      $('programs-preview-counts').textContent = '—';
+      $('programs-preview-notes').textContent = '';
+    }
+  }
+
+  async function pushPrograms() {
+    const btn = $('programs-push');
+    btn.disabled = true;
+    setProgramStatus('正在通知设备…');
+    try {
+      const data = await api('/api/admin/programs/push', { method: 'POST', body: '{}' });
+      const message = data.pushed > 0
+        ? `已通知 ${data.pushed} 个在线连接重新拉取频道`
+        : '当前没有在线设备；设备下次上线或手动刷新频道时生效';
+      setProgramStatus(message, 'ok');
+      toast(message, 'ok');
+    } catch (error) {
+      setProgramStatus(`通知失败：${error.message}`, 'error');
+      toast(error.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $('programs-list').addEventListener('click', (event) => {
+    const item = event.target.closest('[data-program-name]');
+    if (item) selectProgram(item.dataset.programName);
+  });
+  $('programs-refresh').addEventListener('click', () => {
+    loadPrograms();
+    loadProgramPreview();
+  });
+  $('programs-preview-refresh').addEventListener('click', loadProgramPreview);
+  $('programs-push').addEventListener('click', pushPrograms);
+  $('programs-save').addEventListener('click', saveProgram);
+  $('programs-restore').addEventListener('click', restoreProgram);
+  $('programs-reload').addEventListener('click', () => {
+    if (!state.programFile) return;
+    if (state.programDirty && !window.confirm('放弃未保存修改并重新加载？')) return;
+    selectProgram(state.programFile.name, true);
+  });
+  $('programs-editor').addEventListener('input', () => {
+    state.programDirty = true;
+    setProgramStatus('有未保存修改');
+  });
+
   // ------------------------------------------------------------ Tab
 
   function activateTab(tab) {
@@ -1939,12 +2255,16 @@
     document.querySelectorAll('[data-tab]').forEach((item) => {
       item.classList.toggle('active', item.dataset.tab === tab);
     });
-    ['machines', 'users', 'layouts', 'parental', 'traffic'].forEach((name) => {
+    ['machines', 'users', 'layouts', 'parental', 'traffic', 'programs'].forEach((name) => {
       const section = $('tab-' + name);
       if (section) section.hidden = state.tab !== name;
     });
     // 首次切到流量页才拉数据，之后跟随页面刷新按钮
     if (tab === 'traffic' && !state.traffic) loadTraffic();
+    if (tab === 'programs' && !state.programs) {
+      loadPrograms();
+      loadProgramPreview();
+    }
     if (tab === 'parental') loadParentalRecords(false);
   }
 

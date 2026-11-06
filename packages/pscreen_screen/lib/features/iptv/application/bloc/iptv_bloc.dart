@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_screen/app/app_log.dart';
-import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/core/di/screen_injection.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/net_exceptions.dart';
@@ -13,26 +14,23 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_list_cache.dart';
-import 'package:pscreen_screen/features/iptv/data/datasources/local/iptv_source_rules.dart';
+import 'package:pscreen_screen/features/iptv/data/datasources/remote/final_channels_service.dart';
 import 'package:pscreen_screen/features/iptv/domain/channel_name_matcher.dart';
+import 'package:pscreen_screen/features/iptv/domain/models/final_channels.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/iptv/domain/repositories/iptv_repository.dart';
 
 /// IPTV 状态机：Event → Bloc → State，加载直播频道列表。
 ///
-/// 加载策略（缓存优先 + 后台替换）：
-/// - 首次启动（[LoadIptv.useCache]）：先读持久化缓存撑起画面，再网络刷新替换，
-///   即便离线/加载失败也能继续用上一次成功的列表播放；
-/// - 无缓存首启（全新安装）：直接用包内默认频道列表立即显示，后台拉取线上，
-///   成功后替换，失败则保留默认列表继续可用；
-/// - 手动刷新（[LoadIptv.isRefresh]）：保留当前频道后台拉取，失败保持现状。
-/// - 加载成功写回缓存，供下次启动使用。
+/// 数据来源为服务端已合并好的最终列表（`final_channels.json`）：
+/// - 有本地缓存：直接起播，同时拿缓存 `version` 做 ETag 比对；服务端返回
+///   304 表示没变化，不重新下载；
+/// - 无本地缓存（全新安装）：进入加载态等待服务端返回，超时/失败进入错误态；
+/// - 拉取失败但本地有缓存：继续播放旧列表，仅置 `usingCachedList` 供页面轻提示；
+/// - 版本变化由服务端 `programsUpdatedAt` 通知触发 [LoadIptv.isRefresh]。
 ///
-/// 持久化缓存**只存接口数据**；展示列表 = 包内 `collect.m3u` + 接口数据
-/// （含排序/剔除），每次加载/刷新都重新拼接（见 [IptvRepository.buildPlaylist]）。
-/// 接口失败且无缓存也无默认时才进入错误视图。
-///
-/// 开启「清理失效源」时，展示列表还会剔除已判定的失效地址（见 [_viewOf]）。
+/// 客户端只保留「清理失效源」与家长模式两层过滤；合并 / 隐藏 / 排序 /
+/// 强制移除源都已由服务端完成。
 class IptvBloc extends Bloc<IptvEvent, IptvState> {
   IptvBloc({required IptvRepository repository})
       : _repository = repository,
@@ -48,6 +46,9 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
 
   final IptvRepository _repository;
   final ChannelListCache _cache;
+
+  /// 服务端下发的「强制保留」源（原 `not_remove_source.txt`）。
+  Set<String> _protectedSources = <String>{};
 
   /// 未经「清理失效源」过滤的完整列表，供开关切换时重新计算（关闭时可完整还原）。
   List<IptvChannel> _fullChannels = const <IptvChannel>[];
@@ -72,14 +73,12 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
 
   /// 计算展示列表。
   ///
-  /// - `remove_source.txt` 里的源**始终**剔除（整行相等，与开关无关）；
-  /// - `remove_source_contains.txt` 里的片段命中的源**始终**剔除（包含即命中）；
-  /// - 开启「清理失效源」时，再剔除已判定的失效地址，但 `not_remove_source.txt`
-  ///   里的源豁免（永不被自动移除）；
+  /// - 服务端已完成的合并 / 隐藏 / 排序 / 强制移除源不再重复执行；
+  /// - 开启「清理失效源」时，剔除已判定的失效地址，但服务端下发的
+  ///   `protectedSources` 里的源豁免（永不被自动移除）；
   /// - 某频道的源被剔光则整体移除该频道；
   /// - 最后叠加儿童模式两档过滤（strict 白名单交集 / mild 黑名单并集，
-  ///   多档案取最严，见 [applyParentalFilter]）——放在唯一计算点末尾，
-  ///   缓存 / 刷新 / 兜底各加载路径都自动生效。
+  ///   多档案取最严，见 [applyParentalFilter]）。
   ///
   /// 同时把 [full] 记为完整列表，供之后开关切换时重算。
   Future<List<IptvChannel>> _viewOf(
@@ -88,8 +87,6 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
   }) async {
     _fullChannels = full;
     await AppSettings.instance.ensureLoaded();
-    final IptvSourceRules rules = IptvSourceRules.instance;
-    await rules.ensureLoaded();
 
     Set<String>? invalid;
     if (enabled ?? AppSettings.instance.removeInvalidSources) {
@@ -97,13 +94,7 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
       await guard.ensureLoaded();
       invalid = guard.invalidUrls;
     }
-    final List<IptvChannel> ruled = _applySourceRules(
-      full,
-      removed: rules.removedUrls,
-      removedContains: rules.removedContainsPatterns,
-      protected: rules.protectedUrls,
-      invalid: invalid,
-    );
+    final List<IptvChannel> ruled = _applyInvalidSources(full, invalid);
     final ParentalStateController parental = ParentalStateController.instance;
     return applyParentalFilter(
       ruled,
@@ -143,31 +134,21 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
     return out;
   }
 
-  /// 按规则计算展示列表：剔除 [removed]（整行相等的强制移除）、
-  /// [removedContains]（地址包含即命中的强制移除）与 [invalid]（失效黑名单，
-  /// 但 [protected] 内的地址豁免）；某频道源被剔光则整体移除。
+  /// 剔除 [invalid]（失效黑名单），但 [_protectedSources] 内的地址豁免；
+  /// 某频道源被剔光则整体移除。
   ///
   /// 黑名单只记 URL 不记频道名：接口更新后频道若带来新地址，新地址不在黑名单里，
   /// 频道会自动重新出现。
-  static List<IptvChannel> _applySourceRules(
-    List<IptvChannel> channels, {
-    required Set<String> removed,
-    required Set<String> removedContains,
-    required Set<String> protected,
+  List<IptvChannel> _applyInvalidSources(
+    List<IptvChannel> channels,
     Set<String>? invalid,
-  }) {
-    if (removed.isEmpty &&
-        removedContains.isEmpty &&
-        (invalid == null || invalid.isEmpty)) {
-      return channels;
-    }
+  ) {
+    if (invalid == null || invalid.isEmpty) return channels;
     final List<IptvChannel> out = <IptvChannel>[];
     for (final IptvChannel c in channels) {
       final List<String> sources = c.sources
           .where((String url) =>
-              !removed.contains(url) &&
-              !_containsAny(url, removedContains) &&
-              !(invalid != null && invalid.contains(url) && !protected.contains(url)))
+              !(invalid.contains(url) && !_protectedSources.contains(url)))
           .toList(growable: false);
       if (sources.isEmpty) continue;
       out.add(
@@ -179,92 +160,106 @@ class IptvBloc extends Bloc<IptvEvent, IptvState> {
     return out;
   }
 
-  /// 地址是否包含任意一条片段。
-  static bool _containsAny(String url, Set<String> patterns) {
-    for (final String pattern in patterns) {
-      if (url.contains(pattern)) return true;
-    }
-    return false;
+  /// 记录服务端下发的强制保留源，并同步给失效源守卫（避免其记入黑名单）。
+  void _useProtectedSources(List<String> urls) {
+    _protectedSources = urls.toSet();
+    ChannelFailureGuard.instance.protectedUrls = _protectedSources;
   }
 
   Future<void> _onLoadIptv(LoadIptv event, Emitter<IptvState> emit) async {
-    // 0) 手动刷新时顺带重新拉取数据文件最新版（频道顺序 / 隐藏频道），
-    //    让「刷新频道」同时刷新配置；失败保留原值，不阻断加载。
-    if (event.isRefresh) {
-      await DataFiles.instance.refresh();
-    }
+    final FinalChannelsPayload? cached = await _cache.load();
+    final bool hasCache = cached != null && cached.channels.isNotEmpty;
+    if (hasCache) _useProtectedSources(cached.protectedSources);
 
-    // 1) 初始加载先读持久化缓存（仅接口数据），补上 collect 后作为加载成功前的兜底列表。
-    List<IptvChannel> cached = const <IptvChannel>[];
-    if (event.useCache) {
-      final List<IptvChannel>? raw = await _cache.load();
-      if (raw != null && raw.isNotEmpty) {
-        cached = await _repository.buildPlaylist(raw);
-      }
-    }
-
-    // 1b) 无缓存（全新安装）时，直接用包内默认频道列表撑起画面，
-    //     避免首启全屏 loading；后台继续拉取线上，成功后替换。
-    if (cached.isEmpty && state.channels.isEmpty) {
-      final List<IptvChannel> defaults = await _repository.buildPlaylist(
-        await _repository.loadDefaultRemoteChannels(),
-      );
-      if (defaults.isNotEmpty) {
-        cached = defaults;
-      }
-    }
-
-    // 2) 已有可显示的频道（含缓存 / 现行 / 包内默认）→ 保留画面后台刷新；
-    //    否则（无缓存且无默认 / 从错误页重试）→ 全屏转圈等网络。
-    final bool keepCurrent = state.channels.isNotEmpty || cached.isNotEmpty;
-    if (keepCurrent) {
-      if (state.channels.isEmpty && cached.isNotEmpty) {
-        // 先用缓存/默认列表撑起播放器，避免网络在途时画面被置空。
-        emit(state.copyWith(channels: await _viewOf(cached)));
-      }
-      emit(state.copyWith(isLoading: false, isRefreshing: true, clearError: true));
+    // 1) 有缓存/正在播放：先让画面可用，版本比对在后台静默完成；
+    //    无缓存的首启：进入明确的加载态（页面显示进度与文案）。
+    final bool hasCurrent = state.channels.isNotEmpty;
+    if (event.useCache && hasCache && !hasCurrent) {
+      emit(state.copyWith(
+        channels: await _viewOf(cached.channels),
+        isLoading: false,
+        isRefreshing: false,
+        usingCachedList: false,
+        clearError: true,
+      ));
+    } else if (hasCurrent) {
+      emit(state.copyWith(
+        isLoading: false,
+        isRefreshing: true,
+        usingCachedList: false,
+        clearError: true,
+      ));
     } else {
-      emit(state.copyWith(isLoading: true, clearError: true));
+      emit(state.copyWith(
+        isLoading: true,
+        isRefreshing: false,
+        usingCachedList: false,
+        clearError: true,
+      ));
     }
 
     try {
-      final List<IptvChannel> remote = await _repository.fetchRemoteChannels();
-      // 3) 加载成功：只把接口数据写回缓存（collect 不进缓存），
-      //    展示列表再动态拼接 collect 并排序/剔除。
-      await _cache.save(remote);
+      // 2) 带本地版本做条件请求：内容未变时服务端返回 304，不下载列表。
+      final FinalChannelsPayload? payload = await _repository
+          .fetchFinalChannels(version: cached?.version)
+          .timeout(FinalChannelsService.timeout);
+      if (payload == null) {
+        completeBlocEvent(event.completer, success: true);
+        if (state.channels.isEmpty && cached != null) {
+          emit(state.copyWith(
+            channels: await _viewOf(cached.channels),
+            isLoading: false,
+            isRefreshing: false,
+            usingCachedList: false,
+            clearError: true,
+          ));
+        } else {
+          emit(state.copyWith(
+            isLoading: false,
+            isRefreshing: false,
+            usingCachedList: false,
+            clearError: true,
+          ));
+        }
+        return;
+      }
+
+      _useProtectedSources(payload.protectedSources);
       completeBlocEvent(event.completer, success: true);
       emit(state.copyWith(
         isLoading: false,
         isRefreshing: false,
-        channels: await _viewOf(await _repository.buildPlaylist(remote)),
+        channels: await _viewOf(payload.channels),
+        usingCachedList: false,
         clearError: true,
       ));
     } catch (e, s) {
       ScreenInjection.get<LogService>().error('加载直播频道失败', error: e, stackTrace: s);
       completeBlocEvent(event.completer, success: false);
-      // 4) 失败：有兜底（缓存 / 现行）→ 保留现有频道继续播、不切错误页；
-      //    否则 → 用包内默认列表兜底；再不行才进入错误视图。
-      final bool hasFallback = state.channels.isNotEmpty || cached.isNotEmpty;
-      if (!hasFallback) {
-        final List<IptvChannel> defaults = await _repository.buildPlaylist(
-          await _repository.loadDefaultRemoteChannels(),
-        );
-        if (defaults.isNotEmpty) {
-          ScreenInjection.get<LogService>().info('[IptvBloc] 接口不可用，已用包内默认频道列表兜底');
-          emit(state.copyWith(
-            isLoading: false,
-            isRefreshing: false,
-            channels: await _viewOf(defaults),
-            clearError: true,
-          ));
-          return;
+
+      // 3) 有缓存/正在播放：继续用旧列表，页面只做轻提示；
+      //    完全没有缓存：错误页 + 重试。
+      final bool hasFallback = state.channels.isNotEmpty || hasCache;
+      if (hasFallback) {
+        if (state.channels.isEmpty && cached != null) {
+          emit(state.copyWith(channels: await _viewOf(cached.channels)));
         }
+        emit(state.copyWith(
+          isLoading: false,
+          isRefreshing: false,
+          usingCachedList: true,
+          clearError: true,
+        ));
+        return;
       }
       emit(state.copyWith(
         isLoading: false,
         isRefreshing: false,
         errorType: e.toNetErrorType(),
-        errorMessage: hasFallback ? null : mapErrorToMessage(e),
+        errorMessage: e is TimeoutException
+            ? '获取频道列表超时，请检查网络后重试'
+            : mapErrorToMessage(e),
+        usingCachedList: false,
       ));
     }
   }

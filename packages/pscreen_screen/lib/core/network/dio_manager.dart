@@ -157,4 +157,39 @@ class DioManager {
       e.type == DioExceptionType.receiveTimeout ||
       e.type == DioExceptionType.sendTimeout ||
       e.type == DioExceptionType.connectionError;
+
+  /// GET 原始响应（需要读取状态码 / 响应头的场景，例如 ETag 304）。
+  ///
+  /// 与 [send] 不同：2xx 不抛错，304 也按正常响应返回；连接失败抛
+  /// [NetDisconnectException]，其余异常抛 [HttpCodeException]。不自动重试，
+  /// 避免条件请求被重放。
+  Future<Response<dynamic>?> getRaw({
+    required String url,
+    Map<String, dynamic> headers = const <String, dynamic>{},
+    Duration? connectTimeout,
+    Duration? receiveTimeout,
+  }) async {
+    await _initCompleter.future;
+    try {
+      return await _dio.get<dynamic>(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          headers: headers.isEmpty ? null : headers,
+          connectTimeout: connectTimeout,
+          receiveTimeout: receiveTimeout,
+          validateStatus: (int? status) => status != null && status < 400,
+        ),
+        cancelToken: _sessionCancelToken,
+      );
+    } on DioException catch (e, s) {
+      if (e.type == DioExceptionType.cancel) rethrow;
+      if (e.type == DioExceptionType.connectionError) {
+        const LogService().warn('网络不可达: $url | ${e.message}');
+        throw const NetDisconnectException();
+      }
+      const LogService().error('请求异常: $url', error: e, stackTrace: s);
+      throw HttpCodeException(e.response?.statusCode, e.message, e.response?.data);
+    }
+  }
 }

@@ -45,4 +45,8 @@ class AppConstants {
   ///
   /// 第一跳是 `source.txt`（raw 直链），返回一个下载地址
   static const String iptvM3uUrl = '${AppConstants.githubDataBaseUrl}source.txt';
+
+  /// 服务端合并后的最终频道列表（多源结构 + 版本号 + ETag）。
+  static const String finalChannelsUrl =
+      '${AppConstants.githubDataBaseUrl}final_channels.json';
 }

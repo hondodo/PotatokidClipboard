@@ -33,19 +33,14 @@ class DataFile {
 /// 数据文件同步层（全局单例）：让 `assets/datas` 下的这些文件
 /// 既不依赖发新版就能改，又能在离线时正常工作。
 ///
+/// 频道列表已改由服务端合并后直接下发（`final_channels.json`），这里只保留
+/// 与频道无关的配置（天气城市）。
+///
 /// 取值优先级（高 → 低）：
 /// 1. git 同步成功的内容（同时写入本地持久化缓存）；
 /// 2. 本地持久化缓存（上次同步成功的结果，离线可用）；
 /// 3. 包内 `assets/datas` 默认值；
 /// 4. `.env` 里的同名配置（仅 [AppConfig] 那三项有，作兼容兜底）。
-///
-/// 两种取用方式：
-/// - **直接读文本**：`await loadLocal(); text(id)` —— 给 [IptvSourceRules]、
-///   [IptvAssetSource] 这类自己解析的消费方用；
-/// - **自动写入消费方**：注册在 [_consumers] 里的（[AppConfig] 的三个列表），
-///   本地加载与同步成功时会被自动赋值。
-///
-/// 更新后消费方靠 [revision] 判断内容是否变过（见 [IptvSourceRules.ensureLoaded]）。
 class DataFiles {
   DataFiles._();
 
@@ -53,43 +48,19 @@ class DataFiles {
   static final DataFiles instance = DataFiles._();
 
   // ===== 文件标识（供消费方引用，避免拼错字符串）=====
-  static const String idTvNameOrder = 'tv_name_order';
-  static const String idTvNameHide = 'tv_name_hide';
   static const String idWeatherCities = 'weather_cities';
-  static const String idCollect = 'collect';
-  static const String idGuovinApi = 'guovin_api';
-  static const String idAudio = 'audio';
-  static const String idRemoveSource = 'remove_source';
-  static const String idRemoveSourceContains = 'remove_source_contains';
-  static const String idNotRemoveSource = 'not_remove_source';
 
   /// 纳入同步的文件清单。
   ///
   /// **新增文件**：这里加一条；若它需要自动写进某个全局配置，再到 [_consumers]
-  /// 里接上消费方（像 [IptvSourceRules] 那样按需读取的则不用）。
+  /// 里接上消费方。
   static const List<DataFile> _files = <DataFile>[
-    DataFile(id: idTvNameOrder, fileName: 'tv_name_order.txt', assetPath: 'assets/datas/tv_name_order.txt'),
-    DataFile(id: idTvNameHide, fileName: 'tv_name_hide.txt', assetPath: 'assets/datas/tv_name_hide.txt'),
     DataFile(id: idWeatherCities, fileName: 'weather_cities.txt', assetPath: 'assets/datas/weather_cities.txt'),
-    DataFile(id: idCollect, fileName: 'collect.m3u', assetPath: 'assets/datas/collect.m3u'),
-    DataFile(id: idGuovinApi, fileName: 'guovin-api.m3u', assetPath: 'assets/datas/guovin-api.m3u'),
-    DataFile(id: idAudio, fileName: 'audio.m3u', assetPath: 'assets/datas/audio.m3u'),
-    DataFile(id: idRemoveSource, fileName: 'remove_source.txt', assetPath: 'assets/datas/remove_source.txt'),
-    DataFile(
-      id: idRemoveSourceContains,
-      fileName: 'remove_source_contains.txt',
-      assetPath: 'assets/datas/remove_source_contains.txt',
-    ),
-    DataFile(id: idNotRemoveSource, fileName: 'not_remove_source.txt', assetPath: 'assets/datas/not_remove_source.txt'),
   ];
 
   /// 文件 id → 把「逗号分隔」的解析结果写进全局配置。
-  ///
-  /// 只有需要**主动推**给消费方的文件才登记在这里；自己按需读取的不用。
   static final Map<String, void Function(List<String> values)> _consumers =
       <String, void Function(List<String> values)>{
-        idTvNameOrder: (List<String> v) => AppConfig.tvNameOrder = v,
-        idTvNameHide: (List<String> v) => AppConfig.tvNameHide = v,
         idWeatherCities: (List<String> v) => AppConfig.weatherCities = v,
       };
 
@@ -111,9 +82,6 @@ class DataFiles {
   int _revision = 0;
 
   /// 内容版本号：本地加载 / git 同步只要改动了内容就 +1。
-  ///
-  /// 消费方（如 [IptvSourceRules]）据此判断「要不要重新解析」，
-  /// 从而让「刷新频道」拉到的 git 新内容能真正生效。
   int get revision => _revision;
 
   /// 某个文件当前生效的原始文本；未加载/无内容时返回空串。
@@ -228,18 +196,4 @@ class DataFiles {
         .where((String s) => s.isNotEmpty)
         .toList(growable: false);
   }
-}
-
-/// 解析「每行一个」的清单文件（remove_source / not_remove_source 等规则文件）。
-///
-/// - `#` 起始的行为注释，整行忽略；
-/// - 空白与空行丢弃。
-Set<String> parseLineSet(String text) {
-  final Set<String> out = <String>{};
-  for (final String line in text.split('\n')) {
-    final String trimmed = line.trim();
-    if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-    out.add(trimmed);
-  }
-  return out;
 }

@@ -44,20 +44,6 @@ class AppConfig {
   /// 包内 assets 默认），`.env` 的 `WEATHER_CITIES` 仅作兼容兜底。
   static List<String> weatherCities = const <String>[];
 
-  /// 频道列表优先顺序（`tv_name_order.txt`）。
-  ///
-  /// 命中的频道按此处的先后顺序置顶，未列出的保持原顺序排在其后。
-  /// 取值来源同 [weatherCities]（`.env` 的 `TV_NAME_ORDER` 仅作兜底）。
-  static List<String> tvNameOrder = const <String>[];
-
-  /// 需要排除的频道名（`tv_name_hide.txt`）。
-  ///
-  /// 支持精确全等与 `*` 通配（通配忽略大小写），且频道名与条目都会先归一化
-  /// （`CCTV1` 与 `CCTV-1` 视作同一个台），匹配逻辑见
-  /// `features/iptv/domain/channel_name_matcher.dart`。
-  /// 取值来源同 [weatherCities]（`.env` 的 `TV_NAME_HIDE` 仅作兜底）。
-  static List<String> tvNameHide = const <String>[];
-
   static Future<void> initialize() async {
     try {
       await dotenv.load(fileName: '.env');
@@ -84,9 +70,6 @@ class AppConfig {
     weatherCities = _readStringList('WEATHER_CITIES', weatherCities);
 
     relaySource = _readString('REPLY_SOURCE', relaySource);
-
-    tvNameOrder = _readStringList('TV_NAME_ORDER', tvNameOrder);
-    tvNameHide = _readStringList('TV_NAME_HIDE', tvNameHide);
   }
 
   /// V3 请求用的 key：优先取显式配置的 V3 key，否则回退到私钥（二者常为同一值）。

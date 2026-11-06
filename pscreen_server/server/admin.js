@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const definds = require('./definds');
+const { attachPrograms } = require('./programs');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
@@ -738,6 +739,9 @@ function attachAdmin(app, options = {}) {
             layoutKey: owner || `device_${machine.id}`,
             // 儿童模式配置透传（方案 §2.2：parental 挂机器记录，经 config 帧下发）。
             parental: machine.parental || null,
+            // 节目文件版本：保存后时间戳变化，设备据此重新拉取频道（只带版本号，不带文件内容）。
+            programsUpdatedAt: programs ? programs.updatedAt() : 0,
+            programsRevision: programs ? programs.revision() : 0,
         };
     }
 
@@ -807,6 +811,29 @@ function attachAdmin(app, options = {}) {
         req.adminUser = operator;
         next();
     }
+
+    // 节目编辑：全局一份，仅 admin 可读写。数据目录沿用线上 screen/datas。
+    const programs = attachPrograms(app, {
+        screenDir: options.screenDatasDir
+            ? path.resolve(options.screenDatasDir)
+            : path.join(datasDir, 'screen', 'datas'),
+        backupRoot: path.join(datasDir, 'backups', 'programs'),
+        stateFile: path.join(adminDir, 'programs_state.json'),
+        requireAdmin,
+        jsonOk,
+        jsonFail,
+        // 节目文件变更后给在线 TV / 中控推一次完整 config 帧（含 programsUpdatedAt），
+        // 不推文件本体，避免触碰 ws 128KiB 上限。
+        pushToOnlineDevices: () => {
+            const machines = readMachines();
+            let sent = 0;
+            for (const machine of Object.values(machines)) {
+                if (machineKind(machine) === 'parent') continue;
+                sent += pushConfigToMachine(machine) || 0;
+            }
+            return sent;
+        },
+    });
 
     // 登录失败限流：同一 IP 10 分钟内最多 8 次失败。
     const loginFailures = new Map();
@@ -1673,16 +1700,17 @@ function attachAdmin(app, options = {}) {
 
     /** 配置变更后向在线设备推送最新生效配置（离线设备下次连接时由注册/拉取自愈）。 */
     function pushConfigToMachine(machine, extra = {}) {
-        if (!machine) return;
+        if (!machine) return 0;
         const usersByName = new Map(listUsers().map((user) => [user.name, user]));
         const config = resolveMachineConfig(machine, usersByName);
         const layout = readLayouts()[config.layoutKey] || null;
-        pushDeviceConfig(machine.id, {
+        const sent = pushDeviceConfig(machine.id, {
             t: 'config',
             deviceId: machine.id,
             config: { ...config, layoutUpdatedAt: layout ? layout.updatedAt : 0 },
             ...extra,
         });
+        return sent || 0;
     }
 
     /** 布局变更：只推布局归属（layoutKey）为该标识的设备。 */
