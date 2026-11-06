@@ -101,6 +101,49 @@
         </div>
         <div id="tokensTable" class="hint">加载中…</div>
       </section>
+
+      <section class="card" id="relayCard">
+        <div class="card-head">
+          <h2>relay 运维</h2>
+          <div class="ops">
+            <button id="relayRefresh" class="small">刷新</button>
+            <button id="relayStart" class="small primary">启动</button>
+            <button id="relayRestart" class="small">重启</button>
+            <button id="relayStop" class="small danger">停止</button>
+          </div>
+        </div>
+        <p class="hint">
+          服务由 systemd 托管（<span class="mono">potatokid-relay.service</span>，端口 47291）。
+          启动 / 停止 / 重启都会中断所有在播流；请勿使用 pkill / nohup。
+        </p>
+        <div class="kv relay-status" id="relayStatus">加载中…</div>
+        <p id="relayActionMsg" class="msg"></p>
+
+        <h3>ffmpeg 转码进程</h3>
+        <div id="relayFfmpeg" class="hint">加载中…</div>
+
+        <h3>日志（/var/log/potatokid-relay.log）</h3>
+        <div class="row relay-log-controls">
+          <label>行数
+            <select id="relayLines">
+              <option value="200" selected>200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+          <label>关键字过滤
+            <input id="relayFilter" type="text" placeholder="如 会话创建 / 淘汰最旧">
+          </label>
+          <label>操作
+            <div class="ops">
+              <button id="relayPause" class="small">暂停刷新</button>
+              <button id="relayFetchLog" class="small">立即刷新</button>
+            </div>
+          </label>
+        </div>
+        <pre id="relayLog" class="relay-log">加载中…</pre>
+        <p id="relayLogMeta" class="hint"></p>
+      </section>
     </div>
   </main>
 </div>
@@ -131,6 +174,16 @@
     </div>
     <p id="resetMsg" class="msg"></p>
   </form>
+</dialog>
+
+<dialog id="relayDialog">
+  <h2 id="relayDialogTitle">确认操作</h2>
+  <p class="notice" id="relayDialogMsg"></p>
+  <div class="ops">
+    <button class="primary" id="relayDialogOk">确认执行</button>
+    <button type="button" id="relayDialogCancel">取消</button>
+  </div>
+  <p id="relayDialogResult" class="msg"></p>
 </dialog>
 
 <script>
@@ -179,6 +232,7 @@ async function call(path, options = {}) {
 let state = { me: null, accountToReset: null, justLoggedPassword: '' };
 
 function showLogin(message) {
+  stopRelayPolling();
   $('#topbar').classList.add('hidden');
   $('#mainView').classList.add('hidden');
   $('#forcePwdView').classList.add('hidden');
@@ -217,7 +271,11 @@ function showMain(me) {
   const canAccounts = me.permissions && me.permissions.accounts;
   $('#denyView').classList.toggle('hidden', canAccounts);
   $('#adminArea').classList.toggle('hidden', !canAccounts);
-  if (canAccounts) Promise.all([loadAccounts(), loadTokens()]);
+  if (canAccounts) {
+    Promise.all([loadAccounts(), loadTokens()]);
+    loadRelay();
+    startRelayPolling();
+  }
 }
 
 async function boot() {
@@ -495,6 +553,175 @@ $('#btnRevoke').addEventListener('click', async () => {
 $('#btnLogout').addEventListener('click', async () => {
   try { await call('/logout', { method: 'POST' }); } catch (_) { /* ignore */ }
   showLogin('已退出登录');
+});
+
+// ---- relay 运维 ----
+const relay = { paused: false, timer: null, lines: [], meta: null, pending: null };
+
+function fmtDuration(sec) {
+  const total = Number(sec) || 0;
+  if (total <= 0) return '—';
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (days) return `${days} 天 ${hours} 小时 ${minutes} 分`;
+  if (hours) return `${hours} 小时 ${minutes} 分 ${seconds} 秒`;
+  if (minutes) return `${minutes} 分 ${seconds} 秒`;
+  return `${seconds} 秒`;
+}
+
+function stopRelayPolling() {
+  if (relay.timer) {
+    clearInterval(relay.timer);
+    relay.timer = null;
+  }
+}
+
+function startRelayPolling() {
+  stopRelayPolling();
+  relay.timer = setInterval(() => {
+    if (!relay.paused) loadRelay();
+  }, 5000);
+}
+
+async function loadRelay() {
+  await Promise.all([loadRelayStatus(), loadRelayLogs()]);
+}
+
+function renderRelayStatus(data) {
+  const service = (data && data.service) || {};
+  if (service.error) {
+    $('#relayStatus').innerHTML = `<p class="msg err">${esc(service.error)}</p>`;
+    return;
+  }
+  const stateBadge = service.active
+    ? '<span class="badge on">运行中</span>'
+    : `<span class="badge off">${esc(service.state || '未知')}</span>`;
+  const portBadge = data.portListening
+    ? '<span class="badge on">监听中</span>'
+    : '<span class="badge off">未监听</span>';
+  const items = [
+    ['运行状态', stateBadge],
+    ['MainPID', service.mainPid ? `<span class="mono">${esc(service.mainPid)}</span>` : '—'],
+    ['启动时长', esc(fmtDuration(service.uptimeSec))],
+    ['重启次数', esc(service.restarts === undefined ? '—' : service.restarts)],
+    ['端口 47291', portBadge],
+    ['最近启动', esc(fmtTime(service.startedAt))],
+    ['检查时间', esc(fmtTime(data.checkedAt))],
+  ];
+  $('#relayStatus').innerHTML = items
+    .map(([label, value]) => `<div><span>${esc(label)}</span><div>${value}</div></div>`)
+    .join('');
+  renderRelayFfmpeg(data.ffmpeg);
+}
+
+function renderRelayFfmpeg(ffmpeg) {
+  if (!ffmpeg || ffmpeg.error) {
+    $('#relayFfmpeg').innerHTML = `<span class="msg err">${esc((ffmpeg && ffmpeg.error) || '读取失败')}</span>`;
+    return;
+  }
+  if (!ffmpeg.count) {
+    $('#relayFfmpeg').textContent = '当前没有 ffmpeg 转码进程。';
+    return;
+  }
+  const rows = ffmpeg.items
+    .map((item) => `
+      <tr>
+        <td class="mono">${esc(item.pid)}</td>
+        <td>${esc(item.runtime)}</td>
+        <td><div class="mono relay-source" title="${esc(item.source)}">${esc(item.source)}</div></td>
+      </tr>`)
+    .join('');
+  $('#relayFfmpeg').innerHTML = `
+    <table>
+      <thead><tr><th>PID</th><th>运行时长</th><th>转码源地址</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadRelayStatus() {
+  try {
+    renderRelayStatus(await call('/relay/status'));
+  } catch (err) {
+    $('#relayStatus').innerHTML = `<p class="msg err">${esc(err.message)}</p>`;
+    $('#relayFfmpeg').textContent = '—';
+  }
+}
+
+function renderRelayLogs() {
+  const keyword = $('#relayFilter').value.trim().toLowerCase();
+  const shown = keyword
+    ? relay.lines.filter((line) => line.toLowerCase().includes(keyword))
+    : relay.lines;
+  const pre = $('#relayLog');
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+  pre.textContent = shown.length
+    ? shown.join('\n')
+    : keyword ? '（没有匹配的行）' : '（暂无日志）';
+  if (!relay.paused && atBottom) pre.scrollTop = pre.scrollHeight;
+  const meta = relay.meta || {};
+  $('#relayLogMeta').textContent =
+    `显示 ${shown.length} / ${relay.lines.length} 行` +
+    `（请求 ${meta.requestedLines || 0} 行，文件 ${meta.sizeBytes || 0} 字节，更新于 ${fmtTime(meta.mtime)}）`;
+}
+
+async function loadRelayLogs() {
+  const lines = Number($('#relayLines').value) || 200;
+  try {
+    const data = await call(`/relay/logs?lines=${lines}`);
+    relay.lines = data.lines || [];
+    relay.meta = data;
+    renderRelayLogs();
+  } catch (err) {
+    $('#relayLog').textContent = '读取失败：' + err.message;
+  }
+}
+
+function openRelayDialog(action) {
+  const label = { start: '启动', stop: '停止', restart: '重启' }[action] || action;
+  relay.pending = action;
+  $('#relayDialogTitle').textContent = `${label} relay 服务`;
+  $('#relayDialogMsg').textContent =
+    `确认${label} potatokid-relay.service？该操作会中断所有在播流，恢复需要数秒。`;
+  setMsg('#relayDialogResult', '');
+  $('#relayDialogOk').disabled = false;
+  $('#relayDialog').showModal();
+}
+
+$('#relayRefresh').addEventListener('click', loadRelay);
+$('#relayFetchLog').addEventListener('click', loadRelayLogs);
+$('#relayLines').addEventListener('change', loadRelayLogs);
+$('#relayFilter').addEventListener('input', renderRelayLogs);
+$('#relayPause').addEventListener('click', () => {
+  relay.paused = !relay.paused;
+  $('#relayPause').textContent = relay.paused ? '继续刷新' : '暂停刷新';
+  $('#relayPause').classList.toggle('primary', relay.paused);
+  if (!relay.paused) loadRelay();
+});
+$('#relayStart').addEventListener('click', () => openRelayDialog('start'));
+$('#relayStop').addEventListener('click', () => openRelayDialog('stop'));
+$('#relayRestart').addEventListener('click', () => openRelayDialog('restart'));
+$('#relayDialogCancel').addEventListener('click', () => $('#relayDialog').close());
+$('#relayDialogOk').addEventListener('click', async () => {
+  const action = relay.pending;
+  if (!action) return;
+  const label = { start: '启动', stop: '停止', restart: '重启' }[action] || action;
+  $('#relayDialogOk').disabled = true;
+  setMsg('#relayDialogResult', '执行中…');
+  try {
+    const data = await call('/relay/action', { method: 'POST', body: { action } });
+    setMsg('#relayDialogResult', `${label}成功：${data.message || 'ok'}`, 'ok');
+    setMsg('#relayActionMsg', `${fmtTime(new Date().toISOString())} ${label}成功，已刷新状态`, 'ok');
+    $('#relayDialog').close();
+    await loadRelay();
+  } catch (err) {
+    setMsg('#relayDialogResult', `${label}失败：${err.message}`, 'err');
+    setMsg('#relayActionMsg', `${fmtTime(new Date().toISOString())} ${label}失败：${err.message}`, 'err');
+  } finally {
+    $('#relayDialogOk').disabled = false;
+    relay.pending = null;
+  }
 });
 
 boot();
