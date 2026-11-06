@@ -9,6 +9,7 @@ import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/settings/presentation/widgets/realtime_status_section.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/account_profile_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
@@ -71,14 +72,20 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
   /// 重连顺序与启动一致：先 HTTP 登录（账号不存在时按默认口令自动建档），
   /// 再连 ws，否则 ws 握手会因「账号不存在」被拒。
   Future<void> _saveCredentials() async {
-    await AppSettings.instance.setDisplayName(_displayNameController.text);
+    final String displayName = _displayNameController.text.trim();
+    await AppSettings.instance.setDisplayName(displayName);
     if (!AppConfig.enableChangeAccount) {
+      final bool synced = await AccountProfileApi.updateDisplayName(displayName);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(
-            content: Text('名称已保存（仅展示，不影响账号与连接）'),
+          SnackBar(
+            content: Text(
+              synced
+                  ? '名称已保存（仅展示，不影响账号与连接）'
+                  : '名称已保存到本机，服务端同步失败（联网后重试）',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -122,6 +129,10 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
     } catch (e) {
       ControlLog.e('[实时通道] 家长视图保存账号后连接失败: $e');
     }
+    // 新账号登录后再同步展示名（调试包允许改账号，cookie 已是新账号）。
+    if (ok) {
+      await AccountProfileApi.updateDisplayName(displayName);
+    }
 
     if (!mounted) return;
     setState(() => _saving = false);
@@ -130,7 +141,7 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
       ..showSnackBar(
         SnackBar(
           content: Text(
-            account.isEmpty ? (ok ? '已恢复默认设备号账号' : '已恢复默认设备号，暂未连接成功') : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
+            account.isEmpty ? (ok ? '已恢复固定派生账号' : '已恢复固定派生账号，暂未连接成功') : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
           ),
           behavior: SnackBarBehavior.floating,
         ),

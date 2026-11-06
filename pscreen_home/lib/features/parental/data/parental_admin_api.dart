@@ -290,6 +290,7 @@ class ParentalMachine {
     required this.owner,
     required this.parents,
     required this.commAccount,
+    this.commDisplayName = '',
     required this.online,
   });
 
@@ -313,6 +314,9 @@ class ParentalMachine {
   /// 当前生效的实时通信账号（遥控面板与解锁命令的投递目标）。
   final String commAccount;
 
+  /// 通信账号的展示名（服务端 `_info.txt.displayName`）；空串回落 [commAccount]。
+  final String commDisplayName;
+
   final bool online;
 
   factory ParentalMachine.fromJson(Map<String, dynamic> json) =>
@@ -328,6 +332,7 @@ class ParentalMachine {
                   .toList(growable: false)
             : const <String>[],
         commAccount: '${json['commAccount'] ?? ''}',
+        commDisplayName: '${json['commDisplayName'] ?? ''}',
         online: json['online'] == true,
       );
 }

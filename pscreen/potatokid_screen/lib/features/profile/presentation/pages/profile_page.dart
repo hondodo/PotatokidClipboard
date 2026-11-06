@@ -9,6 +9,7 @@ import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/core/router/route_params.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
+import 'package:pscreen_screen/core/utils/account_profile_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
@@ -839,8 +840,9 @@ class _ProfilePageState extends State<ProfilePage> {
         if (text.isEmpty) return;
         context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(text));
       } else {
-        // 只写展示名：允许清空（回落显示账号 id）。
+        // 只写展示名：允许清空（回落显示账号 id）；本机先存，再同步服务端。
         await AppSettings.instance.setDisplayName(text);
+        await AccountProfileApi.updateDisplayName(text);
         if (mounted) setState(() {});
       }
     } else {

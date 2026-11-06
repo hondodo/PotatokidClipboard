@@ -979,6 +979,8 @@ function attachAdmin(app, options = {}) {
                 ...machine,
                 kind: machineKind(machine),
                 ownerName: config.ownerName,
+                // 设备通信账号的展示名（供家长端等消费；后台沿用账号 id 列）。
+                commDisplayName: usersByName.get(machine.commAccount)?.displayName || '',
                 parents: config.parents,
                 effectiveHomes: config.homes,
                 homesSource: config.source,

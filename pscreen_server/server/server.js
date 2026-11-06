@@ -378,6 +378,54 @@ app.post('/api/login', (req, res) => {
     }
 });
 
+// 本人自助修改展示名：按登录 cookie 的 username 校验，只写 _info.txt 的
+// displayName（空串 = 清除，回落显示账号 id）；不动账号文件 / 目录 / owner /
+// parents 等绑定关系。后台管理接口 PUT /api/admin/users/:name 继续保留。
+app.post('/api/account/display_name', (req, res) => {
+    try {
+        const username = String(req.cookies?.username || '').trim();
+        if (!username || !accountStore.exists(username)) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.UNLOGIN,
+                [definds.txt.MSG]: '请先登录',
+            });
+        }
+        if (typeof req.body?.displayName !== 'string') {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '展示名格式错误',
+            });
+        }
+        const userInfo = accountStore.readInfo(username);
+        if (!userInfo) {
+            return res.status(200).json({
+                [definds.txt.CODE]: definds.code.FAILED,
+                [definds.txt.MSG]: '用户信息文件不存在',
+            });
+        }
+        // 与后台 PUT /api/admin/users/:name 一致：去首尾空白、最长 40 字符；
+        // 不校验唯一性（展示名可重复，唯一键仍是账号 id）。
+        const displayName = req.body.displayName.trim().slice(0, 40);
+        if (displayName) {
+            userInfo.displayName = displayName;
+        } else {
+            delete userInfo.displayName;
+        }
+        accountStore.writeInfo(username, userInfo);
+        return res.json({
+            [definds.txt.CODE]: definds.code.SUCCESS,
+            [definds.txt.MSG]: '保存成功',
+            [definds.txt.DATA]: { displayName },
+        });
+    } catch (error) {
+        console.error('保存展示名失败:', error);
+        return res.status(200).json({
+            [definds.txt.CODE]: definds.code.FAILED,
+            [definds.txt.MSG]: error.message,
+        });
+    }
+});
+
 // 自动登录接口
 app.post('/api/autoLogin', (req, res) => {
     try {

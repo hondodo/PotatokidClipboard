@@ -191,9 +191,11 @@ class _ParentalDeviceManagerSheetState
                   leading: const Icon(Icons.tv_outlined),
                   title: Text(_nameOf(machine)),
                   subtitle: Text(
-                    machine.commAccount.isEmpty
-                        ? machine.id
-                        : machine.commAccount,
+                    machine.commDisplayName.isNotEmpty
+                        ? machine.commDisplayName
+                        : (machine.commAccount.isEmpty
+                            ? machine.id
+                            : machine.commAccount),
                   ),
                   trailing: TextButton(
                     onPressed: _busy ? null : () => _bind(machine),

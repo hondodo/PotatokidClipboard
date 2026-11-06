@@ -26,6 +26,7 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
+import 'package:pscreen_screen/core/utils/account_profile_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
@@ -238,6 +239,10 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       ControlLog.e('[实时通道] 连接失败: $e');
     }
+    // 新账号登录后再同步展示名（调试包允许改账号，cookie 已是新账号）。
+    if (ok) {
+      await AccountProfileApi.updateDisplayName(_displayNameController.text);
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -246,7 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(
           content: Text(
             account.isEmpty
-                ? (ok ? '已恢复默认设备号账号' : '已恢复默认设备号，暂未连接成功')
+                ? (ok ? '已恢复固定派生账号' : '已恢复固定派生账号，暂未连接成功')
                 : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
           ),
           behavior: SnackBarBehavior.floating,
@@ -256,13 +261,19 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存展示名：仅影响展示，不改账号与连接。
   Future<void> _saveDisplayName() async {
-    await AppSettings.instance.setDisplayName(_displayNameController.text);
+    final String name = _displayNameController.text.trim();
+    await AppSettings.instance.setDisplayName(name);
+    final bool synced = await AccountProfileApi.updateDisplayName(name);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        const SnackBar(
-          content: Text('名称已保存（仅展示，不影响账号与连接）'),
+        SnackBar(
+          content: Text(
+            synced
+                ? '名称已保存（仅展示，不影响账号与连接）'
+                : '名称已保存到本机，服务端同步失败（联网后重试）',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
