@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -71,6 +72,56 @@ class AppUpdateCache {
     } catch (_) {
       // 清理失败不影响下载主流程。
     }
+  }
+
+  File get pendingForceFile =>
+      File('${root.path}${Platform.pathSeparator}pending_force.json');
+
+  /// 持久化粘性强更：releaseId / 已下载路径 / 目标 build。
+  Future<void> savePendingForce({
+    required String appId,
+    required String releaseId,
+    required String path,
+    required String sha256,
+    required String version,
+    required int build,
+    String notes = '',
+  }) async {
+    try {
+      await pendingForceFile.writeAsString(
+        jsonEncode(<String, Object?>{
+          'appId': appId,
+          'releaseId': releaseId,
+          'path': path,
+          'sha256': sha256,
+          'version': version,
+          'build': build,
+          'notes': notes,
+        }),
+        flush: true,
+      );
+    } catch (_) {
+      // 持久化失败不影响本次安装/下载。
+    }
+  }
+
+  Map<String, dynamic>? readPendingForce({required String appId}) {
+    try {
+      if (!pendingForceFile.existsSync()) return null;
+      final Object? decoded = jsonDecode(pendingForceFile.readAsStringSync());
+      if (decoded is! Map) return null;
+      final Map<String, dynamic> data = Map<String, dynamic>.from(decoded);
+      if (data['appId']?.toString() != appId) return null;
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearPendingForce() async {
+    try {
+      if (pendingForceFile.existsSync()) pendingForceFile.deleteSync();
+    } catch (_) {}
   }
 
   static String _safe(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');

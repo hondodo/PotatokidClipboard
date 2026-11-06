@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
+import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/update/presentation/force_update_page.dart';
@@ -28,6 +29,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppTabController.changes.addListener(_onUpdateSceneChanged);
     _connectivitySub = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       if (results.any((ConnectivityResult result) => result != ConnectivityResult.none)) {
         AppUpdateController.instance.onNetworkRestored();
@@ -37,10 +39,13 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    AppTabController.changes.removeListener(_onUpdateSceneChanged);
     _connectivitySub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  void _onUpdateSceneChanged() => AppUpdateController.instance.onSceneChanged();
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

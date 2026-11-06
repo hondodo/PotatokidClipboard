@@ -28,6 +28,7 @@ class AppUpdateState {
     this.error,
     this.attempt = 0,
     this.cachedPath,
+    this.forcePending = false,
   });
 
   final AppUpdatePhase phase;
@@ -38,10 +39,14 @@ class AppUpdateState {
   final int attempt;
   final String? cachedPath;
 
+  /// 强更已下载并校验通过后置为 true；在 checking/idle/failed/installing
+  /// 期间都保持不变，只有「成功查询且不再有更新」才清除。
+  final bool forcePending;
+
   double? get progress => total > 0 ? (received / total).clamp(0.0, 1.0) : null;
 
-  /// 强更且已下载校验通过 → 必须展示不可关闭的更新页。
-  bool get forceBlocked => phase == AppUpdatePhase.ready && result?.forceRequired == true;
+  /// 粘性强更：不依赖当前 phase/result，避免重查或拉起安装器时短暂放开拦截。
+  bool get forceBlocked => forcePending;
 
   /// 非强更：AppBar 显示「更新」胶囊；有进度时展示百分比。
   bool get showPill =>
@@ -56,6 +61,7 @@ class AppUpdateState {
     String? error,
     int? attempt,
     String? cachedPath,
+    bool? forcePending,
   }) =>
       AppUpdateState(
         phase: phase ?? this.phase,
@@ -65,6 +71,7 @@ class AppUpdateState {
         error: error,
         attempt: attempt ?? this.attempt,
         cachedPath: cachedPath ?? this.cachedPath,
+        forcePending: forcePending ?? this.forcePending,
       );
 }
 
@@ -79,6 +86,9 @@ class AppUpdateRuntime {
     required this.build,
     this.deviceId = '',
     this.maxBytesPerSecond,
+    this.checkInterval = const Duration(hours: 12),
+    this.checkJitter = const Duration(minutes: 30),
+    this.canStartDownload,
   });
 
   final String appId;
@@ -94,6 +104,18 @@ class AppUpdateRuntime {
 
   /// 可选限速；null 表示不限速。
   final int? maxBytesPerSecond;
+
+  /// 周期检查间隔；<= 0 表示不启动周期检查。
+  final Duration checkInterval;
+
+  /// 首次检查的随机抖动上限：按 deviceId 稳定派生，避免断电重启后同时请求。
+  final Duration checkJitter;
+
+  /// 当前场景是否允许开始静默下载；null 表示不限制。
+  ///
+  /// 由宿主注入：TV 看当前是否仍在直播页，中控看直播/屏保是否活跃。
+  /// 强更与普通更新都遵守该判定，只有用户手动点「重试/立即安装」才绕过。
+  final bool Function()? canStartDownload;
 }
 
 /// 更新状态机（单例）：启动查一次 → 静默下载 → 校验 → 提示/强更。
@@ -133,32 +155,148 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
   AppUpdateState get state => _state;
 
   Future<void>? _inflight;
+  Future<void>? _checkingFuture;
   Timer? _retryTimer;
+  Timer? _checkTimer;
   int _attempt = 0;
   DateTime? _lastNotifyAt;
+  DateTime? _lastCheckAt;
+  AppUpdateCheckResult? _deferredDownload;
+  bool _ownsApi = false;
+  bool _ownsDownloader = false;
   bool _disposed = false;
 
   AppUpdateRuntime? get runtime => _runtime;
 
-  /// 启动阶段调用一次：注入身份并立即开始查询（失败不阻塞启动）。
-  void configure(AppUpdateRuntime runtime) {
+  /// 启动阶段调用一次：注入身份、恢复粘性强更、启动周期检查并立即查询。
+  ///
+  /// 返回的 Future 只等待本地 pending 恢复完成；查询失败不阻塞启动。
+  Future<void> configure(AppUpdateRuntime runtime) async {
     _runtime = runtime;
-    _api = _api ?? AppUpdateApi(baseUrl: runtime.baseUrl);
-    _downloader = _downloader ?? AppUpdateDownloader(maxBytesPerSecond: runtime.maxBytesPerSecond);
+    // baseUrl 可能被设置页热改：自身构造的 Api 必须按新地址重建，
+    // 否则周期检查会一直请求旧服务器（注入的 Api 由调用方负责）。
+    if (_api == null) {
+      _api = AppUpdateApi(baseUrl: runtime.baseUrl);
+      _ownsApi = true;
+    } else if (_ownsApi) {
+      _api = AppUpdateApi(baseUrl: runtime.baseUrl);
+    }
+    if (_downloader == null) {
+      _downloader = AppUpdateDownloader(maxBytesPerSecond: runtime.maxBytesPerSecond);
+      _ownsDownloader = true;
+    } else if (_ownsDownloader) {
+      // 预留限速接入：后续只需在 AppUpdateRuntime 传入 maxBytesPerSecond。
+      _downloader = AppUpdateDownloader(maxBytesPerSecond: runtime.maxBytesPerSecond);
+    }
+    _startPeriodicCheck(runtime);
+    await _restorePendingForce();
     unawaited(start());
   }
 
   Future<void> start() => check();
 
-  /// 查询更新；[manual] 表示用户主动点开更新入口（允许重新取链）。
-  Future<void> check({bool manual = false}) async {
+  /// 周期检查：首次按 deviceId 稳定抖动，之后固定 [AppUpdateRuntime.checkInterval]。
+  void _startPeriodicCheck(AppUpdateRuntime runtime) {
+    _checkTimer?.cancel();
+    if (runtime.checkInterval <= Duration.zero) return;
+    // 启动时已查一次，首次周期检查放在 12h + 稳定抖动之后。
+    _scheduleCheckIn(
+      runtime.checkInterval + Duration(seconds: _stableJitterSeconds(runtime)),
+    );
+  }
+
+  void _scheduleCheckIn(Duration delay) {
+    _checkTimer?.cancel();
+    if (delay <= Duration.zero) {
+      unawaited(_runScheduledCheck());
+      return;
+    }
+    _checkTimer = Timer(delay, () => unawaited(_runScheduledCheck()));
+  }
+
+  Future<void> _runScheduledCheck() async {
+    final AppUpdateRuntime? runtime = _runtime;
+    if (runtime == null || _disposed) return;
+    if (_state.phase != AppUpdatePhase.downloading) {
+      await check();
+    }
+    if (_disposed) return;
+    if (runtime.checkInterval <= Duration.zero) return;
+    _scheduleCheckIn(runtime.checkInterval);
+  }
+
+  /// 同一设备每次启动得到相同偏移（FNV-1a），避免重启后同时打服务器。
+  int _stableJitterSeconds(AppUpdateRuntime runtime) {
+    final int max = runtime.checkJitter.inSeconds;
+    if (max <= 0) return 0;
+    final String seed = runtime.deviceId.isNotEmpty ? runtime.deviceId : runtime.appId;
+    int hash = 0x811c9dc5;
+    for (final int unit in seed.codeUnits) {
+      hash = ((hash ^ unit) * 0x01000193) & 0x7fffffff;
+    }
+    return hash % (max + 1);
+  }
+
+  /// 启动时恢复已下载的粘性强更（只认 build 仍落后于 pending 的情况）。
+  Future<void> _restorePendingForce() async {
+    final AppUpdateRuntime? runtime = _runtime;
+    if (runtime == null) return;
+    try {
+      final AppUpdateCache cache = _cache ??= await AppUpdateCache.open();
+      final Map<String, dynamic>? pending = cache.readPendingForce(appId: runtime.appId);
+      if (pending == null) return;
+      final int targetBuild = _asInt(pending['build']);
+      final String path = pending['path']?.toString() ?? '';
+      if (runtime.build >= targetBuild || path.isEmpty || !File(path).existsSync()) {
+        await cache.clearPendingForce();
+        return;
+      }
+      final AppUpdateCheckResult result = AppUpdateCheckResult(
+        appId: runtime.appId,
+        platform: runtime.platform,
+        currentVersion: runtime.version,
+        currentBuild: runtime.build,
+        hasUpdate: true,
+        forceUpdate: true,
+        latest: AppUpdateRelease(
+          releaseId: pending['releaseId']?.toString() ?? '',
+          version: pending['version']?.toString() ?? '',
+          build: targetBuild,
+          distribution: 'file',
+          fileAvailable: true,
+          forceUpdate: true,
+          notes: pending['notes']?.toString() ?? '',
+        ),
+      );
+      _emit(AppUpdateState(
+        phase: AppUpdatePhase.ready,
+        result: result,
+        cachedPath: path,
+        forcePending: true,
+      ));
+    } catch (_) {
+      // 本地状态损坏 / 插件暂不可用：忽略，继续正常查询。
+    }
+  }
+
+  /// 查询更新；并发调用复用同一个 Future。
+  Future<void> check({bool manual = false}) {
+    final Future<void>? inflight = _checkingFuture;
+    if (inflight != null) return inflight;
+    final Future<void> task = _runCheck(manual: manual);
+    _checkingFuture = task;
+    return task.whenComplete(() {
+      if (identical(_checkingFuture, task)) _checkingFuture = null;
+    });
+  }
+
+  Future<void> _runCheck({required bool manual}) async {
     final AppUpdateRuntime? runtime = _runtime;
     if (runtime == null) return;
     final AppUpdateApi? api = _api;
     if (api == null) return;
 
-    final AppUpdateState checking = _state.copyWith(phase: AppUpdatePhase.checking, error: null);
-    _emit(checking);
+    _emit(_state.copyWith(phase: AppUpdatePhase.checking, error: null));
     try {
       final AppUpdateCheckResult result = await api.check(
         appId: runtime.appId,
@@ -167,10 +305,17 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
         build: runtime.build,
         deviceId: runtime.deviceId,
       );
-      _emit(AppUpdateState(phase: AppUpdatePhase.idle, result: result));
-      if (result.canSilentlyDownload) {
-        unawaited(_ensureDownloaded(result));
+      _lastCheckAt = _now();
+      if (!result.hasUpdate) {
+        _deferredDownload = null;
+        // 成功查询且无更新才清除粘性强更与缓存路径。
+        _emit(AppUpdateState(phase: AppUpdatePhase.idle, result: result));
+        unawaited(_cache?.clearPendingForce());
+        return;
       }
+      // 保留 forcePending / cachedPath：checking 期间也不能放开强更拦截。
+      _emit(_state.copyWith(phase: AppUpdatePhase.idle, result: result, error: null));
+      _scheduleDownload(result);
     } on AppUpdateException catch (error) {
       // fail-open：查询失败只记录，保留上一次结果，不阻断使用。
       _emit(_state.copyWith(phase: AppUpdatePhase.failed, error: error.message));
@@ -183,12 +328,42 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
 
   /// 手动触发下载 / 重试（用户点「立即安装」或「重试」）。
   Future<void> ensureDownloadedNow() async {
+    _deferredDownload = null;
     final AppUpdateCheckResult? result = _state.result;
     if (result == null) {
       await check(manual: true);
+      final AppUpdateCheckResult? fresh = _state.result;
+      if (fresh != null) await _ensureDownloaded(fresh);
       return;
     }
     await _ensureDownloaded(result);
+  }
+
+  /// 自动下载入口：忙碌场景先挂起，等宿主调用 [onSceneChanged] 再开始。
+  void _scheduleDownload(AppUpdateCheckResult result) {
+    if (!result.canSilentlyDownload) return;
+    if (_inflight != null) {
+      // 已有下载在跑：先记下，完成后再由 onSceneChanged 续跑，避免丢失。
+      _deferredDownload = result;
+      return;
+    }
+    if (_downloadAllowed()) {
+      _deferredDownload = null;
+      unawaited(_ensureDownloaded(result));
+    } else {
+      _deferredDownload = result;
+    }
+  }
+
+  bool _downloadAllowed() => _runtime?.canStartDownload?.call() ?? true;
+
+  /// 宿主场景变化（直播结束 / 退出屏保 / 离开直播页）时调用。
+  void onSceneChanged() {
+    final AppUpdateCheckResult? deferred = _deferredDownload;
+    if (deferred == null) return;
+    if (_inflight != null || !_downloadAllowed()) return;
+    _deferredDownload = null;
+    unawaited(_ensureDownloaded(deferred));
   }
 
   Future<void> _ensureDownloaded(AppUpdateCheckResult result) async {
@@ -210,6 +385,8 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
     } finally {
       _inflight = null;
     }
+    // 下载期间被挂起的更新在这里续跑。
+    onSceneChanged();
   }
 
   Future<void> _download(AppUpdateCheckResult result, AppUpdateRuntime runtime, AppUpdateCache cache) async {
@@ -225,7 +402,9 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
         received: download.size,
         total: download.size,
         error: null,
+        forcePending: result.forceRequired || _state.forcePending,
       ));
+      await _rememberPendingForce(result, download, cached.path, runtime);
       return;
     }
 
@@ -273,7 +452,9 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
           total: download.size,
           error: null,
           attempt: 0,
+          forcePending: result.forceRequired || _state.forcePending,
         ));
+        await _rememberPendingForce(result, download, file.path, runtime);
         return;
       } on AppUpdateShaMismatchException {
         // 校验不一致：文件已删除，重下一轮（不增加退避计数）。
@@ -299,7 +480,7 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
     return Duration(seconds: seconds[round.clamp(0, seconds.length - 1)]);
   }
 
-  /// 回前台 / 网络恢复：只对「未完成」状态补一次重试，已就绪不重复下载。
+  /// 回前台 / 网络恢复：距上次成功检查超过阈值就补查（覆盖 idle 态）。
   void onForeground() {
     final AppUpdatePhase phase = _state.phase;
     if (phase == AppUpdatePhase.downloading) return;
@@ -307,6 +488,14 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
       // 可能已安装完成但未重启：重新校验版本，装好后就不应再提示。
       unawaited(check());
       return;
+    }
+    final AppUpdateRuntime? runtime = _runtime;
+    if (runtime != null) {
+      final DateTime? last = _lastCheckAt;
+      if (last == null || _now().difference(last) >= runtime.checkInterval) {
+        unawaited(check());
+        return;
+      }
     }
     if (phase == AppUpdatePhase.failed) {
       _scheduleRetry(immediate: true);
@@ -329,12 +518,39 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
       if (state.result == null || state.result!.hasUpdate) {
         // 已有结果：直接重试下载；无结果（查询失败）则重新查询。
         if (state.result != null && state.result!.canSilentlyDownload) {
-          unawaited(_ensureDownloaded(state.result!));
+          _scheduleDownload(state.result!);
         } else {
           unawaited(check());
         }
       }
     });
+  }
+
+  /// 记住粘性强更：releaseId / 文件路径 / 目标 build，供下次启动直接拦截。
+  Future<void> _rememberPendingForce(
+    AppUpdateCheckResult result,
+    AppUpdateDownload download,
+    String path,
+    AppUpdateRuntime runtime,
+  ) async {
+    if (!result.forceRequired && !_state.forcePending) return;
+    final AppUpdateCache? cache = _cache;
+    if (cache == null) return;
+    await cache.savePendingForce(
+      appId: runtime.appId,
+      releaseId: result.latest?.releaseId ?? '',
+      path: path,
+      sha256: download.sha256,
+      version: result.latest?.version ?? result.currentVersion,
+      build: result.latest?.build ?? result.currentBuild,
+      notes: result.latest?.notes ?? '',
+    );
+  }
+
+  int _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   /// 拉起系统安装器（仅 Android/桌面自托管包）。
@@ -371,7 +587,8 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
         _state.total == next.total &&
         _state.error == next.error &&
         identical(_state.result, next.result) &&
-        _state.cachedPath == next.cachedPath) {
+        _state.cachedPath == next.cachedPath &&
+        _state.forcePending == next.forcePending) {
       return;
     }
     _state = next;
@@ -382,6 +599,7 @@ class AppUpdateController extends ChangeNotifier implements ValueListenable<AppU
   void dispose() {
     _disposed = true;
     _retryTimer?.cancel();
+    _checkTimer?.cancel();
     super.dispose();
   }
 }

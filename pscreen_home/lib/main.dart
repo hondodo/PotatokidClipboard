@@ -10,6 +10,7 @@ import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
+import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
@@ -18,6 +19,7 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_eve
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
+import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
@@ -73,13 +75,22 @@ void main() {
       final String? updatePlatform = updatePlatformOf(defaultTargetPlatform);
       if (updatePlatform != null) {
         final AppVersion appVersion = Injection.get<AppVersion>();
-        AppUpdateController.instance.configure(
+        await AppUpdateController.instance.configure(
           AppUpdateRuntime(
             appId: AppFlavorConfig.updateAppId,
             platform: updatePlatform,
             baseUrl: HaConfig.serverBaseUrl,
             version: appVersion.version,
             build: appVersion.build,
+            deviceId: await DeviceIdentity.deviceId(),
+            checkInterval: const Duration(hours: 12),
+            checkJitter: const Duration(minutes: 30),
+            canStartDownload: () {
+              final ScreensaverController screensaver =
+                  Injection.get<ScreensaverController>();
+              final LiveStageController live = Injection.get<LiveStageController>();
+              return !screensaver.active && !live.isActive;
+            },
           ),
         );
       }
