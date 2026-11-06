@@ -89,7 +89,12 @@ void main() {
               final ScreensaverController screensaver =
                   Injection.get<ScreensaverController>();
               final LiveStageController live = Injection.get<LiveStageController>();
-              return !screensaver.active && !live.isActive;
+              // 屏保关闭（时长=0）时「不在屏保」天然成立，只要不在直播即可下载；
+              // 屏保开启时只在屏保页期间下载。
+              if (screensaver.minutes <= SettingsStore.screensaverNeverMinutes) {
+                return !live.isActive;
+              }
+              return screensaver.active;
             },
           ),
         );

@@ -21,7 +21,6 @@ import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
-import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
@@ -117,9 +116,6 @@ void main() {
             deviceId: deviceId,
             checkInterval: const Duration(hours: 12),
             checkJitter: const Duration(minutes: 30),
-            // TV 端没有全局播放状态：首页分支常驻且会持续播放，
-            // 因此以「当前不在直播页」作为可下载时机（离开直播/进屏保即放行）。
-            canStartDownload: () => AppTabController.branchIndex != 0,
           ),
         );
       }
