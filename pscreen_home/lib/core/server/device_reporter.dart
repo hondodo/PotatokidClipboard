@@ -13,6 +13,7 @@ import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
+import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 中控屏与 Admin 服务端的同步器。
@@ -265,6 +266,8 @@ class DeviceReporter {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final int applied = prefs.getInt(_programsVersionKey) ?? 0;
       if (updatedAt <= applied) return;
+      // 节目文件保存也可能改了 relay 白名单：强制重拉一次，失败静默。
+      unawaited(RelayPolicy.instance.refreshNow());
       if (!Injection.isRegistered<IptvBloc>()) return;
       Injection.get<IptvBloc>().add(const LoadIptv(isRefresh: true));
       await prefs.setInt(_programsVersionKey, updatedAt);

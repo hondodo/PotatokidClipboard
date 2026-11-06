@@ -34,6 +34,7 @@ const PROGRAM_FILES = {
     'remove_source.txt': { label: '强制移除源 remove_source.txt', kind: 'rules', editable: true, maxBytes: MAX_TEXT_BYTES },
     'remove_source_contains.txt': { label: '移除片段 remove_source_contains.txt', kind: 'rules', editable: true, maxBytes: MAX_TEXT_BYTES },
     'not_remove_source.txt': { label: '强制保留源 not_remove_source.txt', kind: 'rules', editable: true, maxBytes: MAX_TEXT_BYTES },
+    'relay_allow_hosts.txt': { label: '中转白名单 relay_allow_hosts.txt', kind: 'hosts', editable: true, maxBytes: MAX_TEXT_BYTES },
     'source.txt': { label: '接口地址 source.txt', kind: 'readonly', editable: false },
     'git_source.txt': { label: '上游地址 git_source.txt', kind: 'readonly', editable: false },
     'weather_cities.txt': { label: '天气城市 weather_cities.txt', kind: 'readonly', editable: false },
@@ -473,6 +474,59 @@ function validateRules(text, style = 'line') {
     return warnings;
 }
 
+const RELAY_HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * 中转白名单（relay_allow_hosts.txt）校验与归一化：
+ * - 一行一个域名，`#` 注释与空行原样保留；
+ * - `*.domain` 归一为 `domain`，并给 warning；
+ * - 重复域名去掉后出现的行，并给 warning；
+ * - 裸 `*` 不支持（转发机带宽有限），作为错误拒绝保存；
+ * - 只有注释/空行时返回空内容，语义是「全部直连」。
+ */
+function validateRelayHosts(text) {
+    const errors = [];
+    const warnings = [];
+    const out = [];
+    const seen = new Map();
+    const lines = String(text || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const item = line.trim();
+        if (!item) {
+            out.push('');
+            continue;
+        }
+        if (item.startsWith('#')) {
+            out.push(line.replace(/\s+$/, ''));
+            continue;
+        }
+        if (item === '*') {
+            errors.push(`第 ${i + 1} 行不支持 *，请写具体域名，如 example.com`);
+            continue;
+        }
+        let host = item.toLowerCase();
+        let wildcard = false;
+        if (host.startsWith('*.')) {
+            host = host.slice(2);
+            wildcard = true;
+        }
+        host = host.replace(/\.+$/, '');
+        if (!RELAY_HOST_PATTERN.test(host)) {
+            errors.push(`第 ${i + 1} 行域名格式无效：${item}`);
+            continue;
+        }
+        if (seen.has(host)) {
+            warnings.push(`第 ${i + 1} 行与第 ${seen.get(host) + 1} 行重复：${host}（已去重）`);
+            continue;
+        }
+        seen.set(host, i);
+        out.push(host);
+        if (wildcard) warnings.push(`第 ${i + 1} 行已归一为 ${host}`);
+    }
+    return { content: out.join('\n'), errors, warnings };
+}
+
 function attachPrograms(app, options = {}) {
     const screenDir = path.resolve(options.screenDir);
     const backupRoot = path.resolve(options.backupRoot);
@@ -629,14 +683,11 @@ function attachPrograms(app, options = {}) {
         const spec = specOf(name);
         if (!spec.editable) throw new Error('该文件只读，不提供编辑入口');
         if (typeof rawContent !== 'string') throw new Error('content 必须是字符串');
-        const content = normalizeText(rawContent);
+        let content = normalizeText(rawContent);
         assertTextSafe(content);
-        if (!content.trim()) {
+        // 中转白名单允许空内容：空文件语义是「全部直连」，保存前由前端二次确认。
+        if (!content.trim() && spec.kind !== 'hosts') {
             throw new Error('内容为空；客户端会把空内容当作无效并保留旧值，因此不允许保存空文件');
-        }
-        const bytes = Buffer.byteLength(content, 'utf8');
-        if (bytes > spec.maxBytes) {
-            throw new Error(`内容 ${bytes} 字节，超过上限 ${spec.maxBytes} 字节`);
         }
         const warnings = [];
         if (spec.kind === 'm3u') {
@@ -647,8 +698,21 @@ function attachPrograms(app, options = {}) {
                 throw new Error(`m3u 格式检查未通过：${head}${more}`);
             }
             warnings.push(...result.warnings);
+        } else if (spec.kind === 'hosts') {
+            const result = validateRelayHosts(content);
+            if (result.errors.length) {
+                const head = result.errors.slice(0, 3).join('；');
+                const more = result.errors.length > 3 ? `；另有 ${result.errors.length - 3} 处` : '';
+                throw new Error(`中转白名单检查未通过：${head}${more}`);
+            }
+            warnings.push(...result.warnings);
+            content = result.content;
         } else {
             warnings.push(...validateRules(content, spec.ruleStyle));
+        }
+        const bytes = Buffer.byteLength(content, 'utf8');
+        if (bytes > spec.maxBytes) {
+            throw new Error(`内容 ${bytes} 字节，超过上限 ${spec.maxBytes} 字节`);
         }
         return { content, bytes, warnings: warnings.slice(0, MAX_WARNINGS), lines: lineCount(content) };
     }
@@ -733,9 +797,11 @@ function attachPrograms(app, options = {}) {
     app.get('/api/admin/programs/:name', requireAdmin, (req, res) => {
         try {
             const name = String(req.params.name || '');
-            if (!specOf(name)) return jsonFail(res, '文件不在节目编辑白名单内');
+            const spec = specOf(name);
+            if (!spec) return jsonFail(res, '文件不在节目编辑白名单内');
             const meta = metaOf(name);
-            if (!meta.exists) return jsonFail(res, '文件不存在', undefined, 404);
+            // 中转白名单文件缺失时返回空内容，管理端可直接首次创建。
+            if (!meta.exists && spec.kind !== 'hosts') return jsonFail(res, '文件不存在', undefined, 404);
             const { content, lines } = contentOf(name);
             return jsonOk(res, {
                 ...meta,
@@ -758,7 +824,8 @@ function attachPrograms(app, options = {}) {
             if (!spec.editable) return jsonFail(res, '该文件只读，不提供编辑入口', undefined, 403);
             const body = req.body || {};
             const meta = metaOf(name);
-            if (!meta.exists) return jsonFail(res, '文件不存在，无法覆盖', undefined, 404);
+            // 中转白名单允许首次创建：文件缺失时服务端回退默认值，管理端需要能直接落盘。
+            if (!meta.exists && spec.kind !== 'hosts') return jsonFail(res, '文件不存在，无法覆盖', undefined, 404);
             const expectedMtime = Number(body.expectedMtime);
             if (Number.isFinite(expectedMtime) && expectedMtime > 0 && Math.abs(meta.mtime - expectedMtime) > 1) {
                 return jsonFail(res, '文件已被其他人修改，请刷新后重试', undefined, 409);

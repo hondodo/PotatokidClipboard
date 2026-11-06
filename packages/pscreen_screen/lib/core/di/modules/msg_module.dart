@@ -10,6 +10,7 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 import 'package:pscreen_screen/features/msg/application/device_state_reporter.dart';
 import 'package:pscreen_screen/features/msg/application/message_command_executor.dart';
@@ -207,6 +208,8 @@ class MsgModule {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final int applied = prefs.getInt(_programsVersionKey) ?? 0;
       if (updatedAt <= applied) return;
+      // 节目文件保存也可能改了 relay 白名单：强制重拉一次，失败静默。
+      unawaited(RelayPolicy.instance.refreshNow());
       // IptvModule 注册在本模块之后；未就绪时先不落版本号，避免漏掉这次刷新。
       if (!it.isRegistered<IptvBloc>()) return;
       it<IptvBloc>().add(const LoadIptv(isRefresh: true));

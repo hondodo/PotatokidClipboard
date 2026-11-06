@@ -4,8 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>薯仔 Admin · 设备与家庭</title>
+  <link rel="stylesheet" href="shared.css">
   <style>
     :root {
+      color-scheme: dark;
       --bg: #0b1116;
       --bg-2: #101820;
       --panel: rgba(20, 30, 40, .82);
@@ -20,6 +22,7 @@
       --warn: #fbbf24;
       --ok: #34d399;
       --radius: 14px;
+      --select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 1l5 4 5-4' fill='none' stroke='%2393a4b5' stroke-width='1.4'/%3E%3C/svg%3E");
     }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
@@ -35,6 +38,11 @@
     }
     button, input, select { font: inherit; }
     button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible,
+    .tab:focus-visible, .icon-btn:focus-visible, .seg-btn:focus-visible,
+    .program-item:focus-visible, .layout-item:focus-visible {
+      outline: 2px solid rgba(95, 211, 196, .45); outline-offset: 2px;
+    }
     [hidden] { display: none !important; }
 
     .app { max-width: 1480px; margin: 0 auto; padding: 22px 22px 56px; }
@@ -91,6 +99,19 @@
       color: var(--text); padding: 10px 12px; outline: none; transition: .16s ease;
     }
     input:focus, select:focus { border-color: rgba(95, 211, 196, .55); box-shadow: 0 0 0 3px rgba(95, 211, 196, .1); }
+    input:hover, select:hover { border-color: rgba(148, 163, 184, .34); }
+    input::placeholder { color: var(--muted-2); }
+    select {
+      appearance: none; -webkit-appearance: none;
+      background-image: var(--select-arrow);
+      background-repeat: no-repeat; background-position: right 11px center; background-size: 10px 6px;
+      padding-right: 30px;
+    }
+    select.btn {
+      background-image: var(--select-arrow);
+      background-repeat: no-repeat; background-position: right 9px center; background-size: 10px 6px;
+    }
+    select.btn.small { padding-right: 26px; }
     select option { background: #101820; }
     .hint { margin: 0; font-size: 11.5px; color: var(--muted-2); line-height: 1.5; }
     .msg { min-height: 18px; margin: 12px 0 0; font-size: 12px; color: var(--warn); }
@@ -223,16 +244,26 @@
     .program-status.ok { color: var(--ok); }
     .program-status.error { color: #fca5a5; }
     .program-editor {
-      width: 100%; min-height: 46vh; resize: vertical; border: 1px solid var(--line); border-radius: 10px;
-      background: rgba(4, 10, 15, .55); color: var(--text); padding: 12px; outline: none;
+      width: 100%; max-width: 100%; min-height: 46vh; resize: vertical; border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(8, 14, 20, .72); color: var(--text); padding: 12px 14px; outline: none;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
-      line-height: 1.55; white-space: pre; overflow: auto; tab-size: 2;
+      line-height: 1.6; white-space: pre; overflow-x: auto; overflow-y: auto; tab-size: 2;
     }
     .program-editor:focus { border-color: rgba(95, 211, 196, .55); box-shadow: 0 0 0 3px rgba(95, 211, 196, .1); }
     .program-editor:disabled { opacity: .65; cursor: not-allowed; }
     .program-preview { padding: 16px; margin-top: 14px; }
     .program-preview-wrap { max-height: 42vh; }
     .program-preview-wrap table { min-width: 560px; }
+    /* 预览表：表头吸顶不透明、斑马纹弱化、悬停高亮、数字列右对齐 */
+    .program-preview-wrap th { background: #16202a; }
+    .program-preview-wrap tbody tr:nth-child(even) { background: rgba(255, 255, 255, .012); }
+    .program-preview-wrap tbody tr:hover { background: rgba(95, 211, 196, .06); }
+    .program-preview-wrap th:nth-child(1),
+    .program-preview-wrap td:nth-child(1),
+    .program-preview-wrap th:nth-child(4),
+    .program-preview-wrap td:nth-child(4) {
+      text-align: right; font-variant-numeric: tabular-nums;
+    }
 
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);
@@ -539,12 +570,13 @@
         <div class="card program-side">
           <h3>文件</h3>
           <div class="program-list" id="programs-list"><div class="empty">加载中…</div></div>
+          <p class="hint" style="margin:10px 0 0">relay_allow_hosts.txt：一行一个域名，命中（含子域）的源走 relay 中转，其余直连；# 注释与空行忽略；*.domain 自动归一为 domain；不支持 *；文件留空 = 全部直连。</p>
         </div>
         <div class="card program-main">
           <div class="program-main-head">
             <div>
               <h3 id="programs-title">选择左侧文件</h3>
-              <p class="hint" id="programs-meta">m3u 与规则文本可直接编辑；source.txt / git_source.txt / weather_cities.txt 只读。</p>
+              <p class="hint" id="programs-meta">m3u 与规则文本可直接编辑；relay_allow_hosts.txt 一行一个域名；source.txt / git_source.txt / weather_cities.txt 只读。</p>
             </div>
             <div class="row-actions">
               <button class="btn small" id="programs-reload" type="button" disabled>放弃修改并重载</button>
@@ -2117,13 +2149,20 @@
   async function saveProgram() {
     const file = state.programFile;
     if (!file || !file.editable) return;
+    const editorValue = $('programs-editor').value;
+    if (file.kind === 'hosts' && !editorValue.split('\n').some((line) => {
+      const item = line.trim();
+      return item && !item.startsWith('#');
+    })) {
+      if (!window.confirm('白名单为空：保存后所有频道都直连播放，不再经过 relay 中转。确定保存？')) return;
+    }
     const btn = $('programs-save');
     btn.disabled = true;
     setProgramStatus('保存中…');
     try {
       const data = await api(`/api/admin/programs/${encodeURIComponent(file.name)}`, {
         method: 'PUT',
-        body: JSON.stringify({ content: $('programs-editor').value, expectedMtime: file.mtime }),
+        body: JSON.stringify({ content: editorValue, expectedMtime: file.mtime }),
       });
       const warnings = data.warnings || [];
       const warningText = warnings.length ? `提示：${warnings.join('；')}` : '';

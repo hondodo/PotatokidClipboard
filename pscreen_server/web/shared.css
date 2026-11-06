@@ -1,0 +1,32 @@
+/* 全站统一滚动条：细窄（约 8px）、圆角、半透明拇指、透明轨道、去掉角落白块 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, .18);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, .32);
+}
+
+::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+}
+
+/* Firefox 等不支持 ::-webkit-scrollbar 的浏览器兜底 */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .18) transparent;
+  }
+}

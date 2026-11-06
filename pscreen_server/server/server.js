@@ -1977,22 +1977,52 @@ app.get('/api/clipboards/:id', (req, res) => {
     }
 });
 
-// IPTV relay 中转白名单：App 据此决定源地址走 reply 中转还是直连播放
-// （命中名单的域名才改写成 relay 地址，其余直连，不再全都走转发）。
-// 名单存本目录 allow-reply-host.json（JSON 数组，如 ["jdshipin.com"]），
-// 需与 relay 服务的 ACCEPT_HOST 保持一致；文件缺失或为空时用默认值。
+// IPTV relay 中转白名单：App 据此决定源地址走 relay 中转还是直连播放。
+// 名单文件 screen/datas/relay_allow_hosts.txt 是唯一权威来源：
+// - 一行一个域名，`#` 注释与空行忽略；CRLF 归一；重复行去重；`*.domain` 归一为 `domain`；
+// - 文件不存在时回退默认 ['jdshipin.com']；
+// - 文件存在但没有有效域名（只有注释/空行）时返回空数组 = 全部直连；
+// - 裸 `*` 不支持（转发机带宽有限），无效行跳过并记录日志。
+// 每次请求都读盘，管理端保存后无需重启即生效。
+const RELAY_HOSTS_FILENAME = 'relay_allow_hosts.txt';
+const RELAY_HOSTS_DEFAULT = ['jdshipin.com'];
+const RELAY_HOST_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** 解析白名单文本：返回去重后的域名数组；无法识别的行记录日志后跳过。 */
+function parseRelayAllowHosts(text, source) {
+    const hosts = [];
+    const seen = new Set();
+    for (const rawLine of String(text || '').split('\n')) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        if (line === '*') {
+            console.warn(`[relay] ${source} 不支持 *，已忽略该行`);
+            continue;
+        }
+        let host = line.toLowerCase();
+        if (host.startsWith('*.')) host = host.slice(2);
+        host = host.replace(/\.+$/, '');
+        if (!RELAY_HOST_PATTERN.test(host)) {
+            console.warn(`[relay] ${source} 域名格式无效，已忽略：${line}`);
+            continue;
+        }
+        if (seen.has(host)) continue;
+        seen.add(host);
+        hosts.push(host);
+    }
+    return hosts;
+}
+
 app.get('/api/allow_reply_host', (req, res) => {
     try {
-        const hostsPath = path.join(__dirname, 'allow-reply-host.json');
-        let allowReplyHost = ['jdshipin.com'];
+        const hostsPath = path.join(screenDatasDir, RELAY_HOSTS_FILENAME);
+        let allowReplyHost = RELAY_HOSTS_DEFAULT;
         if (fs.existsSync(hostsPath)) {
-            const parsed = JSON.parse(fs.readFileSync(hostsPath, 'utf8'));
-            if (Array.isArray(parsed)) {
-                const hosts = parsed
-                    .filter((h) => typeof h === 'string' && h.trim() !== '')
-                    .map((h) => h.trim());
-                if (hosts.length > 0) allowReplyHost = hosts;
-            }
+            const raw = fs.readFileSync(hostsPath, 'utf8')
+                .replace(/^\uFEFF/, '')
+                .replace(/\r\n?/g, '\n');
+            // 文件存在即视为权威：解析结果为空数组时语义是「全部直连」。
+            allowReplyHost = parseRelayAllowHosts(raw, RELAY_HOSTS_FILENAME);
         }
         res.json({
             [definds.txt.CODE]: definds.code.SUCCESS,

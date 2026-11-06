@@ -3,6 +3,7 @@
 # 本脚本代抓 m3u8 并把分片地址全部改写为指向自身，绕开 mpv 代理缺陷。
 # 用法: python3 relay.py   (仅需 Python3 标准库，无需 pip)
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -16,23 +17,144 @@ from urllib.parse import quote, urljoin, urlparse, parse_qs
 from urllib.request import urlopen, Request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# ===== 部署前修改这两处 =====
-BASE = "http://xxxxxxx:xxxxxx"  # 本机公网地址:端口（高位随机端口，防扫描）
-TOKEN = "xxxxxxx"   # 随机串，App 侧拼进 URL
-# ============================
-PORT = xxxxxx  # 监听端口，须与 BASE 中一致
+# ===== 部署前修改这三处（也可用环境变量覆盖） =====
+BASE = os.environ.get("RELAY_BASE", "http://143.203.52.132:47291")  # 本机公网地址:端口
+TOKEN = os.environ.get("RELAY_TOKEN", "hhpotatokidtoken")   # 随机串，App 侧拼进 URL
+PORT = int(os.environ.get("RELAY_PORT", "47291"))  # 监听端口，须与 BASE 中一致
+# =================================================
+ALLOW_HOST_API = os.environ.get(
+    "ALLOW_HOST_API", "http://100.83.142.107:3000/api/allow_reply_host")
+ALLOW_HOST_CACHE = os.environ.get(
+    "ALLOW_HOST_CACHE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "relay_allow_hosts.cache.json"))
+ALLOW_HOST_INTERVAL = int(os.environ.get("ALLOW_HOST_INTERVAL", "60"))
+ALLOW_HOST_MAX = 200  # 名单条数上限，防止异常响应撑爆判断循环
 
 UA = {"User-Agent": "Mozilla/5.0"}
-ACCEPT_HOST = ['jdshipin.com']
+# 内置默认只在「首次启动且本地缓存不可用」时使用；之后以服务端下发为准。
+DEFAULT_ACCEPT_HOST = ['jdshipin.com']
+_HOST_RE = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+_hosts_lock = threading.Lock()
+_accept_host = list(DEFAULT_ACCEPT_HOST)
+
+
+def _normalize_hosts(raw):
+    """校验接口返回的 allow_reply_host；非法返回 None（调用方沿用上次成功值）。"""
+    if not isinstance(raw, list):
+        return None
+    if len(raw) > ALLOW_HOST_MAX:
+        print("白名单条数 %d 超过上限 %d，整份名单视为无效"
+              % (len(raw), ALLOW_HOST_MAX), flush=True)
+        return None
+    hosts = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, str):
+            print("白名单含非字符串条目，整份名单视为无效", flush=True)
+            return None
+        host = item.strip().lower()
+        if host == "*":
+            # 转发机带宽有限，裸 * 会把全部域名压过来；整份名单视为无效。
+            print("白名单含裸 *，整份名单视为无效", flush=True)
+            return None
+        if host.startswith("*."):
+            host = host[2:]
+        host = host.rstrip(".")
+        if not host or not _HOST_RE.match(host):
+            print("白名单含非法域名 %r，整份名单视为无效" % item, flush=True)
+            return None
+        if host not in seen:
+            seen.add(host)
+            hosts.append(host)
+    return hosts
+
+
+def _load_host_cache():
+    try:
+        with open(ALLOW_HOST_CACHE, "r", encoding="utf-8") as f:
+            return _normalize_hosts(json.load(f))
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print("读取白名单缓存失败: %s" % e, flush=True)
+        return None
+
+
+def _save_host_cache(hosts):
+    tmp = ALLOW_HOST_CACHE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(hosts, f, ensure_ascii=False)
+        os.replace(tmp, ALLOW_HOST_CACHE)
+    except Exception as e:
+        print("写白名单缓存失败: %s" % e, flush=True)
+
+
+def _fetch_allow_hosts():
+    """拉取服务端白名单；任何失败/非法都返回 None，绝不影响 relay 服务。"""
+    try:
+        with urlopen(Request(ALLOW_HOST_API, headers=UA), timeout=10) as r:
+            body = r.read()
+        payload = json.loads(body.decode("utf-8", "replace"))
+        if not isinstance(payload, dict) or payload.get("code") != 0:
+            raise ValueError("响应 code 非 0")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("响应缺少 data")
+        hosts = _normalize_hosts(data.get("allow_reply_host"))
+        if hosts is None:
+            raise ValueError("白名单内容非法")
+        return hosts
+    except Exception as e:
+        print("拉取白名单失败: %s" % e, flush=True)
+        return None
+
+
+def _allow_host_loop():
+    global _accept_host
+    while True:
+        hosts = _fetch_allow_hosts()
+        if hosts is not None:
+            with _hosts_lock:
+                _accept_host = hosts
+            _save_host_cache(hosts)
+            print("白名单已更新: %s"
+                  % (hosts if hosts else "(空 = 全部直连)"), flush=True)
+        else:
+            print("本次拉取失败，沿用上次白名单: %s"
+                  % (_accept_host if _accept_host else "(空 = 全部直连)"),
+                  flush=True)
+        time.sleep(max(5, ALLOW_HOST_INTERVAL))
+
+
+def _init_allow_hosts():
+    """启动时先用本地缓存，再起后台轮询；拉取失败不影响服务。"""
+    global _accept_host
+    cached = _load_host_cache()
+    if cached is not None:
+        _accept_host = cached
+        print("白名单已从本地缓存加载: %s"
+              % (cached if cached else "(空 = 全部直连)"), flush=True)
+    else:
+        print("无可用白名单缓存，使用内置默认: %s" % _accept_host, flush=True)
+    threading.Thread(target=_allow_host_loop, daemon=True).start()
 
 
 def _allowed_host(url):
-    """src 域名白名单：仅 ACCEPT_HOST 中的域名（含其子域）可访问，其余拒绝。"""
+    """src 域名白名单：仅当前名单中的域名（含其子域）可访问，其余拒绝。
+    名单由服务端每 60 秒下发；空名单 = 全部拒绝（客户端空名单时不会把源路由
+    到 relay）。裸 * 永远不会进入名单，不会退化成全部放行。"""
     try:
         host = (urlparse(url).hostname or "").lower().rstrip(".")
     except ValueError:
         return False
-    return any(host == d or host.endswith("." + d) for d in ACCEPT_HOST)
+    with _hosts_lock:
+        allowed = list(_accept_host)
+    return any(host == d or host.endswith("." + d) for d in allowed)
 
 
 def fetch(url):
@@ -224,7 +346,7 @@ def _live_session(src, dev=""):
         "-vf", "scale=-2:%s" % LIVE_HEIGHT,
         "-c:v", "libx264", "-preset", "veryfast",
         "-b:v", LIVE_V_BITRATE, "-maxrate", LIVE_V_BITRATE, "-bufsize", "1600k",
-        "-c:a", "aac", "-b:a", "64k",
+        "-c:a", "aac", "-b:a", "96k",
         # 强制 2 秒一个关键帧再切段：否则源 GOP 长（~10s）时单段能到 1MB，
         # 链路抖动窗口内传不完会把播放器饿死
         "-force_key_frames", "expr:gte(t,n_forced*%d)" % LIVE_HLS_TIME,
@@ -350,7 +472,7 @@ class Relay(BaseHTTPRequestHandler):
     def serve_playlist(self, src):
         if not _allowed_host(src):
             print("不支持的Host地址: %s" % src)
-            self.send_error(403, "src host not in ACCEPT_HOST")
+            self.send_error(403, "src host not in allow-list")
             return
         t0 = time.perf_counter()
         r = fetch(src)
@@ -371,6 +493,11 @@ class Relay(BaseHTTPRequestHandler):
         )
 
     def serve_fetch(self, url):
+        # /fetch 是分片直取入口，必须和白名单一起校验，否则可被用来代理任意域名
+        if not _allowed_host(url):
+            print("不支持的Host地址: %s" % url)
+            self.send_error(403, "src host not in allow-list")
+            return
         t0 = time.perf_counter()
         r = fetch(url)
         t1 = time.perf_counter()  # 上游 TTFB（含跳转）
@@ -438,8 +565,9 @@ class Relay(BaseHTTPRequestHandler):
     def serve_live_playlist(self, src, dev=""):
         """起（或复用）ffmpeg 转码会话，返回分片地址改写为 /liveseg 的转码后列表。"""
         if not _allowed_host(src):
-            print("live src host 不在 ACCEPT_HOST，拒绝: %s" % src, flush=True)
-            self.send_error(403, "src host not in ACCEPT_HOST")
+            # 白名单在起会话之前拦：非白名单域名直接 403，不产生 ffmpeg 进程与入站流量
+            print("live src host 不在白名单，拒绝: %s" % src, flush=True)
+            self.send_error(403, "src host not in allow-list")
             return
         t0 = time.perf_counter()
         with _sessions_lock:
@@ -583,6 +711,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _on_shutdown)
     signal.signal(signal.SIGINT, _on_shutdown)
     _sweep_orphans()
+    _init_allow_hosts()
     threading.Thread(target=_reaper_loop, daemon=True).start()
     print(
         "relay on %s (token=%s) live=ffmpeg %sp/%s x%d"
