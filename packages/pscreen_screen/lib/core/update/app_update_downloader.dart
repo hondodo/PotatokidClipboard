@@ -133,6 +133,9 @@ class AppUpdateDownloader {
               : int.tryParse(response.headers.value(Headers.contentLengthHeader)!) ?? 0));
       final int already = existing;
       int received = already;
+      // 限速只按本次连接实际写入的字节计算；否则续传时会把历史字节当成
+      // 「已落后」，在 1MiB/s 下可能休眠数小时。
+      int sessionBytes = 0;
 
       final RandomAccessFile raf = part.openSync(mode: append ? FileMode.append : FileMode.write);
       final Stopwatch clock = Stopwatch()..start();
@@ -141,8 +144,9 @@ class AppUpdateDownloader {
           await for (final Uint8List chunk in response.data!.stream) {
             raf.writeFromSync(chunk);
             received += chunk.length;
+            sessionBytes += chunk.length;
             onProgress(received, total);
-            await _throttle(clock, received);
+            await _throttle(clock, sessionBytes);
           }
         } on DioException catch (error) {
           throw AppUpdateDownloadException(error.message ?? '下载中断');
@@ -173,12 +177,12 @@ class AppUpdateDownloader {
     throw const AppUpdateDownloadException('下载失败，稍后重试');
   }
 
-  /// 默认不限速；配置了 [maxBytesPerSecond] 时按累计字节与耗时做节流，
-  /// 只在落后超过 40ms 时延迟，避免每个 chunk 都 sleep 拖慢整体速度。
-  Future<void> _throttle(Stopwatch clock, int received) async {
+  /// 默认不限速；配置了 [maxBytesPerSecond] 时按「本次连接」累计字节与耗时做
+  /// 节流，只在落后超过 40ms 时延迟：平均速率受控，但允许最多约 40ms 的突发。
+  Future<void> _throttle(Stopwatch clock, int sessionBytes) async {
     final int? limit = maxBytesPerSecond;
     if (limit == null || limit <= 0) return;
-    final int expectedMs = (received * 1000) ~/ limit;
+    final int expectedMs = (sessionBytes * 1000) ~/ limit;
     final int actualMs = clock.elapsedMilliseconds;
     final int behind = expectedMs - actualMs;
     if (behind > 40) await Future<void>.delayed(Duration(milliseconds: behind));

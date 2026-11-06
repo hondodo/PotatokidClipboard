@@ -29,6 +29,9 @@ import 'package:pscreen_screen/features/remote/application/bloc/remote_login_eve
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
 
+/// TV 更新包下载限速（字节/秒），后续可在此调大/调小。
+const int kUpdateMaxBytesPerSecond = 1024 * 1024;
+
 void main() {
   runZonedGuarded<Future<void>>(
     () async {
@@ -116,6 +119,8 @@ void main() {
             deviceId: deviceId,
             checkInterval: const Duration(hours: 12),
             checkJitter: const Duration(minutes: 30),
+            // TV 常驻直播页，不做场景门控；用温和限速降低对播放的影响。
+            maxBytesPerSecond: kUpdateMaxBytesPerSecond,
           ),
         );
       }
