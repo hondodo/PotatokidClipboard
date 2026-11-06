@@ -161,28 +161,117 @@ async function collectFfmpeg() {
   return { count: items.length, items };
 }
 
+// 从 pos 处向前找最近一个换行之后的位置（用于 4MB 窗口内完全没有换行的极端长行）
+function findLineStart(fd, pos) {
+  const block = 64 * 1024;
+  let end = pos;
+  while (end > 0) {
+    const start = Math.max(0, end - block);
+    const buf = Buffer.alloc(end - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    const idx = buf.lastIndexOf(0x0a);
+    if (idx !== -1) return start + idx + 1;
+    end = start;
+  }
+  return 0;
+}
+
+// 尾部模式：返回最后 lineCount 条完整行，nextOffset 指向最后一条完整行之后的字节位置。
+// 未以换行结尾的半行不返回，也不把 nextOffset 推过它。
 function readTail(file, lineCount) {
-  const stat = fs.statSync(file);
-  const size = stat.size;
-  if (size === 0) return { lines: [], size: 0, mtime: stat.mtime.toISOString() };
-  const start = Math.max(0, size - MAX_LOG_BYTES);
-  const length = size - start;
   const fd = fs.openSync(file, 'r');
   try {
-    const buffer = Buffer.alloc(length);
-    fs.readSync(fd, buffer, 0, length, start);
-    let text = buffer.toString('utf8');
-    if (start > 0) {
-      const firstBreak = text.indexOf('\n');
-      text = firstBreak === -1 ? '' : text.slice(firstBreak + 1);
+    const stat = fs.fstatSync(fd);
+    const size = stat.size;
+    const inode = String(stat.ino);
+    const mtime = stat.mtime.toISOString();
+    if (size === 0) {
+      return { lines: [], size, inode, mtime, nextOffset: 0, truncated: false };
     }
+    const start = Math.max(0, size - MAX_LOG_BYTES);
+    const buffer = Buffer.alloc(size - start);
+    fs.readSync(fd, buffer, 0, buffer.length, start);
+    let body = buffer;
+    let base = start;
+    if (start > 0) {
+      const firstBreak = buffer.indexOf(0x0a);
+      if (firstBreak === -1) {
+        return { lines: [], size, inode, mtime, nextOffset: findLineStart(fd, start), truncated: true };
+      }
+      body = buffer.subarray(firstBreak + 1);
+      base = start + firstBreak + 1;
+    }
+    const lastBreak = body.lastIndexOf(0x0a);
+    if (lastBreak === -1) {
+      return { lines: [], size, inode, mtime, nextOffset: base, truncated: start > 0 };
+    }
+    const complete = body.subarray(0, lastBreak + 1);
+    const text = complete.toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
     return {
       lines: lines.slice(-lineCount),
       size,
-      mtime: stat.mtime.toISOString(),
+      inode,
+      mtime,
+      nextOffset: base + complete.length,
       truncated: start > 0,
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// 增量模式：从 offset（必须是上次 nextOffset，即完整行边界）读到 EOF，
+// 只返回完整行；nextOffset 与返回内容严格对齐，半行留在原地等下次。
+function readLogChunk(file, offset, lineCount, expectInode, expectSize) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const stat = fs.fstatSync(fd);
+    const size = stat.size;
+    const inode = String(stat.ino);
+    const mtime = stat.mtime.toISOString();
+    let reason = '';
+    if (expectInode && expectInode !== inode) reason = 'rotated';
+    else if (expectSize !== null && size < expectSize) reason = 'truncated';
+    else if (size < offset) reason = 'truncated';
+    else if (offset > 0) {
+      const probe = Buffer.alloc(1);
+      fs.readSync(fd, probe, 0, 1, offset - 1);
+      if (probe[0] !== 0x0a) reason = 'offset_misaligned';
+    }
+    if (reason) {
+      return { reset: true, reason, size, inode, mtime, lines: [], nextOffset: offset };
+    }
+    if (size <= offset) {
+      return {
+        reset: false, lines: [], size, inode, mtime, nextOffset: offset,
+        hasMore: false, truncated: false,
+      };
+    }
+    const end = Math.min(size, offset + MAX_LOG_BYTES);
+    const buffer = Buffer.alloc(end - offset);
+    fs.readSync(fd, buffer, 0, buffer.length, offset);
+    const lastBreak = buffer.lastIndexOf(0x0a);
+    if (lastBreak === -1) {
+      return {
+        reset: false, lines: [], size, inode, mtime, nextOffset: offset,
+        hasMore: end < size, truncated: true,
+      };
+    }
+    const usable = buffer.subarray(0, lastBreak + 1);
+    const text = usable.toString('utf8');
+    const all = text.split('\n');
+    if (all.length && all[all.length - 1] === '') all.pop();
+    let picked = all;
+    let nextOffset = offset + usable.length;
+    if (all.length > lineCount) {
+      picked = all.slice(0, lineCount);
+      nextOffset = offset + Buffer.byteLength(picked.join('\n') + '\n', 'utf8');
+    }
+    return {
+      reset: false, lines: picked, size, inode, mtime, nextOffset,
+      hasMore: nextOffset < size, truncated: end < size,
     };
   } finally {
     fs.closeSync(fd);
@@ -193,6 +282,14 @@ function parseLines(value) {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return DEFAULT_LOG_LINES;
   return Math.min(MAX_LOG_LINES, Math.max(10, Math.floor(num)));
+}
+
+// 增量游标参数：缺省/非法一律回退到尾部模式，避免拿错值读错位内容。
+function parseOffset(value) {
+  if (value === undefined || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return Math.floor(num);
 }
 
 // ---- 转换流量历史（relay 写入的 JSONL，只读）----
@@ -510,9 +607,22 @@ function createRelayRouter({ audit } = {}) {
     '/relay/logs',
     wrap(async (req, res) => {
       const lines = parseLines(req.query.lines);
+      const offset = parseOffset(req.query.offset);
+      const expectInode = req.query.inode === undefined ? '' : String(req.query.inode);
+      const expectSize = parseOffset(req.query.size);
       let data;
       try {
-        data = readTail(LOG_FILE, lines);
+        if (offset === null) {
+          data = readTail(LOG_FILE, lines);
+        } else {
+          data = readLogChunk(LOG_FILE, offset, lines, expectInode, expectSize);
+          if (data.reset) {
+            const reason = data.reason || 'changed';
+            data = readTail(LOG_FILE, lines);
+            data.reset = true;
+            data.reason = reason;
+          }
+        }
       } catch (err) {
         if (err && err.code === 'ENOENT') {
           throw new ApiError(404, 400004, `日志文件不存在：${LOG_FILE}`);
@@ -520,15 +630,22 @@ function createRelayRouter({ audit } = {}) {
         throw new ApiError(500, 500000, `读取日志失败：${err.message}`);
       }
       const content = redact(data.lines.join('\n'));
+      const outLines = content ? content.split('\n') : [];
       ok(res, {
         file: LOG_FILE,
         source: 'file',
         requestedLines: lines,
-        count: data.lines.length,
+        count: outLines.length,
         sizeBytes: data.size,
+        size: data.size,
+        inode: String(data.inode),
         mtime: data.mtime,
+        nextOffset: data.nextOffset,
+        reset: Boolean(data.reset),
+        resetReason: data.reason || '',
+        hasMore: Boolean(data.hasMore),
         truncated: Boolean(data.truncated),
-        lines: content ? content.split('\n') : [],
+        lines: outLines,
       });
     })
   );
@@ -634,5 +751,7 @@ module.exports = {
   MAX_LOG_LINES,
   DEFAULT_LOG_LINES,
   redact,
+  readTail,
+  readLogChunk,
   collectTraffic,
 };
