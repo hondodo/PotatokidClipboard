@@ -86,6 +86,8 @@ class _ParentalPageState extends State<ParentalPage> {
       unawaited(_loadParentalSessions());
     });
     _eventSub = _channel?.events.listen(_onRealtimeEvent);
+    // 空态也要能显示「当前登录账号」，不依赖角色校验是否通过。
+    unawaited(_loadMyAccount());
     if (AccountSession.isParentOrAdmin) unawaited(_reload());
   }
 
@@ -140,6 +142,33 @@ class _ParentalPageState extends State<ParentalPage> {
     final bool allowed = AccountSession.isParentOrAdmin;
     setState(() {});
     if (allowed && _machines.isEmpty) unawaited(_reload());
+  }
+
+  /// 读取当前生效账号（`<flavor>.<kind>.<设备号>`），空态用于告知用户身份。
+  Future<void> _loadMyAccount() async {
+    final String account = (await DeviceCredentials.account()).trim();
+    if (!mounted || account == _myAccount) return;
+    setState(() => _myAccount = account);
+  }
+
+  /// 空态「刷新」：重新登录一次刷新角色；成功后由 roleNotifier 切到正常页面。
+  Future<void> _refreshPermission() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    final bool ok = await AccountSession.loginWithSaved();
+    await _loadMyAccount();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (!ok) {
+      _hint('权限检测失败：请检查服务端连接后重试', error: true);
+    } else if (!AccountSession.isParentOrAdmin) {
+      _hint('已重新检测：当前账号仍无家长权限');
+    }
+  }
+
+  /// 空态「设置」：进完整设置页（与中控右上角齿轮同一目标）。
+  void _openAppSettings() {
+    context.push(RouteNames.settingsPath);
   }
 
   /// 拉设备清单（含 owner 过滤）→ 生效 parental 配置 → 事件历史。
@@ -398,8 +427,33 @@ class _ParentalPageState extends State<ParentalPage> {
   Widget build(BuildContext context) {
     // 角色闸门：user 即使经深链进入也不提供任何家长能力（口径「能弹 = 能点」）。
     if (!AccountSession.isParentOrAdmin) {
+      final String role = AccountSession.role;
+      final String roleText = role.isEmpty ? '未确定（按 user 处理）' : role;
       return Scaffold(
-        appBar: AppBar(title: const Text('家长视图')),
+        appBar: AppBar(
+          title: const Text('家长视图'),
+          // 空态不提供返回箭头：parent 变体没有中控台，返回只会落到无权限页面。
+          automaticallyImplyLeading: false,
+          actions: <Widget>[
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else
+              IconButton(
+                tooltip: '刷新（重新检测权限）',
+                icon: const Icon(Icons.refresh),
+                onPressed: () => unawaited(_refreshPermission()),
+              ),
+            // 与中控右上角齿轮同一目标，未登录家长角色也能进设置页。
+            IconButton(
+              tooltip: '设置',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: _openAppSettings,
+            ),
+          ],
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -409,10 +463,29 @@ class _ParentalPageState extends State<ParentalPage> {
                 const Icon(Icons.block, size: 40),
                 const SizedBox(height: 12),
                 const Text('当前账号没有家长权限（需 parent / admin 角色）'),
+                const SizedBox(height: 16),
+                // 明确告知当前身份，避免不知道自己在用什么号。
+                SelectableText(
+                  '当前登录账号：${_myAccount.isEmpty ? '检测中…' : _myAccount}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '当前角色：$roleText',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
                 const SizedBox(height: 12),
-                // parent 变体没有中控台，不提供「返回中控台」入口。
-                if (!AppFlavorConfig.isParentOnly)
-                  FilledButton(onPressed: () => context.go(RouteNames.home), child: const Text('返回中控台')),
+                Text(
+                  role.isEmpty
+                      ? '角色尚未校验成功（登录失败或服务端不可达），点右上角刷新重新检测。'
+                      : '该账号在服务端只有 user 角色；可在管理后台「用户与家庭」把角色改为「家长」后，点右上角刷新重新检测。',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
               ],
             ),
           ),

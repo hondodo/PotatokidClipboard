@@ -13,6 +13,15 @@ const DEFAULT_PASSWORD_MD5 = crypto.createHash('md5').update('123456').digest('h
 
 const ACCOUNT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 
+// 设备派生账号 `<flavor>.<kind>.<设备号16hex>`（见客户端 DeviceCredentials）。
+// 家长端 flavor 为 `parent`：首次自动建档即授予 parent 角色，不依赖后台手改；
+// 其余派生账号（tv / board / home 等）按普通 user 建档（与既有行为一致）。
+const PARENT_DERIVED_ACCOUNT_PATTERN = /^parent\.[A-Za-z0-9_-]+\.([0-9a-fA-F]{16})$/;
+
+function roleForNewAccount(account) {
+    return PARENT_DERIVED_ACCOUNT_PATTERN.test(String(account || '')) ? 'parent' : 'user';
+}
+
 function isValidAccount(account) {
     return typeof account === 'string' && ACCOUNT_PATTERN.test(account);
 }
@@ -65,6 +74,7 @@ function createAccountStore(registerUsersDir) {
         const userInfo = {
             id: newUserId,
             name: account,
+            role: roleForNewAccount(account),
             createdAt: new Date().toISOString(),
         };
         fs.writeFileSync(infoFile(account), JSON.stringify(userInfo, null, 2), 'utf8');
@@ -102,4 +112,11 @@ function createAccountStore(registerUsersDir) {
     return { exists, verify, verifyOrProvision, create, readInfo, writeInfo };
 }
 
-module.exports = { createAccountStore, isValidAccount, md5Of, DEFAULT_PASSWORD_MD5, ACCOUNT_PATTERN };
+module.exports = {
+    createAccountStore,
+    isValidAccount,
+    md5Of,
+    DEFAULT_PASSWORD_MD5,
+    ACCOUNT_PATTERN,
+    roleForNewAccount,
+};

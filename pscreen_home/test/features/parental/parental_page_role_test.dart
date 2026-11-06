@@ -75,6 +75,22 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets('user 身份：空态无返回按钮，显示刷新/设置与当前账号角色', (WidgetTester tester) async {
+    AccountSession.roleNotifier.value = 'user';
+    await _pumpPushedParentalPage(tester);
+
+    expect(find.byType(ParentalPage), findsOneWidget);
+    // 空态不再提供返回箭头与「返回中控台」。
+    expect(find.byType(BackButton), findsNothing);
+    expect(find.text('返回中控台'), findsNothing);
+    // 右上角只剩刷新（重新检测权限）与设置。
+    expect(find.byTooltip('刷新（重新检测权限）'), findsOneWidget);
+    expect(find.byTooltip('设置'), findsOneWidget);
+    expect(find.textContaining('当前登录账号：'), findsOneWidget);
+    expect(find.text('当前角色：user'), findsOneWidget);
+    expect(find.textContaining('只有 user 角色'), findsOneWidget);
+  });
+
   testWidgets('admin 身份：保留返回按钮、无家长设置入口', (WidgetTester tester) async {
     AccountSession.roleNotifier.value = 'admin';
     await _pumpPushedParentalPage(tester);

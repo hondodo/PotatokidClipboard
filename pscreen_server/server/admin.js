@@ -17,6 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
+const { roleForNewAccount } = require('./accounts');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
@@ -138,7 +139,9 @@ function hashPassword(input) {
 
 function safeUsername(value) {
     const name = typeof value === 'string' ? value.trim() : '';
-    if (!name || name.length < 2 || name.length > 20) return '';
+    // 上限与 accounts.js 的 ACCOUNT_PATTERN 对齐：设备派生账号
+    // `<flavor>.<kind>.<设备号16hex>` 会超过旧的 20 位上限。
+    if (!name || name.length < 2 || name.length > 64) return '';
     if (!/^[A-Za-z0-9_\u4e00-\u9fa5.-]+$/.test(name)) return '';
     if (name === '.' || name === '..') return '';
     return name;
@@ -575,10 +578,14 @@ function attachAdmin(app, options = {}) {
     }
 
     // 启动时做一次轻量迁移：补齐 role，确保 honghao 是管理员。
+    // 派生账号（<flavor>.<kind>.<设备号>）若历史数据缺 role，按账号规则补齐：
+    // 家长端 parent.* 补 parent，其余补 user（不覆盖已显式设置的角色）。
     (function migrateUsers() {
         for (const user of listUsers()) {
             const info = readUserInfo(user.name);
-            const nextRole = user.name === ADMIN_USERNAME ? 'admin' : (info.role || 'user');
+            const nextRole = user.name === ADMIN_USERNAME
+                ? 'admin'
+                : (info.role || roleForNewAccount(user.name));
             const needsWrite = info.role !== nextRole;
             if (needsWrite) {
                 info.role = nextRole;
@@ -877,7 +884,7 @@ function attachAdmin(app, options = {}) {
             const username = safeUsername(req.body ? req.body.username : '');
             const password = typeof req.body?.password === 'string' ? req.body.password.trim() : '';
             if (!username) {
-                return jsonFail(res, '用户名需为 2-20 位字母、数字、下划线或中文');
+                return jsonFail(res, '用户名需为 2-64 位字母、数字、下划线或中文');
             }
             if (username === ADMIN_USERNAME) {
                 return jsonFail(res, '该用户名已被管理员占用');
