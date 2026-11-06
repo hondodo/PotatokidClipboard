@@ -9,9 +9,17 @@ import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 /// 确认后调用 [SystemNavigator.pop]（结束 Activity），与系统返回的最终效果一致。
 /// 弹窗外观与返回键处理由 [ConfirmDialog] 统一提供（与「重置」弹窗一致）。
 class ExitConfirmScope extends StatefulWidget {
-  const ExitConfirmScope({super.key, required this.child});
+  const ExitConfirmScope({
+    super.key,
+    required this.child,
+    this.onBackRequested,
+  });
 
   final Widget child;
+
+  /// 返回键先经过宿主的分层拦截（子页面 → 回直播 → 首页才退出）。
+  /// 返回 true 表示已被宿主消费，不再弹退出确认。
+  final bool Function()? onBackRequested;
 
   /// 确认框是否正在显示，避免连按返回键叠出多个。
   static bool _showing = false;
@@ -52,6 +60,7 @@ class _ExitConfirmScopeState extends State<ExitConfirmScope> {
       canPop: false,
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop) return;
+        if (widget.onBackRequested?.call() ?? false) return;
         ExitConfirmScope.requestExit(context);
       },
       child: widget.child,

@@ -27,6 +27,7 @@ import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:potatokid_screen/shared/widgets/exit_confirm_scope.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 单个顶部 Tab 的静态描述（图标 + 文案 key）。
 class _TabDescriptor {
@@ -44,7 +45,7 @@ class _TabDescriptor {
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
 /// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
 ///   「我的」页正文焦点内激活设置行；
-/// - **返回键**：二次确认后才退出应用（见 [ExitConfirmScope]）。
+/// - **返回键**：非首页先回直播；「我的」页先退出正文选中；仅首页才二次确认退出。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -79,6 +80,63 @@ class MainApp extends StatelessWidget {
       index,
       initialLocation: index == navigationShell.currentIndex,
     );
+  }
+
+  /// 返回键分层处理：返回 true 表示已消费（不再弹退出确认）。
+  ///
+  /// 顺序与根处理器一致：确认弹窗/消息浮层/选人页/锁屏 → 行内编辑 →
+  /// 设置页正文选中 → 非首页回直播 → 首页才退出。
+  /// 根处理器与 [ExitConfirmScope] 的 `PopScope` 共用本方法，
+  /// 保证悬浮遥控器与实体遥控器行为一致。
+  bool _handleBack(BuildContext context) {
+    // 锁屏期间不响应返回（不能把用户送回直播或弹出退出框）。
+    if (KidWatchTimerController.instance.locked) return true;
+
+    // 儿童模式选人页：交给选人页自己的返回逻辑，其余按键被它吞掉。
+    if (ParentalSelectOverlay.gateVisible) {
+      ParentalSelectOverlay.handleGateKey(
+        context,
+        LogicalKeyboardKey.escape,
+      );
+      return true;
+    }
+
+    // 消息浮层：先关浮层，不触发回直播/退出。
+    if (MessageOverlayController.instance.visible) {
+      MessageOverlayController.instance.onAnyKey();
+      MessageOverlayController.instance.handleBack();
+      return true;
+    }
+
+    final int cur = navigationShell.currentIndex;
+
+    // 设置页行内编辑 → 先取消编辑（页面内返回）。
+    final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
+    if (cur == _profileBranchIndex &&
+        !_profileReadonly &&
+        ProfilePage.isInlineEditing &&
+        cancelInline != null) {
+      cancelInline();
+      return true;
+    }
+
+    // 设置页正文选中 → 先退回导航条（页面内返回）。
+    if (cur == _profileBranchIndex &&
+        !_profileReadonly &&
+        ProfileFocusController.instance.focused) {
+      ProfileFocusController.instance.reset();
+      return true;
+    }
+
+    // 非首页 → 回直播。
+    if (cur != 0) {
+      _goTab(0);
+      unawaited(_BackToLiveHint.maybeShow(context));
+      return true;
+    }
+
+    // 首页 → 维持现有二次确认退出。
+    return false;
   }
 
   /// 「我的」Tab 儿童模式只读替换是否生效（方案 5.2 生效判定式）。
@@ -248,19 +306,11 @@ class MainApp extends StatelessWidget {
     }
 
     // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）：
-    // 与系统返回一致，走二次确认，避免盒子上误触直接退出。
+    // 与系统返回共用 [_handleBack]：非首页回直播、设置页先退正文，
+    // 仅首页才二次确认退出，避免盒子上误触直接退出。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
-      // 行内输入编辑态返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
-      // 同样仅限「我的」分支，理由同上。
-      final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
-      if (cur == _profileBranchIndex &&
-          !_profileReadonly &&
-          ProfilePage.isInlineEditing &&
-          cancelInline != null) {
-        cancelInline();
-        return true;
-      }
+      if (_handleBack(context)) return true;
       ExitConfirmScope.requestExit(context);
       return true;
     }
@@ -393,6 +443,7 @@ class MainApp extends StatelessWidget {
     return Stack(
       children: <Widget>[
         ExitConfirmScope(
+          onBackRequested: () => _handleBack(context),
           child: AutoHideChrome(
             currentIndex: navigationShell.currentIndex,
             profileBranchIndex: _profileBranchIndex,
@@ -416,7 +467,9 @@ class MainApp extends StatelessWidget {
                             _profileBranchIndex) {
                           return;
                         }
-                        context.read<AppBloc>().add(SetChrome(!chromeVisible));
+                        context
+                            .read<AppBloc>()
+                            .add(SetChrome(!chromeVisible));
                       },
                       child: ListenableBuilder(
                         listenable: ParentalStateController.instance,
@@ -622,6 +675,32 @@ class _TopTabState extends State<_TopTab> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 「二级页按返回键回直播」的一次性提示。
+///
+/// 只在首次真正触发时提示一次；用本地持久化记住，重启不再打扰。
+class _BackToLiveHint {
+  static const String _prefsKey = 'tv_back_to_live_hint_shown';
+
+  /// 同进程内只尝试一次，避免预置未落盘时反复弹。
+  static bool _attempted = false;
+
+  static Future<void> maybeShow(BuildContext context) async {
+    if (_attempted) return;
+    _attempted = true;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_prefsKey) ?? false) return;
+    await prefs.setBool(_prefsKey, true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('back_to_live_hint'.tr()),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

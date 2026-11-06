@@ -10,6 +10,7 @@
   "home_title": "首页",
   "time_title": "时间",
   "screensaver_title": "屏保",
+  "back_to_live_hint": "已回到直播，二级页面按返回键可一键回直播",
   "profile_title": "设置",
   "home_detail_title": "详情",
   "iptv_channel_number_out_of_range": "频道号超出范围",
