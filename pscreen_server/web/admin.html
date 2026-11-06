@@ -634,6 +634,10 @@
     overview: null,
     tab: 'machines',
     timer: null,
+    // 稳定列表：进入页面 / 手动刷新时拍一次顺序快照，轮询只更新内容不重排。
+    machineOrder: null,
+    machineStatus: null,
+    userOrder: null,
     layoutKey: '',
     layoutDraft: null,
     parentalRecords: null,
@@ -752,7 +756,7 @@
       const data = await api('/api/admin/me');
       state.me = data.user;
       showDashboard();
-      await loadOverview();
+      await loadOverview(false, true);
       startPolling();
     } catch (_) {
       showLogin();
@@ -778,7 +782,7 @@
       $('login-password').value = '';
       setAuthMessage('');
       showDashboard();
-      await loadOverview();
+      await loadOverview(false, true);
       startPolling();
     } catch (error) {
       setAuthMessage(error.message, 'error');
@@ -817,7 +821,8 @@
     showLogin();
   });
 
-  $('refresh-btn').addEventListener('click', () => loadOverview(true));
+  // 手动刷新是唯一会重新拍顺序快照的入口。
+  $('refresh-btn').addEventListener('click', () => loadOverview(true, true));
 
   // ------------------------------------------------------------ 概览
 
@@ -828,23 +833,23 @@
     }, 10000);
   }
 
-  async function loadOverview(showError) {
+  async function loadOverview(showError, snapshot = false) {
     try {
       const data = await api('/api/admin/overview');
       state.overview = data;
       state.me = data.admin;
-      renderAll();
+      renderAll(snapshot);
       if (state.tab === 'parental') loadParentalRecords(false);
     } catch (error) {
       if (showError) toast(error.message, 'error');
     }
   }
 
-  function renderAll() {
+  function renderAll(snapshot = false) {
     if (!state.overview) return;
     renderStats();
-    renderMachines();
-    renderUsers();
+    renderMachines(snapshot);
+    renderUsers(snapshot);
     renderLayouts();
     renderParental();
     const realtime = state.overview.realtimeOnline || [];
@@ -964,175 +969,382 @@
     return `<div class="badges">${parents.map((name) => `<span class="badge role-parent">${esc(name)}</span>`).join('')}</div>`;
   }
 
-  function renderMachines() {
+  // 稳定列表：轮询/心跳只就地更新内容，不按服务端排序重排。
+  // 只有进入页面和点「刷新」时会拍一次顺序快照。
+
+  /** 输入框 / 下拉框聚焦视为正在编辑，此时暂停列表的增删与重排。 */
+  function isEditingElement(el) {
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT'
+      || el.tagName === 'TEXTAREA' || el.isContentEditable === true);
+  }
+
+  /** 弹窗打开或表内输入框/下拉框聚焦时，该表处于锁定状态。 */
+  function tableLocked(bodyId) {
+    if ($('dialog-root').querySelector('.overlay')) return true;
+    const body = $(bodyId);
+    const active = document.activeElement;
+    return !!body && isEditingElement(active) && body.contains(active);
+  }
+
+  /** 就地更新一行：聚焦中的单元格跳过，避免替换正在编辑的控件。 */
+  function updateRowContent(row, cells) {
+    cells.forEach((html, index) => {
+      const td = row.children[index];
+      if (!td) return;
+      const active = document.activeElement;
+      if (isEditingElement(active) && td.contains(active)) return;
+      if (td.innerHTML !== html) td.innerHTML = html;
+    });
+  }
+
+  function machineCells(machine) {
+    const online = machine.online === true;
+    const kind = machineKind(machine);
+    const nameInfo = machineDisplay(machine);
+    return [
+      `<span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span>`,
+      `
+        <div class="cell-stack">
+          <span class="strong">${esc(nameInfo.name)}</span>
+          <span class="muted">当前显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
+          <span class="mono">${esc(machine.id)}</span>
+          <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
+          <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
+        </div>`,
+      kindBadge(machine),
+      ownerSelect(machine),
+      commCell(machine),
+      `
+        <div class="cell-stack">
+          ${homesBadges(machine.effectiveHomes, machine.homesSource)}
+          <span class="muted">来源：${esc(sourceLabel(machine.homesSource))}${machine.homesSource === 'machine' ? '' : (machine.owner ? ' → ' + esc(machine.owner) : '')}</span>
+        </div>`,
+      machine.currentHome ? `<span class="badge">${esc(machine.currentHome)}</span>` : '<span class="muted">—</span>',
+      `<div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="mono">${esc(machine.ip || '')}</span></div>`,
+      `
+        <div class="row-actions">
+          <button class="btn small" data-action="homes" type="button">家庭</button>
+          ${kind === 'home'
+            ? '<span class="muted">中控端无儿童模式</span>'
+            : kind === 'parent'
+              ? '<span class="muted">家长端无儿童模式</span>'
+              : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
+          <button class="btn small" data-action="rename" type="button">改名</button>
+          <button class="btn small danger" data-action="delete" type="button">删除</button>
+        </div>`,
+    ];
+  }
+
+  function createMachineRow(machine) {
+    const row = document.createElement('tr');
+    row.dataset.machineId = machine.id;
+    for (let index = 0; index < 9; index += 1) row.appendChild(document.createElement('td'));
+    updateRowContent(row, machineCells(machine));
+    return row;
+  }
+
+  /**
+   * 机器行顺序：
+   * - 拍快照时按服务端顺序（在线组 + 离线组）。
+   * - 轮询时老行保持原位；新上线设备追加到在线组末尾，掉线设备移到在线组之后。
+   */
+  function computeMachineOrder(machines, snapshot) {
+    const byId = new Map(machines.map((machine) => [machine.id, machine]));
+    const serverOnline = machines.filter((machine) => machine.online === true).map((machine) => machine.id);
+    const serverOffline = machines.filter((machine) => machine.online !== true).map((machine) => machine.id);
+    if (snapshot || !state.machineOrder) {
+      return serverOnline.concat(serverOffline);
+    }
+    let order = state.machineOrder.filter((id) => byId.has(id));
+    const known = new Set(state.machineOrder);
+    const firstOffline = () => order.findIndex((id) => {
+      const machine = byId.get(id);
+      return machine && machine.online !== true;
+    });
+    // 轮询期间新出现的设备：在线追加到在线组末尾，离线追加到表尾。
+    for (const machine of machines) {
+      if (known.has(machine.id)) continue;
+      known.add(machine.id);
+      if (machine.online === true) {
+        const at = firstOffline();
+        if (at >= 0) order.splice(at, 0, machine.id);
+        else order.push(machine.id);
+      } else {
+        order.push(machine.id);
+      }
+    }
+    // 已存在设备的状态变化：上线追加到在线组末尾；掉线移到在线组之后。
+    if (state.machineStatus) {
+      for (const machine of machines) {
+        const wasOnline = state.machineStatus.get(machine.id);
+        if (wasOnline === undefined || wasOnline === (machine.online === true)) continue;
+        order = order.filter((id) => id !== machine.id);
+        if (machine.online === true) {
+          const at = firstOffline();
+          if (at >= 0) order.splice(at, 0, machine.id);
+          else order.push(machine.id);
+        } else {
+          const at = firstOffline();
+          order.splice(at >= 0 ? at : order.length, 0, machine.id);
+        }
+      }
+    }
+    return order;
+  }
+
+  function renderMachines(snapshot = false) {
     const body = $('machines-body');
     const machines = state.overview.machines || [];
     if (!machines.length) {
       body.innerHTML = '<tr><td colspan="9"><div class="empty">还没有设备注册。中控屏启动并配置服务端地址后会自动出现。</div></td></tr>';
+      state.machineOrder = [];
+      state.machineStatus = new Map();
       return;
     }
-    body.innerHTML = machines.map((machine) => {
-      const online = machine.online === true;
-      const kind = machineKind(machine);
-      const nameInfo = machineDisplay(machine);
-      return `
-        <tr data-machine-id="${esc(machine.id)}">
-          <td><span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span></td>
-          <td>
-            <div class="cell-stack">
-              <span class="strong">${esc(nameInfo.name)}</span>
-              <span class="muted">当前显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
-              <span class="mono">${esc(machine.id)}</span>
-              <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
-              <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
-            </div>
-          </td>
-          <td>${kindBadge(machine)}</td>
-          <td>${ownerSelect(machine)}</td>
-          <td>${commCell(machine)}</td>
-          <td>
-            <div class="cell-stack">
-              ${homesBadges(machine.effectiveHomes, machine.homesSource)}
-              <span class="muted">来源：${esc(sourceLabel(machine.homesSource))}${machine.homesSource === 'machine' ? '' : (machine.owner ? ' → ' + esc(machine.owner) : '')}</span>
-            </div>
-          </td>
-          <td>${machine.currentHome ? `<span class="badge">${esc(machine.currentHome)}</span>` : '<span class="muted">—</span>'}</td>
-          <td><div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="mono">${esc(machine.ip || '')}</span></div></td>
-          <td>
-            <div class="row-actions">
-              <button class="btn small" data-action="homes" type="button">家庭</button>
-              ${kind === 'home'
-                ? '<span class="muted">中控端无儿童模式</span>'
-                : kind === 'parent'
-                  ? '<span class="muted">家长端无儿童模式</span>'
-                  : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
-              <button class="btn small" data-action="rename" type="button">改名</button>
-              <button class="btn small danger" data-action="delete" type="button">删除</button>
-            </div>
-          </td>
-        </tr>`;
-    }).join('');
-
+    const byId = new Map(machines.map((machine) => [machine.id, machine]));
+    if (tableLocked('machines-body')) {
+      // 编辑/下拉/弹窗期间：不增删、不重排，只就地更新已有行的内容。
+      body.querySelectorAll('tr[data-machine-id]').forEach((row) => {
+        const machine = byId.get(row.dataset.machineId);
+        if (machine) updateRowContent(row, machineCells(machine));
+      });
+      state.machineOrder = Array.from(body.querySelectorAll('tr[data-machine-id]'))
+        .map((row) => row.dataset.machineId);
+      return;
+    }
+    const order = computeMachineOrder(machines, snapshot);
+    const placeholder = body.querySelector('tr:not([data-machine-id])');
+    if (placeholder) placeholder.remove();
+    const rows = new Map();
     body.querySelectorAll('tr[data-machine-id]').forEach((row) => {
-      const id = row.dataset.machineId;
-      const machine = machines.find((item) => item.id === id);
+      rows.set(row.dataset.machineId, row);
+    });
+    for (const id of order) {
+      if (rows.has(id)) continue;
+      const row = createMachineRow(byId.get(id));
+      rows.set(id, row);
+    }
+    for (const id of order) updateRowContent(rows.get(id), machineCells(byId.get(id)));
+    for (const [id, row] of rows) {
+      if (!byId.has(id)) row.remove();
+    }
+    // 只移动必要的行，保留已有 DOM 节点（key = 设备 id）。
+    let cursor = body.firstElementChild;
+    for (const id of order) {
+      const row = rows.get(id);
+      if (!row) continue;
+      if (row !== cursor) body.insertBefore(row, cursor);
+      cursor = row.nextElementSibling;
+    }
+    state.machineOrder = order;
+    state.machineStatus = new Map(machines.map((machine) => [machine.id, machine.online === true]));
+  }
+
+  function userCells(user) {
+    const nameInfo = userDisplay(user);
+    const machines = Array.isArray(user.machines) ? user.machines : [];
+    return [
+      `
+        <div class="cell-stack">
+          <span class="strong">${esc(nameInfo.name)}</span>
+          <span class="muted">生效显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
+          <span class="mono">账号 id：${esc(user.name)}${user.enabled === false ? ' · 已禁用' : ''}</span>
+          <span class="muted">账号展示名：${user.displayNameSet ? esc(user.displayName) : '未设置'}</span>
+        </div>`,
+      `
+        <select data-action="role" ${user.name === state.me.name ? 'disabled' : ''}>
+          <option value="user" ${user.role === 'user' ? 'selected' : ''}>普通用户</option>
+          <option value="parent" ${user.role === 'parent' ? 'selected' : ''}>家长</option>
+          <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option>
+        </select>`,
+      `
+        <div class="cell-stack">
+          ${homesBadges(user.homes, 'none')}
+          <span class="muted">${user.homes === null || user.homes === undefined ? '未配置（回落 .env）' : (Array.isArray(user.homes) && user.homes.length === 0 ? '不限制' : '仅这些家庭')}</span>
+        </div>`,
+      `
+        <div class="cell-stack">
+          ${machines.length
+            ? machines.map((machine) => `<span>${esc(machine.name)}${machine.nameSet ? '' : '（未设置备注）'}</span>`).join('')
+            : '<span class="muted">无关联设备</span>'}
+        </div>`,
+      String(user.machineCount || 0),
+      `<span class="muted">${esc(user.loginTime ? timeAgo(new Date(user.loginTime).getTime()) : '从未登录')}</span>`,
+      `
+        <div class="row-actions">
+          <button class="btn small" data-action="homes" type="button">家庭</button>
+          <button class="btn small" data-action="rename" type="button">改名</button>
+        </div>`,
+    ];
+  }
+
+  function createUserRow(user) {
+    const row = document.createElement('tr');
+    row.dataset.userName = user.name;
+    for (let index = 0; index < 7; index += 1) row.appendChild(document.createElement('td'));
+    updateRowContent(row, userCells(user));
+    return row;
+  }
+
+  /** 用户行同样只在进页面/手动刷新时拍快照；轮询不因角色排序变化而移动行。 */
+  function computeUserOrder(users, snapshot) {
+    const names = users.map((user) => user.name);
+    if (snapshot || !state.userOrder) return names.slice();
+    const order = state.userOrder.filter((name) => names.includes(name));
+    const known = new Set(order);
+    for (const name of names) {
+      if (!known.has(name)) order.push(name);
+    }
+    return order;
+  }
+
+  function renderUsers(snapshot = false) {
+    const body = $('users-body');
+    const users = state.overview.users || [];
+    if (!users.length) {
+      body.innerHTML = '<tr><td colspan="7"><div class="empty">还没有用户。</div></td></tr>';
+      state.userOrder = [];
+      return;
+    }
+    const byName = new Map(users.map((user) => [user.name, user]));
+    if (tableLocked('users-body')) {
+      body.querySelectorAll('tr[data-user-name]').forEach((row) => {
+        const user = byName.get(row.dataset.userName);
+        if (user) updateRowContent(row, userCells(user));
+      });
+      state.userOrder = Array.from(body.querySelectorAll('tr[data-user-name]'))
+        .map((row) => row.dataset.userName);
+      return;
+    }
+    const order = computeUserOrder(users, snapshot);
+    const placeholder = body.querySelector('tr:not([data-user-name])');
+    if (placeholder) placeholder.remove();
+    const rows = new Map();
+    body.querySelectorAll('tr[data-user-name]').forEach((row) => {
+      rows.set(row.dataset.userName, row);
+    });
+    for (const name of order) {
+      if (rows.has(name)) continue;
+      const row = createUserRow(byName.get(name));
+      rows.set(name, row);
+    }
+    for (const name of order) updateRowContent(rows.get(name), userCells(byName.get(name)));
+    for (const [name, row] of rows) {
+      if (!byName.has(name)) row.remove();
+    }
+    let cursor = body.firstElementChild;
+    for (const name of order) {
+      const row = rows.get(name);
+      if (!row) continue;
+      if (row !== cursor) body.insertBefore(row, cursor);
+      cursor = row.nextElementSibling;
+    }
+    state.userOrder = order;
+  }
+
+  // 行内按钮/下拉走事件委托：复用行 DOM 时不会丢事件监听。
+  function currentMachine(id) {
+    return ((state.overview && state.overview.machines) || []).find((machine) => machine.id === id);
+  }
+
+  function currentUser(name) {
+    return ((state.overview && state.overview.users) || []).find((user) => user.name === name);
+  }
+
+  function bindStableListEvents() {
+    $('machines-body').addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-action]');
+      if (!btn) return;
+      const row = btn.closest('tr[data-machine-id]');
+      const machine = row && currentMachine(row.dataset.machineId);
       if (!machine) return;
-      row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
-        title: `可见家庭 · ${machine.name}`,
-        homes: machine.homes,
-        onSave: (homes) => api(`/api/admin/machines/${encodeURIComponent(id)}`, {
-          method: 'PUT',
-          body: JSON.stringify({ homes }),
-        }),
-      }));
-      const ownerSelectEl = row.querySelector('[data-owner-select]');
-      if (ownerSelectEl) ownerSelectEl.addEventListener('change', async () => {
+      if (btn.dataset.action === 'homes') {
+        editHomes({
+          title: `可见家庭 · ${machine.name}`,
+          homes: machine.homes,
+          onSave: (homes) => api(`/api/admin/machines/${encodeURIComponent(machine.id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ homes }),
+          }),
+        });
+      } else if (btn.dataset.action === 'rename') {
+        editMachineName(machine);
+      } else if (btn.dataset.action === 'parental') {
+        editParental(machine);
+      } else if (btn.dataset.action === 'delete') {
+        if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
+        (async () => {
+          try {
+            await api(`/api/admin/machines/${encodeURIComponent(machine.id)}`, { method: 'DELETE' });
+            toast('设备已删除', 'ok');
+            await loadOverview(false);
+          } catch (error) {
+            toast(error.message, 'error');
+          }
+        })();
+      }
+    });
+    $('machines-body').addEventListener('change', (event) => {
+      const select = event.target.closest('select[data-owner-select]');
+      if (!select) return;
+      const row = select.closest('tr[data-machine-id]');
+      if (!row) return;
+      const id = row.dataset.machineId;
+      (async () => {
         try {
           await api(`/api/admin/machines/${encodeURIComponent(id)}`, {
             method: 'PUT',
-            body: JSON.stringify({ owner: ownerSelectEl.value }),
+            body: JSON.stringify({ owner: select.value }),
           });
           toast('已更新所属中控', 'ok');
           await loadOverview(false);
         } catch (error) {
           toast(error.message, 'error');
         }
-      });
-      row.querySelector('[data-action="rename"]').addEventListener('click', () => editMachineName(machine));
-      const parentalBtn = row.querySelector('[data-action="parental"]');
-      if (parentalBtn) parentalBtn.addEventListener('click', () => editParental(machine));
-      row.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-        if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
-        try {
-          await api(`/api/admin/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });
-          toast('设备已删除', 'ok');
-          await loadOverview(false);
-        } catch (error) {
-          toast(error.message, 'error');
-        }
-      });
+      })();
     });
-  }
-
-  function renderUsers() {
-    const body = $('users-body');
-    const users = state.overview.users || [];
-    if (!users.length) {
-      body.innerHTML = '<tr><td colspan="7"><div class="empty">还没有用户。</div></td></tr>';
-      return;
-    }
-    body.innerHTML = users.map((user) => {
-      const nameInfo = userDisplay(user);
-      const machines = Array.isArray(user.machines) ? user.machines : [];
-      return `
-      <tr data-user-name="${esc(user.name)}">
-        <td>
-          <div class="cell-stack">
-            <span class="strong">${esc(nameInfo.name)}</span>
-            <span class="muted">生效显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
-            <span class="mono">账号 id：${esc(user.name)}${user.enabled === false ? ' · 已禁用' : ''}</span>
-            <span class="muted">账号展示名：${user.displayNameSet ? esc(user.displayName) : '未设置'}</span>
-          </div>
-        </td>
-        <td>
-          <select data-action="role" ${user.name === state.me.name ? 'disabled' : ''}>
-            <option value="user" ${user.role === 'user' ? 'selected' : ''}>普通用户</option>
-            <option value="parent" ${user.role === 'parent' ? 'selected' : ''}>家长</option>
-            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>管理员</option>
-          </select>
-        </td>
-        <td>
-          <div class="cell-stack">
-            ${homesBadges(user.homes, 'none')}
-            <span class="muted">${user.homes === null || user.homes === undefined ? '未配置（回落 .env）' : (Array.isArray(user.homes) && user.homes.length === 0 ? '不限制' : '仅这些家庭')}</span>
-          </div>
-        </td>
-        <td>
-          <div class="cell-stack">
-            ${machines.length
-              ? machines.map((machine) => `<span>${esc(machine.name)}${machine.nameSet ? '' : '（未设置备注）'}</span>`).join('')
-              : '<span class="muted">无关联设备</span>'}
-          </div>
-        </td>
-        <td>${user.machineCount || 0}</td>
-        <td><span class="muted">${esc(user.loginTime ? timeAgo(new Date(user.loginTime).getTime()) : '从未登录')}</span></td>
-        <td>
-          <div class="row-actions">
-            <button class="btn small" data-action="homes" type="button">家庭</button>
-            <button class="btn small" data-action="rename" type="button">改名</button>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-
-    body.querySelectorAll('tr[data-user-name]').forEach((row) => {
+    $('users-body').addEventListener('change', (event) => {
+      const select = event.target.closest('select[data-action="role"]');
+      if (!select) return;
+      const row = select.closest('tr[data-user-name]');
+      if (!row) return;
       const name = row.dataset.userName;
-      const user = users.find((item) => item.name === name);
-      if (!user) return;
-      row.querySelector('[data-action="role"]').addEventListener('change', async (event) => {
+      (async () => {
         try {
           await api(`/api/admin/users/${encodeURIComponent(name)}`, {
             method: 'PUT',
-            body: JSON.stringify({ role: event.target.value }),
+            body: JSON.stringify({ role: select.value }),
           });
           toast('已更新角色', 'ok');
           await loadOverview(false);
         } catch (error) {
           toast(error.message, 'error');
         }
-      });
-      row.querySelector('[data-action="homes"]').addEventListener('click', () => editHomes({
-        title: `可见家庭 · ${user.displayName || user.name}`,
-        homes: user.homes,
-        level: 'user',
-        onSave: (homes) => api(`/api/admin/users/${encodeURIComponent(name)}`, {
-          method: 'PUT',
-          body: JSON.stringify({ homes }),
-        }),
-      }));
-      row.querySelector('[data-action="rename"]').addEventListener('click', () => editDisplayName(user));
+      })();
+    });
+    $('users-body').addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-action]');
+      if (!btn) return;
+      const row = btn.closest('tr[data-user-name]');
+      const user = row && currentUser(row.dataset.userName);
+      if (!user) return;
+      if (btn.dataset.action === 'homes') {
+        editHomes({
+          title: `可见家庭 · ${user.displayName || user.name}`,
+          homes: user.homes,
+          level: 'user',
+          onSave: (homes) => api(`/api/admin/users/${encodeURIComponent(user.name)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ homes }),
+          }),
+        });
+      } else if (btn.dataset.action === 'rename') {
+        editDisplayName(user);
+      }
     });
   }
+
+  bindStableListEvents();
 
   // ------------------------------------------------------------ 家庭编辑弹窗
 
