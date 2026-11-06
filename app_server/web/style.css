@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0d1117;
   --panel: #161b22;
   --panel-2: #1c2430;
@@ -35,8 +36,37 @@ input[type=file] {
 }
 progress { width: 100%; height: 14px; margin-top: 10px; accent-color: var(--accent); }
 .subpanel { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin: 8px 0 16px; }
-input:focus, textarea:focus { border-color: var(--accent); }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 textarea { min-height: 72px; resize: vertical; }
+
+/* 全站原生控件统一：深色下拉、无白色微调箭头、复选框/单选框强调色、文件按钮自绘 */
+select option {
+  background-color: var(--panel-2);
+  color: var(--text);
+}
+select option:checked,
+select option:hover {
+  background-color: #294056;
+  color: #ffffff;
+}
+select option:disabled { color: var(--muted); }
+
+input[type=number] { appearance: textfield; -moz-appearance: textfield; }
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+input[type=file]::file-selector-button {
+  margin-right: 10px; padding: 7px 12px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font: inherit; cursor: pointer;
+}
+input[type=file]::file-selector-button:hover { border-color: var(--accent); color: #ffffff; }
 button {
   cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
   background: var(--panel-2); color: var(--text); padding: 8px 14px; font: inherit;
