@@ -4,7 +4,7 @@ const fs = require('fs');
 const net = require('net');
 const express = require('express');
 const { execFile } = require('child_process');
-const { ApiError, ok, wrap } = require('./apiutil');
+const { ApiError, ok, wrap, clientIp } = require('./apiutil');
 
 // relay 自 2026-11 起由 systemd 托管：只能通过 systemctl 操作，禁止 pkill / nohup。
 const SERVICE = 'potatokid-relay.service';
@@ -188,8 +188,63 @@ function parseLines(value) {
   return Math.min(MAX_LOG_LINES, Math.max(10, Math.floor(num)));
 }
 
-function createRelayRouter() {
+// 动作白名单：命令与参数全部写死，不接受任何用户输入拼接。
+const ACTIONS = {
+  start: { arg: 'start', expectActive: true },
+  stop: { arg: 'stop', expectActive: false },
+  restart: { arg: 'restart', expectActive: true },
+};
+const READ_RATE = { limit: 120, windowMs: 60 * 1000 };
+const ACTION_RATE = { limit: 5, windowMs: 60 * 1000 };
+
+function createRateLimiter({ limit, windowMs }) {
+  const buckets = new Map();
+  return function take(key) {
+    const now = Date.now();
+    let hits = buckets.get(key);
+    if (!hits) {
+      hits = [];
+      buckets.set(key, hits);
+    }
+    while (hits.length && now - hits[0] >= windowMs) hits.shift();
+    if (hits.length >= limit) {
+      return Math.ceil((windowMs - (now - hits[0])) / 1000);
+    }
+    hits.push(now);
+    if (buckets.size > 4096) {
+      for (const [k, v] of buckets) {
+        if (!v.length || now - v[v.length - 1] >= windowMs) buckets.delete(k);
+      }
+    }
+    return 0;
+  };
+}
+
+function principalKey(req) {
+  const principal = req.principal || {};
+  return principal.type === 'viewer' ? `token:${principal.tokenId}` : String(principal.username || 'unknown');
+}
+
+async function waitForService(expectedActive, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = await readServiceInfo();
+  while (Date.now() < deadline && last.active !== expectedActive) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    last = await readServiceInfo();
+  }
+  return last;
+}
+
+function createRelayRouter({ audit } = {}) {
   const router = express.Router();
+  const readLimit = createRateLimiter(READ_RATE);
+  const actionLimit = createRateLimiter(ACTION_RATE);
+
+  router.use((req, res, next) => {
+    const retry = readLimit(principalKey(req));
+    if (retry) return next(new ApiError(429, 400002, `刷新过于频繁，请 ${retry} 秒后再试`));
+    return next();
+  });
 
   router.get(
     '/relay/status',
@@ -231,6 +286,82 @@ function createRelayRouter() {
         mtime: data.mtime,
         truncated: Boolean(data.truncated),
         lines: content ? content.split('\n') : [],
+      });
+    })
+  );
+
+  router.post(
+    '/relay/action',
+    wrap(async (req, res) => {
+      const body = req.body || {};
+      const requested = typeof body.action === 'string' ? body.action : '';
+      const spec = ACTIONS[requested];
+      const principal = req.principal || {};
+      const actor = principal.type === 'viewer' ? `token:${principal.tokenId}` : String(principal.username || 'unknown');
+      const ip = req.clientIp || clientIp(req);
+
+      if (!spec) {
+        await audit.log({
+          actor,
+          ip,
+          action: 'relay_action_rejected',
+          target: SERVICE,
+          before: null,
+          after: { requested: truncate(requested, 40), result: 'invalid_action' },
+        });
+        throw new ApiError(400, 400005, '不支持的操作，仅允许 start / stop / restart');
+      }
+
+      const retry = actionLimit(`${actor}:${spec.arg}`);
+      if (retry) {
+        await audit.log({
+          actor,
+          ip,
+          action: `relay_${spec.arg}`,
+          target: SERVICE,
+          before: null,
+          after: { result: 'rate_limited', retryAfterSec: retry },
+        });
+        throw new ApiError(429, 400002, `操作过于频繁，请 ${retry} 秒后再试`);
+      }
+
+      const before = await readServiceInfo();
+      const result = await run('/usr/bin/sudo', ['-n', SYSTEMCTL, spec.arg, SERVICE], 15000);
+      const after = await waitForService(spec.expectActive, 4000);
+      const portListening = await probePort(RELAY_PORT, '127.0.0.1');
+
+      await audit.log({
+        actor,
+        ip,
+        action: `relay_${spec.arg}`,
+        target: SERVICE,
+        before: { active: before.active, state: before.state, mainPid: before.mainPid },
+        after: {
+          result: result.ok ? 'success' : 'failure',
+          exitCode: result.code,
+          active: after.active,
+          state: after.state,
+          mainPid: after.mainPid,
+          portListening,
+          message: result.ok ? '' : truncate(result.stderr || result.error, 300),
+        },
+      });
+
+      if (!result.ok) {
+        throw new ApiError(
+          503,
+          500001,
+          `systemctl ${spec.arg} ${SERVICE} 执行失败：${truncate(result.stderr || result.error || '未知错误', 200)}`
+        );
+      }
+
+      ok(res, {
+        action: requested,
+        result: 'success',
+        message: `systemctl ${spec.arg} ${SERVICE} 执行成功`,
+        service: after,
+        portListening,
+        at: new Date().toISOString(),
       });
     })
   );

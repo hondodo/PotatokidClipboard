@@ -280,7 +280,7 @@ function createAdminRouter({ config, store, audit, secret, uploads }) {
   );
 
   // relay 运维（仅 admin 角色）：status / logs / start / stop / restart。
-  router.use('/api/admin', createRelayRouter());
+  router.use('/api/admin', createRelayRouter({ audit }));
 
   // 账号管理 + 临时口令（仅 admin 角色）。
   router.use('/api/admin', createAccountsRouter({ config, store, audit, secret }));
