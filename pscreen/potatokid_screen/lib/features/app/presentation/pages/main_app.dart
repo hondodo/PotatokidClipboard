@@ -40,7 +40,7 @@ class _TabDescriptor {
 
 /// Tab 外壳：承载 [StatefulShellRoute.indexedStack] 的多分支页面。
 ///
-/// - 顶部横向导航条（首页直播 | 时间 | 屏保 | 我的），图标+文字横排；
+/// - 顶部横向导航条（首页直播 | 时间 | 我的），图标+文字横排；
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
 /// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
@@ -58,16 +58,11 @@ class MainApp extends StatelessWidget {
   static const int _timeBranchIndex = 1;
 
   /// 「我的」Tab 在 [_tabs] 中的序号（上/下键在导航条与设置行间移动）。
-  static const int _profileBranchIndex = 3;
+  static const int _profileBranchIndex = 2;
 
   static const List<_TabDescriptor> _tabs = <_TabDescriptor>[
     _TabDescriptor('home_title', Icons.live_tv_outlined, Icons.live_tv),
     _TabDescriptor('time_title', Icons.schedule_outlined, Icons.schedule),
-    _TabDescriptor(
-      'screensaver_title',
-      Icons.wallpaper_outlined,
-      Icons.wallpaper,
-    ),
     _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
   ];
 
@@ -422,20 +417,13 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Tab 状态填充（上报/浮层互斥读这里）；屏保退出时弹出缓存消息。
+    // Tab 状态填充（上报/浮层互斥读这里）。
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
-    // 场景注入（阶段 1 收尾）：直播/时间/屏保计入观看、「我的」（设置）不计入
+    // 场景注入（阶段 1 收尾）：直播/时间计入观看、「我的」（设置）不计入
     //（口径见儿童模式方案「场景计时」）；值未变时 setViewingScene 内部早返回。
     KidWatchTimerController.instance.setViewingScene(navigationShell.currentIndex != _profileBranchIndex);
-    final MessageOverlayController msgOverlay =
-        MessageOverlayController.instance;
-    final bool wasDeferred = msgOverlay.deferActive;
-    msgOverlay.deferActive = AppTabController.isScreensaver;
-    if (wasDeferred && !msgOverlay.deferActive) {
-      msgOverlay.onDeferEnd();
-    }
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
@@ -534,7 +522,7 @@ class MainApp extends StatelessWidget {
   }
 }
 
-/// 顶部横向导航条：4 个 tab，焦点即切页、高亮显示。
+/// 顶部横向导航条：3 个 tab，焦点即切页、高亮显示。
 class _TopNavBar extends StatelessWidget {
   const _TopNavBar({
     required this.currentIndex,
