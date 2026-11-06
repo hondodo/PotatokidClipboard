@@ -13,10 +13,11 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/update/app_update_models.dart';
-import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
+import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
@@ -33,7 +34,6 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      DeviceCredentials.configureDefaultAccountPrefix('tv');
 
       // 1. 锁定横屏（电视场景）
       await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
@@ -70,6 +70,13 @@ void main() {
       // 2. 加载 .env 与环境配置
       await AppConfig.initialize();
 
+      // 2.05 账号作用域 = 当前构建 flavor + 实际 kind（如 `tv.tv` / `board.tv`），
+      //      最终账号 = 作用域 + 设备号（见 DeviceCredentials）。
+      final ClientInfo clientInfo = await ClientInfo.current();
+      DeviceCredentials.configureAccountScope(
+        '${AppFlavorConfig.raw}.${kindOfApp(clientInfo.app)}',
+      );
+
       // 2.1 数据文件（tv_name_order / tv_name_hide / weather_cities）：
       //     先用本地值（持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值；
       //     git 同步放在依赖注入之后（见 4.1），失败/超时都沿用本地值。
@@ -85,21 +92,10 @@ void main() {
       // 4. 依赖注入（含网络、路由、业务模块）
       await Injection.init();
 
-      // 4.05 默认「远程」账号 = tv + 本机设备号。只替换与本机设备号匹配的
-      //      旧默认账号，保留手动设置的其他账号。
-      final String savedAccount = AppSettings.instance.remoteAccount;
+      // 4.05 账号恒定 = `<flavor>.<kind>.<设备号>`：已保存账号与派生值不一致
+      //      就改写并重连（旧号不做兼容）。
       final String deviceId = await DeviceCredentials.deviceId();
-      final String oldId = savedAccount.replaceAll('-', '').toLowerCase();
-      if (deviceId.isNotEmpty &&
-          (savedAccount.isEmpty ||
-              (oldId == deviceId &&
-                  (savedAccount.length == 16 ||
-                      _isLegacyDeviceAccount(savedAccount))))) {
-        final String account = await DeviceCredentials.defaultAccount();
-        if (account.isNotEmpty && savedAccount != account) {
-          await AppSettings.instance.setRemoteAccount(account);
-        }
-      }
+      await DeviceCredentials.enforceDerivedAccount();
 
       // 4.06 App 更新：启动查一次（走本地 pscreen_server 代理，fail-open）。
       //      非强更静默下载后只在右上角提示；强更也要等下载校验通过才拦截。
@@ -170,8 +166,3 @@ void main() {
     },
   );
 }
-
-/// 是否为旧版默认账号（DeviceIdentity 原格式 `xxxx-xxxx-xxxx-xxxx`）。
-/// 只有与本机设备号匹配时才视为旧默认账号。
-bool _isLegacyDeviceAccount(String value) =>
-    RegExp(r'^[0-9a-fA-F]{4}(-[0-9a-fA-F]{4}){3}$').hasMatch(value);

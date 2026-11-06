@@ -10,6 +10,10 @@ class AppConfig {
   static bool enableProxy = false;
   static bool enableDevTools = true;
 
+  /// 是否允许手动改实时通道账号 / 口令（`.env` 的 `ENABLE_CHANGE_ACCOUNT`）。
+  /// 默认关闭：账号恒为 `<flavor>.<kind>.<设备号>`，口令固定为默认值。
+  static bool enableChangeAccount = false;
+
   /// 心知天气 V3（免费版）：key 私钥鉴权
   static String seniverseV3Key = '';
   static String seniverseWeatherHostV3 = 'https://api.seniverse.com/v3';
@@ -54,6 +58,7 @@ class AppConfig {
     isDebug = _readBool('IS_DEBUG', isDebug);
     enableProxy = _readBool('ENABLE_PROXY', enableProxy);
     enableDevTools = _readBool('ENABLE_DEV_TOOLS', enableDevTools);
+    enableChangeAccount = _readBool('ENABLE_CHANGE_ACCOUNT', enableChangeAccount);
 
     seniverseV3Key = _readString('SENIVERSE_V3_KEY', seniverseV3Key);
     seniverseWeatherHostV3 = _readString('SENIVERSE_WEATHER_HOST_V3', seniverseWeatherHostV3);

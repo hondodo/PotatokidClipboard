@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
@@ -78,7 +79,12 @@ void main() {
   /// 测试环境的固定设备号（`app_device_id_fallback_v1`，16 位 hex 无连字符）。
   const String testDeviceId = 'abcdef0123456789';
 
+  /// 派生账号 = `<flavor>.<kind>.<设备号>`，测试固定为 `tv.tv.<设备号>`。
+  const String derivedAccount = 'tv.tv.$testDeviceId';
+
   setUp(() async {
+    DeviceCredentials.configureAccountScope('tv.tv');
+    AppConfig.enableChangeAccount = false;
     // 先清空（同时使 singleton 加载缓存失效），再注入 mock 存储，最后重新加载。
     // 设备号 fallback 固定，保证 DeviceCredentials.account()/deviceId() 结果确定。
     await AppSettings.instance.clearAllPersisted();
@@ -97,21 +103,36 @@ void main() {
     await repository.ensureLoaded();
   });
 
-  tearDown(() => channel.dispose());
+  tearDown(() {
+    AppConfig.enableChangeAccount = false;
+    return channel.dispose();
+  });
 
   /// 默认口令 123456 的 MD5（ws 握手与 HTTP 登录提交同一个值）。
   const String defaultMd5 = 'e10adc3949ba59abbe56e057f20f883e';
 
-  test('autoLogin 无自定义账号：回落设备号连接，先 HTTP 预登录', () async {
+  test('autoLogin 无自定义账号：恒用派生账号连接，先 HTTP 预登录', () async {
     await repository.autoLogin();
     expect(httpLogins, hasLength(1));
     expect(
       channel.calls,
-      <String>['connect:$testDeviceId:$defaultMd5:$testDeviceId:tv'],
+      <String>['connect:$derivedAccount:$defaultMd5:$testDeviceId:tv'],
     );
   });
 
-  test('autoLogin 有持久化账号：先 HTTP 预登录，再用口令 MD5 连接', () async {
+  test('调试开关关闭：持久化的自定义账号不再生效，仍用派生账号', () async {
+    await AppSettings.instance.clearAllPersisted();
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{'app_remote_account_v1': 'ABCD'},
+    );
+    await repository.ensureLoaded();
+
+    await repository.autoLogin();
+    expect(channel.calls, <String>['connect:$derivedAccount:$defaultMd5:$testDeviceId:tv']);
+  });
+
+  test('autoLogin 调试开关打开：先 HTTP 预登录，再用自定义账号与口令 MD5 连接', () async {
+    AppConfig.enableChangeAccount = true;
     await AppSettings.instance.clearAllPersisted();
     SharedPreferences.setMockInitialValues(
       <String, Object>{'app_remote_account_v1': 'ABCD'},
@@ -123,7 +144,8 @@ void main() {
     expect(channel.calls, <String>['connect:ABCD:$defaultMd5:$testDeviceId:tv']);
   });
 
-  test('switchAccount：先断开再连接，并持久化新账号', () async {
+  test('switchAccount（调试开关）：先断开再连接，并持久化新账号', () async {
+    AppConfig.enableChangeAccount = true;
     await repository.switchAccount('EFGH');
     expect(
       channel.calls,
@@ -133,6 +155,7 @@ void main() {
   });
 
   test('switchAccount 鉴权失败：抛 RemoteLoginException 并保留账号', () async {
+    AppConfig.enableChangeAccount = true;
     channel.connectError = const RealtimeException(401, 'invalid token');
 
     await expectLater(
@@ -145,6 +168,7 @@ void main() {
   });
 
   test('自定义口令生效：口令 MD5 随设置变化', () async {
+    AppConfig.enableChangeAccount = true;
     await AppSettings.instance.setRemotePassword('654321');
     await repository.switchAccount('CUST');
     // md5('654321')
