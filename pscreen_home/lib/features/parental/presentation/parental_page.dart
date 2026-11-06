@@ -56,6 +56,8 @@ class _ParentalPageState extends State<ParentalPage> {
   List<RealtimeEvent> _watchEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _activeEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _unlockEvents = const <RealtimeEvent>[];
+  /// 解锁回执（谁解锁 / 结果码），与请求按短码关联展示。
+  List<RealtimeEvent> _unlockAckEvents = const <RealtimeEvent>[];
   List<ParentalSession> _sessions = const <ParentalSession>[];
   String _myAccount = '';
   bool _loading = false;
@@ -104,6 +106,8 @@ class _ParentalPageState extends State<ParentalPage> {
       setState(() => _activeEvents = _withEvent(_activeEvents, event));
     } else if (event.event == 'parental_unlock_request') {
       setState(() => _unlockEvents = _dedupeUnlock(<RealtimeEvent>[..._unlockEvents, event]));
+    } else if (event.event == 'parental_unlock_ack') {
+      setState(() => _unlockAckEvents = _dedupeUnlock(<RealtimeEvent>[..._unlockAckEvents, event]));
     }
   }
 
@@ -210,11 +214,13 @@ class _ParentalPageState extends State<ParentalPage> {
       final List<RealtimeEvent> watch = await channel.fetchEvents(event: 'parental_watch', limit: 100);
       final List<RealtimeEvent> active = await channel.fetchEvents(event: 'parental_child_active', limit: 20);
       final List<RealtimeEvent> unlock = await channel.fetchEvents(event: 'parental_unlock_request', limit: 50);
+      final List<RealtimeEvent> acks = await channel.fetchEvents(event: 'parental_unlock_ack', limit: 50);
       if (!mounted) return;
       setState(() {
         _watchEvents = watch;
         _activeEvents = active;
         _unlockEvents = _dedupeUnlock(unlock);
+        _unlockAckEvents = _dedupeUnlock(acks);
       });
     } catch (_) {
       // 事件查询依赖 WS 在线；失败不阻塞档案 / 设置等模块。
@@ -502,7 +508,14 @@ class _ParentalPageState extends State<ParentalPage> {
                       activeEvents: _activeEvents,
                       sessions: _sessions,
                     ),
-                    UnlockSection(events: _unlockEvents, onUnlock: _sendUnlock),
+                    UnlockSection(
+                      events: _unlockEvents,
+                      onUnlock: _sendUnlock,
+                      machine: _selected,
+                      acks: _unlockAckEvents,
+                      isAdmin: AccountSession.isAdmin,
+                      myAccount: _myAccount,
+                    ),
                     ParentalSettingsSection(
                       // 换设备重建编辑态，避免残留上一台的输入。
                       key: ValueKey<String>(_selected?.id ?? 'none'),

@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
+import 'package:pscreen_screen/core/parental/parental_quiz.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 
+import 'parental_quiz_page.dart';
 import 'parental_verification_sheet.dart';
 
 /// 儿童模式锁屏覆盖层（阶段 2：远程解锁短码 + ParentalVerificationSheet）。
@@ -29,6 +31,20 @@ class ParentalLockOverlay extends StatefulWidget {
 }
 
 class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
+  static const ParentalQuizRepository _quizRepository =
+      ParentalQuizRepository();
+
+  /// 当前生效题库（已按年龄合并、并过滤掉电视端无法作答的填空题）。
+  List<ParentalQuizQuestion> _quizQuestions = const <ParentalQuizQuestion>[];
+  bool _quizLoaded = false;
+  bool _quizLoading = false;
+
+  /// 是否处于「整页题库」渲染：quiz 模式 + 合并后题库非空。
+  bool get _quizMode =>
+      _quizLoaded &&
+      _quizQuestions.isNotEmpty &&
+      ParentalStateController.instance.config.unlockMode == 'quiz';
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +53,13 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
     // 分支），不收起会让锁屏与浮层抢按键；随后立即重建一次。展示判据仍在
     // build 里读 locked（与控制器通知双路兜底，覆盖重启/解除等全部路径）。
     KidWatchTimerController.instance.onThresholdReached = _onThresholdReached;
+    // 锁屏出现 / 解除时维护题库缓存；家长配置（解锁方式、选中孩子）变化时
+    // 重新按年龄合并一次（quiz 模式切换为全页题库的判据）。
+    KidWatchTimerController.instance.addListener(_onTimerChanged);
+    ParentalStateController.instance.addListener(_onParentalChanged);
+    if (KidWatchTimerController.instance.locked) {
+      unawaited(_ensureQuizLoaded());
+    }
   }
 
   void _onThresholdReached() {
@@ -44,8 +67,74 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
     if (mounted) setState(() {});
   }
 
+  void _onTimerChanged() {
+    if (KidWatchTimerController.instance.locked) {
+      unawaited(_ensureQuizLoaded());
+    } else if (_quizLoaded || _quizQuestions.isNotEmpty) {
+      setState(() {
+        _quizLoaded = false;
+        _quizQuestions = const <ParentalQuizQuestion>[];
+      });
+    }
+  }
+
+  void _onParentalChanged() {
+    if (!KidWatchTimerController.instance.locked) return;
+    unawaited(_ensureQuizLoaded());
+  }
+
+  /// 先读本地缓存再做服务端刷新；quiz 模式下题库为空即回退短码页
+  ///（不做算术兜底）。
+  Future<void> _ensureQuizLoaded() async {
+    final ParentalStateController parental = ParentalStateController.instance;
+    if (!parental.enabled || parental.config.unlockMode != 'quiz') {
+      if (_quizLoaded || _quizQuestions.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _quizLoaded = false;
+            _quizQuestions = const <ParentalQuizQuestion>[];
+          });
+        }
+      }
+      return;
+    }
+    if (_quizLoading) return;
+    _quizLoading = true;
+    try {
+      final Map<String, List<ParentalQuizQuestion>> cache =
+          await _quizRepository.readCache();
+      _applyBanks(cache);
+      final Map<String, List<ParentalQuizQuestion>>? remote =
+          await _quizRepository.fetchRemote();
+      if (remote != null) _applyBanks(remote);
+    } finally {
+      _quizLoading = false;
+    }
+  }
+
+  void _applyBanks(Map<String, List<ParentalQuizQuestion>> banks) {
+    final List<ParentalQuizQuestion> merged = ParentalQuizSelector.select(
+      profiles: ParentalStateController.instance.activeProfiles,
+      banks: banks,
+    );
+    // 电视端只保留可遥控作答的选择题：填空题整题跳过（家长端保留）。
+    final List<ParentalQuizQuestion> usable = merged
+        .where(
+          (ParentalQuizQuestion q) =>
+              q.isChoice && q.options.isNotEmpty && q.answers.isNotEmpty,
+        )
+        .toList(growable: false);
+    if (!mounted) return;
+    setState(() {
+      _quizLoaded = true;
+      _quizQuestions = usable;
+    });
+  }
+
   @override
   void dispose() {
+    KidWatchTimerController.instance.removeListener(_onTimerChanged);
+    ParentalStateController.instance.removeListener(_onParentalChanged);
     // 只清理自己挂的回调，不覆盖后续注入（远程解锁命令走控制器通知）。
     if (KidWatchTimerController.instance.onThresholdReached ==
         _onThresholdReached) {
@@ -57,7 +146,10 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: KidWatchTimerController.instance,
+      listenable: Listenable.merge(<Listenable>[
+        KidWatchTimerController.instance,
+        ParentalStateController.instance,
+      ]),
       builder: (BuildContext context, _) {
         if (!KidWatchTimerController.instance.locked) {
           return const SizedBox.shrink();
@@ -67,6 +159,8 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         // 不经根分发——放行会上浮 WidgetsApp Shortcuts 触发方向焦点转移，
         // 焦点落到顶部导航条 _TopTab（焦点即切页）导致锁屏下仍能切 Tab。
         // OK/enter 由按钮自身节点先消费（activate），不受此拦截影响。
+        // 题库页在内部再挂一个可聚焦节点自行处理方向键/数字键（子节点先于
+        // 本拦截节点收到按键），因此不会落到默认焦点遍历。
         return Focus(
           // 本节点只做拦截，不参与焦点遍历，否则方向键可能停在无 UI 的
           // 包装节点上。
@@ -90,9 +184,35 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
               SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
               SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
             },
-            child: const _LockScreenPage(),
+            child: _quizMode ? _buildQuizPage() : const _LockScreenPage(),
           ),
         );
+      },
+    );
+  }
+
+  Widget _buildQuizPage() {
+    final KidWatchTimerController timer = KidWatchTimerController.instance;
+    final int? remainSession = timer.remainingSessionSec;
+    final int? remainDaily = timer.remainingDailySec;
+    return ParentalQuizPage(
+      questions: _quizQuestions,
+      header: Text(
+        '单次剩余：${remainSession == null ? '未启用' : _LockScreenPageState._fmt(remainSession)}'
+        '　　当日剩余：${remainDaily == null ? '未启用' : _LockScreenPageState._fmt(remainDaily)}',
+        style: const TextStyle(color: Colors.white70, fontSize: 14),
+      ),
+      onSolved: () async {
+        KidWatchTimerController.instance.unlock();
+        if (mounted) setState(() {});
+      },
+      onRequestParent: () async {
+        final bool ok = await ParentalVerificationSheet.show(
+          context,
+          forceRemote: true,
+        );
+        if (!ok || !mounted) return;
+        KidWatchTimerController.instance.unlock();
       },
     );
   }

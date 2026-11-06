@@ -26,14 +26,22 @@ import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dar
 /// 阶段 3 接入时用于放行进入）。远程路径由命令执行器直接解锁，本层监听
 /// 到锁解除后自行收起（返回 true）。
 class ParentalVerificationSheet extends StatefulWidget {
-  const ParentalVerificationSheet({super.key});
+  const ParentalVerificationSheet({super.key, this.forceRemote = false});
+
+  /// 强制只走远程短码流程（锁屏「整页题库」右上角「请求家长解锁」入口用）：
+  /// 忽略 `unlockMode` 的 quiz/pin/arith 分支，也不展示算术兜底。
+  final bool forceRemote;
 
   /// 统一入口：弹出验证层；返回 true = 验证通过（含观察到远程解锁）。
-  static Future<bool> show(BuildContext context) async {
+  static Future<bool> show(
+    BuildContext context, {
+    bool forceRemote = false,
+  }) async {
     final bool? ok = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
-      builder: (BuildContext context) => const ParentalVerificationSheet(),
+      builder: (BuildContext context) =>
+          ParentalVerificationSheet(forceRemote: forceRemote),
     );
     return ok ?? false;
   }
@@ -90,8 +98,9 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     // 短码状态（重新请求/被消费）变化即时刷新，不等 1s 倒计时 ticker。
     ParentalUnlockCodeController.instance.addListener(_onCodesChanged);
     _newArith();
-    // 答题解锁：先用本地缓存立即可答，再后台刷新题库。
-    if (ParentalStateController.instance.config.unlockMode == 'quiz') {
+    // 答题解锁：先用本地缓存立即可答，再后台刷新题库。仅走远程短码时不需要。
+    if (!widget.forceRemote &&
+        ParentalStateController.instance.config.unlockMode == 'quiz') {
       unawaited(_loadQuiz());
     }
     // 闸门持久化加载（DI 已加载时幂等）；加载后刷新一次以还原锁定态。
@@ -210,16 +219,21 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
                       ),
                       const SizedBox(height: 12),
                     ],
-                    if (mode == 'remote') ..._buildRemoteSection(gate),
-                    if (useQuiz) ..._buildQuizSection(gate, textTheme),
-                    if (usePin) ..._buildPinSection(gate, textTheme),
-                    // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
-                    // 答题模式只在题库为空时回退算术题（见 _buildQuizSection）。
-                    if (!useQuiz &&
-                        (mode == 'arith' ||
-                            (mode == 'pin' && !usePin) ||
-                            mode == 'remote'))
-                      ..._buildArithSection(gate, textTheme),
+                    if (widget.forceRemote) ...<Widget>[
+                      ..._buildRemoteSection(gate, showArithHint: false),
+                    ] else ...<Widget>[
+                      if (mode == 'remote') ..._buildRemoteSection(gate),
+                      if (useQuiz) ..._buildQuizSection(gate, textTheme),
+                      if (usePin) ..._buildPinSection(gate, textTheme),
+                      // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
+                      // 答题模式只在题库「加载中」时保持等待；合并后全是填空
+                      // 或没有题库 → 回退短码页（电视端不做算术兜底）。
+                      if (!useQuiz &&
+                          (mode == 'arith' ||
+                              (mode == 'pin' && !usePin) ||
+                              mode == 'remote'))
+                        ..._buildArithSection(gate, textTheme),
+                    ],
                     const SizedBox(height: 16),
                     TextButton(
                       onPressed: () => _close(false),
@@ -269,7 +283,17 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     final List<ChildProfile> profiles = state.activeProfiles.isNotEmpty
         ? state.activeProfiles
         : state.config.children;
-    return ParentalQuizSelector.select(profiles: profiles, banks: _quizBanks);
+    final List<ParentalQuizQuestion> merged = ParentalQuizSelector.select(
+      profiles: profiles,
+      banks: _quizBanks,
+    );
+    // 电视端跳过填空题（屏幕输入法在遥控下不可用）；填空题只在家长端保留。
+    return merged
+        .where(
+          (ParentalQuizQuestion q) =>
+              q.isChoice && q.options.isNotEmpty && q.answers.isNotEmpty,
+        )
+        .toList(growable: false);
   }
 
   List<Widget> _buildQuizSection(
@@ -296,15 +320,15 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
           ),
         ];
       }
-      // 所选孩子全部没有题库 → 回退算术题，避免孩子永远打不开电视。
+      // 合并后整库都是填空题（电视端已全部跳过）→ 回退短码页，不做算术。
       return <Widget>[
         Text(
-          '所选孩子还没有题库，已回退算术题',
+          '所选孩子的题库只有填空题，电视端无法作答，请让家长远程解锁',
           textAlign: TextAlign.center,
           style: textTheme.bodySmall,
         ),
         const SizedBox(height: 12),
-        ..._buildArithSection(gate, textTheme),
+        ..._buildRemoteSection(gate, showArithHint: false),
       ];
     }
 
@@ -521,7 +545,10 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
 
   // ---- remote：短码等待 + 重新请求 ----
 
-  List<Widget> _buildRemoteSection(ParentalAttemptGate gate) {
+  List<Widget> _buildRemoteSection(
+    ParentalAttemptGate gate, {
+    bool showArithHint = true,
+  }) {
     final ParentalUnlockCodeController codes =
         ParentalUnlockCodeController.instance;
     final List<Widget> children = <Widget>[];
@@ -560,13 +587,16 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         ),
       ]);
     }
-    children.add(const SizedBox(height: 12));
-    children.add(Divider(height: 1, color: Theme.of(context).dividerColor));
-    children.add(const SizedBox(height: 12));
-    children.add(
-      Text('断线兜底：在本机完成下方算术题即可解锁', style: Theme.of(context).textTheme.bodySmall),
-    );
-    children.add(const SizedBox(height: 8));
+    if (showArithHint) {
+      children.add(const SizedBox(height: 12));
+      children.add(Divider(height: 1, color: Theme.of(context).dividerColor));
+      children.add(const SizedBox(height: 12));
+      children.add(
+        Text('断线兜底：在本机完成下方算术题即可解锁',
+            style: Theme.of(context).textTheme.bodySmall),
+      );
+      children.add(const SizedBox(height: 8));
+    }
     return children;
   }
 

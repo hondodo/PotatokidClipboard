@@ -188,7 +188,7 @@ class ParentalConfig {
   /// 儿童档案列表。
   final List<ChildProfile> children;
 
-  /// 解锁方式：`remote | pin | arith`。
+  /// 解锁方式：`remote | pin | arith | quiz`（quiz = 家长题库答题解锁）。
   final String unlockMode;
 
   /// PIN（明文下发，家庭场景 v1 接受）。

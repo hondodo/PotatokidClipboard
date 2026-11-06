@@ -16,6 +16,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/buffer_stall_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
@@ -136,6 +137,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
   /// 确保进入播放前 hwdec 属性已正确设置）。
   Future<void>? _hwdecReady;
+
+  /// 儿童模式锁屏暂停：锁屏出现即暂停直播，解锁后恢复；锁屏期间即使开启
+  /// 「后台播放」也在退到后台时暂停（[KidWatchTimerController.locked] 为准）。
+  bool _lockedPaused = false;
+  bool _lastKidLocked = false;
+  bool _appInBackground = false;
 
   @override
   void initState() {
@@ -312,7 +319,41 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.onPlayCommit.addListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
     HomeNowPlayingController.instance.onToggleChannelPanel = _toggleChannelPanel;
+    // 锁屏/解锁边沿：锁屏即暂停、解锁即恢复（儿童模式）。
+    _lastKidLocked = KidWatchTimerController.instance.locked;
+    KidWatchTimerController.instance.addListener(_onKidLockChanged);
+    if (_lastKidLocked) _pauseForLock();
     _restoreLastChannel();
+  }
+
+  /// 儿童模式锁屏状态变化：锁定 → 暂停；解除 → 恢复（后台时先不恢复，
+  /// 回前台再恢复，避免后台出声）。
+  void _onKidLockChanged() {
+    final bool locked = KidWatchTimerController.instance.locked;
+    if (locked == _lastKidLocked) return;
+    _lastKidLocked = locked;
+    if (locked) {
+      _pauseForLock();
+    } else {
+      _resumeFromLock();
+    }
+  }
+
+  void _pauseForLock() {
+    final Player? p = _player;
+    if (p == null) return;
+    if (p.state.playing) {
+      _lockedPaused = true;
+      unawaited(p.pause());
+    }
+  }
+
+  void _resumeFromLock() {
+    if (!_lockedPaused) return;
+    // 仍锁定或仍在后台：保持暂停，等回前台/解锁后再恢复（不能先清标记）。
+    if (KidWatchTimerController.instance.locked || _appInBackground) return;
+    _lockedPaused = false;
+    unawaited(_player?.play());
   }
 
   @override
@@ -365,13 +406,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _appInBackground = false;
+      // 锁屏仍然成立：保持暂停，不做恢复健康检测（否则会主动重开流）。
+      if (KidWatchTimerController.instance.locked) {
+        _pauseForLock();
+        return;
+      }
+      _resumeFromLock();
       // 返回前台不再无条件重开：先做短时健康检测，只有确认播放已损坏才重开，
       // 避免「短暂离开后回来其实还能正常播」也被强制重新加载（闪黑、重新缓冲）。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _checkResumeHealth();
       });
+      return;
     }
+    _appInBackground = true;
+    // 儿童模式锁屏期间：即使开了「后台播放」也不允许后台继续出声。
+    if (KidWatchTimerController.instance.locked) _pauseForLock();
   }
 
   /// 恢复前台后的播放健康检测（解决 RN/媒体 Surface 被销毁的固有风险）。
@@ -649,6 +701,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       );
       await _player?.open(Media(source));
       _reportPlayback('play_start');
+      // 锁屏期间打开新流（启动恢复频道/切源）：开完立即暂停，避免出声。
+      if (KidWatchTimerController.instance.locked) {
+        _lockedPaused = true;
+        await _player?.pause();
+      }
     } catch (e) {
       Injection.get<LogService>().error(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) 失败: $e',
@@ -784,6 +841,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    KidWatchTimerController.instance.removeListener(_onKidLockChanged);
     _channelController.removeListener(_onChannelSelected);
     _channelController.onPlayCommit.removeListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = null;

@@ -20,6 +20,8 @@ const MAX_OUTBOX = 200;
 const HEARTBEAT_MS = 30000;
 const ACCOUNT_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 const EVENT_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+// 系统管理员账号：服务端代发回执时补一份会话线程可见性（与客户端双发一致）。
+const ADMIN_ACCOUNT = '1000001';
 
 /** 面板类型：中控屏 home / 电视端 tv / 家长端 parent。 */
 const KIND_PATTERN = /^[A-Za-z0-9_.:-]{1,16}$/;
@@ -38,6 +40,20 @@ const APP_KIND_ALIASES = {
 
 function kindOf(app) {
     return APP_KIND_ALIASES[app] || '';
+}
+
+/** 解析 `parental_unlock` 命令体；非该命令返回 null（普通文本不当命令）。 */
+function parseParentalUnlock(body) {
+    if (typeof body !== 'string' || body.indexOf('parental_unlock') < 0) return null;
+    try {
+        const parsed = JSON.parse(body);
+        if (parsed && parsed.t === 'cmd' && parsed.name === 'parental_unlock') {
+            return parsed.args && typeof parsed.args === 'object' ? parsed.args : {};
+        }
+    } catch (_) {
+        // 非 JSON 文本消息
+    }
+    return null;
 }
 
 /** 逐帧调试日志开关：REALTIME_DEBUG=1 时打印每个入站帧及请求类命令。 */
@@ -156,6 +172,11 @@ function attachRealtime(httpServer, options = {}) {
         typeof options.machineAccountsForParent === 'function'
             ? options.machineAccountsForParent
             : () => [];
+    // parental_unlock 发送者校验（该电视绑定家长 / 管理员）。
+    const parentalUnlockAllowed =
+        typeof options.parentalUnlockAllowed === 'function'
+            ? options.parentalUnlockAllowed
+            : () => false;
     const dataDir = path.resolve(options.dataDir || path.join(__dirname, '../datas/realtime'));
     /** parental_watch 历史采样游标：`from|date` -> 最近落库 ts / childIds。 */
     const parentalWatchStored = new Map();
@@ -839,6 +860,50 @@ function attachRealtime(httpServer, options = {}) {
                         body,
                         ts: Date.now(),
                     };
+
+                    // 服务端校验：`parental_unlock` 只允许该电视绑定家长或管理员发送。
+                    // 违者不投递给电视（否则电视端会执行），由服务端代电视回执
+                    // `parental_unlock_ack {result:'forbidden'}`，家长端据此展示失败。
+                    const unlockArgs = parseParentalUnlock(body);
+                    if (unlockArgs !== null && !parentalUnlockAllowed(account, to)) {
+                        const ackRecord = {
+                            id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                            from: to,
+                            to: ADMIN_ACCOUNT,
+                            event: 'parental_unlock_ack',
+                            data: {
+                                code: typeof unlockArgs.code === 'string' ? unlockArgs.code : '',
+                                actor: account,
+                                result: 'forbidden',
+                            },
+                            ts: Date.now(),
+                        };
+                        const parents = parentAccountsFor(to).filter((item) => item !== ADMIN_ACCOUNT);
+                        if (parents.length > 0) ackRecord.audience = parents;
+                        persistEvent(ackRecord);
+                        const recipients = new Set([ADMIN_ACCOUNT, ...parents]);
+                        for (const recipient of recipients) {
+                            const copy = recipient === ADMIN_ACCOUNT
+                                ? ackRecord
+                                : { ...ackRecord, to: recipient };
+                            const targets = connections.get(recipient);
+                            if (!targets) continue;
+                            for (const target of targets) sendJson(target, { t: 'event', ...copy });
+                        }
+                        console.warn(
+                            `[realtime] forbidden parental_unlock ${account}->${to} ` +
+                            `code=${ackRecord.data.code} parents=${parents.join(',') || '-'}`,
+                        );
+                        sendJson(ws, {
+                            t: 'result',
+                            id: clientId,
+                            ok: false,
+                            error: 'forbidden',
+                            ts: Date.now(),
+                        });
+                        return;
+                    }
+
                     persistMessage(message);
 
                     let delivered = false;

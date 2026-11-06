@@ -1830,6 +1830,18 @@ function attachAdmin(app, options = {}) {
         return machine ? machine.parents : [];
     }
 
+    /**
+     * parental_unlock 发送者校验：只有该电视绑定的家长或管理员可远程解锁。
+     * 管理员解锁按「代管」处理（家长端展示时标注）。
+     */
+    function canParentalUnlock(sender, tvAccount) {
+        const from = String(sender || '').trim();
+        const tv = String(tvAccount || '').trim();
+        if (!from || !tv) return false;
+        if (from === ADMIN_USERNAME) return true;
+        return parentAccountsFor(tv).includes(from);
+    }
+
     /** 家长账号 → 其绑定电视的通信账号（含设备 id），用于家长端补拉历史事件。 */
     function machineAccountsForParent(account) {
         if (!account) return [];
@@ -1856,6 +1868,8 @@ function attachAdmin(app, options = {}) {
         parentAccountsFor,
         // parental 历史补拉：家长 → 绑定设备账号
         machineAccountsForParent,
+        // parental_unlock 服务端发送者校验（绑定家长 / 管理员）
+        canParentalUnlock,
     };
 }
 

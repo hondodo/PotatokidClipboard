@@ -10,7 +10,8 @@ class MessageRouter {
   final MessageOverlayController overlay;
   final MessageCommandExecutor executor;
 
-  void handleIncoming(String raw) {
+  /// [actor] 为消息发送方账号（实时通道 `from`），随命令下发用于回执标注。
+  void handleIncoming(String raw, {String actor = ''}) {
     final ParsedMessage msg = parseIncomingText(raw);
     switch (msg.kind) {
       case EnvelopeKind.plainText:
@@ -33,7 +34,7 @@ class MessageRouter {
           }
           break;
         }
-        if (!executor.execute(name, msg.args)) {
+        if (!executor.execute(name, msg.args, actor: actor)) {
           Log.i('[MessageRouter] 忽略未知/无效命令: $name ${msg.args}');
         }
         break;

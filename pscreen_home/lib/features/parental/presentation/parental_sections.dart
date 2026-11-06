@@ -530,6 +530,10 @@ class UnlockSection extends StatelessWidget {
     super.key,
     required this.events,
     required this.onUnlock,
+    this.machine,
+    this.acks = const <RealtimeEvent>[],
+    this.isAdmin = false,
+    this.myAccount = '',
   });
 
   /// 按时间降序的解锁请求历史。
@@ -537,7 +541,50 @@ class UnlockSection extends StatelessWidget {
 
   final Future<void> Function(RealtimeEvent event) onUnlock;
 
+  /// 当前选中的电视：请求 / 回执都只展示该电视的，避免多台电视混在一起。
+  final ParentalMachine? machine;
+
+  /// `parental_unlock_ack` 回执（按短码关联，展示谁解锁 / 结果）。
+  final List<RealtimeEvent> acks;
+
+  /// 管理员看全量并标注「代管」；家长只看自己绑定的电视。
+  final bool isAdmin;
+
+  /// 当前登录账号，用于判断选中电视是否由自己绑定（admin 未绑定时标代管）。
+  final String myAccount;
+
   static const Duration _codeTtl = Duration(seconds: 60);
+
+  /// 事件来源是否属于当前选中的电视（`from` 可能是设备 id 或通信账号）。
+  static bool _belongsTo(RealtimeEvent event, ParentalMachine? machine) {
+    if (machine == null) return true;
+    final String from = event.from.trim();
+    if (from.isEmpty) return false;
+    return from == machine.id || from == machine.commAccount;
+  }
+
+  /// 按「来源 + 短码」取最新回执。
+  Map<String, Map<String, dynamic>> _ackByCode() {
+    final Map<String, Map<String, dynamic>> latest = <String, Map<String, dynamic>>{};
+    for (final RealtimeEvent ack in acks) {
+      final String code = '${ack.data['code'] ?? ''}'.trim();
+      if (code.isEmpty) continue;
+      final String key = '${ack.from.trim()}|$code';
+      final Map<String, dynamic>? current = latest[key];
+      final int ts = (current?['_ts'] as num?)?.toInt() ?? -1;
+      if (ack.ts <= ts) continue;
+      latest[key] = <String, dynamic>{...ack.data, '_ts': ack.ts};
+    }
+    return latest;
+  }
+
+  static String _resultLabel(String result) => switch (result) {
+    'ok' => '已解锁',
+    'expired' => '短码已过期',
+    'already-unlocked' => '无需解锁（已解锁）',
+    'forbidden' => '无权限',
+    _ => result.isEmpty ? '未回执' : result,
+  };
 
   static String _timeOf(int ts) {
     if (ts <= 0) return '';
@@ -550,6 +597,12 @@ class UnlockSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<RealtimeEvent> visible = machine == null
+        ? events
+        : events
+              .where((RealtimeEvent event) => _belongsTo(event, machine))
+              .toList(growable: false);
+    final Map<String, Map<String, dynamic>> ackByCode = _ackByCode();
     final Widget hint = Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
@@ -559,7 +612,8 @@ class UnlockSection extends StatelessWidget {
         title: const Text('解锁方式在「设置」标签页切换'),
         subtitle: const Text(
           '可选远程确认 / PIN / 算术题 / 答题解锁；'
-          '答题解锁需先在「档案」里给儿童维护题库，题库为空时电视回退算术题。',
+          '答题解锁需先在「档案」里给儿童维护题库，电视端会跳过填空题，'
+          '题库为空或只有填空题时回退短码页。',
         ),
         trailing: TextButton(
           onPressed: () => DefaultTabController.of(context).animateTo(4),
@@ -567,7 +621,7 @@ class UnlockSection extends StatelessWidget {
         ),
       ),
     );
-    if (events.isEmpty) {
+    if (visible.isEmpty) {
       return ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: <Widget>[
@@ -586,14 +640,20 @@ class UnlockSection extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       // index 0 是解锁方式提示卡，其余才是请求记录。
-      itemCount: events.length + 1,
+      itemCount: visible.length + 1,
       itemBuilder: (BuildContext context, int index) {
         if (index == 0) return hint;
-        final RealtimeEvent event = events[events.length - index];
+        final RealtimeEvent event = visible[visible.length - index];
         final String code = '${event.data['code'] ?? ''}'.trim();
         final String reason = '${event.data['reason'] ?? ''}'.trim();
         final DateTime ts = DateTime.fromMillisecondsSinceEpoch(event.ts);
         final bool expired = event.ts <= 0 || now.difference(ts) > _codeTtl;
+        final Map<String, dynamic>? ack =
+            code.isEmpty ? null : ackByCode['${event.from.trim()}|$code'];
+        final String result = '${ack?['result'] ?? ''}'.trim();
+        final String actor = '${ack?['actor'] ?? ''}'.trim();
+        final bool actingAsAdmin = isAdmin &&
+            (machine != null && !machine!.parents.contains(myAccount));
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: Padding(
@@ -604,17 +664,28 @@ class UnlockSection extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        code.isEmpty ? '（无短码）' : '短码 $code',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w600,
-                        ),
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            code.isEmpty ? '（无短码）' : '短码 $code',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (actingAsAdmin) ...<Widget>[
+                            const SizedBox(width: 8),
+                            _roleBadge(theme, '代管'),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
                         [
-                          if (event.from.isNotEmpty) '来源 ${event.from}',
+                          if (machine != null && machine!.name.isNotEmpty)
+                            '电视 ${machine!.name}'
+                          else if (event.from.isNotEmpty)
+                            '来源 ${event.from}',
                           if (reason.isNotEmpty) reason,
                           _timeOf(event.ts),
                         ].join(' · '),
@@ -622,10 +693,23 @@ class UnlockSection extends StatelessWidget {
                           color: scheme.onSurfaceVariant,
                         ),
                       ),
+                      if (ack != null) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${actor.isEmpty ? (actingAsAdmin ? '管理员' : '家长') : actor}'
+                          ' · ${_resultLabel(result)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: result == 'ok'
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                if (expired)
+                if (ack == null && expired)
                   Padding(
                     padding: const EdgeInsets.only(right: 12),
                     child: Text(
@@ -635,16 +719,43 @@ class UnlockSection extends StatelessWidget {
                       ),
                     ),
                   )
-                else
+                else if (ack == null)
                   FilledButton.tonal(
                     onPressed: () => onUnlock(event),
                     child: const Text('解锁'),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Text(
+                      _resultLabel(result),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: result == 'ok' ? scheme.primary : scheme.outline,
+                      ),
+                    ),
                   ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  /// 管理员视角：未绑定到该电视的请求标「代管」。
+  static Widget _roleBadge(ThemeData theme, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.onTertiaryContainer,
+        ),
+      ),
     );
   }
 }

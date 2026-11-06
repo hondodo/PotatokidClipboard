@@ -73,6 +73,9 @@ class ParentalUnlockCodeController extends ChangeNotifier {
   /// 解锁请求事件名（满足服务端 `EVENT_NAME_PATTERN`，服务端零改动）。
   static const String eventName = 'parental_unlock_request';
 
+  /// 解锁回执事件名（成功/失败都发，带 `actor` 与结果码）。
+  static const String ackEventName = 'parental_unlock_ack';
+
   /// 会话线程可见性补发目标（系统管理员账号）。
   static const String adminAccount = '1000001';
 
@@ -238,32 +241,62 @@ class ParentalUnlockCodeController extends ChangeNotifier {
   }
 
   /// 同码双发两条 `parental_unlock_request`（① owner 直投 + ② 1000001）。
-  Future<bool> _sendDouble(Map<String, dynamic> data) async {
+  Future<bool> _sendDouble(
+    Map<String, dynamic> data, {
+    String event = eventName,
+  }) async {
     final UnlockRequestSender? sender = _sender;
     if (sender == null) return false;
     final String owner = _ownerAccountProvider().trim();
     final String toOwner = owner.isEmpty ? adminAccount : owner;
     final List<bool> results = await Future.wait(<Future<bool>>[
-      _safeSend(sender, toOwner, data),
-      _safeSend(sender, adminAccount, data),
+      _safeSend(sender, toOwner, data, event),
+      _safeSend(sender, adminAccount, data, event),
     ]);
     final bool ok = results.any((bool r) => r);
     Log.i(
-      '[UnlockCode] 解锁请求双发 code=${data['code']} '
+      '[UnlockCode] 解锁事件双发 event=$event code=${data['code']} '
       'to=$toOwner/$adminAccount ok=$ok',
     );
     return ok;
+  }
+
+  /// 发送解锁回执（成功与失败都发）：`result` ∈
+  /// `ok | expired | already-unlocked | forbidden`，`actor` 为发起解锁的账号
+  /// （`forbidden` 由服务端代发，其余由电视端判定后回执）。
+  ///
+  /// 仍按 owner + 1000001 双发；服务端 `parental_*` 扇出会把该电视绑定的
+  /// 家长一并纳入 audience。
+  Future<bool> sendAck({
+    required String result,
+    required String actor,
+    String? code,
+  }) async {
+    String deviceId = '';
+    try {
+      deviceId = await _deviceIdProvider();
+    } catch (_) {
+      // 设备号不可用不阻断回执。
+    }
+    final Map<String, dynamic> data = <String, dynamic>{
+      'code': code ?? _code ?? '',
+      'actor': actor,
+      'result': result,
+      'deviceId': deviceId,
+    };
+    return _sendDouble(data, event: ackEventName);
   }
 
   Future<bool> _safeSend(
     UnlockRequestSender sender,
     String to,
     Map<String, dynamic> data,
+    String event,
   ) async {
     try {
-      return await sender(event: eventName, to: to, data: data);
+      return await sender(event: event, to: to, data: data);
     } catch (e) {
-      Log.error('[UnlockCode] 解锁请求发送失败(to=$to): $e');
+      Log.error('[UnlockCode] 解锁事件发送失败($event to=$to): $e');
       return false;
     }
   }

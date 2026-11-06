@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
-import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
@@ -63,7 +64,10 @@ class MessageCommandExecutor {
   };
 
   /// 执行命令；未知命令名返回 false（调用方记日志）。
-  bool execute(String name, Map<String, dynamic>? args) {
+  ///
+  /// [actor] 为命令发送方账号（实时通道 `from`；未知时为空串），用于
+  /// `parental_unlock_ack` 回执标明「谁解锁 / 谁失败」。
+  bool execute(String name, Map<String, dynamic>? args, {String actor = ''}) {
     switch (name) {
       case 'volume_up':
         volume.volumeUp();
@@ -94,27 +98,38 @@ class MessageCommandExecutor {
       case 'live_float':
         return _liveFloat();
       case 'parental_unlock':
-        return _parentalUnlock(args);
+        return _parentalUnlock(args, actor);
       default:
         return false;
     }
   }
 
   /// 远程解锁：校验短码（匹配 + 60s 未过期 + 未使用过，全部满足才消费，
-  /// 一次性）通过后解除锁屏。
+  /// 一次性）通过后解除锁屏。**任何 unlockMode 都允许远程解锁**（含 quiz：
+  /// 家长端只有家长安装，不假定手机会被儿童拿到）。
   ///
-  /// 任一校验失败按未知命令返回 false（不抛异常），由 Router 记日志。
+  /// 成功与失败都回执 `parental_unlock_ack`（`ok` / `expired` /
+  /// `already-unlocked`；`forbidden` 由服务端在投递前校验发送者时回执）。
   /// 短码状态见 [ParentalUnlockCodeController]（锁屏 UI 同源展示）。
-  bool _parentalUnlock(Map<String, dynamic>? args) {
-    // 答题模式只允许本机答题解锁：远程解锁（含后台补发短码）一律拒绝，
-    // 否则家长选中的「只能答题」会被一条命令绕过。
-    if (ParentalStateController.instance.config.unlockMode == 'quiz') {
+  bool _parentalUnlock(Map<String, dynamic>? args, String actor) {
+    final ParentalUnlockCodeController codes =
+        ParentalUnlockCodeController.instance;
+    final dynamic raw = args?['code'];
+    final String code = raw is String ? raw.trim() : '';
+    // 已经解锁（本地答题 / 上一次命令已生效）：幂等受理并回执，
+    // 但本次命令没有产生新的解锁动作 → 返回 false。
+    if (!KidWatchTimerController.instance.locked) {
+      unawaited(codes.sendAck(result: 'already-unlocked', actor: actor, code: code));
       return false;
     }
-    final dynamic raw = args?['code'];
-    if (raw is! String) return false;
-    if (!ParentalUnlockCodeController.instance.consume(raw)) return false;
+    if (code.isEmpty || !codes.active || !codes.consume(code)) {
+      // 无短码 / 已过期 / 已消费 / 不匹配：TV 端统一回执 `expired`
+      //（短码无效与过期对家长端是同一个处置：重新请求）。
+      unawaited(codes.sendAck(result: 'expired', actor: actor, code: code));
+      return false;
+    }
     KidWatchTimerController.instance.unlock();
+    unawaited(codes.sendAck(result: 'ok', actor: actor, code: code));
     return true;
   }
 
