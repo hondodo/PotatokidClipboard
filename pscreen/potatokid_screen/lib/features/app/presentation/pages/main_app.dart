@@ -43,6 +43,7 @@ class _TabDescriptor {
 /// - 顶部横向导航条（首页直播 | 时间 | 我的），图标+文字横排；
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
+/// - **进入内容页（首页直播/时间）时导航条立即收起**，仅按键时短暂预览（时间页）；
 /// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
 ///   「我的」页正文焦点内激活设置行；
 /// - **返回键**：非首页先回直播；「我的」页先退出正文选中；仅首页才二次确认退出。
@@ -66,10 +67,19 @@ class MainApp extends StatelessWidget {
     _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
   ];
 
-  void _goTab(int index) {
-    // 进入「我的」时回到位于导航条的状态。
-    if (index == _profileBranchIndex) {
-      ProfileFocusController.instance.reset();
+  void _goTab(BuildContext context, int index) {
+    // 进入「我的」时回到位于导航条的状态，并保持导航条常显（设置页需要可见的选择态）；
+    // 其余页面进入即收起，避免每次切页都带着顶部条。
+    // 已在目标页时不改条状态：否则菜单键呼出导航条后，选中 tab 的 autofocus
+    // 回调会再次走本方法把条立刻收起（表现为「按键没反应」）。
+    final AppBloc bloc = context.read<AppBloc>();
+    if (index != navigationShell.currentIndex) {
+      if (index == _profileBranchIndex) {
+        ProfileFocusController.instance.reset();
+        bloc.add(const SetChrome(true));
+      } else {
+        bloc.add(const SetChrome(false));
+      }
     }
     navigationShell.goBranch(
       index,
@@ -125,7 +135,7 @@ class MainApp extends StatelessWidget {
 
     // 非首页 → 回直播。
     if (cur != 0) {
-      _goTab(0);
+      _goTab(context, 0);
       unawaited(_BackToLiveHint.maybeShow(context));
       return true;
     }
@@ -266,6 +276,17 @@ class MainApp extends StatelessWidget {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
 
+    // 时间页：任意方向键让导航条短暂露出（仅显示、不可聚焦，3 秒自动收起），
+    // 键本身的动作（切样式/切源）照常执行。首页不做，避免与切源/切台/OK 叠加。
+    if (cur == _timeBranchIndex &&
+        !state.isChromeVisible &&
+        (key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown ||
+            key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight)) {
+      context.read<AppBloc>().add(const SetChromePeek(true));
+    }
+
     // 数字键：仅首页生效 —— 累积输入频道号，2 秒无输入后跳台（超范围会提示）。
     if (cur == 0) {
       final int? digit = _digitOf(key);
@@ -330,7 +351,7 @@ class MainApp extends StatelessWidget {
       }
       // 导航条可见时，左右优先用于切换 tab。
       if (state.isChromeVisible) {
-        _goTabWrapped(cur, delta);
+        _goTabWrapped(context, cur, delta);
         return true;
       }
       // 导航条隐藏时，首页左/右始终用于切换当前频道的源。
@@ -378,10 +399,10 @@ class MainApp extends StatelessWidget {
   }
 
   /// 循环切换 tab（左右）。
-  void _goTabWrapped(int current, int delta) {
+  void _goTabWrapped(BuildContext context, int current, int delta) {
     final int next =
         (current + delta + MainApp._tabs.length) % MainApp._tabs.length;
-    _goTab(next);
+    _goTab(context, next);
   }
 
   void _moveFocus(TraversalDirection direction) {
@@ -427,6 +448,10 @@ class MainApp extends StatelessWidget {
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
+    // 预览态只影响绘制，不参与焦点/切页（避免显示瞬间抢走正文焦点或误切页）。
+    final bool chromePeek =
+        context.select<AppBloc, bool>((bloc) => bloc.state.isChromePeek);
+    final bool chromeShown = chromeVisible || chromePeek;
     // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
     return Stack(
       children: <Widget>[
@@ -457,7 +482,7 @@ class MainApp extends StatelessWidget {
                         }
                         context
                             .read<AppBloc>()
-                            .add(SetChrome(!chromeVisible));
+                            .add(SetChrome(!chromeShown));
                       },
                       child: ListenableBuilder(
                         listenable: ParentalStateController.instance,
@@ -487,13 +512,13 @@ class MainApp extends StatelessWidget {
                       child: ClipRect(
                         child: AnimatedAlign(
                           alignment: Alignment.topCenter,
-                          heightFactor: chromeVisible ? 1 : 0,
+                          heightFactor: chromeShown ? 1 : 0,
                           duration: const Duration(milliseconds: 250),
                           curve: Curves.easeInOut,
                           child: _TopNavBar(
                             currentIndex: navigationShell.currentIndex,
                             chromeVisible: chromeVisible,
-                            onTabSelected: _goTab,
+                            onTabSelected: (index) => _goTab(context, index),
                           ),
                         ),
                       ),

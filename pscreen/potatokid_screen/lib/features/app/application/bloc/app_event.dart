@@ -20,6 +20,13 @@ class SetChrome extends AppEvent {
   final bool visible;
 }
 
+/// 导航条短暂预览（仅显示、不可聚焦，3 秒后自动收起）。
+class SetChromePeek extends AppEvent {
+  const SetChromePeek(this.visible);
+
+  final bool visible;
+}
+
 /// 仅设置首页频道列表显隐（供换台/滑动显示、无操作自动隐藏、首页 OK 键切换用）。
 class SetChannels extends AppEvent {
   const SetChannels(this.show);
