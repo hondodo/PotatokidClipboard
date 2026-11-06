@@ -766,15 +766,21 @@ class _ProfilePageState extends State<ProfilePage> {
         if (_editingRow == _remoteRow) {
           return _buildRemoteEditRow();
         }
+        // 展示名优先；未设置时回落账号 id。调试包才允许改账号。
+        final String shown = AppSettings.instance.displayName.isNotEmpty
+            ? AppSettings.instance.displayName
+            : state.account;
         final String value = state.status == RemoteLoginStatus.notConfigured
             ? 'remote_not_set'.tr()
-            : '${state.account} ${_remoteStatusLabel(state.status)}';
+            : '$shown ${_remoteStatusLabel(state.status)}';
         return _SettingRow(
           highlighted: inContent && c.row == _remoteRow,
           label: 'settings_remote'.tr(),
           value: value,
           canStepLeft: false,
-          canStepRight: state.status != RemoteLoginStatus.notConfigured,
+          canStepRight: AppConfig.enableChangeAccount
+              ? state.status != RemoteLoginStatus.notConfigured
+              : true,
           onTap: () {
             c.select(_remoteRow);
             _beginInlineEdit(_remoteRow);
@@ -810,8 +816,10 @@ class _ProfilePageState extends State<ProfilePage> {
   void _beginInlineEdit(int row) {
     if (_editingRow != null || !mounted) return;
     if (_focusNodeOf(row) == null) return; // 未配置焦点节点的行不进入编辑态
-    // 实时通道账号：预填当前账号。
-    _remoteInputController.text = context.read<RemoteLoginBloc>().state.account;
+    // 调试包预填当前账号；正式包预填展示名（留空则显示账号）。
+    _remoteInputController.text = AppConfig.enableChangeAccount
+        ? context.read<RemoteLoginBloc>().state.account
+        : AppSettings.instance.displayName;
     _editingRow = row;
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -819,15 +827,22 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// 提交行内输入：按编辑中的行分发；空串一律视为取消。
+  /// 提交行内输入：按编辑中的行分发；账号模式空串视为取消，展示名模式允许清空。
   Future<void> _submitInlineEdit() async {
     final int? row = _editingRow;
     if (row == null) return;
     if (row == _remoteRow) {
-      final String account = _remoteInputController.text.trim();
+      final String text = _remoteInputController.text.trim();
       _cancelInlineEdit();
-      if (account.isEmpty || !mounted) return;
-      context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(account));
+      if (!mounted) return;
+      if (AppConfig.enableChangeAccount) {
+        if (text.isEmpty) return;
+        context.read<RemoteLoginBloc>().add(RemoteLoginSubmit(text));
+      } else {
+        // 只写展示名：允许清空（回落显示账号 id）。
+        await AppSettings.instance.setDisplayName(text);
+        if (mounted) setState(() {});
+      }
     } else {
       // 未配置提交分支的行：安全退出编辑态，避免吞键卡死。
       _cancelInlineEdit();
