@@ -95,6 +95,7 @@ button.link { background: none; border: none; color: var(--accent); padding: 0; 
 .msg.err { color: var(--danger); }
 .msg.ok { color: var(--ok); }
 .hint { color: var(--muted); font-size: 13px; }
+.log-notice { color: #e3c85b; margin: 8px 0 0; }
 .notice { border: 1px solid #5a4a1f; background: #1f1a0d; color: #e3c85b; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
 table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
