@@ -23,6 +23,7 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_failure_guard.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 import 'package:potatokid_screen/features/msg/presentation/widgets/message_overlay.dart';
+import 'package:potatokid_screen/features/parental/presentation/widgets/device_account_label.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.dart';
 import 'package:pscreen_screen/features/weather/application/bloc/weather_event.dart';
@@ -417,6 +418,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 KeyedSubtree(key: _rowKeys[_weatherSourceRow], child: _buildWeatherSourceRow(inContent, c)),
                 const SizedBox(height: 12),
                 KeyedSubtree(key: _rowKeys[_disclaimerRow], child: _buildDisclaimerRow(inContent, c)),
+                const SizedBox(height: 20),
+                // 固定展示本机派生账号（只读），便于多台电视时确认操作对象。
+                const DeviceAccountLabel(
+                  color: Colors.white38,
+                  textAlign: TextAlign.left,
+                ),
+                const SizedBox(height: 8),
               ],
             );
           },

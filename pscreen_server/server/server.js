@@ -2145,6 +2145,9 @@ realtimeHandle = attachRealtime(httpServer, {
     configFor: adminHandle.configFor,
     // parental_* 事件按设备绑定家长扇出
     parentAccountsFor: adminHandle.parentAccountsFor,
+    // 家长解锁放行判定：绑定家长 / admin 才能下发 parental_unlock；
+    // 未接线时 realtime 默认一律拒绝（曾导致绑定家长也被回 forbidden）
+    parentalUnlockAllowed: adminHandle.canParentalUnlock,
     // 家长端拉历史事件时并入其绑定设备的账号（补部署前的旧记录）
     machineAccountsForParent: adminHandle.machineAccountsForParent,
     // 剪贴板推送通道：复用 HTTP 的账号体系与列表读取实现

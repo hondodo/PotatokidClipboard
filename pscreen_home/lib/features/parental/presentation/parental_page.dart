@@ -282,7 +282,12 @@ class _ParentalPageState extends State<ParentalPage> {
       );
   }
 
-  /// 档案 / 设置保存：先乐观更新，失败回读服务端真实值。
+  /// 档案 / 设置保存：先乐观更新，再用服务端返回的落盘值校正。
+  ///
+  /// 曾出现「选了答题解锁、保存后电视仍是短码」：请求虽 2xx，但服务端存
+  /// 的仍是 remote。这里直接用响应里的 parental 回读，模式不一致就明确
+  /// 告警，避免界面假装已保存。答题模式还会提前检查题库，题库为空/只有
+  /// 填空题时电视会回退短码页，保存时就要说明。
   Future<void> _saveConfig(ParentalConfig next) async {
     final ParentalMachine? machine = _selected;
     if (machine == null) {
@@ -291,26 +296,83 @@ class _ParentalPageState extends State<ParentalPage> {
     }
     setState(() => _config = next);
     try {
-      await _api.saveParental(machine.id, next.toJson());
-      _hint('已保存');
+      final ParentalConfig saved = await _api.saveParental(machine.id, next.toJson());
+      if (!mounted || _selected?.id != machine.id) return;
+      setState(() => _config = saved);
+      if (next.unlockMode == 'quiz' && saved.unlockMode != 'quiz') {
+        _hint('保存未生效：服务端返回的解锁方式仍是「${saved.unlockMode}」，请重试', error: true);
+        return;
+      }
+      final String? warning =
+          next.unlockMode == 'quiz' ? await _quizEmptyWarning(machine, next) : null;
+      if (!mounted) return;
+      _hint(warning ?? '已保存', error: warning != null);
     } catch (error) {
       _hint('保存失败：$error', error: true);
       unawaited(_loadConfig());
     }
   }
 
+  /// 答题解锁缺可用选择题时的告警文案（无问题返回 null）。
+  ///
+  /// 与电视端同一口径：跳过填空题、缺选项/答案的题；优先只看当前观看的
+  /// 孩子，没有 activeChildIds 时检查全部档案。
+  Future<String?> _quizEmptyWarning(ParentalMachine machine, ParentalConfig config) async {
+    final List<String> childIds = config.activeChildIds.isNotEmpty
+        ? config.activeChildIds
+        : config.children.map((ParentalChild child) => child.id).toList(growable: false);
+    try {
+      for (final String childId in childIds) {
+        final List<Map<String, dynamic>> questions = await _api.fetchQuiz(machine.id, childId);
+        if (questions.any(_isUsableChoice)) return null;
+      }
+    } catch (_) {
+      // 题库查询失败不阻塞保存；电视机锁屏仍会给出回退提示。
+      return null;
+    }
+    return '已保存，但该设备题库为空或只有填空题：电视会回退短码解锁，请先在儿童档案里添加选择题';
+  }
+
+  static bool _isUsableChoice(Map<String, dynamic> question) {
+    if ('${question['type'] ?? ''}'.trim() != 'choice') return false;
+    final dynamic options = question['options'];
+    final dynamic answers = question['answers'];
+    return options is List && options.isNotEmpty && answers is List && answers.isNotEmpty;
+  }
+
   /// 解锁记录补发 / 弹层之外的主动解锁：向事件来源 TV 下发 parental_unlock。
+  ///
+  /// `sendText` 在「通道未连接」和「服务端拒绝（ok:false）」都返回 false，
+  /// 必须按连接状态分开告知，否则会把「无权限 / 电视离线」误报成断线。
   Future<void> _sendUnlock(RealtimeEvent event) async {
     final String code = '${event.data['code'] ?? ''}'.trim();
     final String to = event.from.trim();
     final RealtimeChannel? channel = _channel;
-    final bool ok =
-        channel != null &&
-        code.isNotEmpty &&
-        to.isNotEmpty &&
-        await channel.sendText(to: to, body: buildCommandEnvelope('parental_unlock', <String, dynamic>{'code': code}));
-    _hint(ok ? '已发送解锁命令（短码有效性由电视端校验）' : '发送失败：实时通道未连接', error: !ok);
-    if (ok) unawaited(_loadEvents());
+    if (channel == null || !channel.isConnected) {
+      _hint('发送失败：实时通道未连接，请等待自动重连后重试（也可稍后在「解锁记录」补发）', error: true);
+      return;
+    }
+    if (code.isEmpty || to.isEmpty) {
+      _hint('发送失败：该记录缺少短码或来源设备', error: true);
+      return;
+    }
+    final bool ok = await channel.sendText(
+      to: to,
+      body: buildCommandEnvelope('parental_unlock', <String, dynamic>{'code': code}),
+    );
+    if (!ok) {
+      final ParentalMachine? machine = _selected;
+      final bool bound = machine == null || machine.parents.contains(_myAccount);
+      _hint(
+        bound
+            ? '发送失败：服务端未受理（电视可能已离线，请确认电视开机联网）'
+            : '发送失败：当前账号未绑定该电视，服务端按「无权限」拒绝（请先补绑）',
+        error: true,
+      );
+      return;
+    }
+    _hint('已发送解锁命令（短码有效性由电视端校验）');
+    unawaited(_loadEvents());
   }
 
   /// 遥控快捷入口：命令信封直发被控设备（与会话页同一投递通道）。
@@ -588,6 +650,8 @@ class _ParentalPageState extends State<ParentalPage> {
                       acks: _unlockAckEvents,
                       isAdmin: AccountSession.isAdmin,
                       myAccount: _myAccount,
+                      onManageDevices:
+                          AccountSession.isParent ? () => unawaited(_openDeviceManager()) : null,
                     ),
                     ParentalSettingsSection(
                       // 换设备重建编辑态，避免残留上一台的输入。

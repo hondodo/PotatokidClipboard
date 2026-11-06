@@ -534,6 +534,7 @@ class UnlockSection extends StatelessWidget {
     this.acks = const <RealtimeEvent>[],
     this.isAdmin = false,
     this.myAccount = '',
+    this.onManageDevices,
   });
 
   /// 按时间降序的解锁请求历史。
@@ -552,6 +553,9 @@ class UnlockSection extends StatelessWidget {
 
   /// 当前登录账号，用于判断选中电视是否由自己绑定（admin 未绑定时标代管）。
   final String myAccount;
+
+  /// 未绑定该电视时的补绑入口（家长端打开绑定管理）。
+  final VoidCallback? onManageDevices;
 
   static const Duration _codeTtl = Duration(seconds: 60);
 
@@ -582,7 +586,7 @@ class UnlockSection extends StatelessWidget {
     'ok' => '已解锁',
     'expired' => '短码已过期',
     'already-unlocked' => '无需解锁（已解锁）',
-    'forbidden' => '无权限',
+    'forbidden' => '无权限（未绑定该电视）',
     _ => result.isEmpty ? '未回执' : result,
   };
 
@@ -603,6 +607,36 @@ class UnlockSection extends StatelessWidget {
               .where((RealtimeEvent event) => _belongsTo(event, machine))
               .toList(growable: false);
     final Map<String, Map<String, dynamic>> ackByCode = _ackByCode();
+    // 家长未绑定选中电视时，服务端会按「无权限」拒绝 parental_unlock；
+    // 这里提前说明并给出补绑入口（admin 未绑定时仍可代管，不提示）。
+    final bool unbound = !isAdmin &&
+        machine != null &&
+        myAccount.isNotEmpty &&
+        !machine!.parents.contains(myAccount);
+    final Widget? unboundCard = unbound
+        ? Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            color: scheme.errorContainer.withValues(alpha: 0.5),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.link_off, size: 18, color: scheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '当前账号 $myAccount 未绑定这台电视，服务端会把解锁命令按'
+                      '「无权限」拒绝。请先补绑后再解锁。',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  if (onManageDevices != null)
+                    TextButton(onPressed: onManageDevices, child: const Text('去绑定')),
+                ],
+              ),
+            ),
+          )
+        : null;
     final Widget hint = Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
@@ -625,6 +659,7 @@ class UnlockSection extends StatelessWidget {
       return ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: <Widget>[
+          ?unboundCard,
           hint,
           const SizedBox(height: 32),
           Center(
@@ -637,13 +672,15 @@ class UnlockSection extends StatelessWidget {
       );
     }
     final DateTime now = DateTime.now();
+    // 头部固定为「未绑定提示（可选）+ 解锁方式提示」，其余才是请求记录。
+    final int headerCount = unboundCard == null ? 1 : 2;
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      // index 0 是解锁方式提示卡，其余才是请求记录。
-      itemCount: visible.length + 1,
+      itemCount: visible.length + headerCount,
       itemBuilder: (BuildContext context, int index) {
-        if (index == 0) return hint;
-        final RealtimeEvent event = visible[visible.length - index];
+        if (index == 0 && unboundCard != null) return unboundCard;
+        if (index == (unboundCard == null ? 0 : 1)) return hint;
+        final RealtimeEvent event = visible[visible.length - (index - headerCount + 1)];
         final String code = '${event.data['code'] ?? ''}'.trim();
         final String reason = '${event.data['reason'] ?? ''}'.trim();
         final DateTime ts = DateTime.fromMillisecondsSinceEpoch(event.ts);
@@ -845,7 +882,8 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               '答题模式只能用题库解锁；题库在「儿童档案」卡片里维护，'
-              '多个孩子取年龄最大的一份，同岁合并。全部无题时回退算术题。',
+              '多个孩子取年龄最大的一份，同岁合并。全部无题时电视回退短码页，'
+              '请先添加选择题后再保存此模式。',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.outline,
               ),

@@ -128,7 +128,10 @@ class ParentalAdminApi {
   }
 
   /// 携带 `parental` 字段写入设备记录（方案 4.3 指定的档案 CRUD 落点）。
-  Future<void> saveParental(
+  ///
+  /// 返回服务端**落盘后**的配置，调用方据此回读校验（避免请求体未被受理时
+  /// 界面仍显示「已保存」）。
+  Future<ParentalConfig> saveParental(
     String deviceId,
     Map<String, dynamic> parental,
   ) async {
@@ -139,7 +142,16 @@ class ParentalAdminApi {
       contentType: 'application/json',
       notTipNetError: true,
     );
-    _dataOf(data);
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic machine = body['machine'];
+    if (machine is Map) {
+      final dynamic saved = machine['parental'];
+      if (saved is Map) {
+        return ParentalConfig.fromJson(Map<String, dynamic>.from(saved));
+      }
+    }
+    // 响应缺失时退回请求值（兼容旧服务端），由调用方按需告警。
+    return ParentalConfig.fromJson(parental);
   }
 
   /// 读取某个儿童档案的题库（服务端已归一化，直接回传原始题目 Map）。
