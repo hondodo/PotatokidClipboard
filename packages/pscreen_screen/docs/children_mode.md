@@ -61,7 +61,7 @@
 - `lib/core/server/device_reporter.dart`：设备上报 / 60s WS report / 5min HTTP 兜底 / `channel.deviceConfigs.listen(_applyServerConfig)`——config 监听与上报的参考实现（注册已随登录自动完成，电视端无需新增注册代码）。
 - `lib/features/remote_control/presentation/chat_page.dart`：`_channel.events.listen(_handleEvent)` L51——手机端收事件的先例；且会话已做线程订阅 `watchThread(peer, also: ['1000001'])` L68-73，`_belongs` L82-87 放行"TV ↔ 管理员"往来——**TV 发给 `1000001` 的消息/事件在绑定的 TV 会话里天然可见**（实时转发 + 历史快照），家长不换登录账号也能在会话时间线看到 TV→admin 的事件。
 - 账号模型：单"实时账号"登录（默认 `home` + 本机设备号，设置页可改），WS 连接声明 `role: 'controller'`（客户端角色，与账号角色无关）；服务端账号 info JSON 的 `role` 字段**本方案从 `admin | user` 扩为 `admin | parent | user` 三级**（`admin.js` L5 枚举、L214 判定、admin 页 L741 下拉；第一版开发，无存量账号、无迁移回填），`/api/login` 响应 `user.role` 下发给客户端。**家长身份 = `role == 'parent'`（`admin` 兜底代管，见 4.2）**。
-- **事件投递目标可单独指定（已核实），解锁请求双发**：现有 `reportEvent`（`reporting_service.dart` L298）固定走 `toAccount: adminAccount`（1000001）；**新增解锁事件不走 `reportEvent`，直接 `sendEvent` 单独指定 `to`——同一解锁请求（同一 `code`）双发两条：① `to: ownerAccount`（owner 直投）+ ② `to: '1000001'`（补 admin/成员的会话线程可见性，否则单发 ownerAccount 时别人开着会话页也收不到，见 4.2）**。`realtime_channel.dart` L452 `sendEvent({event, data, to})` 的 `to` 即任意账号（`MessageSender.sendEvent` 抽象层同样显式传 `toAccount`），服务端 `realtime.js` case `'event'` L807 按 `ACCOUNT_PATTERN` 校验 `to` 并定向投递 + 落库，**服务端零改动**；两条事件 `data` 带同一解锁短码，**手机端按短码去重**（同短码已有活动弹层则忽略后到的一条，见 4.2）。
+- **事件投递目标可单独指定（已核实），解锁请求双发**：现有 `reportEvent`（`reporting_service.dart` L298）固定走 `toAccount: adminAccount`（1000001）；**新增解锁事件不走 `reportEvent`，直接 `sendEvent` 单独指定 `to`——同一解锁请求（同一 `code`）双发两条：① `to: ownerAccount`（owner 直投）+ ② `to: '1000001'`（补 admin/成员的会话线程可见性，否则单发 ownerAccount 时会话页里看不到；服务端现已按 `machine.parents` 扇出给绑定家长，双发只剩兼容与线程可见性意义，见 4.2）**。`realtime_channel.dart` L452 `sendEvent({event, data, to})` 的 `to` 即任意账号（`MessageSender.sendEvent` 抽象层同样显式传 `toAccount`），服务端 `realtime.js` case `'event'` L807 按 `ACCOUNT_PATTERN` 校验 `to` 并定向投递 + 落库，**服务端零改动**；两条事件 `data` 带同一解锁短码，**手机端按短码去重**（同短码已有活动弹层则忽略后到的一条，见 4.2）。
 - **向指定 TV 发命令的能力已确认（评审 P1-10）**：`live_remote_panel.dart` L45-153 已用 `buildCommandEnvelope('channel_next'/'volume_up'/...) + panel.onCommand` 向当前绑定 TV 发送 10+ 命令——`parental_unlock` 走同一投递通道，无需新增能力；**家长视图的遥控快捷入口直接复用该面板**（只开遥控面板，不打开完整中控台）。
 
 ### 1.4 电视宿主 UI 现状（`pscreen/potatokid_screen`）
@@ -129,7 +129,17 @@
 - `activeChildIds` = **当前观看的孩子（可多位）**，电视端持久化（重启保持为默认预选），随 `parental_watch` 周期上报；开机确认/换人时另发 `parental_child_active` 事件——家长手机/admin 能看到"现在是谁在看"。
 - **生效判定式（全文统一）**：`parental?.mode === 'on' && (children?.length ?? 0) > 0`。**不用"≠ off"**——老配置无 parental 字段时 `mode` 为 `undefined`，`undefined !== 'off'` 为 true 会误判；统一正向判定，缺省即未启用，也避免后续加字段时把短路条件改坏（评审收尾 #1）。`mode !== 'on'` 或 `children` 为空 = 该层不启用。
 - `hideChannels` / `allowChannels` 沿用 `ChannelNameMatcher` 语义（精确 + `*` 通配），与既有 `tvNameHide` 一致，不引入正则；`hideChannels` 与 `tvNameHide` 完全同构，实现可直接复用。
-- `ownerAccount` = **该 TV 的家长账号（`parent` 角色）**，缺省回退 `machine.owner`（`resolveMachineConfig` 已返回），再缺省回退 `ReportingService.adminAccount`（`1000001`）——解锁请求的投递目标，也是家长视图过滤"我管哪台 TV"的依据。家长视图按此过滤：`parent` 登录只看 `config.owner == 本账号`（或 `parental.ownerAccount == 本账号`）的电视档案；`admin` 不受限（看全部，用于代管）。
+- `ownerAccount` = **历史遗留的单值家长账号字段**（admin 设置页仍可编辑，TV 端解锁请求的 ① 号投递目标仍读它），**但已不再是权限与可见性依据**：家长可见范围、档案编辑权限、解锁请求扇出全部改按 `machine.parents`（见 2.2.1）。
+
+#### 2.2.1 现状：档案归属与权限（设备维度，已核对代码）
+
+> 本节是**代码现状**（`pscreen_server/server/admin.js`、`realtime.js`、`pscreen_home` 家长页）。与 2.2 早期"单家长 owner"设想冲突处，以本节为准；上文相关旧描述已逐一改为现状表述。
+
+- **档案只有一份、按设备存放**：孩子档案存在 `machines.json` 的设备记录里——`machines[id].parental.children`。`parents` 只是"绑定该 TV 的账号数组"，**不存在"每个家长一份档案"的副本**；所有绑定家长看到、修改的都是同一份。
+- **权限 = 绑定关系**：凡是 `machine.parents` 内的家长都能增删改该 TV 的**全部档案**（服务端 `PUT /api/admin/machines/:id` 对 `role === 'parent'` 校验 `machine.parents.includes(本账号)`，不满足直接拒绝）；`admin` 不受限，可代管任意电视。`parental.ownerAccount` / `machine.owner` **不参与鉴权**（前者仅兼容保留；后者表示"设备所属中控账号"，与家长绑定是两条独立关系）。
+- **题库键 = `deviceId → childId`**：答题题库存 `parental_quizzes.json`，第一层键是设备 id、第二层是 childId；家长只能改自己绑定电视的题库，服务端还会校验该 childId 确实属于这台电视的 `parental.children`（`childExists`）。
+- **childId 必须原样保留**：服务端把观看时长按 `` `${machine.id}|${childId}` `` 归并（`deriveParentalSessions`），改 childId 会让该孩子的历史断成两条。**childId 今后由服务端分配**（客户端不再自造），改名/迁移只改 `name`，不动 `id`。
+- **并发语义（目标状态，待实现）**：档案写入以 **childId 为粒度做原子合并**——不同 childId 的并发修改直接合并（互相保留）；只有**同一个 childId 被并发修改**时返回 `409`，并在响应体回传服务端当前最新档案，供家长端提示"已被他人修改"后重试/覆盖。当前 `admin.js` 的 `PUT` 仍是整体覆盖，此条落地前不做服务端并发保护。
 
 #### 选人流程（App 打开时弹出）
 
@@ -298,13 +308,13 @@
 ```
 
 - 事件名 `parental_unlock_request`、命令名 `parental_unlock` 均满足 `EVENT_NAME_PATTERN`，**服务端零改动**。
-- **双发（定稿）**：同一解锁请求（同一 `code`）发两条事件——① `to` = `parental.ownerAccount ?? machine.owner ?? '1000001'`（owner 直投）；② `to` = `'1000001'`（补会话线程可见性）。两条 `data` 完全相同（含同一短码），**手机端按短码去重**：同 `code` 已有活动弹层时忽略后到的一条（不同 event id、相同短码，故按 `code` 判重而非 event id）；短码 60s 过期或已消费后换新码自然弹新卡。
-- **为什么必须双发**：单发 ① 时，`forwardThread` 的命中条件是"对方是订阅者本人 或 在 `also` 集合里"（`threadPeerOf`，`realtime.js` L402-411），而 `chat_page` 订阅固定 `also: ['1000001']`——事件 `to` 是 owner 自己账号时，admin/user 开着会话页也收不到，4.2「user 会话线程可见」那句就不成立；发 ② 才能同时覆盖。
-- **两条到达路径（均为已有能力）**：
-  1. **直投**：手机登录账号 == 事件 `to` 时，服务端按账号定向投递，任意页面可达、离线排队（`enqueueOffline` L778 / `flushOffline` L689）——owner 走 ①，`1000001` 登录者走 ②；
-  2. **线程转发**：手机打开该 TV 的会话页（`thread_watch also=['1000001']`，`chat_page.dart` L71）时，② 的事件经 `forwardThread`（`realtime.js` L871-875）实时转发进时间线，`_belongs`（L82-87）天然放行——**普通成员/未登录 owner 账号的 admin 不换登录账号也能在会话里看到解锁请求**（会话历史快照 `threadItemsFor` 也包含）。
-  - **重复场景（去重要覆盖的）**：owner 手机开着会话页 → 直投 1 条 + ② 线程转发 1 条；或 `ownerAccount` 缺省回退到 `1000001` → ①② 同账号直投 2 条。均由手机端短码去重消掉。
-  - **缺口仅在**：手机账号既非 `ownerAccount` 也非 `1000001` **且** TV 会话页未打开——此时无实时路径，请求只落历史，打开会话可见但短码可能已过期，需"重新请求"或 PIN 兜底。
+- **双发（TV 端现状，兼容保留）**：同一解锁请求（同一 `code`）TV 发两条事件——① `to` = `parental.ownerAccount ?? machine.owner ?? '1000001'`（owner 直投）；② `to` = `'1000001'`（补会话线程可见性）。两条 `data` 完全相同（含同一短码），手机端按短码去重。
+- **服务端已按 `machine.parents` 全量扇出（现状，取代"非 owner 家长收不到"）**：`realtime.js` 对名字以 `parental_` 开头的事件，投递目标 = `{to} ∪ parentAccountsFor(发送设备)`，即该 TV 的**全部绑定家长**都会收到；历史只落一条原始记录并用 `audience` 标记其余可见账号（记录页不重复）。
+  - "只有 `ownerAccount` 能收到解锁请求"的旧结论**已废弃**：`parent` 能不能收，取决于它是否在该 TV 的 `machine.parents` 里。
+  - ② 号 `to: 1000001` 仍保留，用于会话线程可见性（`chat_page` 订阅 `also: ['1000001']`）；但绑定家长已由服务端扇出覆盖，**不再存在"非 owner 家长收不到"的缺口**。
+  - **重复场景（去重要覆盖的）**：绑定家长会同时收到"扇出直投"与 ② 的线程转发；`ownerAccount` 回退到 `1000001` 时同账号还会收到两条直投。均由手机端短码去重消掉。
+- **离线**：扇出对每个收件人独立走队列（`enqueueOffline` / `flushOffline`），断线家长上线后仍能补收；短码 60s 过期后需"重新请求"或 PIN 兜底。
+- **历史说明（已废弃）**：早期投递目标只有 `parental.ownerAccount` 一个，故设计"单发 owner + 补发 `1000001`"的双发；服务端加入按 `machine.parents` 扇出后，双发只剩兼容与线程可见性意义。
 - 短码优先于二维码：手机中控是自家常驻 App，事件推送直达，无需扫码这一步。二维码（内容为 `parental://unlock?...` 深链）留作 v2 增强，便于"家长不在家时孩子拿遥控对着码、邻居手机扫"之类场景再评估。
 
 #### 家长端承载：三级角色 + 家长视图（定稿）
@@ -321,7 +331,7 @@
 
 - **解锁弹层仅 `parent` / `admin` 注册** `events.listen`；`user` 登录即使收到 `parental_unlock_request` 也不弹卡、不可下发 `parental_unlock`，避免误操作。
 - **`user` 仍可能"看得见"（有意为之，评审会点一句）**：事件会经 TV 会话线程（`_belongs` 放行）出现在会话时间线里，普通家庭成员能看到"电视在请求解锁"，但**没有操作能力**——实施时以"**能弹 = 能点**"为唯一授权口径，不要误以为 user 完全看不到。
-- **投递目标与判定统一到 owner**：`parental.ownerAccount ?? machine.owner ?? '1000001'`；`parent` 登录只看自己管的 TV（`config.owner == 本账号`），`admin` 能看全部（代管）。这同时消掉原「显隐用 admin、投递用 ownerAccount」的双身份拧巴点——**收到就能点，点不了就是没权限收**。
+- **投递与判定统一到 `machine.parents`**：`parental_*` 事件由服务端扇出给该 TV 的全部绑定家长（见上）；`parent` 登录可见/可管的 TV = `machine.parents` 包含本账号，`admin` 能看全部（代管）。判定与投递同源——**收到就能点，点不了就是没绑定**。
 
 **家长视图页面模块（`parent` 登录后的首页，只含家长相关内容，不含中控台的场景/天气/设置、不含 admin 后台）**：
 
@@ -330,12 +340,12 @@
 3. **解锁请求记录**：历史 `parental_unlock_request`，短码未过期的可点「解锁」补发 `parental_unlock`；
 4. **设置**：`ownerAccount`、解锁方式（`remote/pin/arith`）、PIN 设置；
 5. **遥控快捷入口**：点开只渲染遥控面板（复用 `live_remote_panel.dart`），**不打开完整中控台**——家长平时用手机遥控电视，又不把中控台整个暴露；
-6. **账号一致性引导**：校验当前登录账号与 `parental.ownerAccount`/`machine.owner` 是否一致；不一致时提示"你登录的不是这台 TV 的家长账号，收不到解锁请求"（但仍可经 TV 会话线程只读看到）。
+6. **账号一致性引导**：校验当前登录账号是否在该 TV 的 `machine.parents` 里；不在时提示"你登录的账号还没绑定这台 TV，收不到解锁请求"（admin 代管、或仍可经 TV 会话线程只读看到）。
 
 - **解锁确认 = 事件驱动的全局弹层**（保留既有设计）：任意页面收到 `parental_unlock_request` 即在上层弹确认卡，不依赖当前所在页面，家长停在别的页面也不会漏掉。
-- **admin 登录**：默认进 admin 视图，家长视图作为其中一个入口（点击进入同一套页面，按 owner 过滤关闭 = 看全部，用于代管/救急）——**admin 视图直接复用家长视图代码、只放开 owner 过滤**，避免两套 CRUD 页面（风险 #13）。
-- **事件投递与离线排队**：双发两条事件，① 直投的离线入队对"登录账号 == `ownerAccount`"的设备生效、② 直投的离线入队对 `1000001` 登录设备生效；线程转发只推在线且订阅中的 socket（会话页打开期间）。同一手机可能收到两条（owner 开会话页 / `ownerAccount` 即 `1000001`），**弹层按短码去重，同 `code` 只弹一张**。两条路径短码均 60s 过期，过期后电视端提示"重新请求"。
-- **注意**：pscreen_home 默认账号是 `home` + 本机设备号（设置页可改）。家长需用 **`parent` 角色账号**登录才能进家长视图、收到任意页面的解锁弹层与离线排队；用 `user` 账号登录只能经 TV 会话线程只读看到解锁请求（会话页打开期间实时，短码可能已过期）。多家长 v1 不支持，后续把 `ownerAccount` 扩成数组即可，投递机制不变。
+- **admin 登录**：默认进 admin 视图，家长视图作为其中一个入口（点击进入同一套页面，**按 `machine.parents` 过滤关闭 = 看全部**，用于代管/救急）——**admin 视图直接复用家长视图代码、只放开绑定过滤**，避免两套 CRUD 页面（风险 #13）。
+- **事件投递与离线排队**：`parental_*` 事件由服务端按该 TV 的 `machine.parents` 扇出，每个绑定家长独立入队/直投（离线也补收）；TV 端另发的 ② 号 `to: 1000001` 走会话线程可见性。同一手机可能收到两条（扇出直投 + 线程转发 / `ownerAccount` 即 `1000001`），**弹层按短码去重，同 `code` 只弹一张**。短码 60s 过期，过期后电视端提示"重新请求"。
+- **注意**：pscreen_home 默认账号是 `home` + 本机设备号（设置页可改）。家长需用 **`parent` 角色账号**登录才能进家长视图、收到任意页面的解锁弹层与离线排队；用 `user` 账号登录只能经 TV 会话线程只读看到解锁请求（会话页打开期间实时，短码可能已过期）。**多家长已支持**：一台 TV 的 `machine.parents` 是账号数组，数组内每个 `parent` 都能收解锁请求、都能改该 TV 全部档案；`ownerAccount` 只是遗留单值字段，不再限制家长数量（见 2.2.1）。
 
 #### 离线兜底：PIN / 算术题（纯本地，WS 断线时可用）
 
@@ -401,7 +411,7 @@
 | 类型 | 名称 | 方向 | 载荷 | 服务端改动 |
 |---|---|---|---|---|
 | config 字段 | `parental` | 服务端 → TV | 见 2.2 JSON | **3 处小改**：PUT parental 分支 + `normalizeMachine` 保留 + `resolveMachineConfig` 透传；admin 编辑表单 |
-| WS 事件 | `parental_unlock_request` | TV → 家长 | `{code, deviceId, reason}` ≤16KB，**同 code 双发两条**（`to: ownerAccount` + `to: 1000001`，手机端按 `code` 去重） | **零**（通用 event 路由） |
+| WS 事件 | `parental_unlock_request` | TV → 家长 | `{code, deviceId, reason}` ≤16KB，TV 端同 code 双发两条（`to: ownerAccount` + `to: 1000001`）；服务端按 `machine.parents` 扇出给全部绑定家长（`audience`），手机端按 `code` 去重 | **零**（通用 event 路由） |
 | WS 事件 | `parental_watch` | TV → 服务端 | `{childIds, sessionSecByChild, dailySecByChild, date}`（按孩子分账） | **零**（落 events.jsonl） |
 | WS 事件 | `parental_child_active` | TV → 服务端 | `{childIds}`（开机选人确认/换人时发） | **零**（落 events.jsonl） |
 | WS 命令 | `parental_unlock` | 家长 → TV | `{code}` | **零**（通用 cmd 路由） |
@@ -432,7 +442,7 @@
 
 ### 阶段 2：远程解锁 + PIN 兜底（差异化，链路已有）
 
-1. TV 锁屏 → `sendEvent('parental_unlock_request')` **双发（同 `code`：`to: ownerAccount` + `to: '1000001'`）**（**触发源 = 阶段 1 的计时/禁看时段**，基于本地临时配置——本阶段可独立验收；阶段 3 后触发源不变，仅配置来源切换）；
+1. TV 锁屏 → `sendEvent('parental_unlock_request')` **双发（同 `code`：`to: ownerAccount` + `to: '1000001'`）**，服务端再按 `machine.parents` 扇出给全部绑定家长（**触发源 = 阶段 1 的计时/禁看时段**，基于本地临时配置——本阶段可独立验收；阶段 3 后触发源不变，仅配置来源切换）；
 2. `MessageCommandExecutor` 新增 `case 'parental_unlock'`；
 3. 手机中控**三级角色分流 + 家长视图**：登录按 `user.role` 分流（admin → admin 视图、**parent → 家长视图**、user → 中控台）；解锁弹层 `events.listen` **仅 `parent`/`admin` 注册**（user 不注册）；家长视图含档案 CRUD、当前观看者、分档案时长、解锁记录、设置、遥控快捷入口（复用 `live_remote_panel.dart`，不开中控台）；服务端 role 枚举扩三级（`admin.js` L5/L214、admin 页 L741 加「家长」）（见 4.2）；
 4. `ParentalVerificationSheet`（锁屏解锁与后续选人页 `locked` 闸门共用）+ PIN / 算术题本地兜底 + 错 5 次锁 60s；
@@ -464,14 +474,14 @@
 | 2 | `clearAllPersisted()` 清空全部键 | 孩子经"重置"绕过计时 | 儿童状态独立类独立 key，不进清理范围（阶段 1）；整页替换后重置行不可达（阶段 4） |
 | 3 | 白名单全过滤导致黑屏 | 配置错误即黑屏 | `_viewOf` 空结果不应用 + admin 侧分组名校验（阶段 3） |
 | 4 | `ChannelNumberInputController` 数字键直选的索引是否基于 `_viewOf` 过滤后列表 | 严格档下数字键可能选中白名单外频道 | 实施阶段 3 时确认；若基于原始列表则改为基于展示列表 |
-| 5 | 三级角色边界：`user` 收得到 `parental_unlock_request` 但不弹（需确认不误操作、且其会话线程可见是有意的）；`parent` 登录非自己管的 TV 收不到解锁请求 | 解锁/管理功能缺失 | 解锁弹层仅 `parent`/`admin` 注册；家长视图按 `config.owner` 过滤；账号一致性引导（4.2） |
-| 6 | 多家长/换绑：`ownerAccount` 单值，一个 TV 只认一个家长账号 | 多家长场景不支持 | v1 单家长（`parental.ownerAccount ?? machine.owner ?? '1000001'`），后续扩为数组；投递机制不变 |
+| 5 | 三级角色边界：`user` 收得到 `parental_unlock_request` 但不弹（需确认不误操作、且其会话线程可见是有意的）；不在该 TV `machine.parents` 里的账号收不到解锁请求（服务端按绑定关系扇出） | 解锁/管理功能缺失 | 解锁弹层仅 `parent`/`admin` 注册；家长视图按 `machine.parents` 过滤；账号一致性引导（4.2） |
+| 6 | ~~多个家长只认一个账号~~ | — | **已支持**：`machine.parents` 为账号数组，绑定内家长都能管理与收解锁请求；`ownerAccount` 仅为遗留字段，权限与扇出统一按 `machine.parents`（2.2.1） |
 | 7 | **本地时钟可被改**：quietHours 绕过 + 把系统时间改回昨天令 `dateKey` 翻转、当日累计清零 | 时间类管控整体可绕过 | v1 接受（改系统时间本身需要家长操作）；后续用 `parental_watch` 上报的服务端时间做审计（合并原 quietHours/日期翻转两条，评审 P2） |
 | 8 | 孩子每次开机自选最宽松档案 | 家长配了多档也形同虚设 | 档案 `locked` 字段闸门：勾选含 `locked: true` 的档案需家长验证（2.2 选人流程）；家长应把宽松档案设为 `locked`，不锁 = 信任型配置 |
 | 9 | **PIN 明文下发**：`parental.pin` 明文经 config 到 TV，SharedPreferences 可读 | 懂技术的孩子可提取 PIN | 家庭场景 v1 接受；后续可改哈希下发/本地校验（评审 P2） |
 | 10 | `parental_watch` 5 分钟一条 + `events.jsonl` 持续增长，`events` 查询为全量扫描 | 设备量大后家长端查当日记录变慢 | v1 可接受；长期需索引/按日聚合表（评审 P2） |
 | 11 | Android TV 系统 Home/返回键无法被 `_handleRootKey` 拦截；宿主是否 launcher 形态未确认 | 锁屏期间可退出 App 表面 | 已定口径（4.2）：计时持久化，重进 App 按超阈值回锁屏；实施时确认宿主形态（评审 P2） |
 | 12 | 阶段 1/2 依赖本地临时配置过渡 | 若不写明，阶段 1/2 无法独立验收（P0-1） | 已在阶段 1 写明过渡方案，阶段 3 统一切换配置来源并负责端到端验收 |
-| 13 | **三首页维护成本**：admin 视图 / 家长视图 / 中控台是三套页面，后续功能迭代需明确归属 | 长期维护负担 | v1 家长视图保持极简（只做儿童模式相关 + 遥控快捷入口），不演变成第二个中控台；**admin 视图复用家长视图代码、仅放开 owner 过滤**（4.2） |
-| 14 | **parent 账号发放流程**：谁在 admin 页把账号改成 `parent`、家长如何获得账号 | 上线有一步人工 | 部署文档写明：admin 在 admin 页将家长账号 `role` 改为 `parent` 并设为该 TV 的 owner；第一版无存量、无自动迁移 |
+| 13 | **三首页维护成本**：admin 视图 / 家长视图 / 中控台是三套页面，后续功能迭代需明确归属 | 长期维护负担 | v1 家长视图保持极简（只做儿童模式相关 + 遥控快捷入口），不演变成第二个中控台；**admin 视图复用家长视图代码、仅放开 `machine.parents` 过滤**（4.2） |
+| 14 | **parent 账号发放流程**：谁在 admin 页把账号改成 `parent`、如何绑定到某台 TV | 上线有一步人工 | 部署文档写明：admin 在 admin 页将账号 `role` 改为 `parent`，并通过 `PUT /api/admin/machines/:id` 的 `parents` 绑定到该 TV（不再是设 `owner`）；第一版无存量、无自动迁移 |
 | 15 | **双发重复弹层**：owner 开会话页（直投 + 线程转发）或 `ownerAccount` 即 `1000001`（①② 同账号）时同一手机收 2 条请求 | 同一解锁弹两张卡、误以为两次请求 | 手机端弹层按短码去重：同 `code` 已有活动弹层则忽略后到的一条（4.2）；短码 60s 过期/一次性，换码自然弹新卡 |
