@@ -14,6 +14,13 @@ const LOG_FILE = '/var/log/potatokid-relay.log';
 const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
 const MAX_LOG_BYTES = 4 * 1024 * 1024;
+// relay 侧流量历史：JSONL，只含 host + 源地址短哈希，不含完整 URL/token。
+const TRAFFIC_FILE = process.env.RELAY_TRAFFIC_FILE || '/var/log/potatokid-relay-traffic.jsonl';
+const TRAFFIC_MAX_BYTES = 12 * 1024 * 1024;
+const TRAFFIC_BUCKET_SEC = 300;
+const TRAFFIC_TREND_BUCKETS = 12;
+const TRAFFIC_WINDOW_SEC = TRAFFIC_BUCKET_SEC * TRAFFIC_TREND_BUCKETS;
+const TRAFFIC_SOURCE_LIMIT = 20;
 const SAFE_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 
 // 固定命令 + 固定参数列表调用，不经过 shell，不拼接任何用户输入。
@@ -188,6 +195,242 @@ function parseLines(value) {
   return Math.min(MAX_LOG_LINES, Math.max(10, Math.floor(num)));
 }
 
+// ---- 转换流量历史（relay 写入的 JSONL，只读）----
+let trafficCache = { key: '', at: 0, value: null };
+
+function emptyTrafficTrend(nowSec) {
+  const start = nowSec - TRAFFIC_WINDOW_SEC;
+  return {
+    bucketSec: TRAFFIC_BUCKET_SEC,
+    windowSec: TRAFFIC_WINDOW_SEC,
+    hasData: false,
+    points: Array.from({ length: TRAFFIC_TREND_BUCKETS }, (_, i) => ({
+      t: new Date((start + i * TRAFFIC_BUCKET_SEC) * 1000).toISOString(),
+      inKbps: 0,
+      outKbps: 0,
+    })),
+  };
+}
+
+function loadTrafficRecords() {
+  const stat = fs.statSync(TRAFFIC_FILE);
+  const size = stat.size;
+  const key = `${size}:${stat.mtimeMs}`;
+  if (trafficCache.value && trafficCache.key === key && Date.now() - trafficCache.at < 4000) {
+    return trafficCache.value;
+  }
+  const start = Math.max(0, size - TRAFFIC_MAX_BYTES);
+  const length = size - start;
+  let text = '';
+  const fd = fs.openSync(TRAFFIC_FILE, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, start);
+    text = buffer.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (start > 0) {
+    const firstBreak = text.indexOf('\n');
+    text = firstBreak === -1 ? '' : text.slice(firstBreak + 1);
+  }
+  const records = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    const t = Number(row.t);
+    const din = Number(row.din);
+    const dout = Number(row.dout);
+    if (!Number.isFinite(t) || !Number.isFinite(din) || !Number.isFinite(dout)) continue;
+    const host = typeof row.host === 'string'
+      ? row.host.replace(/[^\w.-]/g, '').slice(0, 253) || '-'
+      : '-';
+    const sid = typeof row.sid === 'string'
+      ? row.sid.replace(/[^0-9a-f]/gi, '').toLowerCase().slice(0, 16)
+      : '';
+    const dt = Number(row.dt);
+    const iv = Number(row.iv);
+    const ret = Number(row.ret);
+    const isrc = row.isrc === 'rchar' ? 'rchar' : 'ss';
+    records.push({
+      t,
+      host,
+      sid,
+      din: Math.max(0, din),
+      dout: Math.max(0, dout),
+      dt: Number.isFinite(dt) && dt > 0 ? dt : 0,
+      iv: Number.isFinite(iv) && iv > 0 ? iv : 0,
+      ret: Number.isFinite(ret) && ret > 0 ? ret : 0,
+      isrc,
+    });
+  }
+  const value = {
+    available: true,
+    sizeBytes: size,
+    mtime: stat.mtime.toISOString(),
+    truncated: start > 0,
+    records,
+  };
+  trafficCache = { key, at: Date.now(), value };
+  return value;
+}
+
+function collectTraffic() {
+  const nowSec = Date.now() / 1000;
+  let loaded;
+  try {
+    loaded = loadTrafficRecords();
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return {
+        available: false,
+        file: TRAFFIC_FILE,
+        empty: 'no_file',
+        intervalSec: 10,
+        retentionSec: 86400,
+        inboundSource: 'ss',
+        sampleCount: 0,
+        sourceCount: 0,
+        lastSampleAt: null,
+        totals: { in1h: 0, out1h: 0, in24h: 0, out24h: 0 },
+        current: [],
+        sources: [],
+        trend: emptyTrafficTrend(nowSec),
+        checkedAt: new Date().toISOString(),
+      };
+    }
+    throw err;
+  }
+
+  const oneHourAgo = nowSec - TRAFFIC_WINDOW_SEC;
+  const oneDayAgo = nowSec - 86400;
+  const map = new Map();
+  const buckets = Array.from({ length: TRAFFIC_TREND_BUCKETS }, () => ({
+    in: 0,
+    out: 0,
+  }));
+  let totalIn1h = 0;
+  let totalOut1h = 0;
+  let totalIn24h = 0;
+  let totalOut24h = 0;
+  let lastT = 0;
+  let intervalSec = 10;
+  let retentionSec = 86400;
+  let inboundSource = 'ss';
+
+  for (const r of loaded.records) {
+    if (r.t > lastT) {
+      lastT = r.t;
+      inboundSource = r.isrc;
+    }
+    if (r.iv) intervalSec = r.iv;
+    if (r.ret) retentionSec = r.ret;
+    const key = r.sid || r.host;
+    let s = map.get(key);
+    if (!s) {
+      s = {
+        id: key,
+        host: r.host,
+        sid: r.sid,
+        in1h: 0,
+        out1h: 0,
+        in24h: 0,
+        out24h: 0,
+        lastAt: 0,
+        lastIn: 0,
+        lastOut: 0,
+        lastDt: 0,
+      };
+      map.set(key, s);
+    }
+    if (r.host && s.host === '-') s.host = r.host;
+    if (r.t >= oneDayAgo) {
+      s.in24h += r.din;
+      s.out24h += r.dout;
+      totalIn24h += r.din;
+      totalOut24h += r.dout;
+    }
+    if (r.t >= oneHourAgo) {
+      s.in1h += r.din;
+      s.out1h += r.dout;
+      totalIn1h += r.din;
+      totalOut1h += r.dout;
+      let idx = Math.floor((r.t - oneHourAgo) / TRAFFIC_BUCKET_SEC);
+      if (idx < 0) idx = 0;
+      if (idx >= TRAFFIC_TREND_BUCKETS) idx = TRAFFIC_TREND_BUCKETS - 1;
+      buckets[idx].in += r.din;
+      buckets[idx].out += r.dout;
+    }
+    if (r.t >= s.lastAt) {
+      s.lastAt = r.t;
+      s.lastIn = r.din;
+      s.lastOut = r.dout;
+      s.lastDt = r.dt;
+    }
+  }
+
+  const activeWindow = Math.max(intervalSec * 3, 30);
+  const allSources = Array.from(map.values())
+    .map((s) => {
+      const dt = s.lastDt || intervalSec;
+      return {
+        id: s.id,
+        host: s.host,
+        sid: s.sid,
+        in1h: s.in1h,
+        out1h: s.out1h,
+        in24h: s.in24h,
+        out24h: s.out24h,
+        lastAt: s.lastAt ? new Date(s.lastAt * 1000).toISOString() : null,
+        inKbps: dt > 0 ? (s.lastIn * 8) / 1000 / dt : 0,
+        outKbps: dt > 0 ? (s.lastOut * 8) / 1000 / dt : 0,
+        active: nowSec - s.lastAt <= activeWindow,
+      };
+    })
+    .sort((a, b) => (b.in1h + b.out1h) - (a.in1h + a.out1h)
+      || (b.in24h + b.out24h) - (a.in24h + a.out24h));
+  const current = allSources.filter((s) => s.active);
+  const sources = allSources.slice(0, TRAFFIC_SOURCE_LIMIT);
+  const hasTraffic = totalIn24h + totalOut24h > 0;
+  const empty = !loaded.records.length ? 'no_records' : (hasTraffic ? '' : 'no_traffic');
+  const trend = {
+    bucketSec: TRAFFIC_BUCKET_SEC,
+    windowSec: TRAFFIC_WINDOW_SEC,
+    hasData: totalIn1h + totalOut1h > 0,
+    points: buckets.map((b, i) => ({
+      t: new Date((oneHourAgo + i * TRAFFIC_BUCKET_SEC) * 1000).toISOString(),
+      inKbps: (b.in * 8) / 1000 / TRAFFIC_BUCKET_SEC,
+      outKbps: (b.out * 8) / 1000 / TRAFFIC_BUCKET_SEC,
+    })),
+  };
+
+  return {
+    available: true,
+    file: TRAFFIC_FILE,
+    sizeBytes: loaded.sizeBytes,
+    mtime: loaded.mtime,
+    truncated: Boolean(loaded.truncated),
+    intervalSec,
+    retentionSec,
+    inboundSource,
+    sampleCount: loaded.records.length,
+    sourceCount: allSources.length,
+    lastSampleAt: lastT ? new Date(lastT * 1000).toISOString() : null,
+    empty,
+    totals: { in1h: totalIn1h, out1h: totalOut1h, in24h: totalIn24h, out24h: totalOut24h },
+    current,
+    sources,
+    trend,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+
 // 动作白名单：命令与参数全部写死，不接受任何用户输入拼接。
 const ACTIONS = {
   start: { arg: 'start', expectActive: true },
@@ -290,6 +533,19 @@ function createRelayRouter({ audit } = {}) {
     })
   );
 
+  router.get(
+    '/relay/traffic',
+    wrap(async (req, res) => {
+      let data;
+      try {
+        data = collectTraffic();
+      } catch (err) {
+        throw new ApiError(500, 500000, `读取流量历史失败：${err.message}`);
+      }
+      ok(res, data);
+    })
+  );
+
   router.post(
     '/relay/action',
     wrap(async (req, res) => {
@@ -369,4 +625,14 @@ function createRelayRouter({ audit } = {}) {
   return router;
 }
 
-module.exports = { createRelayRouter, SERVICE, LOG_FILE, RELAY_PORT, MAX_LOG_LINES, DEFAULT_LOG_LINES, redact };
+module.exports = {
+  createRelayRouter,
+  SERVICE,
+  LOG_FILE,
+  TRAFFIC_FILE,
+  RELAY_PORT,
+  MAX_LOG_LINES,
+  DEFAULT_LOG_LINES,
+  redact,
+  collectTraffic,
+};
