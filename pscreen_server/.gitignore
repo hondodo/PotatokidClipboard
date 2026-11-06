@@ -50,3 +50,5 @@ uploads/
 translations/
 register/
 datas/
+# 旧中转白名单运行期文件（已弃用；实际名单见 datas/screen/datas/relay_allow_hosts.txt）
+server/allow-reply-host.json
