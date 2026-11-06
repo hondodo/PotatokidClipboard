@@ -6,7 +6,7 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
 
 /// 电视端场景描述。
 ///
-/// 场景本身（kind/title）由当前 Tab 决定：直播 / 时间页 / 屏保 / 设置。
+/// 场景本身（kind/title）由当前 Tab 决定：直播 / 时间页 / 设置。
 /// 但 `MainApp` 用 `StatefulShellRoute.indexedStack`，离开首页时首页分支
 /// 仍然挂载、频道仍在播放——所以**每个 Tab 都随场景带上当前频道**，
 /// 让遥控端在任意页面打开频道列表都能定位并高亮当前项。
@@ -50,13 +50,6 @@ class TvSceneProvider extends CurrentSceneProvider {
           kind: SceneKind.clock,
           route: 'time',
           title: '时间页',
-          extra: _channelExtra,
-        );
-      case 2:
-        return SceneSnapshot(
-          kind: SceneKind.screensaver,
-          route: 'screensaver',
-          title: '屏保',
           extra: _channelExtra,
         );
       default:

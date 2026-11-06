@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
@@ -34,6 +36,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   AppBloc() : super(AppState.initial()) {
     on<ChangeThemeMode>(_onChangeThemeMode);
     on<SetChrome>(_onSetChrome);
+    on<SetChromePeek>(_onSetChromePeek);
     on<SetChannels>(_onSetChannels);
     on<SetFloatingRemote>(_onSetFloatingRemote);
     on<SetHardwareDecode>(_onSetHardwareDecode);
@@ -85,9 +88,29 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     AppSettings.instance.setThemeMode(event.themeMode);
   }
 
+  /// 「预览态」计时令牌：新事件/正式显隐会让旧计时失效。
+  int _chromePeekToken = 0;
+
   void _onSetChrome(SetChrome event, Emitter<AppState> emit) {
     // 只改顶部 tab 条，频道列表独立控制。
-    emit(state.copyWith(isChromeVisible: event.visible));
+    _chromePeekToken++;
+    emit(
+      state.copyWith(
+        isChromeVisible: event.visible,
+        isChromePeek: false,
+      ),
+    );
+  }
+
+  void _onSetChromePeek(SetChromePeek event, Emitter<AppState> emit) {
+    // 正式显示时预览无意义；直接忽略，避免盖掉可聚焦状态。
+    if (!event.visible || state.isChromeVisible) return;
+    final int token = ++_chromePeekToken;
+    emit(state.copyWith(isChromePeek: true));
+    Timer(const Duration(seconds: 3), () {
+      if (isClosed || token != _chromePeekToken) return;
+      add(const SetChromePeek(false));
+    });
   }
 
   void _onSetChannels(SetChannels event, Emitter<AppState> emit) {

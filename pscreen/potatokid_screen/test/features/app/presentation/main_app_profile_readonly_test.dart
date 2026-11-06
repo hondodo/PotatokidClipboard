@@ -27,8 +27,8 @@ GoRouter? _router;
 
 /// 儿童模式阶段 4：儿童模式生效时「我的」Tab 整页替换为只读页。
 ///
-/// 驱动方式：真实 `GoRouter` 壳 pump 真实 [MainApp]（分支 0-2 用占位页，
-/// 分支 3 挂真实 [ProfilePage]），走 `MainApp._profileReadonly` 判定式与
+/// 驱动方式：真实 `GoRouter` 壳 pump 真实 [MainApp]（分支 0-1 用占位页，
+/// 分支 2 挂真实 [ProfilePage]），走 `MainApp._profileReadonly` 判定式与
 /// `IndexedStack` 翻转；翻译经磁盘 zh-CN JSON 注入（不依赖测试资产 bundle）。
 ///
 /// 断言依据：`IndexedStack` 非选中子树不入 onstage 树（finder 默认
@@ -125,7 +125,15 @@ void main() {
     await tester.pump();
     expect(MainApp.current!.currentIndex, 1,
         reason: '未锁时左右键应切换 Tab');
+    // 切到非「我的」页后导航条自动收起（顶部条不再常显），
+    // 需先重新呼出才能继续用左右键切页。
+    tester
+        .element(find.byType(MainApp))
+        .read<AppBloc>()
+        .add(const SetChrome(true));
+    await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
     await tester.pump();
     expect(MainApp.current!.currentIndex, 0);
 
@@ -159,7 +167,7 @@ void main() {
   });
 }
 
-/// 用真实 [GoRouter] 壳 pump [MainApp]：分支 0-2 占位页，分支 3 真实 [ProfilePage]。
+/// 用真实 [GoRouter] 壳 pump [MainApp]：分支 0-1 占位页，分支 2 真实 [ProfilePage]。
 Future<void> _pumpApp(WidgetTester tester, {required String location}) async {
   _router = GoRouter(
     initialLocation: location,
@@ -190,15 +198,6 @@ Future<void> _pumpApp(WidgetTester tester, {required String location}) async {
                 path: '/time',
                 builder: (BuildContext context, GoRouterState state) =>
                     const SizedBox(key: Key('time-branch')),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: '/screensaver',
-                builder: (BuildContext context, GoRouterState state) =>
-                    const SizedBox(key: Key('screensaver-branch')),
               ),
             ],
           ),

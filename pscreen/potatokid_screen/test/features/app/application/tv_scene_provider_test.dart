@@ -38,7 +38,7 @@ void main() {
 
   test('非直播页：上报 JSON 顶层仍带当前频道（遥控定位用）', () {
     LiveChannelController.instance.select(5);
-    for (final int tab in const <int>[1, 2, 3]) {
+    for (final int tab in const <int>[1, 2]) {
       AppTabController.branchIndex = tab;
       final SceneSnapshot snap = provider.snapshot();
       expect(
@@ -65,7 +65,7 @@ void main() {
 
   test('频道列表未加载时：非直播页不带频道', () {
     ChannelInfoProvider.instance.setChannels(<IptvChannel>[]);
-    AppTabController.branchIndex = 3;
+    AppTabController.branchIndex = 2;
     expect(provider.snapshot().toJson().containsKey('channelName'), isFalse);
   });
 }

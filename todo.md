@@ -34,9 +34,9 @@
 - 备注：`/api/login` 的 `password` 字段须传 MD5（客户端先调 `/api/password_md5`）。
 
 ### 阶段 2：远程解锁（2026-11-03 代码核对 + 测试通过）
-- `parental_unlock_request` 双发：`parental_unlock_code_controller._sendDouble`（owner 直投，空则 adminAccount 兜底 + `adminAccount = '1000001'`，`Future.wait` 并发）。
+- `parental_unlock_request` 双发：`parental_unlock_code_controller._sendDouble`（owner 直投，空则 adminAccount 兜底 + `adminAccount = '1000001'`，`Future.wait` 并发）；**服务端已对该类事件按 `machine.parents` 扇出给该设备全部绑定家长（单条记录 + `audience`），非 owner 家长也能收到**。
 - `message_command_executor.dart` L95 `case 'parental_unlock'`。
-- 手机端三级角色分流与家长视图：`AccountSession.roleNotifier` 上供路由/弹层，`parental_page` 角色闸门（user 拒绝、parent owner 过滤、admin 代管全部）、`parental_unlock_overlay` 收 `parental_unlock_request` 弹确认卡并回发。
+- 手机端三级角色分流与家长视图：`AccountSession.roleNotifier` 上供路由/弹层，`parental_page` 角色闸门（user 拒绝、parent 按 `machine.parents` 过滤、admin 代管全部）、`parental_unlock_overlay` 收 `parental_unlock_request` 弹确认卡并回发。
 - `ParentalVerificationSheet`（设备端 349 行）+ PIN / 算术离线兜底：由 `parental_lock_overlay_test`（pin 模式 / 算术兜底）覆盖。
 - 测试：`parental_unlock_code_controller_test`、`parental_attempt_gate_test`、`message_command_executor_parental_test`、`parental_unlock_tracker_test` 随包全量通过。
 - 手机端确认卡 UI 交互未运行时验证。

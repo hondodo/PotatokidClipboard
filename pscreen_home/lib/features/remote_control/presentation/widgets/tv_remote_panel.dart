@@ -6,9 +6,10 @@ import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 /// 电视端遥控面板：页面切换行 + 常驻音量行 + 直播控制行。
 ///
-/// 与中控端不同，电视端四个页面（直播/时间/屏保/设置）的切换按钮
+/// 与中控端不同，电视端三个页面（直播/时间/设置）的切换按钮
 /// 始终显示，不随当前页面收起；音量行同为常驻，直播控制行也始终可见。
-/// 高亮跟随设备上报的 `scene.kind`（`live`/`clock`/`screensaver`/`settings`）。
+/// 高亮跟随设备上报的 `scene.kind`（`live`/`clock`/`settings`）。
+/// 电视端已移除屏保页，故不再提供「屏保」跳转按钮。
 class TvRemotePanel extends StatelessWidget {
   const TvRemotePanel({super.key, required this.panel});
 
@@ -42,14 +43,6 @@ class TvRemotePanel extends StatelessWidget {
               active: sceneKind == 'clock',
               onTap: online
                   ? () => panel.onCommand(buildNavCommand('weather'))
-                  : null,
-            ),
-            SceneButton(
-              label: '屏保',
-              icon: Icons.wallpaper_outlined,
-              active: sceneKind == 'screensaver',
-              onTap: online
-                  ? () => panel.onCommand(buildNavCommand('screensaver'))
                   : null,
             ),
             SceneButton(

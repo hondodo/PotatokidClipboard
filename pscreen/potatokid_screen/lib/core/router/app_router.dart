@@ -6,7 +6,6 @@ import 'package:potatokid_screen/features/app/presentation/pages/main_app.dart';
 import 'package:potatokid_screen/features/home/presentation/pages/home_detail_page.dart';
 import 'package:potatokid_screen/features/home/presentation/pages/home_page.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
-import 'package:potatokid_screen/features/screensaver/presentation/pages/screensaver_page.dart';
 import 'package:potatokid_screen/features/settings/presentation/pages/settings_sheet_page.dart';
 import 'package:potatokid_screen/features/time/presentation/pages/time_page.dart';
 
@@ -77,18 +76,6 @@ class AppRouter {
                 name: RouteNames.time,
                 pageBuilder: (context, state) =>
                     _buildShellTabPage(state: state, child: const TimePage()),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: <RouteBase>[
-              GoRoute(
-                path: RouteNames.screensaver,
-                name: RouteNames.screensaver,
-                pageBuilder: (context, state) => _buildShellTabPage(
-                  state: state,
-                  child: const ScreensaverPage(),
-                ),
               ),
             ],
           ),

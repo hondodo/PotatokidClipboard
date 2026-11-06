@@ -27,6 +27,7 @@ import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:potatokid_screen/shared/widgets/exit_confirm_scope.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 单个顶部 Tab 的静态描述（图标 + 文案 key）。
 class _TabDescriptor {
@@ -39,12 +40,13 @@ class _TabDescriptor {
 
 /// Tab 外壳：承载 [StatefulShellRoute.indexedStack] 的多分支页面。
 ///
-/// - 顶部横向导航条（首页直播 | 时间 | 屏保 | 我的），图标+文字横排；
+/// - 顶部横向导航条（首页直播 | 时间 | 我的），图标+文字横排；
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
+/// - **进入内容页（首页直播/时间）时导航条立即收起**，仅按键时短暂预览（时间页）；
 /// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
 ///   「我的」页正文焦点内激活设置行；
-/// - **返回键**：二次确认后才退出应用（见 [ExitConfirmScope]）。
+/// - **返回键**：非首页先回直播；「我的」页先退出正文选中；仅首页才二次确认退出。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -57,28 +59,89 @@ class MainApp extends StatelessWidget {
   static const int _timeBranchIndex = 1;
 
   /// 「我的」Tab 在 [_tabs] 中的序号（上/下键在导航条与设置行间移动）。
-  static const int _profileBranchIndex = 3;
+  static const int _profileBranchIndex = 2;
 
   static const List<_TabDescriptor> _tabs = <_TabDescriptor>[
     _TabDescriptor('home_title', Icons.live_tv_outlined, Icons.live_tv),
     _TabDescriptor('time_title', Icons.schedule_outlined, Icons.schedule),
-    _TabDescriptor(
-      'screensaver_title',
-      Icons.wallpaper_outlined,
-      Icons.wallpaper,
-    ),
     _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
   ];
 
-  void _goTab(int index) {
-    // 进入「我的」时回到位于导航条的状态。
-    if (index == _profileBranchIndex) {
-      ProfileFocusController.instance.reset();
+  void _goTab(BuildContext context, int index) {
+    // 进入「我的」时回到位于导航条的状态，并保持导航条常显（设置页需要可见的选择态）；
+    // 其余页面进入即收起，避免每次切页都带着顶部条。
+    // 已在目标页时不改条状态：否则菜单键呼出导航条后，选中 tab 的 autofocus
+    // 回调会再次走本方法把条立刻收起（表现为「按键没反应」）。
+    final AppBloc bloc = context.read<AppBloc>();
+    if (index != navigationShell.currentIndex) {
+      if (index == _profileBranchIndex) {
+        ProfileFocusController.instance.reset();
+        bloc.add(const SetChrome(true));
+      } else {
+        bloc.add(const SetChrome(false));
+      }
     }
     navigationShell.goBranch(
       index,
       initialLocation: index == navigationShell.currentIndex,
     );
+  }
+
+  /// 返回键分层处理：返回 true 表示已消费（不再弹退出确认）。
+  ///
+  /// 顺序与根处理器一致：确认弹窗/消息浮层/选人页/锁屏 → 行内编辑 →
+  /// 设置页正文选中 → 非首页回直播 → 首页才退出。
+  /// 根处理器与 [ExitConfirmScope] 的 `PopScope` 共用本方法，
+  /// 保证悬浮遥控器与实体遥控器行为一致。
+  bool _handleBack(BuildContext context) {
+    // 锁屏期间不响应返回（不能把用户送回直播或弹出退出框）。
+    if (KidWatchTimerController.instance.locked) return true;
+
+    // 儿童模式选人页：交给选人页自己的返回逻辑，其余按键被它吞掉。
+    if (ParentalSelectOverlay.gateVisible) {
+      ParentalSelectOverlay.handleGateKey(
+        context,
+        LogicalKeyboardKey.escape,
+      );
+      return true;
+    }
+
+    // 消息浮层：先关浮层，不触发回直播/退出。
+    if (MessageOverlayController.instance.visible) {
+      MessageOverlayController.instance.onAnyKey();
+      MessageOverlayController.instance.handleBack();
+      return true;
+    }
+
+    final int cur = navigationShell.currentIndex;
+
+    // 设置页行内编辑 → 先取消编辑（页面内返回）。
+    final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
+    if (cur == _profileBranchIndex &&
+        !_profileReadonly &&
+        ProfilePage.isInlineEditing &&
+        cancelInline != null) {
+      cancelInline();
+      return true;
+    }
+
+    // 设置页正文选中 → 先退回导航条（页面内返回）。
+    if (cur == _profileBranchIndex &&
+        !_profileReadonly &&
+        ProfileFocusController.instance.focused) {
+      ProfileFocusController.instance.reset();
+      return true;
+    }
+
+    // 非首页 → 回直播。
+    if (cur != 0) {
+      _goTab(context, 0);
+      unawaited(_BackToLiveHint.maybeShow(context));
+      return true;
+    }
+
+    // 首页 → 维持现有二次确认退出。
+    return false;
   }
 
   /// 「我的」Tab 儿童模式只读替换是否生效（方案 5.2 生效判定式）。
@@ -213,6 +276,17 @@ class MainApp extends StatelessWidget {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
 
+    // 时间页：任意方向键让导航条短暂露出（仅显示、不可聚焦，3 秒自动收起），
+    // 键本身的动作（切样式/切源）照常执行。首页不做，避免与切源/切台/OK 叠加。
+    if (cur == _timeBranchIndex &&
+        !state.isChromeVisible &&
+        (key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown ||
+            key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight)) {
+      context.read<AppBloc>().add(const SetChromePeek(true));
+    }
+
     // 数字键：仅首页生效 —— 累积输入频道号，2 秒无输入后跳台（超范围会提示）。
     if (cur == 0) {
       final int? digit = _digitOf(key);
@@ -248,19 +322,11 @@ class MainApp extends StatelessWidget {
     }
 
     // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）：
-    // 与系统返回一致，走二次确认，避免盒子上误触直接退出。
+    // 与系统返回共用 [_handleBack]：非首页回直播、设置页先退正文，
+    // 仅首页才二次确认退出，避免盒子上误触直接退出。
     if (key == LogicalKeyboardKey.escape ||
         key == LogicalKeyboardKey.goBack) {
-      // 行内输入编辑态返回 = 取消编辑，不弹退出确认（同上，悬浮遥控器路径）。
-      // 同样仅限「我的」分支，理由同上。
-      final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
-      if (cur == _profileBranchIndex &&
-          !_profileReadonly &&
-          ProfilePage.isInlineEditing &&
-          cancelInline != null) {
-        cancelInline();
-        return true;
-      }
+      if (_handleBack(context)) return true;
       ExitConfirmScope.requestExit(context);
       return true;
     }
@@ -285,7 +351,7 @@ class MainApp extends StatelessWidget {
       }
       // 导航条可见时，左右优先用于切换 tab。
       if (state.isChromeVisible) {
-        _goTabWrapped(cur, delta);
+        _goTabWrapped(context, cur, delta);
         return true;
       }
       // 导航条隐藏时，首页左/右始终用于切换当前频道的源。
@@ -333,10 +399,10 @@ class MainApp extends StatelessWidget {
   }
 
   /// 循环切换 tab（左右）。
-  void _goTabWrapped(int current, int delta) {
+  void _goTabWrapped(BuildContext context, int current, int delta) {
     final int next =
         (current + delta + MainApp._tabs.length) % MainApp._tabs.length;
-    _goTab(next);
+    _goTab(context, next);
   }
 
   void _moveFocus(TraversalDirection direction) {
@@ -372,27 +438,25 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Tab 状态填充（上报/浮层互斥读这里）；屏保退出时弹出缓存消息。
+    // Tab 状态填充（上报/浮层互斥读这里）。
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
-    // 场景注入（阶段 1 收尾）：直播/时间/屏保计入观看、「我的」（设置）不计入
+    // 场景注入（阶段 1 收尾）：直播/时间计入观看、「我的」（设置）不计入
     //（口径见儿童模式方案「场景计时」）；值未变时 setViewingScene 内部早返回。
     KidWatchTimerController.instance.setViewingScene(navigationShell.currentIndex != _profileBranchIndex);
-    final MessageOverlayController msgOverlay =
-        MessageOverlayController.instance;
-    final bool wasDeferred = msgOverlay.deferActive;
-    msgOverlay.deferActive = AppTabController.isScreensaver;
-    if (wasDeferred && !msgOverlay.deferActive) {
-      msgOverlay.onDeferEnd();
-    }
     // 顶部导航条显隐（「我的」页恒显示）。
     final bool chromeVisible =
         context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
+    // 预览态只影响绘制，不参与焦点/切页（避免显示瞬间抢走正文焦点或误切页）。
+    final bool chromePeek =
+        context.select<AppBloc, bool>((bloc) => bloc.state.isChromePeek);
+    final bool chromeShown = chromeVisible || chromePeek;
     // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
     return Stack(
       children: <Widget>[
         ExitConfirmScope(
+          onBackRequested: () => _handleBack(context),
           child: AutoHideChrome(
             currentIndex: navigationShell.currentIndex,
             profileBranchIndex: _profileBranchIndex,
@@ -416,7 +480,9 @@ class MainApp extends StatelessWidget {
                             _profileBranchIndex) {
                           return;
                         }
-                        context.read<AppBloc>().add(SetChrome(!chromeVisible));
+                        context
+                            .read<AppBloc>()
+                            .add(SetChrome(!chromeShown));
                       },
                       child: ListenableBuilder(
                         listenable: ParentalStateController.instance,
@@ -446,13 +512,13 @@ class MainApp extends StatelessWidget {
                       child: ClipRect(
                         child: AnimatedAlign(
                           alignment: Alignment.topCenter,
-                          heightFactor: chromeVisible ? 1 : 0,
+                          heightFactor: chromeShown ? 1 : 0,
                           duration: const Duration(milliseconds: 250),
                           curve: Curves.easeInOut,
                           child: _TopNavBar(
                             currentIndex: navigationShell.currentIndex,
                             chromeVisible: chromeVisible,
-                            onTabSelected: _goTab,
+                            onTabSelected: (index) => _goTab(context, index),
                           ),
                         ),
                       ),
@@ -481,7 +547,7 @@ class MainApp extends StatelessWidget {
   }
 }
 
-/// 顶部横向导航条：4 个 tab，焦点即切页、高亮显示。
+/// 顶部横向导航条：3 个 tab，焦点即切页、高亮显示。
 class _TopNavBar extends StatelessWidget {
   const _TopNavBar({
     required this.currentIndex,
@@ -622,6 +688,32 @@ class _TopTabState extends State<_TopTab> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 「二级页按返回键回直播」的一次性提示。
+///
+/// 只在首次真正触发时提示一次；用本地持久化记住，重启不再打扰。
+class _BackToLiveHint {
+  static const String _prefsKey = 'tv_back_to_live_hint_shown';
+
+  /// 同进程内只尝试一次，避免预置未落盘时反复弹。
+  static bool _attempted = false;
+
+  static Future<void> maybeShow(BuildContext context) async {
+    if (_attempted) return;
+    _attempted = true;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_prefsKey) ?? false) return;
+    await prefs.setBool(_prefsKey, true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('back_to_live_hint'.tr()),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
