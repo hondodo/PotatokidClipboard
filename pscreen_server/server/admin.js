@@ -530,12 +530,15 @@ function attachAdmin(app, options = {}) {
         } catch (_) {
             homes = null;
         }
+        const rawDisplayName = typeof info.displayName === 'string'
+            ? info.displayName.trim().slice(0, 40)
+            : '';
         return {
             id: Number(info.id) || 0,
             name,
-            displayName: typeof info.displayName === 'string' && info.displayName.trim()
-                ? info.displayName.trim().slice(0, 40)
-                : name,
+            // displayName 为空时回落账号 id（name）；displayNameSet 供后台区分「未设置」。
+            displayName: rawDisplayName || name,
+            displayNameSet: rawDisplayName !== '',
             role: isAdmin ? 'admin' : (info.role === 'parent' ? 'parent' : 'user'),
             homes,
             enabled: info.enabled !== false,
@@ -623,12 +626,15 @@ function attachAdmin(app, options = {}) {
         if (kind === 'home') {
             parents = [];
         }
+        const rawName = typeof machine.name === 'string'
+            ? machine.name.trim().slice(0, 40)
+            : '';
         return {
             id,
             kind,
-            name: typeof machine.name === 'string' && machine.name.trim()
-                ? machine.name.trim().slice(0, 40)
-                : '未命名设备',
+            // name 为空时用「未命名设备」占位；nameSet 供后台/客户端区分是否真的设置过备注。
+            name: rawName || '未命名设备',
+            nameSet: rawName !== '',
             owner,
             parents,
             homes,
@@ -979,6 +985,8 @@ function attachAdmin(app, options = {}) {
                 ...machine,
                 kind: machineKind(machine),
                 ownerName: config.ownerName,
+                // 设备通信账号的展示名（后台设备列表 / 家长端按此列回落）。
+                commDisplayName: usersByName.get(machine.commAccount)?.displayName || '',
                 parents: config.parents,
                 effectiveHomes: config.homes,
                 homesSource: config.source,
@@ -1001,6 +1009,19 @@ function attachAdmin(app, options = {}) {
         const availableMachines = isParent
             ? tvMachines.filter((machine) => !machine.parents.includes(admin.name))
             : [];
+
+        // 账号 → 关联设备（通信账号或所属中控）：后台用户列表展示设备备注名用。
+        const machinesByAccount = new Map();
+        for (const machine of machines) {
+            const keys = new Set([machine.commAccount, machine.owner].filter(Boolean));
+            for (const key of keys) {
+                const list = machinesByAccount.get(key) || [];
+                if (!list.some((item) => item.id === machine.id)) {
+                    list.push({ id: machine.id, name: machine.name, nameSet: machine.nameSet });
+                }
+                machinesByAccount.set(key, list);
+            }
+        }
 
         const homeSet = new Set();
         for (const machine of machines) {
@@ -1037,6 +1058,7 @@ function attachAdmin(app, options = {}) {
             users: (isParent ? users.filter((user) => user.name === admin.name) : users).map((user) => ({
                 ...user,
                 machineCount: tvMachines.filter((machine) => machine.parents.includes(user.name)).length,
+                machines: machinesByAccount.get(user.name) || [],
             })),
             machines,
             availableMachines,
@@ -1228,7 +1250,10 @@ function attachAdmin(app, options = {}) {
                 info.homes = normalizeHomes(req.body.homes);
             }
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'displayName')) {
-                info.displayName = String(req.body.displayName || '').trim().slice(0, 40) || name;
+                // 空串 = 清除展示名，回落账号 id（与本人自助改名接口口径一致）。
+                const nextDisplayName = String(req.body.displayName || '').trim().slice(0, 40);
+                if (nextDisplayName) info.displayName = nextDisplayName;
+                else delete info.displayName;
             }
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'enabled')) {
                 if (name === ADMIN_USERNAME && req.body.enabled === false) {
@@ -1848,6 +1873,19 @@ function attachAdmin(app, options = {}) {
         machines[key] = normalizeMachine(key, machine);
         saveMachines(machines);
     }
+    /**
+     * 通信账号 → 设备备注名（realtime roster/presence 下发用）。
+     * 未设置备注（`nameSet=false`）返回空串，客户端据此回落到账号 id。
+     */
+    function machineNameForAccount(account) {
+        const target = String(account || '').trim();
+        if (!target) return '';
+        for (const machine of Object.values(readMachines())) {
+            if (machine.commAccount === target && machine.nameSet) return machine.name;
+        }
+        return '';
+    }
+
     /** 设备通信账号 → 绑定家长账号（realtime 事件扇出用，仅电视）。 */
     function parentAccountsFor(account) {
         if (!account) return [];
@@ -1886,6 +1924,8 @@ function attachAdmin(app, options = {}) {
         adminDir,
         ADMIN_USERNAME,
         setCommInfo,
+        // ws roster/presence 下发的设备备注名（displayName 之后的回落层）
+        machineNameForAccount,
         // 登录链路（HTTP /api/login、ws 握手）携带 deviceId 时自动建档
         ensureMachineForLogin,
         // ws 通道复用：保活 / 上报 / 取配置

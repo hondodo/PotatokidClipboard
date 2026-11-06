@@ -158,6 +158,19 @@ function attachRealtime(httpServer, options = {}) {
     const clipboardConnections = new Map();
     // 账号存储（datas/register/users）：与 HTTP 登录同一校验；未传时拒绝所有连接。
     const accountStore = options.accountStore || null;
+
+    /** 账号展示名（`_info.txt.displayName`）；未设置或读取失败返回空串。 */
+    function displayNameOf(account) {
+        try {
+            const info = accountStore && accountStore.readInfo(account);
+            return (info && typeof info.displayName === 'string' ? info.displayName : '') || '';
+        } catch (_) {
+            return '';
+        }
+    }
+    // 通信账号 → 设备备注名（displayName 之后的回落层；未知/未设置返回空串）。
+    const machineNameOf =
+        typeof options.machineNameOf === 'function' ? options.machineNameOf : () => '';
     // 设备表入口（由 server.js 注入 admin 的实现）：ws 保活 / 上报 / 取配置。
     const touchDevice = typeof options.touchDevice === 'function' ? options.touchDevice : () => {};
     const updateDeviceReport =
@@ -245,6 +258,8 @@ function attachRealtime(httpServer, options = {}) {
                 app: sock.app || '',
                 version: sock.version || '',
                 build: sock.build || '',
+                displayName: displayNameOf(account),
+                machineName: machineNameOf(account),
             });
         }
         return roster;
@@ -788,13 +803,26 @@ function attachRealtime(httpServer, options = {}) {
             app,
             version,
             build,
+            displayName: displayNameOf(account),
+            machineName: machineNameOf(account),
             online: onlineAccounts(),
             roster: onlineRoster(),
             serverTime: Date.now(),
         });
         flushOffline(account);
         if (firstConnection) {
-            broadcast({ t: 'presence', account, deviceId, kind, app, version, build, online: true }, ws);
+            broadcast({
+                t: 'presence',
+                account,
+                deviceId,
+                kind,
+                app,
+                version,
+                build,
+                displayName: displayNameOf(account),
+                machineName: machineNameOf(account),
+                online: true,
+            }, ws);
         }
 
         ws.on('pong', () => {
@@ -1278,6 +1306,7 @@ function attachRealtime(httpServer, options = {}) {
                         app: ws.app || '',
                         version: ws.version || '',
                         build: ws.build || '',
+                        displayName: displayNameOf(account),
                         online: false,
                     });
                 }

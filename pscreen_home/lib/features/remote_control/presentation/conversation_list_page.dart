@@ -9,8 +9,9 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 遥控会话列表：显示通过「+」添加的目标设备（按登录账号云端同步）。
 ///
-/// 第一行：备注名（未改名显示原始账号）；改名后第二行小字灰色显示原始账号；
-/// 最后一行是设备类型 · 在线状态 · 当前场景。
+/// 第一行显示名：本机备注别名 > 服务端 displayName > 设备备注名 > 原始账号；
+/// 显示名与账号不同时，第二行小字灰色显示原始账号；最后一行是设备类型 · 在线
+/// 状态 · 当前场景。
 /// 长按弹「重命名 / 移除」菜单。
 ///
 /// 在线状态来自实时通道的 presence/roster，设备类型来自 state/roster 上报。
@@ -85,6 +86,17 @@ class _ConversationListPageState extends State<ConversationListPage> {
       ..addAll(next);
   }
 
+  /// 展示名优先级：本机备注别名 > 服务端 displayName > 设备备注名 > 账号 id。
+  String _titleOf(ThreadTarget target, RealtimeDeviceState? device) {
+    final String alias = target.alias.trim();
+    if (alias.isNotEmpty) return alias;
+    final String serverName = (device?.displayName ?? '').trim();
+    if (serverName.isNotEmpty) return serverName;
+    final String machineName = (device?.machineName ?? '').trim();
+    if (machineName.isNotEmpty) return machineName;
+    return target.account;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_targets.isEmpty) {
@@ -98,7 +110,8 @@ class _ConversationListPageState extends State<ConversationListPage> {
         final String account = target.account;
         final RealtimeDeviceState? device = _channel.deviceInfoOf(account);
         final bool online = _channel.isOnline(account);
-        final bool renamed = target.alias.isNotEmpty;
+        final String title = _titleOf(target, device);
+        final bool renamed = title != account;
         // 当前设备音量（0-100，被控端随 state 帧上报）。
         final int? volume = online ? device?.sceneVolume : null;
         // 是否显示由 playbackLabelOf 按端类型决定（电视端非直播也显示上次播放）。
@@ -109,7 +122,7 @@ class _ConversationListPageState extends State<ConversationListPage> {
             children: [
               Flexible(
                 child: Text(
-                  target.displayName,
+                  title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -146,7 +159,7 @@ class _ConversationListPageState extends State<ConversationListPage> {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => ChatPage(account: account, title: target.displayName),
+              builder: (_) => ChatPage(account: account, title: title),
             ),
           ),
           onLongPress: () => _showMenu(context, target),

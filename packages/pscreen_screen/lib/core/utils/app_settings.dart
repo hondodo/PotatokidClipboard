@@ -32,6 +32,7 @@ class AppSettings {
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
   static const String _keyRemoteAccount = 'app_remote_account_v1';
   static const String _keyRemotePassword = 'app_remote_password_v1';
+  static const String _keyDisplayName = 'app_display_name_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
@@ -65,6 +66,9 @@ class AppSettings {
   /// 实时通道「远程」口令（明文，提交前做 MD5）；**空串表示未设置**（用默认口令）。
   String _remotePassword = '';
 
+  /// 账号展示名（可改）；**空串表示未设置**，各处回落显示账号 id。
+  String _displayName = '';
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -87,6 +91,10 @@ class AppSettings {
 
   /// 实时通道「远程」口令：空串表示未设置（回落默认口令）。
   String get remotePassword => _remotePassword;
+
+  /// 账号展示名：空串表示未设置（回落显示账号 id）。
+  /// 仅用于展示，不参与登录/域名/存储键。
+  String get displayName => _displayName;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -124,6 +132,7 @@ class AppSettings {
       _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
       _remotePassword = prefs.getString(_keyRemotePassword) ?? '';
+      _displayName = prefs.getString(_keyDisplayName) ?? '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -223,6 +232,17 @@ class AppSettings {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyRemoteAccount, account);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
+  /// 保存账号展示名（空串表示清除，回落显示账号 id）。
+  Future<void> setDisplayName(String name) async {
+    _displayName = name.trim();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyDisplayName, _displayName);
     } catch (_) {
       // 写入失败不影响运行。
     }

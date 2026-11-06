@@ -149,6 +149,8 @@ class RealtimeDeviceState {
     this.app = '',
     this.version = '',
     this.build = '',
+    this.displayName = '',
+    this.machineName = '',
     this.scene = const <String, Object?>{},
     this.channels = const <String>[],
     this.listVersion = '',
@@ -163,6 +165,12 @@ class RealtimeDeviceState {
   final String app;
   final String version;
   final String build;
+
+  /// 账号展示名（服务端 `_info.txt.displayName`）；空串表示未设置，回落账号 id。
+  final String displayName;
+
+  /// 设备备注名（服务端 `machines.json.name`）；空串表示未设置，回落账号 id。
+  final String machineName;
 
   /// 最新场景快照（[SceneSnapshot.toJson] 的结构）。
   final Map<String, Object?> scene;
@@ -208,6 +216,8 @@ class RealtimeDeviceState {
     String? app,
     String? version,
     String? build,
+    String? displayName,
+    String? machineName,
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
@@ -220,6 +230,8 @@ class RealtimeDeviceState {
         app: app ?? this.app,
         version: version ?? this.version,
         build: build ?? this.build,
+        displayName: displayName ?? this.displayName,
+        machineName: machineName ?? this.machineName,
         scene: scene ?? this.scene,
         channels: channels ?? this.channels,
         listVersion: listVersion ?? this.listVersion,
@@ -734,6 +746,8 @@ class RealtimeChannel {
             app: '${raw['app'] ?? ''}',
             version: '${raw['version'] ?? ''}',
             build: '${raw['build'] ?? ''}',
+            displayName: '${raw['displayName'] ?? ''}',
+            machineName: '${raw['machineName'] ?? ''}',
           );
         }
         _lastError = null;
@@ -826,6 +840,8 @@ class RealtimeChannel {
           app: '${frame['app'] ?? ''}',
           version: '${frame['version'] ?? ''}',
           build: '${frame['build'] ?? ''}',
+          displayName: frame.containsKey('displayName') ? '${frame['displayName']}' : null,
+          machineName: frame.containsKey('machineName') ? '${frame['machineName']}' : null,
         );
         _presenceController.add(RealtimePresence(account: account, online: online));
         break;
@@ -985,6 +1001,8 @@ class RealtimeChannel {
     String? app,
     String? version,
     String? build,
+    String? displayName,
+    String? machineName,
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
@@ -997,11 +1015,16 @@ class RealtimeChannel {
     final String nextApp = (app == null || app.isEmpty) ? prev.app : app;
     String nextKind = (kind == null || kind.isEmpty) ? prev.kind : kind;
     if (nextKind.isEmpty) nextKind = kindOfApp(nextApp);
+    // null = 本次帧未带展示名（保持旧值）；空串 = 服务端已清除（回落账号 id）。
+    final String nextDisplayName = displayName ?? prev.displayName;
+    final String nextMachineName = machineName ?? prev.machineName;
     final RealtimeDeviceState next = prev.copyWith(
       kind: nextKind,
       app: nextApp,
       version: version == null || version.isEmpty ? null : version,
       build: build == null || build.isEmpty ? null : build,
+      displayName: nextDisplayName,
+      machineName: nextMachineName,
       scene: scene,
       channels: channels,
       listVersion: listVersion == null || listVersion.isEmpty ? null : listVersion,

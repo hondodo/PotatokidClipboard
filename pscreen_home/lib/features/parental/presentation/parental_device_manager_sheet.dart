@@ -120,8 +120,26 @@ class _ParentalDeviceManagerSheetState
     });
   }
 
-  static String _nameOf(ParentalMachine machine) =>
-      machine.name.isEmpty ? machine.id : machine.name;
+  /// 名称优先级：账号展示名 > 设备备注（nameSet）> 账号 id > 设备 id。
+  static String _nameOf(ParentalMachine machine) {
+    if (machine.commDisplayName.isNotEmpty) return machine.commDisplayName;
+    if (machine.nameSet && machine.name.isNotEmpty) return machine.name;
+    if (machine.commAccount.isNotEmpty) return machine.commAccount;
+    return machine.id;
+  }
+
+  /// 副标题：账号 id；账号展示名生效时额外标注此刻被回落的设备备注。
+  static String _subtitleOf(ParentalMachine machine) {
+    final List<String> parts = <String>[
+      machine.commAccount.isEmpty ? '账号：未设置' : '账号：${machine.commAccount}',
+    ];
+    if (machine.commDisplayName.isNotEmpty &&
+        machine.nameSet &&
+        machine.name.isNotEmpty) {
+      parts.add('设备备注：${machine.name}');
+    }
+    return parts.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -190,11 +208,7 @@ class _ParentalDeviceManagerSheetState
                   dense: true,
                   leading: const Icon(Icons.tv_outlined),
                   title: Text(_nameOf(machine)),
-                  subtitle: Text(
-                    machine.commAccount.isEmpty
-                        ? machine.id
-                        : machine.commAccount,
-                  ),
+                  subtitle: Text(_subtitleOf(machine)),
                   trailing: TextButton(
                     onPressed: _busy ? null : () => _bind(machine),
                     child: const Text('绑定'),
@@ -215,7 +229,7 @@ class _ParentalDeviceManagerSheetState
                   dense: true,
                   leading: const Icon(Icons.tv),
                   title: Text(_nameOf(machine)),
-                  subtitle: Text(machine.online ? '在线' : '离线'),
+                  subtitle: Text('${machine.online ? '在线' : '离线'} · ${_subtitleOf(machine)}'),
                   trailing: TextButton(
                     onPressed: _busy ? null : () => _unbind(machine),
                     child: const Text('解绑'),

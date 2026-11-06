@@ -26,6 +26,7 @@ import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
+import 'package:pscreen_screen/core/utils/account_profile_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
@@ -53,6 +54,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _serverController;
   late final TextEditingController _remoteAccountController;
   late final TextEditingController _remoteTokenController;
+  late final TextEditingController _displayNameController;
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
@@ -91,12 +93,18 @@ class _SettingsPageState extends State<SettingsPage> {
     _remoteTokenController = TextEditingController(
       text: AppSettings.instance.remotePassword,
     );
+    _displayNameController = TextEditingController(
+      text: AppSettings.instance.displayName,
+    );
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
       if (!mounted) return;
       setState(() {
         _weatherCity = AppSettings.instance.weatherCity;
         _hwdecEnabled = AppSettings.instance.hwdecEnabled;
+        if (_displayNameController.text.isEmpty) {
+          _displayNameController.text = AppSettings.instance.displayName;
+        }
       });
     });
   }
@@ -118,6 +126,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _serverController.dispose();
     _remoteAccountController.dispose();
     _remoteTokenController.dispose();
+    _displayNameController.dispose();
     _wallpaperApiController.dispose();
     super.dispose();
   }
@@ -186,14 +195,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存实时通道账号 / 口令，并立即重连（失败仅提示，不阻断中控台）。
   ///
-  /// 账号留空 = home + 本机设备号（16hex）；口令留空 = 默认 123456。
-  /// 重连顺序与启动一致：先 HTTP 登录（账号不存在时按默认口令自动建档），
-  /// 再连 ws，否则 ws 握手会因「账号不存在」被拒。
+  /// 仅调试开关打开时可达：账号留空 = 固定派生账号（flavor.kind.设备号），
+  /// 口令留空 = 默认 123456。重连顺序与启动一致：先 HTTP 登录（账号不存在时
+  /// 按默认口令自动建档），再连 ws，否则 ws 握手会因「账号不存在」被拒。
   Future<void> _saveRemoteCredentials() async {
     final String account = _remoteAccountController.text.trim();
     final String password = _remoteTokenController.text.trim().isEmpty
         ? DeviceCredentials.defaultPassword
         : _remoteTokenController.text.trim();
+    await AppSettings.instance.setDisplayName(_displayNameController.text);
     await AppSettings.instance.setRemoteAccount(account);
     await AppSettings.instance.setRemotePassword(password);
 
@@ -229,6 +239,10 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       ControlLog.e('[实时通道] 连接失败: $e');
     }
+    // 新账号登录后再同步展示名（调试包允许改账号，cookie 已是新账号）。
+    if (ok) {
+      await AccountProfileApi.updateDisplayName(_displayNameController.text);
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -237,8 +251,28 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(
           content: Text(
             account.isEmpty
-                ? (ok ? '已恢复默认设备号账号' : '已恢复默认设备号，暂未连接成功')
+                ? (ok ? '已恢复固定派生账号' : '已恢复固定派生账号，暂未连接成功')
                 : (ok ? '已保存遥控配置' : '已保存，暂未连接成功（断网时自动重试）'),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// 保存展示名：仅影响展示，不改账号与连接。
+  Future<void> _saveDisplayName() async {
+    final String name = _displayNameController.text.trim();
+    await AppSettings.instance.setDisplayName(name);
+    final bool synced = await AccountProfileApi.updateDisplayName(name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            synced
+                ? '名称已保存（仅展示，不影响账号与连接）'
+                : '名称已保存到本机，服务端同步失败（联网后重试）',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -743,36 +777,52 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '用于向电视端下发音量 / 切台 / 文本指令。账号与口令与电视端共用同一套实时网关。',
+            '用于向电视端下发音量 / 切台 / 文本指令。账号由设备自动生成；'
+            '「更改名称」只改展示名，不影响连接与账号。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
           ),
           const SizedBox(height: 10),
           TextField(
-            controller: _remoteAccountController,
+            controller: _displayNameController,
             decoration: const InputDecoration(
-              labelText: '实时账号',
-              helperText: '留空则用 home + 本机设备号（16位）；管理员账号见遥控面板',
+              labelText: '更改名称',
+              helperText: '仅用于展示；留空则显示账号',
               border: OutlineInputBorder(),
             ),
             maxLines: 1,
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _remoteTokenController,
-            decoration: InputDecoration(
-              labelText: '实时口令',
-              helperText: '默认 ${DeviceCredentials.defaultPassword}',
-              border: const OutlineInputBorder(),
+          // 调试包才开放账号/口令编辑；正式包账号恒为派生值。
+          if (AppConfig.enableChangeAccount) ...<Widget>[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _remoteAccountController,
+              decoration: const InputDecoration(
+                labelText: '实时账号',
+                helperText: '留空则使用固定派生账号（flavor.kind.设备号）',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 1,
             ),
-            maxLines: 1,
-          ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _remoteTokenController,
+              decoration: InputDecoration(
+                labelText: '实时口令',
+                helperText: '默认 ${DeviceCredentials.defaultPassword}',
+                border: const OutlineInputBorder(),
+              ),
+              maxLines: 1,
+            ),
+          ],
           const SizedBox(height: 10),
           FilledButton.tonalIcon(
-            onPressed: _saveRemoteCredentials,
+            onPressed: AppConfig.enableChangeAccount
+                ? _saveRemoteCredentials
+                : _saveDisplayName,
             icon: const Icon(Icons.save_rounded),
-            label: const Text('保存遥控配置'),
+            label: Text(AppConfig.enableChangeAccount ? '保存遥控配置' : '保存名称'),
           ),
           const SizedBox(height: 10),
           const RealtimeStatusSection(),

@@ -17,7 +17,6 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_blo
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
-import 'package:pscreen_home/features/remote_control/data/control_settings.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
@@ -25,7 +24,6 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/update/app_update_models.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
-import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
@@ -37,7 +35,6 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-      DeviceCredentials.configureDefaultAccountPrefix('home');
 
       // 0. 媒体播放库（共享包的 IPTV 能力依赖 media_kit）
       MediaKit.ensureInitialized();
@@ -54,12 +51,23 @@ void main() {
       await HaConfig.initialize();
       await AppConfig.initialize();
 
+      // 1.05 账号作用域 = 当前构建 flavor + 实际 kind（如 `board.home`），
+      //      最终账号 = 作用域 + 设备号（见 DeviceCredentials）。
+      final ClientInfo clientInfo = await ClientInfo.current();
+      DeviceCredentials.configureAccountScope(
+        '${AppFlavorConfig.raw}.${kindOfApp(clientInfo.app)}',
+      );
+
       // 1.1 数据文件（频道顺序 / 隐藏列表 / 天气城市）：先用本地值
       //     （持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值。
       await DataFiles.instance.loadLocal();
 
       // 2. 依赖注入（含网络、本地持久化、路由、业务模块）
       await Injection.init();
+
+      // 2.5 账号恒定 = `<flavor>.<kind>.<设备号>`：已保存账号与派生值不一致
+      //     就改写并重连（旧号不做兼容）。必须早于 loginWithSaved / ws 连接。
+      await DeviceCredentials.enforceDerivedAccount();
 
       // 3. 应用上次手动设置的连接配置（持久化优先，空则回落 .env）
       HaConfig.applyOverrides(
@@ -102,28 +110,11 @@ void main() {
       await serverSync;
 
       // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
-      //     凭据统一走共享包 DeviceCredentials（自定义账号 > .env > 本机设备号；
-      //     口令自定义 > .env > 123456）。连接前先 HTTP 登录完成账号建档，
+      //     凭据统一走共享包 DeviceCredentials（账号恒为 <flavor>.<kind>.<设备号>，
+      //     口令固定；仅调试包允许自定义）。连接前先 HTTP 登录完成账号建档，
       //     再发起 ws，避免握手因「账号不存在」被拒。断线由通道自动重连。
       unawaited(() async {
         try {
-          // 旧版遥控账号/口令存在 ControlSettings，迁移一次到 AppSettings
-          //（之后以 AppSettings 为准，ControlSettings 只保留已勾选目标）。
-          await AppSettings.instance.ensureLoaded();
-          if (AppSettings.instance.remoteAccount.isEmpty) {
-            final String legacyAccount = ControlSettings.instance.account;
-            if (legacyAccount.isNotEmpty) {
-              await AppSettings.instance.setRemoteAccount(legacyAccount);
-            }
-          }
-          if (AppSettings.instance.remotePassword.isEmpty) {
-            final String legacyToken = ControlSettings.instance.token;
-            // 旧默认 '12345678' 是已废弃的全局口令，不迁移（回落 123456）。
-            if (legacyToken.isNotEmpty && legacyToken != '12345678') {
-              await AppSettings.instance.setRemotePassword(legacyToken);
-            }
-          }
-
           final String account = await DeviceCredentials.account();
           if (account.isEmpty) {
             ControlLog.i('[实时通道] 无法确定账号，跳过自动连接');
