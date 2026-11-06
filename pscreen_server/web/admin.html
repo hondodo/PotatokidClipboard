@@ -386,6 +386,7 @@
         <div>
           <h2>设备状态</h2>
           <p>设备通过 Android ID 自动注册；在线判定为 90 秒内收到心跳。家庭权限优先级：机器设置 &gt; 所属用户设置 &gt; App 的 .env。</p>
+          <p class="hint">名称显示优先级：客户端本机备注别名 &gt; 账号展示名（displayName） &gt; 设备备注（设备名） &gt; 账号 id。本机备注只存在于设备本地，后台不可见；空值统一标为「未设置」。</p>
         </div>
         <div class="panel-actions">
           <span class="pill" id="realtime-pill">实时通道在线：—</span>
@@ -399,7 +400,7 @@
               <th>设备</th>
               <th style="width:74px">类型</th>
               <th style="width:170px">所属中控</th>
-              <th style="width:130px">通信账号</th>
+              <th style="width:180px">通信账号 / 展示名</th>
               <th style="width:280px">可见家庭</th>
               <th style="width:120px">当前家庭</th>
               <th style="width:170px">最后心跳</th>
@@ -416,6 +417,7 @@
         <div>
           <h2>用户与家庭</h2>
           <p>用户设置对绑定到该用户的所有设备生效；机器可以单独覆盖。留空表示未配置，回落下一层或 .env。</p>
+          <p class="hint">名称显示优先级：客户端本机备注别名 &gt; 账号展示名（displayName） &gt; 设备备注（设备名） &gt; 账号 id。本机备注只存在于设备本地，后台不可见；空值统一标为「未设置」。</p>
         </div>
       </div>
       <div class="table-wrap">
@@ -425,6 +427,7 @@
               <th>用户</th>
               <th style="width:110px">角色</th>
               <th style="width:320px">可见家庭</th>
+              <th style="width:200px">名下设备备注</th>
               <th style="width:90px">设备数</th>
               <th style="width:170px">最后登录</th>
               <th style="width:120px">操作</th>
@@ -877,7 +880,23 @@
     return '未配置';
   }
 
-  // 通信账号列：第一行账号，第二行 ws 握手回写的客户端标识（app v版本+构建）。
+  // 设备名称生效顺序：账号展示名（displayName）> 设备备注（nameSet 才有效）> 账号 id。
+  // 客户端本机备注别名优先级最高，但只存在于设备本地，后台不可见。
+  function machineDisplay(machine) {
+    const accountDisplay = String(machine.commDisplayName || '').trim();
+    if (accountDisplay) return { name: accountDisplay, source: '账号展示名' };
+    if (machine.nameSet && machine.name) return { name: machine.name, source: '设备备注' };
+    if (machine.commAccount) return { name: machine.commAccount, source: '账号 id' };
+    return { name: machine.name || machine.id, source: '设备 id（无通信账号）' };
+  }
+
+  // 用户名称生效顺序：账号展示名（displayName）> 账号 id（name）。
+  function userDisplay(user) {
+    if (user.displayNameSet && user.displayName) return { name: user.displayName, source: '账号展示名' };
+    return { name: user.name, source: '账号 id' };
+  }
+
+  // 通信账号列：账号 / 展示名（未设置明确标注）/ ws 握手回写的客户端标识。
   function commCell(machine) {
     if (!machine.commAccount && !machine.commApp) return '<span class="muted">—</span>';
     let label = '';
@@ -888,9 +907,11 @@
         if (machine.commBuild) label += `+${esc(machine.commBuild)}`;
       }
     }
+    const displayName = String(machine.commDisplayName || '').trim();
     return `
       <div class="cell-stack">
-        ${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">—</span>'}
+        ${machine.commAccount ? `<span class="mono">${esc(machine.commAccount)}</span>` : '<span class="muted">账号 id：未设置</span>'}
+        <span class="muted">展示名：${displayName ? esc(displayName) : '未设置（回落下一层）'}</span>
         ${label ? `<span class="muted">${label}</span>` : ''}
       </div>`;
   }
@@ -953,13 +974,16 @@
     body.innerHTML = machines.map((machine) => {
       const online = machine.online === true;
       const kind = machineKind(machine);
+      const nameInfo = machineDisplay(machine);
       return `
         <tr data-machine-id="${esc(machine.id)}">
           <td><span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span></td>
           <td>
             <div class="cell-stack">
-              <span class="strong">${esc(machine.name)}</span>
+              <span class="strong">${esc(nameInfo.name)}</span>
+              <span class="muted">当前显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
               <span class="mono">${esc(machine.id)}</span>
+              <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
               <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
             </div>
           </td>
@@ -1034,15 +1058,20 @@
     const body = $('users-body');
     const users = state.overview.users || [];
     if (!users.length) {
-      body.innerHTML = '<tr><td colspan="6"><div class="empty">还没有用户。</div></td></tr>';
+      body.innerHTML = '<tr><td colspan="7"><div class="empty">还没有用户。</div></td></tr>';
       return;
     }
-    body.innerHTML = users.map((user) => `
+    body.innerHTML = users.map((user) => {
+      const nameInfo = userDisplay(user);
+      const machines = Array.isArray(user.machines) ? user.machines : [];
+      return `
       <tr data-user-name="${esc(user.name)}">
         <td>
           <div class="cell-stack">
-            <span class="strong">${esc(user.displayName || user.name)}</span>
-            <span class="mono">${esc(user.name)}${user.enabled === false ? ' · 已禁用' : ''}</span>
+            <span class="strong">${esc(nameInfo.name)}</span>
+            <span class="muted">生效显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
+            <span class="mono">账号 id：${esc(user.name)}${user.enabled === false ? ' · 已禁用' : ''}</span>
+            <span class="muted">账号展示名：${user.displayNameSet ? esc(user.displayName) : '未设置'}</span>
           </div>
         </td>
         <td>
@@ -1058,6 +1087,13 @@
             <span class="muted">${user.homes === null || user.homes === undefined ? '未配置（回落 .env）' : (Array.isArray(user.homes) && user.homes.length === 0 ? '不限制' : '仅这些家庭')}</span>
           </div>
         </td>
+        <td>
+          <div class="cell-stack">
+            ${machines.length
+              ? machines.map((machine) => `<span>${esc(machine.name)}${machine.nameSet ? '' : '（未设置备注）'}</span>`).join('')
+              : '<span class="muted">无关联设备</span>'}
+          </div>
+        </td>
         <td>${user.machineCount || 0}</td>
         <td><span class="muted">${esc(user.loginTime ? timeAgo(new Date(user.loginTime).getTime()) : '从未登录')}</span></td>
         <td>
@@ -1066,8 +1102,8 @@
             <button class="btn small" data-action="rename" type="button">改名</button>
           </div>
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
 
     body.querySelectorAll('tr[data-user-name]').forEach((row) => {
       const name = row.dataset.userName;
@@ -1249,18 +1285,19 @@
   function editMachineName(machine) {
     const wrap = document.createElement('div');
     const label = document.createElement('label');
-    label.textContent = '设备显示名';
+    label.textContent = '设备备注名';
     const input = document.createElement('input');
-    input.value = machine.name || '';
+    input.value = machine.nameSet ? machine.name : '';
+    input.placeholder = machine.nameSet ? '' : '未设置（留空则回落账号 id）';
     input.maxLength = 40;
     label.appendChild(input);
     wrap.appendChild(label);
     const note = document.createElement('p');
     note.className = 'field-note';
-    note.textContent = `设备 ID：${machine.id}（Android ID，重装 App 不变）`;
+    note.textContent = `名称生效顺序：账号展示名 > 设备备注 > 账号 id。设备 ID：${machine.id}（Android ID，重装 App 不变）`;
     wrap.appendChild(note);
     openDialog({
-      title: '修改设备名',
+      title: '修改设备备注名',
       content: wrap,
       onSave: () => api(`/api/admin/machines/${encodeURIComponent(machine.id)}`, {
         method: 'PUT',
@@ -1272,9 +1309,11 @@
   function editDisplayName(user) {
     const wrap = document.createElement('div');
     const label = document.createElement('label');
-    label.textContent = '显示名';
+    label.textContent = '账号展示名（displayName）';
     const input = document.createElement('input');
-    input.value = user.displayName || user.name;
+    // 未设置时留空（不要预填账号 id，否则「清空」会变成把 id 写进 displayName）。
+    input.value = user.displayNameSet ? user.displayName : '';
+    input.placeholder = `留空则回落账号 id（${user.name}）`;
     input.maxLength = 40;
     label.appendChild(input);
     wrap.appendChild(label);
@@ -1940,7 +1979,8 @@
         <tr data-bind-id="${esc(machine.id)}" data-own="${own}">
           <td>
             <div class="cell-stack">
-              <span class="strong">${esc(machine.name)}</span>
+              <span class="strong">${esc(machineDisplay(machine).name)}</span>
+              <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
               <span class="mono">${esc(machine.id)}</span>
               <span class="badge kind-tv">电视</span>
               <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>
@@ -1976,7 +2016,8 @@
         <tr data-bind-id="${esc(machine.id)}" data-own="false">
           <td>
             <div class="cell-stack">
-              <span class="strong">${esc(machine.name)}</span>
+              <span class="strong">${esc(machineDisplay(machine).name)}</span>
+              <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
               <span class="mono">${esc(machine.id)}</span>
               <span class="badge kind-tv">电视</span>
               <span class="${machine.online ? 'status-text on' : 'status-text'}">${machine.online ? '在线' : '离线'}</span>

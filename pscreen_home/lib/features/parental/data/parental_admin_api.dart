@@ -286,6 +286,7 @@ class ParentalMachine {
   const ParentalMachine({
     required this.id,
     required this.name,
+    this.nameSet = false,
     required this.kind,
     required this.owner,
     required this.parents,
@@ -298,8 +299,11 @@ class ParentalMachine {
   /// 使用的 deviceId）。
   final String id;
 
-  /// 设备显示名。
+  /// 设备备注名（服务端 `machines.json.name`；未设置时服务端填「未命名设备」）。
   final String name;
+
+  /// [name] 是否为管理员真正设置过的备注；false 表示只有「未命名设备」占位。
+  final bool nameSet;
 
   /// 设备类型：`tv`（电视）/ `home`（中控）/ 空字符串（尚未上报）。
   /// 家长控制只处理电视，中控不参与儿童模式与家长绑定。
@@ -323,6 +327,7 @@ class ParentalMachine {
       ParentalMachine(
         id: '${json['id'] ?? ''}',
         name: '${json['name'] ?? ''}',
+        nameSet: json['nameSet'] == true,
         kind: '${json['kind'] ?? ''}',
         owner: '${json['owner'] ?? ''}',
         parents: (json['parents'] is List)

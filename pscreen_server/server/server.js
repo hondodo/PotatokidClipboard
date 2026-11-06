@@ -2137,6 +2137,8 @@ realtimeHandle = attachRealtime(httpServer, {
     setCommInfo: adminHandle.setCommInfo,
     // 登录握手带 deviceId 且设备表无记录时自动建档
     ensureMachine: adminHandle.ensureMachineForLogin,
+    // ws roster/presence 的第三层名称（displayName > 设备备注 > 账号 id）
+    machineNameOf: adminHandle.machineNameForAccount,
     // 设备表：ws 保活 / 上报 / 下发配置（替代 HTTP 心跳）
     touchDevice: adminHandle.touchDevice,
     updateDeviceReport: adminHandle.updateDeviceReport,

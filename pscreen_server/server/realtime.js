@@ -168,6 +168,9 @@ function attachRealtime(httpServer, options = {}) {
             return '';
         }
     }
+    // 通信账号 → 设备备注名（displayName 之后的回落层；未知/未设置返回空串）。
+    const machineNameOf =
+        typeof options.machineNameOf === 'function' ? options.machineNameOf : () => '';
     // 设备表入口（由 server.js 注入 admin 的实现）：ws 保活 / 上报 / 取配置。
     const touchDevice = typeof options.touchDevice === 'function' ? options.touchDevice : () => {};
     const updateDeviceReport =
@@ -256,6 +259,7 @@ function attachRealtime(httpServer, options = {}) {
                 version: sock.version || '',
                 build: sock.build || '',
                 displayName: displayNameOf(account),
+                machineName: machineNameOf(account),
             });
         }
         return roster;
@@ -800,6 +804,7 @@ function attachRealtime(httpServer, options = {}) {
             version,
             build,
             displayName: displayNameOf(account),
+            machineName: machineNameOf(account),
             online: onlineAccounts(),
             roster: onlineRoster(),
             serverTime: Date.now(),
@@ -815,6 +820,7 @@ function attachRealtime(httpServer, options = {}) {
                 version,
                 build,
                 displayName: displayNameOf(account),
+                machineName: machineNameOf(account),
                 online: true,
             }, ws);
         }
