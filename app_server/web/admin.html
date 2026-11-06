@@ -556,7 +556,20 @@ $('#btnLogout').addEventListener('click', async () => {
 });
 
 // ---- relay 运维 ----
-const relay = { paused: false, timer: null, lines: [], meta: null, pending: null };
+const relay = {
+  paused: false,
+  timer: null,
+  ticker: null,
+  lines: [],
+  meta: null,
+  pending: null,
+  active: false,
+  mainPid: 0,
+  startedAtMs: null,
+  lastOkAt: 0,
+  lastFfmpegKey: '',
+  lastLogText: '',
+};
 
 function fmtDuration(sec) {
   const total = Number(sec) || 0;
@@ -565,7 +578,7 @@ function fmtDuration(sec) {
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  if (days) return `${days} 天 ${hours} 小时 ${minutes} 分`;
+  if (days) return `${days} 天 ${hours} 小时 ${minutes} 分 ${seconds} 秒`;
   if (hours) return `${hours} 小时 ${minutes} 分 ${seconds} 秒`;
   if (minutes) return `${minutes} 分 ${seconds} 秒`;
   return `${seconds} 秒`;
@@ -576,6 +589,10 @@ function stopRelayPolling() {
     clearInterval(relay.timer);
     relay.timer = null;
   }
+  if (relay.ticker) {
+    clearInterval(relay.ticker);
+    relay.ticker = null;
+  }
 }
 
 function startRelayPolling() {
@@ -583,40 +600,99 @@ function startRelayPolling() {
   relay.timer = setInterval(() => {
     if (!relay.paused) loadRelay();
   }, 5000);
+  relay.ticker = setInterval(tickRelayUptime, 1000);
 }
+
+// 启动时长按「最近启动」时间戳本地每秒重算，不做累加，避免回跳。
+function tickRelayUptime() {
+  const el = $('#relay-uptime');
+  if (!el) return;
+  if (!relay.active || !relay.startedAtMs) {
+    el.textContent = '—';
+    return;
+  }
+  el.textContent = fmtDuration(Math.max(0, Math.floor((Date.now() - relay.startedAtMs) / 1000)));
+}
+
+// 切回前台立即按当前时间戳重算，不等下一次定时器。
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) tickRelayUptime();
+});
 
 async function loadRelay() {
   await Promise.all([loadRelayStatus(), loadRelayLogs()]);
 }
 
+const RELAY_FIELDS = [
+  ['state', '运行状态'],
+  ['pid', 'MainPID'],
+  ['uptime', '启动时长'],
+  ['restarts', '重启次数'],
+  ['port', '端口 47291'],
+  ['started', '最近启动'],
+  ['checked', '检查时间'],
+];
+
+// 状态卡骨架只建一次，后续只改对应文本节点，不整块重绘。
+function ensureRelayStatusSkeleton() {
+  const host = $('#relayStatus');
+  if (!host || host.dataset.ready === '1') return;
+  host.dataset.ready = '1';
+  host.innerHTML = RELAY_FIELDS
+    .map(([key, label]) => `<div><span>${esc(label)}</span><div id="relay-${key}">—</div></div>`)
+    .join('');
+}
+
+function setRelayField(key, text, className) {
+  const el = $('#relay-' + key);
+  if (!el) return;
+  el.textContent = text;
+  el.className = className || '';
+}
+
+function relayPollFailed(message) {
+  ensureRelayStatusSkeleton();
+  const last = relay.lastOkAt ? fmtTime(new Date(relay.lastOkAt).toISOString()) : '尚未成功';
+  setRelayField('checked', `刷新失败（上次成功 ${last}）`, 'msg err');
+  if (!relay.lastOkAt) setRelayField('state', '未知', 'badge off');
+  if (!relay.lastFfmpegKey) $('#relayFfmpeg').textContent = message || '刷新失败';
+}
+
 function renderRelayStatus(data) {
+  ensureRelayStatusSkeleton();
   const service = (data && data.service) || {};
   if (service.error) {
-    $('#relayStatus').innerHTML = `<p class="msg err">${esc(service.error)}</p>`;
+    relayPollFailed(service.error);
     return;
   }
-  const stateBadge = service.active
-    ? '<span class="badge on">运行中</span>'
-    : `<span class="badge off">${esc(service.state || '未知')}</span>`;
-  const portBadge = data.portListening
-    ? '<span class="badge on">监听中</span>'
-    : '<span class="badge off">未监听</span>';
-  const items = [
-    ['运行状态', stateBadge],
-    ['MainPID', service.mainPid ? `<span class="mono">${esc(service.mainPid)}</span>` : '—'],
-    ['启动时长', esc(fmtDuration(service.uptimeSec))],
-    ['重启次数', esc(service.restarts === undefined ? '—' : service.restarts)],
-    ['端口 47291', portBadge],
-    ['最近启动', esc(fmtTime(service.startedAt))],
-    ['检查时间', esc(fmtTime(data.checkedAt))],
-  ];
-  $('#relayStatus').innerHTML = items
-    .map(([label, value]) => `<div><span>${esc(label)}</span><div>${value}</div></div>`)
-    .join('');
+
+  const active = Boolean(service.active);
+  const mainPid = Number(service.mainPid) || 0;
+  const startedMs = service.startedAt ? new Date(service.startedAt).getTime() : 0;
+  // 仅在首次、实例变化或偏移超过 3 秒时重设基准，避免每次轮询抖动造成回跳。
+  if (!active) {
+    relay.startedAtMs = null;
+  } else if (startedMs && (!relay.startedAtMs || mainPid !== relay.mainPid || Math.abs(startedMs - relay.startedAtMs) >= 3000)) {
+    relay.startedAtMs = startedMs;
+  }
+  relay.active = active;
+  relay.mainPid = mainPid;
+  relay.lastOkAt = Date.now();
+
+  setRelayField('state', active ? '运行中' : (service.state || '未知'), active ? 'badge on' : 'badge off');
+  setRelayField('pid', mainPid ? String(mainPid) : '—', 'mono');
+  tickRelayUptime();
+  setRelayField('restarts', service.restarts === undefined ? '—' : String(service.restarts));
+  setRelayField('port', data.portListening ? '监听中' : '未监听', data.portListening ? 'badge on' : 'badge off');
+  setRelayField('started', relay.startedAtMs ? fmtTime(new Date(relay.startedAtMs).toISOString()) : '—');
+  setRelayField('checked', fmtTime(data.checkedAt));
   renderRelayFfmpeg(data.ffmpeg);
 }
 
 function renderRelayFfmpeg(ffmpeg) {
+  const key = JSON.stringify(ffmpeg || null);
+  if (key === relay.lastFfmpegKey) return;
+  relay.lastFfmpegKey = key;
   if (!ffmpeg || ffmpeg.error) {
     $('#relayFfmpeg').innerHTML = `<span class="msg err">${esc((ffmpeg && ffmpeg.error) || '读取失败')}</span>`;
     return;
@@ -644,8 +720,7 @@ async function loadRelayStatus() {
   try {
     renderRelayStatus(await call('/relay/status'));
   } catch (err) {
-    $('#relayStatus').innerHTML = `<p class="msg err">${esc(err.message)}</p>`;
-    $('#relayFfmpeg').textContent = '—';
+    relayPollFailed(err.message);
   }
 }
 
@@ -656,10 +731,14 @@ function renderRelayLogs() {
     : relay.lines;
   const pre = $('#relayLog');
   const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
-  pre.textContent = shown.length
+  const text = shown.length
     ? shown.join('\n')
     : keyword ? '（没有匹配的行）' : '（暂无日志）';
-  if (!relay.paused && atBottom) pre.scrollTop = pre.scrollHeight;
+  if (relay.lastLogText !== text) {
+    relay.lastLogText = text;
+    pre.textContent = text;
+    if (!relay.paused && atBottom) pre.scrollTop = pre.scrollHeight;
+  }
   const meta = relay.meta || {};
   $('#relayLogMeta').textContent =
     `显示 ${shown.length} / ${relay.lines.length} 行` +
