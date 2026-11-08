@@ -123,7 +123,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   /// 「持续缓冲卡死」两级看门狗（共享包 `BufferStallWatchdog`）：
   /// 一级 10s 原地重载同源（吸收 relay 会话重建空窗）、二级 60s 换源；
-  /// 重载额度在正常 open（切台/换源/重试）与出过画面（width>0）时补满。
+  /// 只有真正起播后才计时，稳定播放 5s 才补满重载额度（启动期不算卡死）。
   late final BufferStallWatchdog _bufferStall;
   Timer? _bufferStallWatch;
 
@@ -558,7 +558,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   }
 
   /// 每秒把播放状态喂给共享的两级看门狗 [_bufferStall]（一级 10s 原地重载 /
-  /// 二级 60s 换源）：仅 playing 且 buffering 累计计时，恢复即清零，不误杀。
+  /// 二级 60s 换源）：只有**真正起播后**（出过帧 / 音频参数就绪）才累计计时，
+  /// 启动拉流阶段不计时，避免慢站刚出声就被重载掐断。
   void _checkBufferStall() {
     if (!mounted) return;
     final dynamic s = _player?.state;
@@ -566,7 +567,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _bufferStall.notifyState(
       playing: s.playing,
       buffering: s.buffering,
-      hasFrame: (s.width ?? 0) > 0,
+      established: _probe.playedVideo || _probe.audioParamsReady,
     );
   }
 

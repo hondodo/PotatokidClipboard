@@ -222,12 +222,13 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  /// OK/触摸激活当前行：刷新频道行、复制失效源行与重置行有动作。
+  /// OK/触摸激活当前行：刷新频道、复制失效源、重置、远程登录与版本（更新）行有动作。
   void _onActivateRow(int row) {
     if (row == _refreshRow && mounted) _refreshChannels();
     if (row == _copyInvalidRow && mounted) _copyInvalidSources();
     if (row == _resetRow && mounted) _resetAll();
     if (row == _remoteRow && mounted) _beginInlineEdit(_remoteRow);
+    if (row == _versionRow && mounted) unawaited(_handleVersionAction());
   }
 
   /// 「重置」：先二次确认，确认后清空全部持久化缓存并重启应用。
@@ -963,19 +964,31 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  /// 「版本」行：只读说明行，与「天气数据来源」同样只展示不可切换。
+  /// 「版本」行：展示版本号，并作为遥控器可达的更新入口（OK 触发下载/安装）。
   ///
   /// 值来自 [AppVersion]（DI 单例，启动时用 package_info_plus 读取平台打包信息，
   /// 即 pubspec 的 `version:`），因此发版只需改 pubspec、无需改代码。
+  ///
+  /// 首页右上角更新胶囊只作状态指示：首页方向/OK 被根处理器吃掉，遥控焦点
+  /// 到不了胶囊，所以安装/检查更新的入口放在本行（设置行本就有焦点与 OK 激活）。
   Widget _buildVersionRow(bool inContent, ProfileFocusController c) {
-    // 有更新时在版本行追加提示（下载中/已就绪由 AppUpdatePill 在首页展示）。
     return ValueListenableBuilder<AppUpdateState>(
       valueListenable: AppUpdateController.instance,
       builder: (BuildContext context, AppUpdateState update, Widget? _) {
-        String value = Injection.get<AppVersion>().display;
+        final String base = Injection.get<AppVersion>().display;
         final String? latest = update.result?.latest?.version;
-        if (update.showPill && latest != null) {
-          value = '$value · 可更新 v$latest';
+        String value = base;
+        if (update.result?.hasUpdate == true && latest != null) {
+          if (update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing) {
+            value = '$base · 可更新 v$latest（按 OK 安装）';
+          } else if (update.phase == AppUpdatePhase.downloading) {
+            final double? progress = update.progress;
+            value = '$base · 更新下载中${progress == null ? '' : ' ${(progress * 100).round()}%'}';
+          } else if (update.phase == AppUpdatePhase.failed) {
+            value = '$base · 更新下载失败（按 OK 重试）';
+          } else {
+            value = '$base · 可更新 v$latest（按 OK 更新）';
+          }
         }
         return _SettingRow(
           highlighted: inContent && c.row == _versionRow,
@@ -983,13 +996,52 @@ class _ProfilePageState extends State<ProfilePage> {
           value: value,
           canStepLeft: false,
           canStepRight: false,
-          onTap: () => c.select(_versionRow),
+          onTap: () {
+            c.select(_versionRow);
+            // 触摸等同 OK：有更新时直接走升级动作（已就绪→安装，否则催下载）。
+            if (update.result?.hasUpdate == true) {
+              unawaited(_handleVersionAction());
+            }
+          },
           onStepLeft: () => c.select(_versionRow),
           onStepRight: () => c.select(_versionRow),
           onLongPress: _openParentalDebug,
         );
       },
     );
+  }
+
+  /// 「版本」行 OK：已就绪 → 拉起安装；有更新 → 催下载；无更新 → 手动查一次。
+  ///
+  /// 电视端遥控器唯一可达的更新入口（首页胶囊的焦点被根按键处理器挡住）。
+  Future<void> _handleVersionAction() async {
+    final AppUpdateController controller = AppUpdateController.instance;
+    final AppUpdateState state = controller.state;
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+
+    void toast(String text) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+    }
+
+    if (state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing) {
+      final bool started = await controller.install();
+      if (!started) toast('无法拉起系统安装器，请检查「安装未知应用」权限');
+      return;
+    }
+    if (state.result?.hasUpdate == true) {
+      toast('正在后台下载更新，完成后按 OK 安装');
+      await controller.ensureDownloadedNow();
+      return;
+    }
+    toast('正在检查更新…');
+    await controller.check(manual: true);
+    if (!mounted) return;
+    if (AppUpdateController.instance.state.result?.hasUpdate != true) {
+      toast('已是最新版本');
+    }
   }
 
   /// 长按「版本」行 → 打开儿童模式本地临时配置调试入口（阶段 1 隐藏手势）。

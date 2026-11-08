@@ -72,6 +72,18 @@
                 "phone",
                 "--dart-define=APP_FLAVOR=phone"
             ]
+        },
+        {
+            "name": "potatokid_screen mibox5 wifi (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "192.168.31.56:5555",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
         }
     ]
 }

@@ -843,8 +843,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 final int percent = ((update.progress ?? 0) * 100).round();
                 status = '正在后台下载 v$latest（$percent%）';
               } else {
-                status = '发现新版本 v$latest';
+                status = '发现新版本 v$latest，点「更新」下载';
               }
+              // 自动下载被场景门控（如直播中）挂起时 showPill 为 false，
+              // 这里用显式按钮兜底，保证设置页始终有可点的升级入口。
+              final bool showButton = hasUpdate && !update.showPill;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
@@ -853,7 +856,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     leading: const Icon(Icons.info_outline_rounded),
                     title: const Text('当前版本'),
                     subtitle: Text('${Injection.get<AppVersion>().display} · $status'),
-                    trailing: const AppUpdatePill(),
+                    trailing: showButton
+                        ? FilledButton.tonal(
+                            onPressed: () => unawaited(
+                              handleUpdatePillTap(context, update),
+                            ),
+                            child: Text(
+                              update.phase == AppUpdatePhase.failed ? '重试' : '更新',
+                            ),
+                          )
+                        : const AppUpdatePill(),
+                    onTap: hasUpdate
+                        ? () => unawaited(handleUpdatePillTap(context, update))
+                        : null,
                   ),
                   if (update.result?.iosHintOnly == true)
                     OutlinedButton.icon(

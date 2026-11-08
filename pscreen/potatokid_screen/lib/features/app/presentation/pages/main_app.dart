@@ -67,9 +67,11 @@ class MainApp extends StatelessWidget {
     _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
   ];
 
-  void _goTab(BuildContext context, int index) {
-    // 进入「我的」时回到位于导航条的状态，并保持导航条常显（设置页需要可见的选择态）；
-    // 其余页面进入即收起，避免每次切页都带着顶部条。
+  void _goTab(BuildContext context, int index, {bool keepChrome = true}) {
+    // 进入「我的」时回到位于导航条的状态，并保持导航条常显（设置页需要可见的选择态）。
+    // 其余页面切完仍保持导航条可见（[keepChrome] 默认 true），由 AutoHideChrome
+    // 在 10 秒无操作后统一收起；否则点/按一次 tab 就立刻收起，要再切必须重新
+    // 呼出（触摸/遥控都表现为「点一下就收起、很难切回」）。
     // 已在目标页时不改条状态：否则菜单键呼出导航条后，选中 tab 的 autofocus
     // 回调会再次走本方法把条立刻收起（表现为「按键没反应」）。
     final AppBloc bloc = context.read<AppBloc>();
@@ -78,7 +80,7 @@ class MainApp extends StatelessWidget {
         ProfileFocusController.instance.reset();
         bloc.add(const SetChrome(true));
       } else {
-        bloc.add(const SetChrome(false));
+        bloc.add(SetChrome(keepChrome));
       }
     }
     navigationShell.goBranch(
@@ -276,15 +278,23 @@ class MainApp extends StatelessWidget {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
 
-    // 时间页：任意方向键让导航条短暂露出（仅显示、不可聚焦，3 秒自动收起），
-    // 键本身的动作（切样式/切源）照常执行。首页不做，避免与切源/切台/OK 叠加。
-    if (cur == _timeBranchIndex &&
-        !state.isChromeVisible &&
-        (key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.arrowDown ||
-            key == LogicalKeyboardKey.arrowLeft ||
-            key == LogicalKeyboardKey.arrowRight)) {
-      context.read<AppBloc>().add(const SetChromePeek(true));
+    // 时间页：导航条隐藏时，左/右键直接呼出并切换 tab（切完保持 10 秒再自动
+    // 收起），不必先按菜单键；上/下键只让导航条短暂露出（仅显示、不可聚焦，
+    // 3 秒自动收起），切样式的动作照常执行。首页不做，避免与切源/切台/OK 叠加。
+    if (cur == _timeBranchIndex && !state.isChromeVisible) {
+      if (key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight) {
+        _goTabWrapped(
+          context,
+          cur,
+          key == LogicalKeyboardKey.arrowRight ? 1 : -1,
+        );
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowUp ||
+          key == LogicalKeyboardKey.arrowDown) {
+        context.read<AppBloc>().add(const SetChromePeek(true));
+      }
     }
 
     // 数字键：仅首页生效 —— 累积输入频道号，2 秒无输入后跳台（超范围会提示）。
@@ -398,11 +408,11 @@ class MainApp extends StatelessWidget {
     return false;
   }
 
-  /// 循环切换 tab（左右）。
+  /// 循环切换 tab（左右）：保持导航条可见，方便连续左右切换。
   void _goTabWrapped(BuildContext context, int current, int delta) {
     final int next =
         (current + delta + MainApp._tabs.length) % MainApp._tabs.length;
-    _goTab(context, next);
+    _goTab(context, next, keepChrome: true);
   }
 
   void _moveFocus(TraversalDirection direction) {
