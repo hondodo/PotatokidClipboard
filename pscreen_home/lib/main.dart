@@ -10,7 +10,6 @@ import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
-import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
@@ -18,7 +17,6 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_blo
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
-import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
 import 'package:pscreen_screen/app/config/screen_assets.dart';
@@ -93,17 +91,8 @@ void main() {
             deviceId: await DeviceIdentity.deviceId(),
             checkInterval: const Duration(hours: 12),
             checkJitter: const Duration(minutes: 30),
-            canStartDownload: () {
-              final ScreensaverController screensaver =
-                  Injection.get<ScreensaverController>();
-              final LiveStageController live = Injection.get<LiveStageController>();
-              // 屏保关闭（时长=0）时「不在屏保」天然成立，只要不在直播即可下载；
-              // 屏保开启时只在屏保页期间下载。
-              if (screensaver.minutes <= SettingsStore.screensaverNeverMinutes) {
-                return !live.isActive;
-              }
-              return screensaver.active;
-            },
+            // 不注入 canStartDownload：任何页面/时段都允许下载，
+            // 家长端从不进屏保（screensaver_host 禁用），按屏保判据会永久拦截。
           ),
         );
       }

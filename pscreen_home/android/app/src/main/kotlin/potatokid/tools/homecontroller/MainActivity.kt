@@ -95,6 +95,21 @@ class MainActivity : FlutterActivity() {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
                             result.error("invalid_arguments", "安装包路径为空", null)
+                        } else if (!packageManager.canRequestPackageInstalls()) {
+                            // 未授予「安装未知应用」：跳系统授权页；返回 false 让
+                            // Dart 侧保持 ready（不误报 installing），用户授权后
+                            // 回来再点「更新」即可正常安装。
+                            try {
+                                startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        Uri.parse("package:$packageName")
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                result.success(false)
+                            } catch (e: Exception) {
+                                result.error("install_failed", e.message ?: "无法打开授权设置", null)
+                            }
                         } else {
                             try {
                                 val uri = FileProvider.getUriForFile(

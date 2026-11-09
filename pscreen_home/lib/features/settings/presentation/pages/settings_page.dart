@@ -834,7 +834,9 @@ class _SettingsPageState extends State<SettingsPage> {
               final bool hasUpdate = update.result?.hasUpdate ?? false;
               final String latest = update.result?.latest?.version ?? '';
               final String status;
-              if (!hasUpdate) {
+              if (update.phase == AppUpdatePhase.checking) {
+                status = '正在检查更新…';
+              } else if (!hasUpdate) {
                 status = '已是最新版本';
               } else if (update.phase == AppUpdatePhase.ready ||
                   update.phase == AppUpdatePhase.installing) {
@@ -868,7 +870,27 @@ class _SettingsPageState extends State<SettingsPage> {
                         : const AppUpdatePill(),
                     onTap: hasUpdate
                         ? () => unawaited(handleUpdatePillTap(context, update))
-                        : null,
+                        // 无更新也可点：手动再查一次，避免「点了没反应」。
+                        : () => unawaited(
+                            AppUpdateController.instance.check(manual: true),
+                          ),
+                  ),
+                  // 检查更新按钮：任何状态都能主动查一次（检查中置灰）。
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: update.phase == AppUpdatePhase.checking
+                          ? null
+                          : () => unawaited(
+                              AppUpdateController.instance.check(manual: true),
+                            ),
+                      icon: const Icon(Icons.sync_rounded),
+                      label: Text(
+                        update.phase == AppUpdatePhase.checking
+                            ? '检查中…'
+                            : '检查更新',
+                      ),
+                    ),
                   ),
                   if (update.result?.iosHintOnly == true)
                     OutlinedButton.icon(

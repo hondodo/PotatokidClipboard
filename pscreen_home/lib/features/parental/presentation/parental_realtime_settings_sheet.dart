@@ -7,10 +7,13 @@ import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/settings/presentation/widgets/realtime_status_section.dart';
+import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/utils/account_profile_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 
@@ -18,7 +21,8 @@ import 'package:pscreen_screen/core/utils/device_credentials.dart';
 ///
 /// 家长身份只开放「遥控（实时通道）」这一段：连接状态、网关地址、最近错误，
 /// 以及**实时账号 / 口令**的修改（保存后立即重连）；屏保、壁纸、界面缩放等
-/// 其它设置项一律不出现。
+/// 其它设置项一律不出现。底部另有「版本与更新」：显示当前版本号与更新状态，
+/// 可手动检查更新 / 下载安装（家长端看不到 board/phone 的完整设置页）。
 /// [channel] 仅供测试注入，正式运行时由 [RealtimeStatusSection] 从全局
 /// 依赖中读取。
 class ParentalRealtimeSettingsSheet extends StatefulWidget {
@@ -81,11 +85,7 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(
-              synced
-                  ? '名称已保存（仅展示，不影响账号与连接）'
-                  : '名称已保存到本机，服务端同步失败（联网后重试）',
-            ),
+            content: Text(synced ? '名称已保存（仅展示，不影响账号与连接）' : '名称已保存到本机，服务端同步失败（联网后重试）'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -213,6 +213,49 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
               ),
               const SizedBox(height: 12),
               RealtimeStatusSection(channel: widget.channel),
+              const SizedBox(height: 16),
+              Text('版本与更新', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              ValueListenableBuilder<AppUpdateState>(
+                valueListenable: AppUpdateController.instance,
+                builder: (BuildContext context, AppUpdateState update, Widget? _) {
+                  final bool hasUpdate = update.result?.hasUpdate ?? false;
+                  final String latest = update.result?.latest?.version ?? '';
+                  final String status;
+                  if (update.phase == AppUpdatePhase.checking) {
+                    status = '正在检查更新…';
+                  } else if (!hasUpdate) {
+                    status = '已是最新版本';
+                  } else if (update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing) {
+                    status = '新版本 v$latest 已就绪，点「更新」安装';
+                  } else if (update.phase == AppUpdatePhase.downloading) {
+                    final int percent = ((update.progress ?? 0) * 100).round();
+                    status = '正在后台下载 v$latest（$percent%）';
+                  } else {
+                    status = '发现新版本 v$latest，点「更新」下载';
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text('${Injection.get<AppVersion>().display} · $status', style: theme.textTheme.bodyMedium),
+                      const SizedBox(height: 8),
+                      hasUpdate
+                          ? FilledButton.tonalIcon(
+                              onPressed: () => unawaited(handleUpdatePillTap(context, update)),
+                              icon: const Icon(Icons.system_update_rounded),
+                              label: Text(update.phase == AppUpdatePhase.failed ? '重试' : '更新'),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: update.phase == AppUpdatePhase.checking
+                                  ? null
+                                  : () => unawaited(AppUpdateController.instance.check(manual: true)),
+                              icon: const Icon(Icons.sync_rounded),
+                              label: Text(update.phase == AppUpdatePhase.checking ? '检查中…' : '检查更新'),
+                            ),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),

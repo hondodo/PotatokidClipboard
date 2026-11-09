@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- 遥控端：扫码绑定目标电视 -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- 应用内更新：无此权限时系统直接拒绝安装（"没有权限安装"）；
+         声明后仍需用户在「安装未知应用」页逐应用授权，安装前会显式检查并引导。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- 扫码需要前置摄像头 -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application

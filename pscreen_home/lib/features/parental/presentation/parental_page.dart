@@ -13,6 +13,7 @@ import 'package:pscreen_home/features/parental/presentation/parental_device_mana
 import 'package:pscreen_home/features/parental/presentation/parental_realtime_settings_sheet.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_sections.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/target_remote_panel.dart';
+import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
@@ -631,6 +632,8 @@ class _ParentalPageState extends State<ParentalPage> {
             title: const Text('家长视图'),
             automaticallyImplyLeading: !locked,
             actions: <Widget>[
+              // 可用更新胶囊：有更新（下载中/已就绪）时显示，无更新自动隐藏。
+              const AppUpdatePill(compact: true, margin: EdgeInsets.only(right: 8)),
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.all(14),

@@ -27,17 +27,11 @@ class App extends StatefulWidget {
 
 class _AppState extends State<App> with WidgetsBindingObserver {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  ScreensaverController? _screensaver;
-  LiveStageController? _liveStage;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _screensaver = Injection.get<ScreensaverController>()
-      ..addListener(_onUpdateSceneChanged);
-    _liveStage = Injection.get<LiveStageController>()
-      ..addListener(_onUpdateSceneChanged);
     // 网络恢复时补一次静默重试（下载失败只重试，不转阻断）。
     _connectivitySub = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       if (results.any((ConnectivityResult result) => result != ConnectivityResult.none)) {
@@ -48,14 +42,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _screensaver?.removeListener(_onUpdateSceneChanged);
-    _liveStage?.removeListener(_onUpdateSceneChanged);
     _connectivitySub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-
-  void _onUpdateSceneChanged() => AppUpdateController.instance.onSceneChanged();
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
