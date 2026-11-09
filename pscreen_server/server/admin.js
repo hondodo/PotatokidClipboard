@@ -1030,6 +1030,9 @@ function attachAdmin(app, options = {}) {
             const alias = (machine.aliases && machine.aliases[admin.name]) || '';
             const machineFields = { ...machine };
             delete machineFields.aliases;
+            // 管理员额外拿到只读的完整别名表（家长仍只拿自己那一条），
+            // 供后台排查「这台电视在谁那里叫什么」，不影响设备备注。
+            if (admin.role === 'admin') machineFields.aliases = machine.aliases || {};
             return {
                 ...machineFields,
                 alias,
