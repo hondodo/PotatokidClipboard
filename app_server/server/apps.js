@@ -2,6 +2,8 @@
 
 const express = require('express');
 const { ok, wrap } = require('./apiutil');
+const { ABIS } = require('./store');
+const { makeDownloadUrl } = require('./update_api');
 
 function appSummary(store, app) {
   return {
@@ -12,8 +14,15 @@ function appSummary(store, app) {
 }
 
 // 应用 CRUD：仅挂在管理端口 47293 的 /api/admin 下，且已通过会话校验。
-function createAppsRouter({ store, audit }) {
+function createAppsRouter({ store, audit, config, secret }) {
   const router = express.Router();
+
+  // 文件在且是本地分发 → 给管理页签名下载直链（15 分钟有效）。
+  const signDownload = (r) =>
+    r && r.fileAvailable && r.distribution === 'file' && r.status !== 'deleted'
+      ? makeDownloadUrl(config, secret, r.releaseId)
+      : null;
+
 
   router.get(
     '/apps',
@@ -55,21 +64,46 @@ function createAppsRouter({ store, audit }) {
       const releases = store.listReleases(app.appId).map((r) => ({
         releaseId: r.releaseId,
         platform: r.platform,
+        abi: r.abi || 'universal',
         version: r.version,
         build: r.build,
         status: r.status,
         forceUpdate: r.forceUpdate,
         fileAvailable: r.fileAvailable,
         distribution: r.distribution,
+        externalUrl: r.externalUrl || null,
+        download: signDownload(r),
         size: r.size,
         notes: r.notes,
         publishedAt: r.publishedAt,
         archivedAt: r.archivedAt,
         createdAt: r.createdAt,
       }));
+      // 每个 (平台, ABI) 轨的 latest：管理页按轨显示最新版本与下载入口。
+      const latestTracks = {};
+      for (const platform of app.platforms || []) {
+        const tracks = {};
+        for (const abi of ABIS) {
+          const rel = store.getLatest(app.appId, platform, abi);
+          if (!rel) continue;
+          tracks[abi] = {
+            releaseId: rel.releaseId,
+            version: rel.version,
+            build: rel.build,
+            forceUpdate: !!rel.forceUpdate,
+            fileAvailable: !!rel.fileAvailable,
+            distribution: rel.distribution,
+            externalUrl: rel.externalUrl || null,
+            download: signDownload(rel),
+            publishedAt: rel.publishedAt,
+          };
+        }
+        if (Object.keys(tracks).length) latestTracks[platform] = tracks;
+      }
       ok(res, {
         app: appSummary(store, app),
         latest: store.latestSummary(app.appId),
+        latestTracks,
         releases,
       });
     })

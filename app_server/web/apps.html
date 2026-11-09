@@ -194,6 +194,7 @@
       <div class="subpanel">
         <div class="row">
           <label>平台<select id="uPlatform"></select></label>
+          <label>ABI / 架构<select id="uAbi"></select></label>
           <label>版本号（pubspec version）<input id="uVersion" type="text" placeholder="1.0.3"></label>
           <label>build（pubspec 的 +N）<input id="uBuild" type="number" min="1" step="1" placeholder="8"></label>
         </div>
@@ -209,7 +210,8 @@
         </div>
         <progress id="uProgress" max="100" value="0" class="hidden"></progress>
         <p id="uploadMsg" class="msg"></p>
-        <p id="uploadHint" class="hint">浏览器会在本地计算 sha256（≤256 MiB）；更大文件以服务端合并后的 sha256 为准。</p>
+        <p id="uploadHint" class="hint">浏览器会在本地计算 sha256（≤256 MiB）；更大文件以服务端合并后的 sha256 为准。
+          分包发布：同一 build 需按 ABI 各传一包（如 v7a、v8a、universal 分别上传并分别发布）。</p>
       </div>
       <h3>iOS 外部链接（不上传安装包）</h3>
       <div id="iosPanel" class="subpanel hidden">
@@ -269,6 +271,21 @@ const PLATFORMS = [
   ['macos', 'macOS'],
   ['linux', 'Linux'],
 ];
+// ABI / 架构轨道（与服务端 ABIS 白名单一致）
+const ABI_OPTIONS = [
+  ['universal', 'universal（全架构兜底 / 非分包平台默认）'],
+  ['armeabi-v7a', 'armeabi-v7a（Android 32 位 / v7a 分包）'],
+  ['arm64-v8a', 'arm64-v8a（Android 64 位 / v8a 分包）'],
+  ['x86_64', 'x86_64（Windows 64 位 / Android x64）'],
+  ['x86', 'x86（Windows 32 位）'],
+];
+const ABI_LABEL = {
+  universal: 'universal',
+  'armeabi-v7a': 'armeabi-v7a（v7a）',
+  'arm64-v8a': 'arm64-v8a（v8a）',
+  'x86_64': 'x86_64（64 位）',
+  x86: 'x86（32 位）',
+};
 const esc = (value) =>
   String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -556,6 +573,7 @@ async function runUpload({ resume = false } = {}) {
         body: {
           appId,
           platform,
+          abi: $('#uAbi').value || 'universal',
           version,
           build,
           filename: file.name,
@@ -619,23 +637,37 @@ async function openDetail(appId) {
   platformChecks('#ePlatforms', app.platforms);
   setMsg('#editMsg', '');
 
-  const keys = PLATFORMS.map(([key]) => key).filter((key) => data.latest && data.latest[key]);
-  $('#dLatest').innerHTML = keys.length
-    ? `<table><thead><tr><th>平台</th><th>版本 / build</th><th>强更</th><th>文件</th><th>发布时间</th></tr></thead><tbody>` +
-      keys.map((key) => {
-        const item = data.latest[key];
-        return `<tr><td>${key}</td><td>${esc(item.version)} · b${item.build}</td>
+  // 各平台各 ABI 轨道的 latest（下载入口）
+  const tracksByPlatform = data.latestTracks || {};
+  const trackRows = [];
+  PLATFORMS.map(([key]) => key).forEach((key) => {
+    const map = tracksByPlatform[key] || {};
+    Object.keys(map).forEach((abi) => trackRows.push([key, abi, map[abi]]));
+  });
+  $('#dLatest').innerHTML = trackRows.length
+    ? `<table><thead><tr><th>平台</th><th>ABI / 架构</th><th>版本 / build</th><th>强更</th><th>文件</th><th>发布时间</th><th>下载</th></tr></thead><tbody>` +
+      trackRows.map(([key, abi, item]) => {
+        const dl = item.download && item.download.url
+          ? `<a class="small" href="${esc(item.download.url)}" target="_blank" rel="noopener">下载</a>`
+          : item.distribution === 'external' && item.externalUrl
+            ? `<a class="badge" href="${esc(item.externalUrl)}" target="_blank" rel="noopener">外部链接</a>`
+            : '<span class="hint">—</span>';
+        return `<tr><td>${key}</td><td><span class="badge">${esc(ABI_LABEL[abi] || abi)}</span></td>
+          <td>${esc(item.version)} · b${item.build}</td>
           <td>${item.forceUpdate ? '<span class="badge off">强制</span>' : '<span class="badge">否</span>'}</td>
           <td>${item.fileAvailable ? '可用' : '<span class="badge off">已清理</span>'}</td>
-          <td>${fmtTime(item.publishedAt)}</td></tr>`;
+          <td>${fmtTime(item.publishedAt)}</td>
+          <td>${dl}</td></tr>`;
       }).join('') + '</tbody></table>'
     : '<p class="hint">该应用尚未发布任何版本。</p>';
 
-  // 上传区：平台选择、iOS 面板、续传入口
+  // 上传区：平台 / ABI 选择、iOS 面板、续传入口
   const uploadable = app.platforms.filter((p) => p !== 'ios');
   $('#uPlatform').innerHTML = uploadable.length
     ? uploadable.map((p) => `<option value="${p}">${p}</option>`).join('')
     : '<option value="">（该应用未启用可上传平台）</option>';
+  $('#uAbi').innerHTML = ABI_OPTIONS.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  $('#uAbi').value = 'universal';
   $('#iosPanel').classList.toggle('hidden', !app.platforms.includes('ios'));
   $('#uFile').value = '';
   $('#uProgress').classList.add('hidden');
@@ -651,10 +683,13 @@ async function openDetail(appId) {
 
   const releases = data.releases || [];
   $('#dReleases').innerHTML = releases.length
-    ? `<table><thead><tr><th>平台</th><th>版本 / build</th><th>状态</th><th>强更</th><th>文件</th><th>大小</th><th>操作</th></tr></thead><tbody>` +
+    ? `<table><thead><tr><th>平台</th><th>ABI</th><th>版本 / build</th><th>状态</th><th>强更</th><th>文件</th><th>大小</th><th>操作</th></tr></thead><tbody>` +
       releases.map((r) => {
         const isLatest = latestIds[r.platform] === r.releaseId;
         const ops = [];
+        if (r.download && r.download.url) {
+          ops.push(`<a class="small" href="${esc(r.download.url)}" target="_blank" rel="noopener">下载</a>`);
+        }
         if (r.status === 'draft') {
           ops.push(`<button class="small primary" data-act="publish" data-id="${r.releaseId}">发布</button>`);
           ops.push(`<button class="small danger" data-act="delete" data-id="${r.releaseId}">删除</button>`);
@@ -670,6 +705,7 @@ async function openDetail(appId) {
         }
         return `<tr>
           <td>${r.platform}${isLatest ? ' <span class="badge on">latest</span>' : ''}</td>
+          <td><span class="badge">${esc(ABI_LABEL[r.abi] || r.abi || 'universal')}</span></td>
           <td>${esc(r.version)} · b${r.build}</td>
           <td><span class="badge ${r.status === 'published' ? 'on' : r.status === 'draft' ? '' : 'off'}">${r.status}</span></td>
           <td>${r.forceUpdate ? '<span class="badge off">强制</span>' : '<span class="badge">否</span>'}</td>

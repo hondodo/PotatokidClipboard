@@ -314,7 +314,7 @@ function createAdminRouter({ config, store, audit, secret, uploads }) {
 
   if (uploads) router.use('/api/admin/uploads', uploads.router());
   router.use('/api/admin', createReleasesRouter({ config, store, audit, secret }));
-  router.use('/api/admin', createAppsRouter({ store, audit }));
+  router.use('/api/admin', createAppsRouter({ store, audit, config, secret }));
 
   // 文件镜像管理（files 角色）。
   router.use('/api/admin', createFilesAdminRouter({ config, store, audit }));

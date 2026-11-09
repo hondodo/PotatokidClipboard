@@ -10,7 +10,7 @@ const PLATFORMS = ['windows', 'apk', 'ios', 'macos', 'linux'];
 // 兜底轨。取用语义：客户端带 abi 时精确取该轨，**该轨无记录才回落 universal**，
 // 不比较 build——某 abi 轨一旦发布过就始终以该轨为准，避免"v7a 轨还没发到
 // build=N、universal 已到"时 32 位板拿到装不上的 universal 包。
-const ABIS = ['universal', 'armeabi-v7a', 'arm64-v8a', 'x86_64'];
+const ABIS = ['universal', 'armeabi-v7a', 'arm64-v8a', 'x86_64', 'x86'];
 const ROLES = ['admin', 'apps', 'files'];
 const APP_ID_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const VERSION_RE = /^[0-9]+(\.[0-9]+){1,3}$/;
