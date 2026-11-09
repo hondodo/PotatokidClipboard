@@ -23,11 +23,38 @@ function createAppsRouter({ store, audit, config, secret }) {
       ? makeDownloadUrl(config, secret, r.releaseId)
       : null;
 
+  // 每个 (平台, ABI) 轨的 latest：管理页按轨显示最新版本与下载入口。
+  const buildLatestTracks = (app) => {
+    const latestTracks = {};
+    for (const platform of app.platforms || []) {
+      const tracks = {};
+      for (const abi of ABIS) {
+        const rel = store.getLatest(app.appId, platform, abi);
+        if (!rel) continue;
+        tracks[abi] = {
+          releaseId: rel.releaseId,
+          version: rel.version,
+          build: rel.build,
+          forceUpdate: !!rel.forceUpdate,
+          fileAvailable: !!rel.fileAvailable,
+          distribution: rel.distribution,
+          externalUrl: rel.externalUrl || null,
+          download: signDownload(rel),
+          publishedAt: rel.publishedAt,
+        };
+      }
+      if (Object.keys(tracks).length) latestTracks[platform] = tracks;
+    }
+    return latestTracks;
+  };
 
   router.get(
     '/apps',
     wrap((req, res) => {
-      const items = store.listApplications().map((app) => appSummary(store, app));
+      const items = store.listApplications().map((app) => ({
+        ...appSummary(store, app),
+        latestTracks: buildLatestTracks(app),
+      }));
       ok(res, { items });
     })
   );
@@ -80,26 +107,7 @@ function createAppsRouter({ store, audit, config, secret }) {
         createdAt: r.createdAt,
       }));
       // 每个 (平台, ABI) 轨的 latest：管理页按轨显示最新版本与下载入口。
-      const latestTracks = {};
-      for (const platform of app.platforms || []) {
-        const tracks = {};
-        for (const abi of ABIS) {
-          const rel = store.getLatest(app.appId, platform, abi);
-          if (!rel) continue;
-          tracks[abi] = {
-            releaseId: rel.releaseId,
-            version: rel.version,
-            build: rel.build,
-            forceUpdate: !!rel.forceUpdate,
-            fileAvailable: !!rel.fileAvailable,
-            distribution: rel.distribution,
-            externalUrl: rel.externalUrl || null,
-            download: signDownload(rel),
-            publishedAt: rel.publishedAt,
-          };
-        }
-        if (Object.keys(tracks).length) latestTracks[platform] = tracks;
-      }
+      const latestTracks = buildLatestTracks(app);
       ok(res, {
         app: appSummary(store, app),
         latest: store.latestSummary(app.appId),

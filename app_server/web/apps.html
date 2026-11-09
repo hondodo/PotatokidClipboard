@@ -286,6 +286,14 @@ const ABI_LABEL = {
   'x86_64': 'x86_64（64 位）',
   x86: 'x86（32 位）',
 };
+// 列表页下载按钮的短名（列宽有限）
+const ABI_SHORT = {
+  universal: '通用',
+  'armeabi-v7a': 'v7a',
+  'arm64-v8a': 'v8a',
+  'x86_64': 'x64',
+  x86: 'x86',
+};
 const esc = (value) =>
   String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -424,6 +432,22 @@ function latestChips(latest) {
   }).join('');
 }
 
+// 列表页下载列：该应用各 (平台, ABI) 轨的 latest 直链，短名按钮 + title 提示详情。
+function downloadLinks(app) {
+  const out = [];
+  const tracks = app.latestTracks || {};
+  Object.keys(tracks).forEach((platform) => {
+    Object.keys(tracks[platform]).forEach((abi) => {
+      const item = tracks[platform][abi];
+      if (item.download && item.download.url) {
+        const title = `${app.appId} · ${platform} / ${ABI_LABEL[abi] || abi} · ${item.version} · b${item.build}`;
+        out.push(`<a class="dl" href="${esc(item.download.url)}" target="_blank" rel="noopener" title="${esc(title)}">${ABI_SHORT[abi] || abi}</a>`);
+      }
+    });
+  });
+  return out.join('');
+}
+
 function renderApps() {
   if (!state.apps.length) {
     $('#appsTable').innerHTML = '<p class="hint">还没有应用。点击右上角“新建应用”开始。</p>';
@@ -440,10 +464,11 @@ function renderApps() {
         <button class="small" data-act="toggle" data-id="${esc(app.appId)}">${app.enabled ? '停用' : '启用'}</button>
         <button class="small danger" data-act="delete" data-id="${esc(app.appId)}">删除</button>
       </div></td>
+      <td><div class="ops">${downloadLinks(app) || '<span class="hint">—</span>'}</div></td>
     </tr>`).join('');
   $('#appsTable').innerHTML = `
     <table>
-      <thead><tr><th>应用</th><th>平台</th><th>最新版本</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>应用</th><th>平台</th><th>最新版本</th><th>状态</th><th>操作</th><th>下载</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
@@ -648,7 +673,7 @@ async function openDetail(appId) {
     ? `<table><thead><tr><th>平台</th><th>ABI / 架构</th><th>版本 / build</th><th>强更</th><th>文件</th><th>发布时间</th><th>下载</th></tr></thead><tbody>` +
       trackRows.map(([key, abi, item]) => {
         const dl = item.download && item.download.url
-          ? `<a class="small" href="${esc(item.download.url)}" target="_blank" rel="noopener">下载</a>`
+          ? `<a class="dl" href="${esc(item.download.url)}" target="_blank" rel="noopener">下载</a>`
           : item.distribution === 'external' && item.externalUrl
             ? `<a class="badge" href="${esc(item.externalUrl)}" target="_blank" rel="noopener">外部链接</a>`
             : '<span class="hint">—</span>';
@@ -688,7 +713,7 @@ async function openDetail(appId) {
         const isLatest = latestIds[r.platform] === r.releaseId;
         const ops = [];
         if (r.download && r.download.url) {
-          ops.push(`<a class="small" href="${esc(r.download.url)}" target="_blank" rel="noopener">下载</a>`);
+          ops.push(`<a class="dl" href="${esc(r.download.url)}" target="_blank" rel="noopener">下载</a>`);
         }
         if (r.status === 'draft') {
           ops.push(`<button class="small primary" data-act="publish" data-id="${r.releaseId}">发布</button>`);
