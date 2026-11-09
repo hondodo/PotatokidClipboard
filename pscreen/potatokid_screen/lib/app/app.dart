@@ -9,6 +9,7 @@ import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/update/presentation/force_update_page.dart';
+import 'package:potatokid_screen/features/update/presentation/update_prompt_gate.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 
 /// 应用根组件：MaterialApp.router + GoRouter 路由配置，主题由 [AppBloc] 驱动。
@@ -85,6 +86,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               localizationsDelegates: context.localizationDelegates,
               supportedLocales: context.supportedLocales,
               locale: context.locale,
+              // 可用更新弹窗门控：同一次启动只提示一次，遥控可操作。
+              builder: (BuildContext ctx, Widget? child) =>
+                  UpdatePromptGate(child: child ?? const SizedBox.shrink()),
             );
           },
         );
