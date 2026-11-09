@@ -7,7 +7,7 @@ const express = require('express');
 
 const { ApiError, ok, wrap, clientIp } = require('./apiutil');
 const { signDownload, verifyDownload } = require('./security');
-const { PLATFORMS, nowIso } = require('./store');
+const { PLATFORMS, ABIS, nowIso } = require('./store');
 
 // 签名下载地址（TTL 默认 600s，来自 downloadTokenTtlSec）。
 function makeDownloadUrl(config, secret, releaseId) {
@@ -89,7 +89,11 @@ function createUpdateRouter({ config, store, audit, secret }) {
     const app = store.getApplicationOrNull(appId);
     if (!app || !app.enabled) throw new ApiError(200, 300000, '应用不存在或已停用');
 
-    const latest = store.getLatest(appId, platform);
+    // abi：设备架构（新版客户端携带，老版不带）。空值/非法值一律按 universal
+    // 处理；getLatestForAbi 实现「精确 abi 轨优先、该轨无记录回落 universal」。
+    const abiRaw = String(req.query.abi || '').trim().toLowerCase();
+    const abi = ABIS.includes(abiRaw) ? abiRaw : '';
+    const latest = store.getLatestForAbi(appId, platform, abi);
     const hasUpdate = Boolean(latest && latest.build > currentBuild);
     const forceUpdate = Boolean(hasUpdate && latest.forceUpdate && platform !== 'ios');
 

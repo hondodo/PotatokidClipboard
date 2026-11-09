@@ -16,6 +16,7 @@ function releaseView(config, secret, release) {
     platform: release.platform,
     version: release.version,
     build: release.build,
+    abi: release.abi || 'universal',
     filename: release.filename,
     size: release.size,
     sha256: release.sha256,
@@ -160,8 +161,8 @@ function createReleasesRouter({ config, store, audit, secret }) {
             if (release.platform === 'ios') {
               throw new ApiError(200, 400005, 'iOS 版本不支持强制更新（无法自更新）');
             }
-            if (store.getLatestId(release.appId, release.platform) !== release.releaseId) {
-              throw new ApiError(200, 300007, '只有当前 latest 版本允许开启强制更新，请先发布/回滚');
+            if (store.getLatestId(release.appId, release.platform, release.abi) !== release.releaseId) {
+              throw new ApiError(200, 300007, '只有该 ABI 轨道的 latest 版本允许开启强制更新，请先发布/回滚');
             }
           }
           release.forceUpdate = release.platform === 'ios' ? false : wanted;
@@ -203,6 +204,7 @@ function createReleasesRouter({ config, store, audit, secret }) {
         audit,
         appId: release.appId,
         platform: release.platform,
+        abi: release.abi,
         actor: req.admin.username,
         ip: req.clientIp,
       });
@@ -218,6 +220,7 @@ function createReleasesRouter({ config, store, audit, secret }) {
           platform: release.platform,
           version: release.version,
           build: release.build,
+          abi: release.abi || 'universal',
           forceUpdate: release.forceUpdate,
         },
       });
@@ -245,7 +248,7 @@ function createReleasesRouter({ config, store, audit, secret }) {
       if (release.distribution === 'file' && !release.fileAvailable) {
         throw new ApiError(410, 300008, '该版本安装包已被清理，无法回滚，请重新上传');
       }
-      if (store.getLatestId(release.appId, release.platform) === release.releaseId) {
+      if (store.getLatestId(release.appId, release.platform, release.abi) === release.releaseId) {
         throw new ApiError(200, 400005, '该版本已是当前 latest，无需回滚');
       }
       const published = await store.mutate(() => store.publishRelease(release.releaseId, { forceUpdate: false, rollback: true }));
@@ -256,6 +259,7 @@ function createReleasesRouter({ config, store, audit, secret }) {
         audit,
         appId: published.appId,
         platform: published.platform,
+        abi: published.abi,
         actor: req.admin.username,
         ip: req.clientIp,
       });
@@ -281,7 +285,7 @@ function createReleasesRouter({ config, store, audit, secret }) {
     '/releases/:id',
     wrap(async (req, res) => {
       const release = store.getRelease(req.params.id);
-      if (release.status === 'published' || store.getLatestId(release.appId, release.platform) === release.releaseId) {
+      if (release.status === 'published' || store.getLatestId(release.appId, release.platform, release.abi) === release.releaseId) {
         throw new ApiError(200, 400005, '已发布/latest 版本不物理删除，请使用停用或回滚');
       }
       if (release.status !== 'draft') throw new ApiError(200, 400005, '仅 draft 状态版本可删除');

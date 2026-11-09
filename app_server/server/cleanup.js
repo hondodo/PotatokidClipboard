@@ -104,12 +104,20 @@ async function deleteReleaseFile({ config, store, release, reason, freeBeforeByt
   return bytes;
 }
 
-// 发布后维持 keepPrevious：同 app+platform 只保留最新的 N 个 archived 文件。
-async function enforceKeepPrevious({ config, store, audit, appId, platform, actor = 'system', ip = '' }) {
+// 发布后维持 keepPrevious：同 app+platform+abi 轨道只保留最新的 N 个 archived 文件。
+async function enforceKeepPrevious({ config, store, audit, appId, platform, abi = 'universal', actor = 'system', ip = '' }) {
   const keep = Number(config.retention && config.retention.keepPrevious);
   const keepCount = Number.isFinite(keep) && keep >= 0 ? keep : 1;
+  const abiKey = String(abi || 'universal').toLowerCase();
   const archived = Object.values(store.data.releases)
-    .filter((r) => r.appId === appId && r.platform === platform && r.status === 'archived' && r.fileAvailable)
+    .filter(
+      (r) =>
+        r.appId === appId &&
+        r.platform === platform &&
+        String(r.abi || 'universal').toLowerCase() === abiKey &&
+        r.status === 'archived' &&
+        r.fileAvailable
+    )
     .sort((a, b) => archivedTime(a).localeCompare(archivedTime(b)));
   const removable = archived.slice(0, Math.max(0, archived.length - keepCount));
   let freedBytes = 0;
@@ -125,16 +133,16 @@ async function enforceKeepPrevious({ config, store, audit, appId, platform, acto
       ip,
     });
     freedBytes += bytes;
-    deleted.push({ releaseId: release.releaseId, appId, platform, build: release.build, size: bytes });
+    deleted.push({ releaseId: release.releaseId, appId, platform, abi: abiKey, build: release.build, size: bytes });
   }
   if (deleted.length) {
     await audit.log({
       actor,
       ip,
       action: 'cleanup',
-      target: `${appId}|${platform}`,
+      target: `${appId}|${platform}|${abiKey}`,
       before: null,
-      after: { reason: 'keep_previous_limit', keepPrevious: keepCount, deleted, freedBytes },
+      after: { reason: 'keep_previous_limit', keepPrevious: keepCount, abi: abiKey, deleted, freedBytes },
     });
   }
   return { deleted, freedBytes };

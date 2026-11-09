@@ -8,7 +8,7 @@ const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 
 const { ApiError, ok, wrap, freeBytes, dirSizeBytes } = require('./apiutil');
-const { validateReleaseMeta, nowIso } = require('./store');
+const { validateReleaseMeta, normalizeAbi, nowIso } = require('./store');
 const { ensureDir } = require('./config');
 
 // 扩展名白名单（PLAN 4.3 分片规则）。
@@ -162,14 +162,22 @@ class UploadManager {
       throw new ApiError(200, 300005, `平台 ${checkedPlatform} 的安装包扩展名不匹配（允许：${EXT_WHITELIST[checkedPlatform].join(' ')}）`);
     }
 
+    // abi 轨道（分包产物）：空 = universal（与不带 abi 的老流程等价）。
+    let abi;
+    try {
+      abi = normalizeAbi(body.abi);
+    } catch (err) {
+      throw new ApiError(200, err.code || 400005, err.message);
+    }
+
     const meta = validateReleaseMeta({
       version: body.version,
       build: body.build,
       pubspecBuildConfirmed: body.pubspecBuildConfirmed,
     });
 
-    if (this.store.findReleaseByBuild(appId, checkedPlatform, meta.build)) {
-      throw new ApiError(200, 300002, `该平台已存在 build=${meta.build} 的版本`);
+    if (this.store.findReleaseByBuild(appId, checkedPlatform, meta.build, abi)) {
+      throw new ApiError(200, 300002, `该平台该 ABI 已存在 build=${meta.build} 的版本`);
     }
 
     const size = Number(body.size);
@@ -210,6 +218,7 @@ class UploadManager {
       uploadId,
       appId,
       platform: checkedPlatform,
+      abi,
       filename,
       size,
       sha256: declaredSha,
@@ -395,6 +404,7 @@ class UploadManager {
         this.store.createReleaseRecord({
           appId: upload.appId,
           platform: upload.platform,
+          abi: upload.abi,
           version: upload.version,
           build: upload.build,
           pubspecBuildConfirmed: true,

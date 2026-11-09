@@ -110,6 +110,26 @@ async function main() {
         assert.strictEqual(params.build, 0);
     });
 
+    await ok('abi 透传到上游 URL，且缓存键按 abi 隔离（不串包）', async () => {
+        // 归一 + 小写化；不带 abi → 空串（上游按 universal 处理）
+        assert.strictEqual(parseCheckParams({ app: 'a', platform: 'apk', abi: 'Armeabi-V7a' }).abi, 'armeabi-v7a');
+        assert.strictEqual(parseCheckParams({ app: 'a', platform: 'apk' }).abi, '');
+        const url = new URL(
+            buildUpstreamUrl('http://127.0.0.1:9999', { app: 'a', platform: 'apk', version: '', build: 8, deviceId: '', abi: 'arm64-v8a' }),
+        );
+        assert.strictEqual(url.searchParams.get('abi'), 'arm64-v8a');
+
+        // 同 app/version/build、不同 abi → 必须各自回源，不得命中对方缓存
+        const configPath = writeConfig(path.join(tmpRoot, 'abi'), { baseUrl: 'http://127.0.0.1:9999', apiKey: 'k', cacheTtlMs: 60000 });
+        const fetchImpl = makeFetch(() => ({ status: 200, body: okBody() }));
+        const proxy = createAppUpdateProxy({ configPath, fetchImpl, logger: silentLogger });
+        await proxy.queryCheck({ app: 'a', platform: 'apk', build: '8', abi: 'armeabi-v7a' }, '1.1.1.1');
+        await proxy.queryCheck({ app: 'a', platform: 'apk', build: '8', abi: 'arm64-v8a' }, '1.1.1.1');
+        assert.strictEqual(fetchImpl.calls.length, 2);
+        assert.ok(fetchImpl.calls[0].url.includes('abi=armeabi-v7a'));
+        assert.ok(fetchImpl.calls[1].url.includes('abi=arm64-v8a'));
+    });
+
     await ok('查询串走 searchParams，不写进 path', () => {
         const url = new URL(
             buildUpstreamUrl('http://127.0.0.1:9999', { app: 'potatokid-screen', platform: 'apk', version: '1.0.3', build: 8, deviceId: 'd1' }),

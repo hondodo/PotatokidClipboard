@@ -157,6 +157,9 @@ function parseCheckParams(query) {
         version: q.version === undefined ? '' : String(q.version),
         build: parseBuild(q.build),
         deviceId: q.deviceId === undefined ? '' : String(q.deviceId).slice(0, 128),
+        // 设备 ABI（新版客户端携带）：透传给上游按架构下发分包；
+        // 限长 + 字符白名单，防注入（值本身由上游做白名单校验）。
+        abi: q.abi === undefined ? '' : String(q.abi).slice(0, 32).toLowerCase(),
     };
 }
 
@@ -168,11 +171,14 @@ function buildUpstreamUrl(baseUrl, params) {
     if (params.version) url.searchParams.set('version', params.version);
     url.searchParams.set('build', String(params.build));
     if (params.deviceId) url.searchParams.set('deviceId', params.deviceId);
+    if (params.abi) url.searchParams.set('abi', params.abi);
     return url.toString();
 }
 
+// 缓存键必须含 abi：否则 arm64 与 v7a 的请求会互相命中缓存，
+// 返回错误架构的下载链。
 function cacheKeyOf(params) {
-    return `${params.app}|${params.platform}|${params.version}|${params.build}`;
+    return `${params.app}|${params.platform}|${params.version}|${params.build}|${params.abi || ''}`;
 }
 
 function createAppUpdateProxy(options = {}) {

@@ -6,6 +6,11 @@ const crypto = require('crypto');
 const { ensureDir, writeFilePrivate } = require('./config');
 
 const PLATFORMS = ['windows', 'apk', 'ios', 'macos', 'linux'];
+// ABI 轨道：release 按 CPU 架构分轨发布；'universal' 是老客户端/未分轨平台的
+// 兜底轨。取用语义：客户端带 abi 时精确取该轨，**该轨无记录才回落 universal**，
+// 不比较 build——某 abi 轨一旦发布过就始终以该轨为准，避免"v7a 轨还没发到
+// build=N、universal 已到"时 32 位板拿到装不上的 universal 包。
+const ABIS = ['universal', 'armeabi-v7a', 'arm64-v8a', 'x86_64'];
 const ROLES = ['admin', 'apps', 'files'];
 const APP_ID_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const VERSION_RE = /^[0-9]+(\.[0-9]+){1,3}$/;
@@ -45,6 +50,14 @@ function assertAppId(appId) {
   if (typeof appId !== 'string' || !APP_ID_RE.test(appId) || appId.startsWith('-') || appId.endsWith('-')) {
     throw new DataError(400005, 'appId 必须为 2-48 位小写字母/数字/连字符，且不以连字符开头或结尾');
   }
+}
+
+// ABI 归一：空/缺省一律视为 'universal'（兼容老记录与不带 abi 的老客户端）。
+function normalizeAbi(raw) {
+  const abi = String(raw || '').trim().toLowerCase();
+  if (!abi) return 'universal';
+  if (!ABIS.includes(abi)) throw new DataError(400005, `不支持的 ABI：${raw}`);
+  return abi;
 }
 
 function normalizePlatforms(input) {
@@ -147,6 +160,27 @@ class Store {
         this.db.version = 2;
         migrated = true;
       }
+      // ABI 轨道迁移（幂等，无版本号依赖）：老 release 补 abi='universal'；
+      // latest[app][platform] 由「直接存 releaseId」升级为 { [abi]: releaseId }
+      // 槽位结构，老指针归入 universal 轨。
+      let migratedAbi = false;
+      for (const r of Object.values(this.db.releases)) {
+        if (r.abi === undefined || r.abi === null || r.abi === '') {
+          r.abi = 'universal';
+          migratedAbi = true;
+        }
+      }
+      for (const byPlatform of Object.values(this.db.latest)) {
+        if (!byPlatform || typeof byPlatform !== 'object') continue;
+        for (const [platform, value] of Object.entries(byPlatform)) {
+          if (typeof value === 'string') {
+            byPlatform[platform] = { universal: value };
+            migratedAbi = true;
+          }
+        }
+      }
+      if (migratedAbi) migrated = true;
+
       if (migrated) this.persistSync();
       this.migratedFromV1 = migrated;
     } else {
@@ -369,21 +403,28 @@ class Store {
     return p;
   }
 
-  findReleaseByBuild(appId, platform, build) {
+  // build 唯一性按 (app, platform, abi) 轨道：同一 build 的不同架构变体可共存
+  //（一次更新的 v7a/arm64 包 build 号相同、abi 不同）。
+  findReleaseByBuild(appId, platform, build, abi = 'universal') {
+    const a = normalizeAbi(abi);
     return Object.values(this.db.releases).find(
-      (r) => r.appId === appId && r.platform === platform && r.build === Number(build)
+      (r) =>
+        r.appId === appId &&
+        r.platform === platform &&
+        r.build === Number(build) &&
+        normalizeAbi(r.abi) === a
     );
   }
 
-  // build 单调递增校验；回滚是唯一允许指向更小 build 的操作。
-  assertBuildMonotonic(app, platform, build, { rollback = false } = {}) {
-    const latestId = this.getLatestId(app.appId, platform);
+  // build 单调递增校验（按 abi 轨道）；回滚是唯一允许指向更小 build 的操作。
+  assertBuildMonotonic(app, platform, build, { rollback = false, abi = 'universal' } = {}) {
+    const latestId = this.getLatestId(app.appId, platform, abi);
     if (!latestId) return true;
     const latest = this.db.releases[latestId];
     if (!latest) return true;
     if (rollback) return true;
     if (Number(build) <= latest.build) {
-      throw new DataError(300003, `build 必须大于当前 latest(${latest.build})；如需回退请使用 rollback`);
+      throw new DataError(300003, `build 必须大于该 ABI 轨道当前 latest(${latest.build})；如需回退请使用 rollback`);
     }
     return true;
   }
@@ -391,6 +432,7 @@ class Store {
   createReleaseRecord(input) {
     const app = this.getApplication(input.appId);
     const platform = this.assertPlatformAllowed(app, input.platform);
+    const abi = normalizeAbi(input.abi);
     const meta = validateReleaseMeta(input);
 
     if (platform === 'ios' && input.distribution !== 'external') {
@@ -399,8 +441,8 @@ class Store {
     if (platform !== 'ios' && input.distribution !== 'file') {
       throw new DataError(400005, '除 iOS 外必须上传安装包文件');
     }
-    if (this.findReleaseByBuild(app.appId, platform, meta.build)) {
-      throw new DataError(300002, `该平台已存在 build=${meta.build} 的版本`);
+    if (this.findReleaseByBuild(app.appId, platform, meta.build, abi)) {
+      throw new DataError(300002, `该平台该 ABI 已存在 build=${meta.build} 的版本`);
     }
 
     const releaseId = newReleaseId();
@@ -420,6 +462,7 @@ class Store {
       fileAvailable: input.fileAvailable !== false,
       fileDeletedAt: null,
       notes: assertText(input.notes, 'notes', 2000),
+      abi,
       forceUpdate: input.forceUpdate === true, // 上传时预勾选；发布时再按 publish 传参决定
       status: 'draft',
       publishedAt: null,
@@ -439,13 +482,26 @@ class Store {
     return release;
   }
 
-  getLatestId(appId, platform) {
-    return (this.db.latest[appId] || {})[platform] || null;
+  // latest 是 { [abi]: releaseId } 槽位结构（见 init 迁移）。
+  getLatestId(appId, platform, abi = 'universal') {
+    const byAbi = (this.db.latest[appId] || {})[platform];
+    if (!byAbi) return null;
+    if (typeof byAbi === 'string') return byAbi; // 迁移前旧结构，按 universal 轨读
+    return byAbi[normalizeAbi(abi)] || null;
   }
 
-  getLatest(appId, platform) {
-    const id = this.getLatestId(appId, platform);
+  getLatest(appId, platform, abi = 'universal') {
+    const id = this.getLatestId(appId, platform, abi);
     return id ? this.db.releases[id] || null : null;
+  }
+
+  // 客户端取 latest：先按请求 abi 精确取该轨，**该轨无记录才回落 universal**，
+  // 不比较 build——某 abi 轨一旦发布过即以该轨为准，避免发布顺序差异让 32 位
+  // 板拿到装不上的 universal 包。abi 空/非法值由 normalizeAbi 归到 universal。
+  getLatestForAbi(appId, platform, abi) {
+    const a = normalizeAbi(abi);
+    if (a === 'universal') return this.getLatest(appId, platform, 'universal');
+    return this.getLatest(appId, platform, a) || this.getLatest(appId, platform, 'universal');
   }
 
   listReleases(appId, platform) {
@@ -462,9 +518,10 @@ class Store {
       throw new DataError(300008, '安装包文件不可用，请重新上传', 410);
     }
     if (!rollback) {
-      this.assertBuildMonotonic(app, release.platform, release.build);
+      this.assertBuildMonotonic(app, release.platform, release.build, { abi: release.abi });
     }
-    const previousId = this.getLatestId(release.appId, release.platform);
+    const abi = normalizeAbi(release.abi);
+    const previousId = this.getLatestId(release.appId, release.platform, abi);
     if (previousId && previousId !== release.releaseId) {
       const previous = this.db.releases[previousId];
       if (previous) {
@@ -474,7 +531,12 @@ class Store {
       }
     }
     if (!this.db.latest[release.appId]) this.db.latest[release.appId] = {};
-    this.db.latest[release.appId][release.platform] = release.releaseId;
+    const byPlatform = this.db.latest[release.appId];
+    if (!byPlatform[release.platform] || typeof byPlatform[release.platform] === 'string') {
+      const legacy = typeof byPlatform[release.platform] === 'string' ? byPlatform[release.platform] : null;
+      byPlatform[release.platform] = legacy ? { universal: legacy } : {};
+    }
+    byPlatform[release.platform][abi] = release.releaseId; // 只切本 abi 轨道的指针
     release.status = 'published';
     release.archivedAt = null;
     release.publishedAt = release.publishedAt || nowIso();
@@ -486,12 +548,19 @@ class Store {
   latestSummary(appId) {
     const out = {};
     for (const platform of PLATFORMS) {
-      const latest = this.getLatest(appId, platform);
+      // 摘要优先 universal 轨（老语义）；该轨没有则取任一 abi 轨 build 最大者。
+      let latest = this.getLatest(appId, platform, 'universal');
+      if (!latest) {
+        latest = Object.values(this.db.releases)
+          .filter((r) => r.appId === appId && r.platform === platform && r.status === 'published')
+          .sort((a, b) => b.build - a.build)[0] || null;
+      }
       if (latest) {
         out[platform] = {
           releaseId: latest.releaseId,
           version: latest.version,
           build: latest.build,
+          abi: latest.abi || 'universal',
           publishedAt: latest.publishedAt,
           forceUpdate: latest.forceUpdate,
           fileAvailable: latest.fileAvailable,
@@ -507,6 +576,8 @@ module.exports = {
   Store,
   DataError,
   PLATFORMS,
+  ABIS,
+  normalizeAbi,
   ROLES,
   APP_ID_RE,
   VERSION_RE,
