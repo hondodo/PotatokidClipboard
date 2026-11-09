@@ -171,6 +171,10 @@ function attachRealtime(httpServer, options = {}) {
     // 通信账号 → 设备备注名（displayName 之后的回落层；未知/未设置返回空串）。
     const machineNameOf =
         typeof options.machineNameOf === 'function' ? options.machineNameOf : () => '';
+    // 查看者账号 → 该查看者可见的别名索引（设备通信账号 / 设备 id → 别名）。
+    // 别名是家长私有数据，roster / presence 必须按接收者注入，不能群发同一份。
+    const aliasMapOf =
+        typeof options.aliasMapOf === 'function' ? options.aliasMapOf : () => ({});
     // 设备表入口（由 server.js 注入 admin 的实现）：ws 保活 / 上报 / 取配置。
     const touchDevice = typeof options.touchDevice === 'function' ? options.touchDevice : () => {};
     const updateDeviceReport =
@@ -246,8 +250,9 @@ function attachRealtime(httpServer, options = {}) {
     // 当前在线端明细（账号 + 设备号 + app/version/build）：
     // presence 只在对方新连接时广播，页面刷新后拿不到已有在线端的标识，
     // 故在 ready 帧附带 roster，加载即填充。
-    function onlineRoster() {
+    function onlineRoster(viewerAccount) {
         const roster = [];
+        const aliasMap = aliasMapOf(viewerAccount);
         for (const [account, sockets] of connections.entries()) {
             const sock = Array.from(sockets).find((s) => s.deviceId || s.app) || Array.from(sockets)[0];
             if (!sock) continue;
@@ -260,9 +265,25 @@ function attachRealtime(httpServer, options = {}) {
                 build: sock.build || '',
                 displayName: displayNameOf(account),
                 machineName: machineNameOf(account),
+                alias: aliasMap[account] || '',
             });
         }
         return roster;
+    }
+
+    /**
+     * 广播 presence，但别名按每个接收者自己的视角注入。
+     *
+     * 群发同一份 payload 会把改名者的私有别名泄露给其他家长，所以这里
+     * 按账号聚合接收端，各自的 aliasMap 只解析自己那份。
+     */
+    function broadcastPresence(payload, except) {
+        for (const [viewer, sockets] of connections.entries()) {
+            const alias = aliasMapOf(viewer)[payload.account] || '';
+            for (const ws of sockets) {
+                if (ws !== except) sendJson(ws, { ...payload, alias });
+            }
+        }
     }
 
     /** 按设备号向在线 socket 推帧（target 是设备表主键，ws.deviceId 可能不带前缀）。 */
@@ -806,12 +827,12 @@ function attachRealtime(httpServer, options = {}) {
             displayName: displayNameOf(account),
             machineName: machineNameOf(account),
             online: onlineAccounts(),
-            roster: onlineRoster(),
+            roster: onlineRoster(account),
             serverTime: Date.now(),
         });
         flushOffline(account);
         if (firstConnection) {
-            broadcast({
+            broadcastPresence({
                 t: 'presence',
                 account,
                 deviceId,
@@ -1298,7 +1319,7 @@ function attachRealtime(httpServer, options = {}) {
                 set.delete(ws);
                 if (set.size === 0) {
                     connections.delete(account);
-                    broadcast({
+                    broadcastPresence({
                         t: 'presence',
                         account,
                         deviceId: ws.deviceId || '',
@@ -1356,7 +1377,29 @@ function attachRealtime(httpServer, options = {}) {
     });
 
     console.log(`[realtime] WebSocket 网关已挂载: ${wsPath} (剪贴板推送: ${clipboardPath})`);
-    return { wss, onlineAccounts, pushClipboard, pushToDevice, eventsFor, eventsForAccounts };
+    /** 向某个账号的全部在线连接推帧（别名变更后只通知改名者自己）。 */
+    function pushToAccount(account, payload) {
+        const target = String(account || '').trim();
+        if (!target) return 0;
+        const sockets = connections.get(target);
+        if (!sockets) return 0;
+        let sent = 0;
+        for (const ws of sockets) {
+            sendJson(ws, payload);
+            sent++;
+        }
+        return sent;
+    }
+
+    return {
+        wss,
+        onlineAccounts,
+        pushClipboard,
+        pushToDevice,
+        pushToAccount,
+        eventsFor,
+        eventsForAccounts,
+    };
 }
 
 module.exports = { attachRealtime };

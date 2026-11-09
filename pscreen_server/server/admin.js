@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
-const { roleForNewAccount } = require('./accounts');
+const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
@@ -41,6 +41,10 @@ const QUIZ_IMAGE_URL_RE = /^\/api\/parental\/quiz-image\/[a-z0-9]+\.(?:png|jpg|j
 const QUIZ_IMAGE_FILE_RE = /^[a-z0-9]+\.(?:png|jpg|jpeg|webp|gif)$/;
 // 一台设备可绑定的家长账号上限。
 const MAX_PARENT_ACCOUNTS = 20;
+// 设备备注 / 家长私有别名的长度上限；占位名视为「未设置」，避免历史脏数据被当成真名。
+const MAX_MACHINE_NAME = 40;
+const MAX_ALIAS_LENGTH = 40;
+const UNNAMED_DEVICE = '未命名设备';
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
 // （tv）可作为家长管控对象；家长端（parent）只是控制端，也不是管控对象，
 // 但同样上报心跳、走实时通道、可遥控电视。
@@ -179,6 +183,40 @@ function normalizeStringList(value, max = MAX_LAYOUT_ITEMS) {
         if (list.length >= max) break;
     }
     return list;
+}
+
+/**
+ * 设备备注归一：空值 / 「未命名设备」占位符都视为「未设置」。
+ *
+ * 历史版本把 PUT 空值写成字面量 `未命名设备` 并置 `nameSet=true`，导致
+ * 客户端把占位符当成用户设置的真名。这里在读取时统一纠正，存量脏数据
+ * 无需迁移即可正确回落。
+ */
+function normalizeMachineName(value) {
+    const rawName = typeof value === 'string' ? value.trim().slice(0, MAX_MACHINE_NAME) : '';
+    const nameSet = rawName !== '' && rawName !== UNNAMED_DEVICE;
+    return { name: rawName || UNNAMED_DEVICE, nameSet };
+}
+
+/**
+ * 家长私有别名索引：`{账号: 别名}`（方案 B）。
+ *
+ * - 只接受合法账号作为 key，非法 key 丢弃（防止脏数据写坏 machines.json）；
+ * - 别名 trim 后长度 ≤ [MAX_ALIAS_LENGTH]，空值直接删除该项；
+ * - 别名只属于某个家长账号，不参与设备全局备注 `name`，对别的家长不可见。
+ */
+function normalizeMachineAliases(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const result = {};
+    for (const [rawAccount, rawAlias] of Object.entries(value)) {
+        const account = String(rawAccount || '').trim();
+        if (!ACCOUNT_PATTERN.test(account)) continue;
+        if (typeof rawAlias !== 'string') continue;
+        const alias = rawAlias.trim().slice(0, MAX_ALIAS_LENGTH);
+        if (!alias) continue;
+        result[account] = alias;
+    }
+    return result;
 }
 
 /**
@@ -633,15 +671,14 @@ function attachAdmin(app, options = {}) {
         if (kind === 'home') {
             parents = [];
         }
-        const rawName = typeof machine.name === 'string'
-            ? machine.name.trim().slice(0, 40)
-            : '';
+        const nameInfo = normalizeMachineName(machine.name);
         return {
             id,
             kind,
             // name 为空时用「未命名设备」占位；nameSet 供后台/客户端区分是否真的设置过备注。
-            name: rawName || '未命名设备',
-            nameSet: rawName !== '',
+            ...nameInfo,
+            // 家长私有别名（方案 B）：{账号: 别名}，只对本人生效，不下发给其他家长。
+            aliases: normalizeMachineAliases(machine.aliases),
             owner,
             parents,
             homes,
@@ -988,8 +1025,14 @@ function attachAdmin(app, options = {}) {
         const usersByName = new Map(users.map((user) => [user.name, user]));
         const allMachines = Object.values(readMachines()).map((machine) => {
             const config = resolveMachineConfig(machine, usersByName);
+            // 别名是家长私有数据：只回传当前操作者自己的那一条，绝不把
+            // aliases 整表（含其他家长的别名）下发给前端。
+            const alias = (machine.aliases && machine.aliases[admin.name]) || '';
+            const machineFields = { ...machine };
+            delete machineFields.aliases;
             return {
-                ...machine,
+                ...machineFields,
+                alias,
                 kind: machineKind(machine),
                 ownerName: config.ownerName,
                 // 设备通信账号的展示名（后台设备列表 / 家长端按此列回落）。
@@ -1315,7 +1358,9 @@ function attachAdmin(app, options = {}) {
             }
 
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
-                machine.name = String(req.body.name || '').trim().slice(0, 40) || '未命名设备';
+                // 空值 = 清除备注：normalizeMachine 会把 name 回落成占位符并置
+                // nameSet=false，不再把「未命名设备」当成用户设置的真名。
+                machine.name = String(req.body.name || '').trim().slice(0, MAX_MACHINE_NAME);
             }
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'owner')) {
                 // 归属变更会重排 parents，家长无权改写（否则可挤掉其他家长）。
@@ -1365,6 +1410,44 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, { machine: machines[id] });
         } catch (error) {
             console.error('[admin] 更新设备失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 家长私有别名（方案 B）：只写当前操作者自己的 `aliases[账号]`，
+     * 不改设备全局备注 `machine.name`，也不影响其他家长看到的名称。
+     *
+     * 权限与改名一致：家长必须是该设备的绑定家长；管理员可写任意设备
+     *（写的是管理员自己账号下的别名）。
+     */
+    app.put('/api/admin/machines/:id/alias', requireParentOperator, (req, res) => {
+        try {
+            const id = safeDeviceId(req.params.id);
+            if (!id) return jsonFail(res, '设备 ID 无效');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '设备不存在');
+            const operator = req.adminUser;
+            if (operator.role !== 'admin' && !machine.parents.includes(operator.name)) {
+                return jsonFail(res, '只能给已绑定到自己名下的设备设置别名', 403, 403);
+            }
+            const alias = String((req.body && req.body.alias) || '').trim().slice(0, MAX_ALIAS_LENGTH);
+            const nextAliases = { ...(machine.aliases || {}) };
+            if (alias) nextAliases[operator.name] = alias;
+            else delete nextAliases[operator.name];
+            machine.aliases = nextAliases;
+            machines[id] = normalizeMachine(id, machine);
+            saveMachines(machines);
+            const deviceAccount = machines[id].commAccount || id;
+            console.log(`[admin] 设备别名 ${id} ${operator.name}=${alias || '(清除)'}`);
+            // 只通知改名者自己的连接：别名是私有数据，不能发给其他家长。
+            if (typeof options.pushAlias === 'function') {
+                options.pushAlias(operator.name, { id, account: deviceAccount, alias });
+            }
+            return jsonOk(res, { id, alias });
+        } catch (error) {
+            console.error('[admin] 更新设备别名失败:', error);
             return jsonFail(res, error.message);
         }
     });
@@ -1893,6 +1976,25 @@ function attachAdmin(app, options = {}) {
         return '';
     }
 
+    /**
+     * 某查看者可见的设备别名索引：设备通信账号 / 设备 id → 该查看者的别名。
+     *
+     * realtime 的 roster / presence 按接收者注入这一层（方案 B 的同步路径）：
+     * A 的别名只会出现在发给 A 的帧里，B 收到的仍是空串。
+     */
+    function aliasMapFor(viewer) {
+        const name = String(viewer || '').trim();
+        const map = {};
+        if (!name) return map;
+        for (const machine of Object.values(readMachines())) {
+            const alias = (machine.aliases && machine.aliases[name]) || '';
+            if (!alias) continue;
+            if (machine.commAccount) map[machine.commAccount] = alias;
+            map[machine.id] = alias;
+        }
+        return map;
+    }
+
     /** 设备通信账号 → 绑定家长账号（realtime 事件扇出用，仅电视）。 */
     function parentAccountsFor(account) {
         if (!account) return [];
@@ -1933,6 +2035,8 @@ function attachAdmin(app, options = {}) {
         setCommInfo,
         // ws roster/presence 下发的设备备注名（displayName 之后的回落层）
         machineNameForAccount,
+        // ws roster/presence 按接收者注入的家长私有别名索引
+        aliasMapFor,
         // 登录链路（HTTP /api/login、ws 握手）携带 deviceId 时自动建档
         ensureMachineForLogin,
         // ws 通道复用：保活 / 上报 / 取配置
@@ -1948,11 +2052,13 @@ function attachAdmin(app, options = {}) {
     };
 }
 
-// normalizeParental / normalizeQuizQuestions 导出仅供测试直接驱动校验逻辑
-//（attachAdmin 需要完整服务环境）。
+// normalizeParental / normalizeQuizQuestions / normalizeMachine 导出仅供测试
+// 直接驱动校验逻辑（attachAdmin 需要完整服务环境）。
 module.exports = {
     attachAdmin,
     ADMIN_USERNAME,
+    normalizeMachineName,
+    normalizeMachineAliases,
     normalizeParental,
     normalizeQuizQuestions,
 };
