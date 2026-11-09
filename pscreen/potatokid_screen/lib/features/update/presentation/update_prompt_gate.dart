@@ -12,9 +12,17 @@ import 'package:pscreen_screen/core/update/app_update_controller.dart';
 /// 电视端用：AlertDialog 的按钮走焦点系统，遥控方向键 + OK 即可操作，
 /// 主按钮 autofocus 默认选中。
 class UpdatePromptGate extends StatefulWidget {
-  const UpdatePromptGate({super.key, required this.child});
+  const UpdatePromptGate({super.key, required this.child, this.navigatorKey});
 
   final Widget child;
+
+  /// 根 Navigator 的 key。
+  ///
+  /// 本组件挂在 [MaterialApp.builder] 上，它的 context 在 Navigator **之上**，
+  /// 直接 `showDialog(context: context)` 会抛
+  /// 「Navigator operation requested with a context that does not include a Navigator」，
+  /// 因此弹窗必须借用根 Navigator 的 overlay context。
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   @override
   State<UpdatePromptGate> createState() => _UpdatePromptGateState();
@@ -45,6 +53,10 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
     if (state.forceBlocked) return; // 强更整页接管，不弹普通提示。
     if (state.result?.hasUpdate != true) return;
     if (state.phase == AppUpdatePhase.installing) return;
+    debugPrint(
+      '[UpdatePrompt] 触发弹窗 hasUpdate=${state.result?.hasUpdate} '
+      'phase=${state.phase} nav=${widget.navigatorKey?.currentState != null}',
+    );
     _showing = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -56,7 +68,6 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
   }
 
   Future<void> _showPrompt() async {
-    _prompted = true; // 先置位：本次启动后续状态变化不再触发。
     final AppUpdateController controller = AppUpdateController.instance;
     final AppUpdateState state = controller.state;
     final latest = state.result?.latest;
@@ -64,6 +75,17 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
       _showing = false;
       return;
     }
+
+    // 本组件 context 在 Navigator 之上，必须借用根 Navigator 的 overlay context；
+    // 取不到（导航尚未挂载）就不置 [_prompted]，留给后续状态变化重试。
+    final BuildContext? navContext =
+        widget.navigatorKey?.currentState?.overlay?.context;
+    debugPrint('[UpdatePrompt] showPrompt navContext=${navContext != null}');
+    if (navContext == null || !mounted) {
+      _showing = false;
+      return;
+    }
+    _prompted = true; // 先置位：本次启动后续状态变化不再触发。
 
     final bool ready = state.phase == AppUpdatePhase.ready;
     final int? bytes = state.result?.download?.size;
@@ -80,7 +102,7 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
       return;
     }
     await showDialog<void>(
-      context: context,
+      context: navContext,
       barrierDismissible: false, // 遥控无触摸：需明确选择（back 键等同「稍后」）。
       builder: (BuildContext dialogContext) {
         return AlertDialog(
@@ -93,12 +115,25 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
             ),
             FilledButton(
               autofocus: true, // 打开即聚焦主按钮，遥控 OK 直接确认。
-              onPressed: () {
+              onPressed: () async {
                 Navigator.of(dialogContext).pop();
                 if (ready) {
-                  unawaited(controller.install());
-                } else {
-                  unawaited(controller.ensureDownloadedNow());
+                  await controller.install();
+                  return;
+                }
+                // 「立即更新」= 下载完直接进安装，避免用户以为点完就该升级、
+                // 却只看到下载进度（此前只下载不安装）。
+                await controller.ensureDownloadedNow();
+                if (controller.state.phase == AppUpdatePhase.ready) {
+                  final bool started = await controller.install();
+                  if (!started && navContext.mounted) {
+                    ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                      const SnackBar(
+                        content: Text('无法拉起系统安装器，请检查「安装未知应用」权限'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
                 }
               },
               child: Text(ready ? '立即安装' : '立即更新'),

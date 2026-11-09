@@ -411,6 +411,10 @@ class _LivePlayerViewState extends State<LivePlayerView> {
       if (_player.platform is! NativePlayer) return;
       final bool enabled = AppSettings.instance.hwdecEnabled;
       await (_player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
+      // media_kit 默认 mpv network-timeout=5s：弱网 / 慢 CDN（珠江台播放列表常要
+      // 10s+）会在起播前被 ffurl_read ETIMEDOUT 掐断，表现为一直打不开、反复重试。
+      // 放宽到 30s；真正的坏源由打开看门狗兜底。
+      await (_player.platform as NativePlayer).setProperty('network-timeout', '30');
     } catch (_) {
       // 设置失败不阻断播放（回落 mpv 默认解码方式）。
     }

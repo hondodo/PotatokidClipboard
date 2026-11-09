@@ -87,8 +87,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               supportedLocales: context.supportedLocales,
               locale: context.locale,
               // 可用更新弹窗门控：同一次启动只提示一次，遥控可操作。
-              builder: (BuildContext ctx, Widget? child) =>
-                  UpdatePromptGate(child: child ?? const SizedBox.shrink()),
+              // 传根 Navigator key：门控挂在 builder 上，自身 context 在 Navigator 之上。
+              builder: (BuildContext ctx, Widget? child) => UpdatePromptGate(
+                navigatorKey: appRouter.navigatorKey,
+                child: child ?? const SizedBox.shrink(),
+              ),
             );
           },
         );

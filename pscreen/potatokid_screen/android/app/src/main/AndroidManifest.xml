@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- IPTV：联网拉取 m3u / 播放网络直播流 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 应用内更新：Android 8+ 必须声明该权限，否则拉起系统安装器后会被静默拒绝
+         （表现为点了「更新」没反应、没有安装确认弹窗）。用户仍需在
+         「安装未知应用」里为本应用放行一次，见 MainActivity 的 install 分支。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"

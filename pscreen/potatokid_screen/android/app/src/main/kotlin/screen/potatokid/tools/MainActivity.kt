@@ -107,6 +107,27 @@ class MainActivity : FlutterActivity() {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
                             result.error("invalid_arguments", "安装包路径为空", null)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                            !packageManager.canRequestPackageInstalls()
+                        ) {
+                            // Android 8+ 未放行「安装未知应用」时，拉起系统安装器会被
+                            // 静默拒绝（用户只看到「点了更新没反应」）。这里直接跳到
+                            // 本应用的授权页，放行后再点一次「更新」即可。
+                            try {
+                                startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                        Uri.parse("package:$packageName")
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            } catch (_: Exception) {
+                                // 部分定制盒子没有该设置页：忽略，仍按失败返回。
+                            }
+                            result.error(
+                                "install_permission_required",
+                                "请在「安装未知应用」中允许本应用安装",
+                                null
+                            )
                         } else {
                             try {
                                 val file = File(path)

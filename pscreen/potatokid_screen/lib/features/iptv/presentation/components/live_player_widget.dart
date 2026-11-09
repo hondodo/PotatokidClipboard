@@ -640,6 +640,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (player.platform is! NativePlayer) return;
     final bool enabled = AppSettings.instance.hwdecEnabled;
     await (player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
+    // media_kit 默认把 mpv 的 network-timeout 设为 5s：弱网 / 慢 CDN（珠江台的
+    // 播放列表常要 10s+）会在起播前就被 ffurl_read ETIMEDOUT 掐断，表现成
+    // 「一直打不开、每隔十来秒重试」。放宽到 30s；真正的坏源仍由打开看门狗兜底。
+    await (player.platform as NativePlayer).setProperty('network-timeout', '30');
   }
 
   /// 切换 Android 音频输出后端（仅 Android，且只在首次 open 前设一次）。
