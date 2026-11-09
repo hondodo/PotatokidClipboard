@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/core/device/device_display_name.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/features/remote_control/data/thread_targets_store.dart';
 import 'package:pscreen_home/features/remote_control/presentation/chat_page.dart';
@@ -9,7 +10,7 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 遥控会话列表：显示通过「+」添加的目标设备（按登录账号云端同步）。
 ///
-/// 第一行显示名：本机备注别名 > 服务端 displayName > 设备备注名 > 原始账号；
+/// 第一行显示名：本机别名 > 家长别名 > displayName > 设备备注 > 原始账号；
 /// 显示名与账号不同时，第二行小字灰色显示原始账号；最后一行是设备类型 · 在线
 /// 状态 · 当前场景。
 /// 长按弹「重命名 / 移除」菜单。
@@ -86,16 +87,15 @@ class _ConversationListPageState extends State<ConversationListPage> {
       ..addAll(next);
   }
 
-  /// 展示名优先级：本机备注别名 > 服务端 displayName > 设备备注名 > 账号 id。
-  String _titleOf(ThreadTarget target, RealtimeDeviceState? device) {
-    final String alias = target.alias.trim();
-    if (alias.isNotEmpty) return alias;
-    final String serverName = (device?.displayName ?? '').trim();
-    if (serverName.isNotEmpty) return serverName;
-    final String machineName = (device?.machineName ?? '').trim();
-    if (machineName.isNotEmpty) return machineName;
-    return target.account;
-  }
+  /// 展示名优先级：本机别名 > 家长别名 > displayName > 设备备注 > 账号 id。
+  String _titleOf(ThreadTarget target, RealtimeDeviceState? device) =>
+      DeviceDisplayName.resolve(
+        account: target.account,
+        localAlias: target.alias,
+        alias: device?.alias ?? '',
+        displayName: device?.displayName ?? '',
+        machineName: device?.machineName ?? '',
+      );
 
   @override
   Widget build(BuildContext context) {

@@ -151,6 +151,7 @@ class RealtimeDeviceState {
     this.build = '',
     this.displayName = '',
     this.machineName = '',
+    this.alias = '',
     this.scene = const <String, Object?>{},
     this.channels = const <String>[],
     this.listVersion = '',
@@ -171,6 +172,10 @@ class RealtimeDeviceState {
 
   /// 设备备注名（服务端 `machines.json.name`）；空串表示未设置，回落账号 id。
   final String machineName;
+
+  /// 当前登录者给这台设备起的私有别名（服务端按接收者注入，家长间互不可见）；
+  /// 空串表示未设置。
+  final String alias;
 
   /// 最新场景快照（[SceneSnapshot.toJson] 的结构）。
   final Map<String, Object?> scene;
@@ -218,6 +223,7 @@ class RealtimeDeviceState {
     String? build,
     String? displayName,
     String? machineName,
+    String? alias,
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
@@ -232,6 +238,7 @@ class RealtimeDeviceState {
         build: build ?? this.build,
         displayName: displayName ?? this.displayName,
         machineName: machineName ?? this.machineName,
+        alias: alias ?? this.alias,
         scene: scene ?? this.scene,
         channels: channels ?? this.channels,
         listVersion: listVersion ?? this.listVersion,
@@ -748,6 +755,7 @@ class RealtimeChannel {
             build: '${raw['build'] ?? ''}',
             displayName: '${raw['displayName'] ?? ''}',
             machineName: '${raw['machineName'] ?? ''}',
+            alias: '${raw['alias'] ?? ''}',
           );
         }
         _lastError = null;
@@ -842,8 +850,17 @@ class RealtimeChannel {
           build: '${frame['build'] ?? ''}',
           displayName: frame.containsKey('displayName') ? '${frame['displayName']}' : null,
           machineName: frame.containsKey('machineName') ? '${frame['machineName']}' : null,
+          // 别名是服务端按接收者注入的私有字段：键缺失 = 沿用旧值，空串 = 已清除。
+          alias: frame.containsKey('alias') ? '${frame['alias']}' : null,
         );
         _presenceController.add(RealtimePresence(account: account, online: online));
+        break;
+
+      case 'alias':
+        // 家长改名后的定向推送（服务端只发给改名者自己的连接）。
+        final String account = '${frame['account'] ?? frame['deviceId'] ?? ''}'.trim();
+        if (account.isEmpty) return;
+        _upsertDevice(account, alias: '${frame['alias'] ?? ''}');
         break;
 
       case 'error':
@@ -1003,6 +1020,7 @@ class RealtimeChannel {
     String? build,
     String? displayName,
     String? machineName,
+    String? alias,
     Map<String, Object?>? scene,
     List<String>? channels,
     String? listVersion,
@@ -1018,6 +1036,7 @@ class RealtimeChannel {
     // null = 本次帧未带展示名（保持旧值）；空串 = 服务端已清除（回落账号 id）。
     final String nextDisplayName = displayName ?? prev.displayName;
     final String nextMachineName = machineName ?? prev.machineName;
+    final String nextAlias = alias ?? prev.alias;
     final RealtimeDeviceState next = prev.copyWith(
       kind: nextKind,
       app: nextApp,
@@ -1025,6 +1044,7 @@ class RealtimeChannel {
       build: build == null || build.isEmpty ? null : build,
       displayName: nextDisplayName,
       machineName: nextMachineName,
+      alias: nextAlias,
       scene: scene,
       channels: channels,
       listVersion: listVersion == null || listVersion.isEmpty ? null : listVersion,
