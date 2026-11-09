@@ -153,7 +153,17 @@ void main() {
       runApp(
         MultiBlocProvider(
           providers: <BlocProvider<dynamic>>[
-            BlocProvider<ConnectionBloc>(create: (_) => Injection.get<ConnectionBloc>()..add(const StartConnection())),
+            BlocProvider<ConnectionBloc>(
+              create: (_) {
+                final ConnectionBloc bloc = Injection.get<ConnectionBloc>();
+                // parent 端产品定义不接入 Home Assistant，不发起 HA 连接，
+                // 否则会每 30s 无限重连（家长端无 HA 可连）。
+                if (!AppFlavorConfig.isParentOnly) {
+                  bloc.add(const StartConnection());
+                }
+                return bloc;
+              },
+            ),
             BlocProvider<HomeBloc>(create: (_) => Injection.get<HomeBloc>()),
             // 天气状态机：全局共享，时钟页与天气页消费。
             // BlocProvider 默认 lazy：首次被页面读取时才创建并派发 LoadWeather，
