@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/app/config/app_flavor.dart';
+import 'package:pscreen_home/core/device/device_display_name.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
@@ -405,9 +406,61 @@ class _ParentalPageState extends State<ParentalPage> {
         onBind: (String deviceId) => _bindDevice(deviceId, bind: true),
         onUnbind: (String deviceId) => _bindDevice(deviceId, bind: false),
         onScanBind: _bindScannedAccount,
+        onRename: _renameDevice,
       ),
     );
     if (mounted) unawaited(_reload());
+  }
+
+  /// 设置当前账号的私有别名：服务端成功落盘后才更新本地列表（失败回滚）。
+  Future<String?> _renameDevice(String deviceId, String alias) async {
+    try {
+      final String saved = await _api.saveAlias(deviceId, alias);
+      if (!mounted) return null;
+      _applyAlias(deviceId, saved);
+      return null;
+    } catch (error) {
+      return '重命名失败：$error';
+    }
+  }
+
+  /// 用服务端回传的别名原地替换列表项；选中项也换成同一实例，
+  /// 避免 DropdownButton 因实例不一致找不到匹配项。
+  void _applyAlias(String deviceId, String alias) {
+    final List<ParentalMachine> next = _machines
+        .map(
+          (ParentalMachine machine) =>
+              machine.id == deviceId ? machine.copyWith(alias: alias) : machine,
+        )
+        .toList(growable: false);
+    ParentalMachine? selected;
+    for (final ParentalMachine machine in next) {
+      if (machine.id == _selected?.id) {
+        selected = machine;
+        break;
+      }
+    }
+    setState(() {
+      _machines = next;
+      _selected = selected ?? _selected;
+    });
+  }
+
+  /// 下拉旁的重命名入口（与设备管理弹层同一套校验与提示）。
+  Future<void> _renameSelected() async {
+    final ParentalMachine? machine = _selected;
+    if (machine == null) return;
+    final String? alias = await showParentalAliasDialog(
+      context,
+      current: machine.alias,
+    );
+    if (!mounted || alias == null || alias == machine.alias.trim()) return;
+    final String? error = await _renameDevice(machine.id, alias);
+    if (!mounted) return;
+    _hint(
+      error ?? (alias.isEmpty ? '已清除别名' : '已重命名为「$alias」（仅自己可见）'),
+      error: error != null,
+    );
   }
 
   Future<String?> _bindDevice(String deviceId, {required bool bind}) async {
@@ -695,7 +748,14 @@ class _ParentalPageState extends State<ParentalPage> {
                             (ParentalMachine machine) => DropdownMenuItem<ParentalMachine>(
                               value: machine,
                               child: Text(
-                                '${(machine.name.isEmpty || machine.name == '未命名设备') ? machine.id : machine.name}'
+                                '${DeviceDisplayName.resolve(
+                                  account: machine.commAccount.isEmpty
+                                      ? machine.id
+                                      : machine.commAccount,
+                                  alias: machine.alias,
+                                  displayName: machine.commDisplayName,
+                                  machineName: machine.nameSet ? machine.name : '',
+                                )}'
                                 '${machine.online ? '' : '（离线）'}'
                                 '${machine.owner.isEmpty ? '' : ' · ${machine.owner}'}',
                                 maxLines: 1,
@@ -727,7 +787,13 @@ class _ParentalPageState extends State<ParentalPage> {
                     ),
                   ),
           ),
-          // 家长专用：扫码添加任意有效电视 / 解绑（解绑不删除设备记录）。
+          // 家长专用：下拉旁快速重命名（仅自己可见）+ 扫码添加/解绑。
+          if (AccountSession.isParent && selected != null)
+            IconButton(
+              tooltip: '重命名（仅自己可见）',
+              icon: const Icon(Icons.drive_file_rename_outline),
+              onPressed: () => unawaited(_renameSelected()),
+            ),
           if (AccountSession.isParent)
             IconButton(
               tooltip: '添加/解绑设备',
@@ -751,7 +817,14 @@ class _ParentalPageState extends State<ParentalPage> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: TargetRemotePanel(
         account: account,
-        title: machine?.name,
+        title: machine == null
+            ? null
+            : DeviceDisplayName.resolve(
+                account: machine.commAccount.isEmpty ? machine.id : machine.commAccount,
+                alias: machine.alias,
+                displayName: machine.commDisplayName,
+                machineName: machine.nameSet ? machine.name : '',
+              ),
         onCommand: (String command) => unawaited(_sendRemoteCommand(account, command)),
       ),
     );

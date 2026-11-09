@@ -222,6 +222,21 @@ class ParentalAdminApi {
     return '${body['url'] ?? ''}';
   }
 
+  /// 设置当前账号给这台设备起的私有别名（空串 = 清除，回落默认名称）。
+  ///
+  /// 服务端返回落盘后的别名；调用方据此更新本地列表，失败时保持旧值并提示。
+  Future<String> saveAlias(String deviceId, String alias) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/machines/$deviceId/alias').toString(),
+      method: HttpMethod.PUT,
+      params: <String, dynamic>{'alias': alias},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    return '${body['alias'] ?? ''}';
+  }
+
   /// 家长自助绑定 / 解绑一台电视。
   ///
   /// 走 `POST /api/admin/parental/bind`：`bind:false` 只从 `parents` 数组
@@ -304,6 +319,7 @@ class ParentalMachine {
     required this.parents,
     required this.commAccount,
     this.commDisplayName = '',
+    this.alias = '',
     required this.online,
   });
 
@@ -333,7 +349,25 @@ class ParentalMachine {
   /// 通信账号的展示名（服务端 `_info.txt.displayName`）；空串回落 [commAccount]。
   final String commDisplayName;
 
+  /// 当前登录家长给这台设备起的私有别名（服务端只回传操作者自己那份）；
+  /// 空串表示未设置，且不会影响其他家长与 admin 的设备备注。
+  final String alias;
+
   final bool online;
+
+  /// 别名变更后原地更新当前列表项，避免整表重拉导致下拉选中丢焦点。
+  ParentalMachine copyWith({String? alias}) => ParentalMachine(
+    id: id,
+    name: name,
+    nameSet: nameSet,
+    kind: kind,
+    owner: owner,
+    parents: parents,
+    commAccount: commAccount,
+    commDisplayName: commDisplayName,
+    alias: alias ?? this.alias,
+    online: online,
+  );
 
   factory ParentalMachine.fromJson(Map<String, dynamic> json) =>
       ParentalMachine(
@@ -350,6 +384,7 @@ class ParentalMachine {
             : const <String>[],
         commAccount: '${json['commAccount'] ?? ''}',
         commDisplayName: '${json['commDisplayName'] ?? ''}',
+        alias: '${json['alias'] ?? ''}',
         online: json['online'] == true,
       );
 }

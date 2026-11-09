@@ -997,6 +997,17 @@
     });
   }
 
+  /** 家长私有别名：仅 admin overview 下发，只读展示，不参与机器行排序。 */
+  function aliasNotes(machine) {
+    const aliases = machine.aliases && typeof machine.aliases === 'object' ? machine.aliases : {};
+    const entries = Object.entries(aliases);
+    if (!entries.length) return '';
+    const items = entries
+      .map(([account, alias]) => `${esc(account)} → ${esc(alias)}`)
+      .join('；');
+    return `<span class="muted">家长私有别名（仅本人可见，不影响设备备注与其他家长）：${items}</span>`;
+  }
+
   function machineCells(machine) {
     const online = machine.online === true;
     const kind = machineKind(machine);
@@ -1009,6 +1020,7 @@
           <span class="muted">当前显示 = ${esc(nameInfo.name)}（来源：${esc(nameInfo.source)}）</span>
           <span class="mono">${esc(machine.id)}</span>
           <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
+          ${aliasNotes(machine)}
           <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
         </div>`,
       kindBadge(machine),

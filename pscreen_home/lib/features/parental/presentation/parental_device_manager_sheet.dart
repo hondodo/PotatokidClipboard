@@ -1,6 +1,43 @@
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/core/device/device_display_name.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/remote_control/presentation/qr_scan_page.dart';
+
+/// 家长私有别名编辑框：返回 trim 后的新别名；`null` = 取消，空串 = 清除。
+Future<String?> showParentalAliasDialog(
+  BuildContext context, {
+  String current = '',
+}) async {
+  // 用初值 + onChanged 记录输入，避免 controller 在弹窗退场动画期间被销毁。
+  String draft = current;
+  final String? value = await showDialog<String>(
+    context: context,
+    builder: (BuildContext context) => AlertDialog(
+      title: const Text('重命名（仅自己可见）'),
+      content: TextFormField(
+        initialValue: current,
+        autofocus: true,
+        maxLength: 40,
+        onChanged: (String text) => draft = text,
+        decoration: const InputDecoration(
+          labelText: '设备别名',
+          helperText: '留空则清除别名，恢复默认名称',
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(draft),
+          child: const Text('保存'),
+        ),
+      ],
+    ),
+  );
+  return value?.trim();
+}
 
 /// 家长视图的设备管理弹层：扫码添加电视、绑定/解绑。
 ///
@@ -9,6 +46,7 @@ import 'package:pscreen_home/features/remote_control/presentation/qr_scan_page.d
 /// - 解绑复用 `/api/admin/parental/bind` 的 `bind:false`，只清家长关联，
 ///   不删除 `machines.json` 里的设备记录，因此电视会回到「可绑定设备」，
 ///   下次进入仍能看到并重新绑定。
+/// - 已绑定设备可设置「仅自己可见」的别名；清空即恢复默认名称。
 class ParentalDeviceManagerSheet extends StatefulWidget {
   const ParentalDeviceManagerSheet({
     super.key,
@@ -17,6 +55,7 @@ class ParentalDeviceManagerSheet extends StatefulWidget {
     required this.onBind,
     required this.onUnbind,
     required this.onScanBind,
+    required this.onRename,
   });
 
   /// 当前已绑定到本账号的电视。
@@ -33,6 +72,9 @@ class ParentalDeviceManagerSheet extends StatefulWidget {
 
   /// 扫码得到的通信账号 → 解析设备并绑定；成功返回 null。
   final Future<String?> Function(String account) onScanBind;
+
+  /// 设置当前账号的私有别名（空串 = 清除）；成功返回 null，失败返回错误文案。
+  final Future<String?> Function(String deviceId, String alias) onRename;
 
   @override
   State<ParentalDeviceManagerSheet> createState() =>
@@ -120,25 +162,60 @@ class _ParentalDeviceManagerSheetState
     });
   }
 
-  /// 名称优先级：账号展示名 > 设备备注（nameSet）> 账号 id > 设备 id。
-  static String _nameOf(ParentalMachine machine) {
-    if (machine.commDisplayName.isNotEmpty) return machine.commDisplayName;
-    if (machine.nameSet && machine.name.isNotEmpty) return machine.name;
-    if (machine.commAccount.isNotEmpty) return machine.commAccount;
-    return machine.id;
-  }
+  /// 统一名称口径：本机别名（无）> 家长私有别名 > 账号展示名 > 设备备注 > 账号 id。
+  static String _nameOf(ParentalMachine machine) => DeviceDisplayName.resolve(
+    account: machine.commAccount.isEmpty ? machine.id : machine.commAccount,
+    alias: machine.alias,
+    displayName: machine.commDisplayName,
+    machineName: machine.nameSet ? machine.name : '',
+  );
 
-  /// 副标题：账号 id；账号展示名生效时额外标注此刻被回落的设备备注。
+  /// 副标题：账号 id；被别名/展示名回落的备注名照实标注，便于对照。
   static String _subtitleOf(ParentalMachine machine) {
     final List<String> parts = <String>[
       machine.commAccount.isEmpty ? '账号：未设置' : '账号：${machine.commAccount}',
     ];
-    if (machine.commDisplayName.isNotEmpty &&
-        machine.nameSet &&
-        machine.name.isNotEmpty) {
+    if (machine.alias.isNotEmpty && machine.commDisplayName.isNotEmpty) {
+      parts.add('账号展示名：${machine.commDisplayName}');
+    }
+    if (machine.nameSet &&
+        machine.name.isNotEmpty &&
+        (machine.alias.isNotEmpty || machine.commDisplayName.isNotEmpty)) {
       parts.add('设备备注：${machine.name}');
     }
     return parts.join(' · ');
+  }
+
+  /// 重命名（仅自己可见）：留空即清除别名，回落默认名称。
+  Future<void> _rename(ParentalMachine machine) async {
+    final String? alias = await showParentalAliasDialog(
+      context,
+      current: machine.alias,
+    );
+    if (!mounted || alias == null || alias == machine.alias.trim()) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    final String? error = await widget.onRename(machine.id, alias);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (error == null) {
+        // 保存成功才更新本地列表；失败保留旧值（不乐观更新）。
+        final int index = _bound.indexWhere(
+          (ParentalMachine item) => item.id == machine.id,
+        );
+        if (index >= 0) _bound[index] = _bound[index].copyWith(alias: alias);
+        _error = false;
+        _message = alias.isEmpty
+            ? '已清除 ${machine.id} 的别名'
+            : '已重命名为「$alias」（仅自己可见）';
+      } else {
+        _error = true;
+        _message = error;
+      }
+    });
   }
 
   @override
@@ -230,9 +307,19 @@ class _ParentalDeviceManagerSheetState
                   leading: const Icon(Icons.tv),
                   title: Text(_nameOf(machine)),
                   subtitle: Text('${machine.online ? '在线' : '离线'} · ${_subtitleOf(machine)}'),
-                  trailing: TextButton(
-                    onPressed: _busy ? null : () => _unbind(machine),
-                    child: const Text('解绑'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        tooltip: '重命名（仅自己可见）',
+                        icon: const Icon(Icons.drive_file_rename_outline),
+                        onPressed: _busy ? null : () => _rename(machine),
+                      ),
+                      TextButton(
+                        onPressed: _busy ? null : () => _unbind(machine),
+                        child: const Text('解绑'),
+                      ),
+                    ],
                   ),
                 ),
             ],

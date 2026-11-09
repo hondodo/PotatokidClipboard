@@ -2099,6 +2099,8 @@ const adminHandle = attachAdmin(app, {
         realtimeHandle ? realtimeHandle.eventsForAccounts(accounts, frame) : [],
     // admin 变更配置后按设备号推给在线 ws（realtime 尚未挂载时安全降级为无操作）。
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
+    // 家长私有别名变更后只推给改名者自己的连接（别名不可跨家长泄露）。
+    pushAlias: (account, payload) => realtimeHandle?.pushToAccount(account, payload),
     // /api/admin/traffic 查询用
     traffic,
     // /api/admin/forward/status 查询用（上传镜像转发统计）
@@ -2139,6 +2141,8 @@ realtimeHandle = attachRealtime(httpServer, {
     ensureMachine: adminHandle.ensureMachineForLogin,
     // ws roster/presence 的第三层名称（displayName > 设备备注 > 账号 id）
     machineNameOf: adminHandle.machineNameForAccount,
+    // 家长私有别名：roster/presence 按接收者注入（方案 B，不能跨家长泄露）
+    aliasMapOf: adminHandle.aliasMapFor,
     // 设备表：ws 保活 / 上报 / 下发配置（替代 HTTP 心跳）
     touchDevice: adminHandle.touchDevice,
     updateDeviceReport: adminHandle.updateDeviceReport,
