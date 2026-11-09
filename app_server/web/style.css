@@ -77,13 +77,13 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 button.small { padding: 4px 10px; font-size: 13px; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.link { background: none; border: none; color: var(--accent); padding: 0; }
-/* 下载链接按钮：深色背景下高对比（替代浏览器默认蓝链接） */
+/* 下载链接按钮：橙色，深色背景下醒目（替代浏览器默认蓝链接） */
 a.dl {
   display: inline-block; padding: 4px 10px; font-size: 13px; font-weight: 600;
-  border: 1px solid var(--accent); border-radius: 8px;
-  background: var(--panel-2); color: var(--accent); text-decoration: none;
+  border: 1px solid #ff9f43; border-radius: 8px;
+  background: rgba(255, 159, 67, .12); color: #ffb35c; text-decoration: none;
 }
-a.dl:hover { background: var(--accent); color: #06121f; }
+a.dl:hover { background: #ff9f43; color: #241505; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .row > * { flex: 1 1 200px; }
 .checks { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 14px; }
