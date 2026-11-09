@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:pscreen_screen/core/update/app_update_abi.dart';
 import 'package:pscreen_screen/core/update/app_update_models.dart';
 
 /// 更新查询失败（本地代理返回 `100100/100101/400002` 或网络不可达）。
@@ -62,6 +63,9 @@ class AppUpdateApi {
         if (version.isNotEmpty) 'version': version,
         'build': '$build',
         if (deviceId.isNotEmpty) 'deviceId': deviceId,
+        // 设备 ABI：服务端据此按架构下发对应分包；空值不携带，
+        // 服务端回落通用（universal）包——与老客户端同语义。
+        if (currentUpdateAbi.isNotEmpty) 'abi': currentUpdateAbi,
       },
     );
     Response<dynamic> response;

@@ -45,6 +45,19 @@ android {
         manifestPlaceholders["pkFlavor"] = "tv"
     }
 
+    // 按 ABI 分包：更新检查（check）会带 abi 参数，服务端下发对应架构的
+    // APK——32 位老板子装 universal 会报"安装包损坏"，且分包把设备下载
+    // 体积从 ~121MB 降到约三分之一。universal 仅作老客户端（不传 abi）
+    // 的兜底产物。versionCode 由 Flutter 按 ABI 自动加偏移。
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = true
+        }
+    }
+
     // `tv` 沿用已上线包名 screen.potatokid.tools（服务端 kindOfApp() 按包名识别电视端），
     // 其它 flavor 用后缀区分，可同机安装共存。
     flavorDimensions += "product"
