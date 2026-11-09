@@ -108,6 +108,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   StreamSubscription<bool>? _bufferingSub;
   DateTime? _stallStart;
 
+  /// 当前源是否已打过分「起播确认」日志（每次 open 清空）。
+  /// 现场只有 release 包，靠它确认「看门狗计时」到底从第几秒开始算。
+  bool _establishedLogged = false;
+
   /// 当前源是否已记录过一次「忽略音频解码错误」，避免同一错误反复刷日志。
   bool _audioDecodeErrorLogged = false;
 
@@ -181,7 +185,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       onReload: (int attempt) {
         Injection.get<LogService>().info(
           '[LivePlayerWidget] 一级看门狗 原地重载 频道${_currentChannel()?.name ?? '?'}'
-          '源(${_currentSource + 1}) 缓冲10s+ (第$attempt/${_bufferStall.reloadMax} 次)',
+          '源(${_currentSource + 1}) 缓冲10s+ (第$attempt/${_bufferStall.reloadMax} 次) '
+          '距open=${DateTime.now().difference(_lastOpenAt).inSeconds}s '
+          'width=${_player?.state.width} playedVideo=${_probe.playedVideo} '
+          'audioParams=${_probe.audioParamsReady}',
         );
         unawaited(_playCurrentSource(isReload: true));
       },
@@ -564,10 +571,21 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     if (!mounted) return;
     final dynamic s = _player?.state;
     if (s == null) return;
+    final bool established = _probe.playedVideo || _probe.audioParamsReady;
+    // 起播确认打一次点：看门狗从此刻才开始累计缓冲时长。
+    if (established && !_establishedLogged) {
+      _establishedLogged = true;
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 起播确认 频道${_currentChannel()?.name ?? '?'}'
+        '源(${_currentSource + 1}) 距open=${DateTime.now().difference(_lastOpenAt).inSeconds}s '
+        'width=${s.width} playedVideo=${_probe.playedVideo} '
+        'audioParams=${_probe.audioParamsReady}',
+      );
+    }
     _bufferStall.notifyState(
       playing: s.playing,
       buffering: s.buffering,
-      established: _probe.playedVideo || _probe.audioParamsReady,
+      established: established,
     );
   }
 
@@ -675,6 +693,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _audioDecodeErrorLogged = false;
     // 换源后媒体类型重新判定：地址/名称都不作依据，只看新源的真实轨道。
     _probe.reset();
+    // 新源重新打「起播确认」点。
+    _establishedLogged = false;
     // 开新流：丢弃上一条流未收尾的卡顿起点，避免跨 open 误记时长。
     _stallStart = null;
     // 此刻 playing 还是上一个源的值，声条直接停掉（新源真正出声再跳）。
