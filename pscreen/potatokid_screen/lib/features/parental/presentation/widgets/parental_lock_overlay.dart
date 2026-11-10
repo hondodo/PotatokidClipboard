@@ -28,6 +28,45 @@ import 'parental_verification_sheet.dart';
 class ParentalLockOverlay extends StatefulWidget {
   const ParentalLockOverlay({super.key});
 
+  /// 锁屏焦点链未消费按键时的兜底入口，同时供悬浮遥控器复用。
+  static bool handleGateKey(LogicalKeyboardKey key) {
+    final _LockScreenPageState? lockPage = _LockScreenPageState._instance;
+    if (lockPage != null && lockPage.mounted && lockPage.handleGateKey(key)) {
+      return true;
+    }
+
+    final FocusNode? focus = FocusManager.instance.primaryFocus;
+    if (focus == null) return true;
+
+    final TraversalDirection? direction = switch (key) {
+      LogicalKeyboardKey.arrowUp => TraversalDirection.up,
+      LogicalKeyboardKey.arrowDown => TraversalDirection.down,
+      LogicalKeyboardKey.arrowLeft => TraversalDirection.left,
+      LogicalKeyboardKey.arrowRight => TraversalDirection.right,
+      _ => null,
+    };
+    if (direction != null) {
+      focus.focusInDirection(direction);
+      return true;
+    }
+
+    final bool activate =
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.accept ||
+        key == LogicalKeyboardKey.execute ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA;
+    if (activate) {
+      final BuildContext? context = focus.context;
+      if (context != null) {
+        Actions.maybeInvoke(context, const ActivateIntent());
+      }
+    }
+    return true;
+  }
+
   @override
   State<ParentalLockOverlay> createState() => _ParentalLockOverlayState();
 }
@@ -173,26 +212,15 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
           // 包装节点上。
           canRequestFocus: false,
           skipTraversal: true,
-          onKeyEvent: (FocusNode node, KeyEvent event) =>
-              KeyEventResult.handled,
-          // 电视遥控的 D-pad / OK 键在 WidgetsApp 默认快捷键之外：这里显式
-          // 映射方向焦点与 select，锁屏页的按钮才能被遥控选中和触发。
-          child: Shortcuts(
-            shortcuts: const <ShortcutActivator, Intent>{
-              SingleActivator(LogicalKeyboardKey.arrowDown): NextFocusIntent(),
-              SingleActivator(LogicalKeyboardKey.arrowUp):
-                  PreviousFocusIntent(),
-              SingleActivator(LogicalKeyboardKey.arrowRight): NextFocusIntent(),
-              SingleActivator(LogicalKeyboardKey.arrowLeft):
-                  PreviousFocusIntent(),
-              SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-            },
-            child: _buildLockedContent(),
-          ),
+          onKeyEvent: (FocusNode node, KeyEvent event) {
+            if (event is KeyDownEvent || event is KeyRepeatEvent) {
+              ParentalLockOverlay.handleGateKey(event.logicalKey);
+            }
+            return KeyEventResult.handled;
+          },
+          // 主锁屏使用自己的两按钮焦点环；题库页有独立按键节点。这里不再
+          // 使用默认 NextFocusIntent，避免焦点穿透到锁屏下方页面。
+          child: _buildLockedContent(),
         );
       },
     );
@@ -216,7 +244,11 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            '当日剩余：${_LockScreenPageState._fmtDaily(remainDaily)}',
+            'parental_daily_remaining'.tr(
+              namedArgs: <String, String>{
+                '__VALUE__': _LockScreenPageState._fmtDaily(remainDaily),
+              },
+            ),
             style: const TextStyle(color: Colors.white70, fontSize: 14),
             textAlign: TextAlign.center,
           ),
@@ -245,8 +277,8 @@ class _QuizLoadingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
+    return DecoratedBox(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -261,22 +293,22 @@ class _QuizLoadingPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(
+            const Icon(
               Icons.auto_awesome_rounded,
               color: Color(0xFFFFD166),
               size: 56,
             ),
-            SizedBox(height: 18),
+            const SizedBox(height: 18),
             Text(
-              '题目准备中…',
-              style: TextStyle(
+              'parental_quiz_preparing'.tr(),
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 30,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            SizedBox(height: 18),
-            SizedBox(
+            const SizedBox(height: 18),
+            const SizedBox(
               width: 180,
               child: LinearProgressIndicator(
                 minHeight: 5,
@@ -304,16 +336,30 @@ class _LockScreenPage extends StatefulWidget {
 }
 
 class _LockScreenPageState extends State<_LockScreenPage> {
+  static _LockScreenPageState? _instance;
+
   Timer? _ticker;
 
   /// 锁屏出现时强制把焦点拉到「家长验证解锁」按钮：锁屏前焦点常停在
   /// 顶部导航条/内容区，根按键处理器在锁定期间一律吞键，导致遥控方向键
   /// 与 OK 完全无响应（鼠标可点是因为点击会先赋焦点）。
   final FocusNode _verifyFocus = FocusNode(debugLabel: 'parental-verify');
+  final FocusNode _reissueFocus = FocusNode(debugLabel: 'parental-reissue');
+  bool _reissueSelected = false;
+  bool _verificationOpen = false;
+
+  bool get _showReissue {
+    final ParentalUnlockCodeController codes =
+        ParentalUnlockCodeController.instance;
+    return !codes.active && !codes.consumed;
+  }
 
   @override
   void initState() {
     super.initState();
+    _instance = this;
+    _verifyFocus.addListener(_syncVerifyFocus);
+    _reissueFocus.addListener(_syncReissueFocus);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _verifyFocus.requestFocus();
     });
@@ -326,14 +372,36 @@ class _LockScreenPageState extends State<_LockScreenPage> {
   }
 
   void _onCodesChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      if (!_showReissue) _reissueSelected = false;
+    });
+    if (!_showReissue) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_verificationOpen) _verifyFocus.requestFocus();
+      });
+    }
+  }
+
+  void _syncVerifyFocus() {
+    if (!mounted || !_verifyFocus.hasFocus || !_reissueSelected) return;
+    setState(() => _reissueSelected = false);
+  }
+
+  void _syncReissueFocus() {
+    if (!mounted || !_reissueFocus.hasFocus || _reissueSelected) return;
+    setState(() => _reissueSelected = true);
   }
 
   @override
   void dispose() {
+    if (identical(_instance, this)) _instance = null;
     ParentalUnlockCodeController.instance.removeListener(_onCodesChanged);
     _ticker?.cancel();
+    _verifyFocus.removeListener(_syncVerifyFocus);
+    _reissueFocus.removeListener(_syncReissueFocus);
     _verifyFocus.dispose();
+    _reissueFocus.dispose();
     super.dispose();
   }
 
@@ -343,19 +411,69 @@ class _LockScreenPageState extends State<_LockScreenPage> {
         ? 'threshold'
         : timer.lockReason;
     await ParentalUnlockCodeController.instance.issue(reason);
+    if (mounted) {
+      setState(() => _reissueSelected = false);
+      _verifyFocus.requestFocus();
+    }
   }
 
   Future<void> _openVerify() async {
     final String mode = ParentalStateController.instance.config.unlockMode;
-    final bool ok = await ParentalVerificationSheet.show(
-      context,
-      forceRemote: widget.quizFallback,
-      forceArithmetic: !widget.quizFallback && mode == 'remote',
-    );
+    _verificationOpen = true;
+    final bool ok;
+    try {
+      ok = await ParentalVerificationSheet.show(
+        context,
+        forceRemote: widget.quizFallback,
+        forceArithmetic: !widget.quizFallback && mode == 'remote',
+      );
+    } finally {
+      _verificationOpen = false;
+      if (mounted && KidWatchTimerController.instance.locked) {
+        _verifyFocus.requestFocus();
+      }
+    }
     // 远程路径由命令执行器解锁（sheet 观察到锁解除后返回 true），
     // 本地路径（PIN/算术）在此解除；unlock 对未锁状态幂等。
     if (!ok || !mounted) return;
     KidWatchTimerController.instance.unlock();
+  }
+
+  bool handleGateKey(LogicalKeyboardKey key) {
+    if (_verificationOpen) return false;
+
+    final bool direction =
+        key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowRight;
+    if (direction) {
+      setState(() {
+        _reissueSelected = _showReissue ? !_reissueSelected : false;
+      });
+      if (_reissueSelected) {
+        _reissueFocus.requestFocus();
+      } else {
+        _verifyFocus.requestFocus();
+      }
+      return true;
+    }
+
+    final bool activate =
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.accept ||
+        key == LogicalKeyboardKey.execute ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA;
+    if (!activate) return true;
+    if (_showReissue && _reissueSelected) {
+      unawaited(_reissue());
+    } else {
+      unawaited(_openVerify());
+    }
+    return true;
   }
 
   @override
@@ -368,15 +486,16 @@ class _LockScreenPageState extends State<_LockScreenPage> {
     final ThemeData theme = Theme.of(context);
     final String mode = parental.config.unlockMode;
     final String actionLabel = widget.quizFallback
-        ? '请家长帮忙'
+        ? 'parental_action_parent_help'.tr()
         : mode == 'pin'
-        ? '输入家长 PIN'
-        : '答题解锁';
+        ? 'parental_action_enter_pin'.tr()
+        : 'parental_action_quiz_unlock'.tr();
     final IconData actionIcon = widget.quizFallback
         ? Icons.family_restroom_rounded
         : mode == 'pin'
         ? Icons.pin_outlined
         : Icons.quiz_outlined;
+    final bool verifySelected = !_showReissue || !_reissueSelected;
 
     return DecoratedBox(
       decoration: const BoxDecoration(
@@ -407,9 +526,9 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                       color: Color(0xFFFFD166),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '休息一下吧',
-                      style: TextStyle(
+                    Text(
+                      'parental_lock_rest_title'.tr(),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 40,
                         fontWeight: FontWeight.w700,
@@ -433,7 +552,7 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
                               Text(
-                                _watchSummary(timer, parental),
+                                _watchSummary(context, timer, parental),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 24,
@@ -442,7 +561,11 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                '当日剩余：${_fmtDaily(remainDaily)}',
+                                'parental_daily_remaining'.tr(
+                                  namedArgs: <String, String>{
+                                    '__VALUE__': _fmtDaily(remainDaily),
+                                  },
+                                ),
                                 style: const TextStyle(
                                   color: Colors.white60,
                                   fontSize: 18,
@@ -450,9 +573,9 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                               ),
                               if (widget.quizFallback) ...<Widget>[
                                 const SizedBox(height: 12),
-                                const Text(
-                                  '暂时没有可回答的题目，请家长帮忙解锁',
-                                  style: TextStyle(
+                                Text(
+                                  'parental_quiz_unavailable'.tr(),
+                                  style: const TextStyle(
                                     color: Color(0xFFFFD166),
                                     fontSize: 16,
                                   ),
@@ -484,18 +607,56 @@ class _LockScreenPageState extends State<_LockScreenPage> {
                           ),
                         ),
                         const SizedBox(width: 24),
-                        FilledButton.icon(
-                          focusNode: _verifyFocus,
-                          autofocus: true,
-                          onPressed: _openVerify,
-                          icon: Icon(actionIcon),
-                          label: Text(actionLabel),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 28,
-                              vertical: 16,
+                        AnimatedScale(
+                          duration: const Duration(milliseconds: 140),
+                          scale: verifySelected ? 1.06 : 1,
+                          child: FilledButton.icon(
+                            focusNode: _verifyFocus,
+                            autofocus: true,
+                            onPressed: _openVerify,
+                            icon: Icon(actionIcon),
+                            label: Text(actionLabel),
+                            style: ButtonStyle(
+                              padding:
+                                  const WidgetStatePropertyAll<
+                                    EdgeInsetsGeometry
+                                  >(
+                                    EdgeInsets.symmetric(
+                                      horizontal: 28,
+                                      vertical: 16,
+                                    ),
+                                  ),
+                              textStyle:
+                                  const WidgetStatePropertyAll<TextStyle>(
+                                    TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                              backgroundColor: WidgetStatePropertyAll<Color>(
+                                verifySelected
+                                    ? const Color(0xFFFFD166)
+                                    : const Color(0xFF9CCBFF),
+                              ),
+                              foregroundColor:
+                                  const WidgetStatePropertyAll<Color>(
+                                    Color(0xFF17384B),
+                                  ),
+                              side: WidgetStatePropertyAll<BorderSide>(
+                                BorderSide(
+                                  color: verifySelected
+                                      ? Colors.white
+                                      : Colors.transparent,
+                                  width: verifySelected ? 3 : 1,
+                                ),
+                              ),
+                              elevation: WidgetStatePropertyAll<double>(
+                                verifySelected ? 12 : 2,
+                              ),
+                              shadowColor: const WidgetStatePropertyAll<Color>(
+                                Color(0x99FFD166),
+                              ),
                             ),
-                            textStyle: const TextStyle(fontSize: 20),
                           ),
                         ),
                       ],
@@ -518,9 +679,9 @@ class _LockScreenPageState extends State<_LockScreenPage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          const Text(
-            '家长解锁码',
-            style: TextStyle(color: Colors.white70, fontSize: 17),
+          Text(
+            'parental_unlock_code_title'.tr(),
+            style: const TextStyle(color: Colors.white70, fontSize: 17),
           ),
           const SizedBox(height: 4),
           Text(
@@ -534,7 +695,11 @@ class _LockScreenPageState extends State<_LockScreenPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            '等待家长确认 · ${codes.remainingSec} 秒',
+            'parental_unlock_waiting'.tr(
+              namedArgs: <String, String>{
+                '__SECONDS__': '${codes.remainingSec}',
+              },
+            ),
             style: const TextStyle(color: Colors.white60, fontSize: 16),
           ),
         ],
@@ -546,18 +711,43 @@ class _LockScreenPageState extends State<_LockScreenPage> {
       children: <Widget>[
         Text(
           consumed
-              ? '家长已确认'
+              ? 'parental_unlock_confirmed'.tr()
               : codes.code == null
-              ? '正在获取家长解锁码'
-              : '解锁码已失效',
+              ? 'parental_unlock_fetching'.tr()
+              : 'parental_unlock_expired'.tr(),
           style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70),
         ),
         if (!consumed) ...<Widget>[
           const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: _reissue,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('重新获取'),
+          AnimatedScale(
+            duration: const Duration(milliseconds: 140),
+            scale: _reissueSelected ? 1.06 : 1,
+            child: OutlinedButton.icon(
+              focusNode: _reissueFocus,
+              onPressed: _reissue,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text('parental_unlock_refresh'.tr()),
+              style: ButtonStyle(
+                foregroundColor: WidgetStatePropertyAll<Color>(
+                  _reissueSelected
+                      ? const Color(0xFF17384B)
+                      : const Color(0xFFB8D9FF),
+                ),
+                backgroundColor: WidgetStatePropertyAll<Color>(
+                  _reissueSelected
+                      ? const Color(0xFFFFD166)
+                      : Colors.transparent,
+                ),
+                side: WidgetStatePropertyAll<BorderSide>(
+                  BorderSide(
+                    color: _reissueSelected
+                        ? Colors.white
+                        : const Color(0xFF9CCBFF),
+                    width: _reissueSelected ? 3 : 1.5,
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ],
@@ -565,12 +755,15 @@ class _LockScreenPageState extends State<_LockScreenPage> {
   }
 
   static String _lockMessage(String reason) {
-    if (reason == 'quietHours') return '现在是休息时间';
-    if (reason.startsWith('daily:')) return '今天的观看时间已经用完';
-    return '本次观看时间已经结束';
+    if (reason == 'quietHours') return 'parental_lock_reason_quiet'.tr();
+    if (reason.startsWith('daily:')) {
+      return 'parental_lock_reason_daily'.tr();
+    }
+    return 'parental_lock_reason_session'.tr();
   }
 
   static String _watchSummary(
+    BuildContext context,
     KidWatchTimerController timer,
     ParentalStateController parental,
   ) {
@@ -582,31 +775,81 @@ class _LockScreenPageState extends State<_LockScreenPage> {
       (int total, String id) => total + timer.sessionSecOf(id),
     );
     final String viewers = switch (names.length) {
-      0 => '孩子们',
+      0 => 'parental_children_fallback'.tr(),
       1 => names.first,
-      2 => '${names.first}和${names.last}',
-      _ => '${names.sublist(0, names.length - 1).join('、')}和${names.last}',
+      2 => 'parental_viewers_two'.tr(
+        namedArgs: <String, String>{
+          '__FIRST__': names.first,
+          '__SECOND__': names.last,
+        },
+      ),
+      _ => 'parental_viewers_many'.tr(
+        namedArgs: <String, String>{
+          '__OTHERS__': names.sublist(0, names.length - 1).join(
+            switch (Localizations.localeOf(context).languageCode) {
+              'zh' || 'ja' => '、',
+              _ => ', ',
+            },
+          ),
+          '__LAST__': names.last,
+        },
+      ),
     };
-    return '$viewers本次共观看了 ${_fmtWatch(seconds)}';
+    return 'parental_watch_summary'.tr(
+      namedArgs: <String, String>{
+        '__VIEWERS__': viewers,
+        '__DURATION__': _fmtWatch(seconds),
+      },
+    );
   }
 
   static String _fmtWatch(int seconds) {
     final int safe = seconds < 0 ? 0 : seconds;
-    if (safe < 60) return '$safe 秒';
+    if (safe < 60) {
+      return 'parental_duration_seconds'.tr(
+        namedArgs: <String, String>{'__SECONDS__': '$safe'},
+      );
+    }
     final int minutes = safe ~/ 60;
     final int remainSeconds = safe % 60;
-    return remainSeconds == 0 ? '$minutes 分钟' : '$minutes 分 $remainSeconds 秒';
+    return remainSeconds == 0
+        ? 'parental_duration_minutes'.tr(
+            namedArgs: <String, String>{'__MINUTES__': '$minutes'},
+          )
+        : 'parental_duration_minutes_seconds'.tr(
+            namedArgs: <String, String>{
+              '__MINUTES__': '$minutes',
+              '__SECONDS__': '$remainSeconds',
+            },
+          );
   }
 
   static String _fmtDaily(int? seconds) {
-    if (seconds == null) return '未启用';
+    if (seconds == null) return 'parental_duration_not_enabled'.tr();
     final int safe = seconds < 0 ? 0 : seconds;
-    if (safe == 0) return '0 分钟';
-    if (safe < 60) return '不足 1 分钟';
+    if (safe == 0) {
+      return 'parental_duration_minutes'.tr(
+        namedArgs: const <String, String>{'__MINUTES__': '0'},
+      );
+    }
+    if (safe < 60) return 'parental_duration_less_than_minute'.tr();
     final int hours = safe ~/ 3600;
     final int minutes = (safe % 3600) ~/ 60;
-    if (hours == 0) return '$minutes 分钟';
-    return minutes == 0 ? '$hours 小时' : '$hours 小时 $minutes 分钟';
+    if (hours == 0) {
+      return 'parental_duration_minutes'.tr(
+        namedArgs: <String, String>{'__MINUTES__': '$minutes'},
+      );
+    }
+    return minutes == 0
+        ? 'parental_duration_hours'.tr(
+            namedArgs: <String, String>{'__HOURS__': '$hours'},
+          )
+        : 'parental_duration_hours_minutes'.tr(
+            namedArgs: <String, String>{
+              '__HOURS__': '$hours',
+              '__MINUTES__': '$minutes',
+            },
+          );
   }
 
   static String _formatCode(String? code) {

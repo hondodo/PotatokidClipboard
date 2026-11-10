@@ -156,6 +156,8 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.accept ||
+        key == LogicalKeyboardKey.execute ||
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA) {
       _activate();
@@ -299,9 +301,11 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
-      _error =
-          '再想一想，还可以尝试 '
-          '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
+      _error = 'parental_try_again'.tr(
+        namedArgs: <String, String>{
+          '__COUNT__': '${ParentalAttemptGate.maxFailures - gate.failCount}',
+        },
+      );
       _index = widget.questions.isEmpty
           ? 0
           : (_index + 1) % widget.questions.length;
@@ -360,8 +364,16 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
                                 Text(
-                                  '第 ${_index + 1} / ${widget.questions.length} 题'
-                                  '${q.multiple ? ' · 多选' : ''}',
+                                  (q.multiple
+                                          ? 'parental_quiz_progress_multiple'
+                                          : 'parental_quiz_progress')
+                                      .tr(
+                                        namedArgs: <String, String>{
+                                          '__CURRENT__': '${_index + 1}',
+                                          '__TOTAL__':
+                                              '${widget.questions.length}',
+                                        },
+                                      ),
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: Colors.white70,
                                   ),
@@ -384,8 +396,12 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
                       if (ParentalAttemptGate.instance.locked) ...<Widget>[
                         SizedBox(height: gap),
                         Text(
-                          '先休息一下，'
-                          '${ParentalAttemptGate.instance.remainingLockSec} 秒后再试',
+                          'parental_try_later'.tr(
+                            namedArgs: <String, String>{
+                              '__SECONDS__':
+                                  '${ParentalAttemptGate.instance.remainingLockSec}',
+                            },
+                          ),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: theme.colorScheme.error,
@@ -543,18 +559,18 @@ class _RequestParentButton extends StatelessWidget {
                   ]
                 : const <BoxShadow>[],
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(
+              const Icon(
                 Icons.mark_unread_chat_alt_outlined,
                 size: 20,
                 color: Colors.white,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
-                '请家长帮忙',
-                style: TextStyle(color: Colors.white, fontSize: 18),
+                'parental_action_parent_help'.tr(),
+                style: const TextStyle(color: Colors.white, fontSize: 18),
               ),
             ],
           ),
@@ -731,7 +747,7 @@ class _ConfirmButton extends StatelessWidget {
                 : const <BoxShadow>[],
           ),
           child: Text(
-            '确认答案',
+            'parental_confirm_answer'.tr(),
             style: TextStyle(
               color: enabled ? Colors.white : Colors.white38,
               fontSize: 22,

@@ -201,16 +201,16 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         !widget.forceRemote && !widget.forceArithmetic && mode == 'quiz';
     final TextTheme textTheme = Theme.of(context).textTheme;
     final String title = widget.forceArithmetic
-        ? '答一道题吧'
+        ? 'parental_arith_title'.tr()
         : widget.forceRemote
-        ? '请家长帮忙'
+        ? 'parental_action_parent_help'.tr()
         : usePin
-        ? '输入家长 PIN'
+        ? 'parental_action_enter_pin'.tr()
         : useQuiz
-        ? '答题解锁'
+        ? 'parental_action_quiz_unlock'.tr()
         : mode == 'arith'
-        ? '答一道题吧'
-        : '家长验证';
+        ? 'parental_arith_title'.tr()
+        : 'parental_parent_verification'.tr();
     final IconData titleIcon = widget.forceArithmetic || mode == 'arith'
         ? Icons.quiz_outlined
         : usePin
@@ -233,6 +233,8 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
           SingleActivator(LogicalKeyboardKey.arrowRight): NextFocusIntent(),
           SingleActivator(LogicalKeyboardKey.arrowLeft): PreviousFocusIntent(),
           SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.accept): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.execute): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
@@ -242,73 +244,108 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
           child: MediaQuery.withClampedTextScaling(
             maxScaleFactor: 1.25,
             child: Dialog(
-              insetPadding: const EdgeInsets.all(24),
+              insetPadding: const EdgeInsets.all(20),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
               clipBehavior: Clip.antiAlias,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 620,
-                  maxHeight: max(240.0, MediaQuery.sizeOf(context).height - 48),
-                ),
-                // 答题模式最多 10 个选项，小屏 / 电视安全区下会超屏；
-                // 统一可滚动，遥控换焦点时 Scrollable 会自动跟随。
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Icon(
-                            titleIcon,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(title, style: textTheme.titleLarge),
-                          ),
-                          IconButton(
-                            tooltip: '返回',
-                            onPressed: () => _close(false),
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (gate.locked) ...<Widget>[
-                        Text(
-                          '先休息一下，${gate.remainingLockSec} 秒后再试',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (widget.forceRemote) ...<Widget>[
-                        ..._buildRemoteSection(gate, showArithHint: false),
-                      ] else if (widget.forceArithmetic) ...<Widget>[
-                        const Text('答对后就可以继续观看', textAlign: TextAlign.center),
-                        const SizedBox(height: 14),
-                        ..._buildArithSection(gate, textTheme),
-                      ] else ...<Widget>[
-                        if (mode == 'remote') ..._buildRemoteSection(gate),
-                        if (useQuiz) ..._buildQuizSection(gate, textTheme),
-                        if (usePin) ..._buildPinSection(gate, textTheme),
-                        // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
-                        // 答题模式只在题库「加载中」时保持等待；合并后全是填空
-                        // 或没有题库 → 回退短码页（电视端不做算术兜底）。
-                        if (!useQuiz &&
-                            (mode == 'arith' ||
-                                (mode == 'pin' && !usePin) ||
-                                mode == 'remote'))
-                          ..._buildArithSection(gate, textTheme),
-                      ],
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      Color(0xFF28566B),
+                      Color(0xFF1C465B),
+                      Color(0xFF17384B),
                     ],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: widget.forceArithmetic ? 560 : 620,
+                    maxHeight: max(
+                      240.0,
+                      MediaQuery.sizeOf(context).height - 40,
+                    ),
+                  ),
+                  // 题库模式可能包含较多选项，保留滚动作为极端高度兜底；
+                  // 算术模式内容会完整落在首屏内，不触发滚动。
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(widget.forceArithmetic ? 20 : 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Icon(titleIcon, color: const Color(0xFF9CCBFF)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: textTheme.titleLarge?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'action_back'.tr(),
+                              onPressed: () => _close(false),
+                              color: Colors.white70,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        if (gate.locked) ...<Widget>[
+                          Text(
+                            'parental_try_later'.tr(
+                              namedArgs: <String, String>{
+                                '__SECONDS__': '${gate.remainingLockSec}',
+                              },
+                            ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        if (widget.forceRemote) ...<Widget>[
+                          ..._buildRemoteSection(gate, showArithHint: false),
+                        ] else if (widget.forceArithmetic) ...<Widget>[
+                          Text(
+                            'parental_arith_subtitle'.tr(),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 17,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ..._buildArithSection(gate, textTheme),
+                        ] else ...<Widget>[
+                          if (mode == 'remote') ..._buildRemoteSection(gate),
+                          if (useQuiz) ..._buildQuizSection(gate, textTheme),
+                          if (usePin) ..._buildPinSection(gate, textTheme),
+                          // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
+                          // 答题模式只在题库「加载中」时保持等待；合并后全是填空
+                          // 或没有题库 → 回退短码页（电视端不做算术兜底）。
+                          if (!useQuiz &&
+                              (mode == 'arith' ||
+                                  (mode == 'pin' && !usePin) ||
+                                  mode == 'remote'))
+                            ..._buildArithSection(gate, textTheme),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -391,7 +428,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
             ),
           ),
           Text(
-            '题目准备中…',
+            'parental_quiz_preparing'.tr(),
             textAlign: TextAlign.center,
             style: textTheme.bodySmall,
           ),
@@ -400,7 +437,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       // 合并后整库都是填空题（电视端已全部跳过）→ 回退短码页，不做算术。
       return <Widget>[
         Text(
-          '暂时没有可回答的题目，请家长帮忙解锁',
+          'parental_quiz_unavailable'.tr(),
           textAlign: TextAlign.center,
           style: textTheme.bodySmall,
         ),
@@ -609,9 +646,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
-      _quizError =
-          '再想一想，还可以尝试 '
-          '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
+      _quizError = 'parental_try_again'.tr(
+        namedArgs: <String, String>{
+          '__COUNT__': '${ParentalAttemptGate.maxFailures - gate.failCount}',
+        },
+      );
       _quizIndex = _quizQuestions.isEmpty
           ? 0
           : (_quizIndex + 1) % _quizQuestions.length;
@@ -647,7 +686,9 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         ),
         const SizedBox(height: 6),
         Text(
-          '等待家长确认 · ${codes.remainingSec} 秒',
+          'parental_unlock_waiting'.tr(
+            namedArgs: <String, String>{'__SECONDS__': '${codes.remainingSec}'},
+          ),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
@@ -657,14 +698,16 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     } else {
       children.addAll(<Widget>[
         Text(
-          codes.code == null ? '正在获取解锁码' : '解锁码已失效',
+          codes.code == null
+              ? 'parental_unlock_fetching'.tr()
+              : 'parental_unlock_expired'.tr(),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: gate.locked ? null : _reissue,
-          child: const Text('重新获取'),
+          child: Text('parental_unlock_refresh'.tr()),
         ),
       ]);
     }
@@ -674,7 +717,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       children.add(const SizedBox(height: 12));
       children.add(
         Text(
-          '手机暂时无法连接？答对下面的题目也可以解锁',
+          'parental_offline_quiz_hint'.tr(),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall,
         ),
@@ -750,28 +793,62 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
   ) {
     return <Widget>[
       Text(
-        '$_arithA + $_arithB = ?',
+        'parental_arith_equation'.tr(
+          namedArgs: <String, String>{'__A__': '$_arithA', '__B__': '$_arithB'},
+        ),
         textAlign: TextAlign.center,
         style: textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
       const SizedBox(height: 18),
-      Wrap(
-        spacing: 12,
-        runSpacing: 8,
-        alignment: WrapAlignment.center,
+      Row(
         children: <Widget>[
-          for (final int option in _arithOptions)
-            SizedBox(
-              width: 112,
-              height: 56,
-              child: OutlinedButton(
-                autofocus: option == _arithOptions.first,
-                onPressed: gate.locked
-                    ? null
-                    : () => unawaited(_submitArith(option)),
-                child: Text('$option'),
+          for (int i = 0; i < _arithOptions.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: 12),
+            Expanded(
+              child: SizedBox(
+                height: 54,
+                child: OutlinedButton(
+                  autofocus: i == 0,
+                  style: ButtonStyle(
+                    foregroundColor: WidgetStateProperty.resolveWith<Color>(
+                      (Set<WidgetState> states) =>
+                          states.contains(WidgetState.focused)
+                          ? const Color(0xFF17384B)
+                          : const Color(0xFFB8D9FF),
+                    ),
+                    backgroundColor: WidgetStateProperty.resolveWith<Color>(
+                      (Set<WidgetState> states) =>
+                          states.contains(WidgetState.focused)
+                          ? const Color(0xFFFFD166)
+                          : Colors.transparent,
+                    ),
+                    side: WidgetStateProperty.resolveWith<BorderSide>(
+                      (Set<WidgetState> states) => BorderSide(
+                        color: states.contains(WidgetState.focused)
+                            ? Colors.white
+                            : Colors.white54,
+                        width: states.contains(WidgetState.focused) ? 3 : 1.5,
+                      ),
+                    ),
+                    elevation: WidgetStateProperty.resolveWith<double>(
+                      (Set<WidgetState> states) =>
+                          states.contains(WidgetState.focused) ? 8 : 0,
+                    ),
+                    shadowColor: const WidgetStatePropertyAll<Color>(
+                      Color(0x99FFD166),
+                    ),
+                    textStyle: const WidgetStatePropertyAll<TextStyle>(
+                      TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  onPressed: gate.locked
+                      ? null
+                      : () => unawaited(_submitArith(_arithOptions[i])),
+                  child: Text('${_arithOptions[i]}'),
+                ),
               ),
             ),
+          ],
         ],
       ),
       if (_arithError.isNotEmpty) ...<Widget>[
@@ -796,9 +873,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
-      _arithError =
-          '再想一想，还可以尝试 '
-          '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
+      _arithError = 'parental_try_again'.tr(
+        namedArgs: <String, String>{
+          '__COUNT__': '${ParentalAttemptGate.maxFailures - gate.failCount}',
+        },
+      );
       _newArith(); // 换一题，防背答案。
     });
   }

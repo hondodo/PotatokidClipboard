@@ -49,14 +49,25 @@ class _DeviceAccountLabelState extends State<DeviceAccountLabel> {
               : 'parental_device_account_value'.tr(
                   namedArgs: <String, String>{'__ACCOUNT__': _account!},
                 ));
-    return Text(
-      text,
-      textAlign: widget.textAlign,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        color: widget.color ?? Colors.white38,
-        fontSize: widget.fontSize,
+    final Alignment alignment = switch (widget.textAlign) {
+      TextAlign.left || TextAlign.start => Alignment.centerLeft,
+      TextAlign.right || TextAlign.end => Alignment.centerRight,
+      _ => Alignment.center,
+    };
+    return Align(
+      alignment: alignment,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: alignment,
+        child: Text(
+          text,
+          textAlign: widget.textAlign,
+          maxLines: 1,
+          style: TextStyle(
+            color: widget.color ?? Colors.white38,
+            fontSize: widget.fontSize,
+          ),
+        ),
       ),
     );
   }

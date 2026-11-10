@@ -101,10 +101,7 @@ class MainApp extends StatelessWidget {
 
     // 儿童模式选人页：交给选人页自己的返回逻辑，其余按键被它吞掉。
     if (ParentalSelectOverlay.gateVisible) {
-      ParentalSelectOverlay.handleGateKey(
-        context,
-        LogicalKeyboardKey.escape,
-      );
+      ParentalSelectOverlay.handleGateKey(context, LogicalKeyboardKey.escape);
       return true;
     }
 
@@ -157,9 +154,11 @@ class MainApp extends StatelessWidget {
     // 否则方向键被这里吃掉（选不中弹窗按钮）、OK 还会触发下层的设置行。
     if (ConfirmDialog.isShowing) return KeyEventResult.ignored;
 
-    final bool isVertical = event.logicalKey == LogicalKeyboardKey.arrowUp ||
+    final bool isVertical =
+        event.logicalKey == LogicalKeyboardKey.arrowUp ||
         event.logicalKey == LogicalKeyboardKey.arrowDown;
-    final bool isHorizontal = event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+    final bool isHorizontal =
+        event.logicalKey == LogicalKeyboardKey.arrowLeft ||
         event.logicalKey == LogicalKeyboardKey.arrowRight;
 
     // 上下方向键：长按快速重复（切频道 / 切设置行 / 切样式等列表型操作）。
@@ -240,7 +239,9 @@ class MainApp extends StatelessWidget {
     // 节点，按键经其焦点链处理、不经本根分发；焦点仍留在内容区/导航条时
     // 按键会走到这里——一律吞掉，不再下钻 Tab 切换、频道与设置行导航
     //（覆盖悬浮遥控器直调路径；解锁相关按键由最上层覆盖层焦点链放行）。
-    if (KidWatchTimerController.instance.locked) return true;
+    if (KidWatchTimerController.instance.locked) {
+      return ParentalLockOverlay.handleGateKey(key);
+    }
 
     // 消息浮层可见：OK 开详情 / 返回 关闭；详情内上下键转发浮层滚动全文
     //（D-pad，长按经 KeyRepeatController 连续滚）；其余按键吞掉（防止浮层下
@@ -334,8 +335,7 @@ class MainApp extends StatelessWidget {
     // 返回键（悬浮遥控器的「返回」按 escape；部分遥控器发 goBack）：
     // 与系统返回共用 [_handleBack]：非首页回直播、设置页先退正文，
     // 仅首页才二次确认退出，避免盒子上误触直接退出。
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack) {
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       if (_handleBack(context)) return true;
       ExitConfirmScope.requestExit(context);
       return true;
@@ -454,13 +454,17 @@ class MainApp extends StatelessWidget {
     AppTabController.branchIndex = navigationShell.currentIndex;
     // 场景注入（阶段 1 收尾）：直播/时间计入观看、「我的」（设置）不计入
     //（口径见儿童模式方案「场景计时」）；值未变时 setViewingScene 内部早返回。
-    KidWatchTimerController.instance.setViewingScene(navigationShell.currentIndex != _profileBranchIndex);
+    KidWatchTimerController.instance.setViewingScene(
+      navigationShell.currentIndex != _profileBranchIndex,
+    );
     // 顶部导航条显隐（「我的」页恒显示）。
-    final bool chromeVisible =
-        context.select<AppBloc, bool>((bloc) => bloc.state.isChromeVisible);
+    final bool chromeVisible = context.select<AppBloc, bool>(
+      (bloc) => bloc.state.isChromeVisible,
+    );
     // 预览态只影响绘制，不参与焦点/切页（避免显示瞬间抢走正文焦点或误切页）。
-    final bool chromePeek =
-        context.select<AppBloc, bool>((bloc) => bloc.state.isChromePeek);
+    final bool chromePeek = context.select<AppBloc, bool>(
+      (bloc) => bloc.state.isChromePeek,
+    );
     final bool chromeShown = chromeVisible || chromePeek;
     // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
     return Stack(
@@ -490,9 +494,7 @@ class MainApp extends StatelessWidget {
                             _profileBranchIndex) {
                           return;
                         }
-                        context
-                            .read<AppBloc>()
-                            .add(SetChrome(!chromeShown));
+                        context.read<AppBloc>().add(SetChrome(!chromeShown));
                       },
                       child: ListenableBuilder(
                         listenable: ParentalStateController.instance,
@@ -549,9 +551,9 @@ class MainApp extends StatelessWidget {
         // 用 theme.bodyMedium 兜底并显式关 decoration。
         DefaultTextStyle(
           style: Theme.of(context).textTheme.bodyMedium!.copyWith(
-                decoration: TextDecoration.none,
-                decorationColor: Colors.transparent,
-              ),
+            decoration: TextDecoration.none,
+            decorationColor: Colors.transparent,
+          ),
           child: Stack(
             children: const <Widget>[
               Positioned.fill(child: MessageOverlay()),
