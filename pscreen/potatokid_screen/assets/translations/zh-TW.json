@@ -49,7 +49,7 @@
   "settings_reset_message": "是否重置所有選項？重置後將退出應用。",
   "settings_reset_cancel": "取消",
   "settings_reset_ok": "是，重置並退出",
-  "settings_remote": "遠端",
+  "settings_remote": "装置",
   "remote_not_set": "未設定",
   "remote_logging_in": "正在登入",
   "remote_logged_in": "已登入",

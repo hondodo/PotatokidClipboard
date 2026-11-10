@@ -421,10 +421,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 KeyedSubtree(key: _rowKeys[_disclaimerRow], child: _buildDisclaimerRow(inContent, c)),
                 const SizedBox(height: 20),
                 // 固定展示本机派生账号（只读），便于多台电视时确认操作对象。
-                const DeviceAccountLabel(
-                  color: Colors.white38,
-                  textAlign: TextAlign.left,
-                ),
+                const DeviceAccountLabel(color: Colors.white38, textAlign: TextAlign.left),
                 const SizedBox(height: 8),
               ],
             );
@@ -788,9 +785,7 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'settings_remote'.tr(),
           value: value,
           canStepLeft: false,
-          canStepRight: AppConfig.enableChangeAccount
-              ? state.status != RemoteLoginStatus.notConfigured
-              : true,
+          canStepRight: AppConfig.enableChangeAccount ? state.status != RemoteLoginStatus.notConfigured : true,
           onTap: () {
             c.select(_remoteRow);
             _beginInlineEdit(_remoteRow);
@@ -932,6 +927,7 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「远程」行编辑态：共用 [_InlineEditFrame]；已登录时下方附二维码。
   Widget _buildRemoteEditRow() {
     final RemoteLoginState remoteState = context.read<RemoteLoginBloc>().state;
+    _remoteInputController.text = remoteState.account;
     return _InlineEditFrame(
       label: 'settings_remote'.tr(),
       controller: _remoteInputController,
@@ -939,6 +935,7 @@ class _ProfilePageState extends State<ProfilePage> {
       hintText: 'remote_input_hint'.tr(),
       onCancel: _cancelInlineEdit,
       onSubmit: _submitInlineEdit,
+      readOnly: true,
       obscureText: false,
       child: (remoteState.status == RemoteLoginStatus.loggedIn && remoteState.account.isNotEmpty)
           ? QrImageView(data: remoteState.account, size: 120, backgroundColor: Colors.white)
@@ -1021,9 +1018,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     void toast(String text) {
       if (!mounted) return;
-      messenger?.showSnackBar(
-        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
-      );
+      messenger?.showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
     }
 
     if (state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing) {
@@ -1049,8 +1044,7 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 选此入口而非占位页直开：不占 16 行焦点结构与 rowCount（阶段 4 约束），
   /// 复用既有 settings sheet 路由（原为无调用方的孤儿路由）。
   void _openParentalDebug() {
-    Injection.get<AppRouter>().pushSettingsSheet(
-        const SettingsSheetParams(from: 'profile_version_long_press'));
+    Injection.get<AppRouter>().pushSettingsSheet(const SettingsSheetParams(from: 'profile_version_long_press'));
   }
 
   /// 「天气数据来源」行：只读说明行。
@@ -1191,6 +1185,7 @@ class _InlineEditFrame extends StatelessWidget {
     required this.onSubmit,
     this.obscureText = false,
     this.child,
+    this.readOnly = true,
   });
 
   final String label;
@@ -1204,6 +1199,8 @@ class _InlineEditFrame extends StatelessWidget {
   final bool obscureText;
 
   final Widget? child;
+
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -1229,6 +1226,7 @@ class _InlineEditFrame extends StatelessWidget {
                 child: TextField(
                   controller: controller,
                   focusNode: focusNode,
+                  readOnly: readOnly,
                   textInputAction: TextInputAction.done,
                   textCapitalization: TextCapitalization.none,
                   autocorrect: false,
@@ -1238,16 +1236,18 @@ class _InlineEditFrame extends StatelessWidget {
                   onSubmitted: (_) => onSubmit(),
                 ),
               ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
-                onPressed: onCancel,
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.check, color: scheme.primary),
-                onPressed: onSubmit,
-              ),
+              if (!readOnly) ...[
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                  onPressed: onCancel,
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.check, color: scheme.primary),
+                  onPressed: onSubmit,
+                ),
+              ],
             ],
           ),
           if (child != null) Padding(padding: const EdgeInsets.only(top: 8), child: child),
