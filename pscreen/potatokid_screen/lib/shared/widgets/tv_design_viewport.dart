@@ -10,16 +10,12 @@ class TvDesignViewport extends StatelessWidget {
   const TvDesignViewport({super.key, required this.child});
 
   /// 调整全局 UI 大小时只需修改这里：基准越小，最终控件越大。
-  static const Size designSize = Size(720, 405);
+  static const Size designSize = Size(960, 540);
 
   final Widget child;
 
-  EdgeInsets _unscale(EdgeInsets value, double scale) => EdgeInsets.fromLTRB(
-    value.left / scale,
-    value.top / scale,
-    value.right / scale,
-    value.bottom / scale,
-  );
+  EdgeInsets _unscale(EdgeInsets value, double scale) =>
+      EdgeInsets.fromLTRB(value.left / scale, value.top / scale, value.right / scale, value.bottom / scale);
 
   @override
   Widget build(BuildContext context) {
@@ -27,24 +23,16 @@ class TvDesignViewport extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final Size actual = constraints.biggest;
-        if (!actual.width.isFinite ||
-            !actual.height.isFinite ||
-            actual.isEmpty) {
+        if (!actual.width.isFinite || !actual.height.isFinite || actual.isEmpty) {
           return child;
         }
 
-        final double scale = math.min(
-          actual.width / designSize.width,
-          actual.height / designSize.height,
-        );
+        final double scale = math.min(actual.width / designSize.width, actual.height / designSize.height);
         if (!scale.isFinite || scale <= 0) return child;
 
         // 例如 4:3 屏会得到 720x540 的逻辑画布；所有固定尺寸仍按统一
         // 比例显示，多出的高度则交给页面的响应式布局使用。
-        final Size logicalSize = Size(
-          actual.width / scale,
-          actual.height / scale,
-        );
+        final Size logicalSize = Size(actual.width / scale, actual.height / scale);
         final double textScale = media.textScaler.scale(1).clamp(1.0, 1.2);
         final MediaQueryData logicalMedia = media.copyWith(
           size: logicalSize,
