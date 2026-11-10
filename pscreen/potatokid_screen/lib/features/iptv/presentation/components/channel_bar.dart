@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
@@ -56,10 +57,7 @@ class _ChannelBarState extends State<ChannelBar> {
         // 快速滚动：jumpTo 即时跟上，避免动画队列滞后。
         _scrollToSelected(animate: false);
         _settleTimer?.cancel();
-        _settleTimer = Timer(
-          const Duration(milliseconds: _settleDelayMs),
-          () => _scrollToSelected(animate: true),
-        );
+        _settleTimer = Timer(const Duration(milliseconds: _settleDelayMs), () => _scrollToSelected(animate: true));
       } else {
         // 单步切换：正常平滑动画。
         _settleTimer?.cancel();
@@ -85,16 +83,10 @@ class _ChannelBarState extends State<ChannelBar> {
     if (!_scrollController.hasClients) return;
     final ScrollPosition position = _scrollController.position;
     // 选中项中心对准可视区中心：index*项高 - (视口高 - 项高)/2。
-    final double centered =
-        widget.selectedIndex * _itemExtent -
-        (position.viewportDimension - _itemExtent) / 2;
+    final double centered = widget.selectedIndex * _itemExtent - (position.viewportDimension - _itemExtent) / 2;
     final double target = centered.clamp(0, position.maxScrollExtent);
     if (animate) {
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      _scrollController.animateTo(target, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
     } else {
       _scrollController.jumpTo(target);
     }
@@ -112,10 +104,7 @@ class _ChannelBarState extends State<ChannelBar> {
       width: 200,
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(12)),
       child: ListView.builder(
         controller: _scrollController,
         itemExtent: _itemExtent,
@@ -127,6 +116,10 @@ class _ChannelBarState extends State<ChannelBar> {
             number: (index + 1).toString().padLeft(_numberWidth, '0'),
             selected: index == widget.selectedIndex,
             visible: widget.visible,
+            // 首尾循环：第一个再按上跳到最后一个，最后一个再按下跳回第一个。
+            wrapUp: index == 0,
+            wrapDown: index == widget.channels.length - 1,
+            onWrap: (bool toLast) => widget.onChanged(toLast ? widget.channels.length - 1 : 0),
             onFocused: () => widget.onChanged(index),
             onTap: () => widget.onActivated(index),
           );
@@ -142,6 +135,9 @@ class _ChannelTile extends StatefulWidget {
     required this.number,
     required this.selected,
     required this.visible,
+    required this.wrapUp,
+    required this.wrapDown,
+    required this.onWrap,
     required this.onFocused,
     required this.onTap,
   });
@@ -153,6 +149,14 @@ class _ChannelTile extends StatefulWidget {
 
   final bool selected;
   final bool visible;
+
+  /// 本项是否为第一个 / 最后一个频道（用于首尾循环）。
+  final bool wrapUp;
+  final bool wrapDown;
+
+  /// 首尾循环回调：`true` 跳到最后一个，`false` 跳到第一个。
+  final ValueChanged<bool> onWrap;
+
   final VoidCallback onFocused;
   final VoidCallback onTap;
 
@@ -173,9 +177,7 @@ class _ChannelTileState extends State<_ChannelTile> {
       _focusNode.unfocus();
       return;
     }
-    if (widget.visible &&
-        widget.selected &&
-        (!oldWidget.visible || !oldWidget.selected)) {
+    if (widget.visible && widget.selected && (!oldWidget.visible || !oldWidget.selected)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _focusNode.requestFocus();
       });
@@ -192,70 +194,78 @@ class _ChannelTileState extends State<_ChannelTile> {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final bool focused = _focusNode.hasFocus;
-    return AnimatedScale(
-      scale: focused ? 1.03 : 1,
-      duration: const Duration(milliseconds: 120),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-        child: Material(
-          color: widget.selected
-              ? scheme.primary.withValues(alpha: 0.85)
-              : Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-            side: focused
-                ? const BorderSide(color: Colors.white, width: 2)
-                : BorderSide.none,
-          ),
-          child: InkWell(
-            focusNode: _focusNode,
-            canRequestFocus: widget.visible,
-            onFocusChange: (bool value) {
-              if (value) widget.onFocused();
-              if (mounted) setState(() {});
-            },
-            borderRadius: BorderRadius.circular(6),
-            onTap: widget.onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Row(
-                children: <Widget>[
-                  SizedBox(
-                    width: _ChannelTile._numberWidth,
-                    child: Text(
-                      widget.number,
-                      maxLines: 1,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: Colors.white.withValues(
-                          alpha: widget.selected ? 0.95 : 0.6,
+    // 首尾循环：焦点停在第一个/最后一个再按上/下时，直接把选中跳到另一端。
+    // 只拦截「到头」的这一下，其余方向键照旧交给壳层做焦点移动。
+    return Focus(
+      canRequestFocus: false,
+      onKeyEvent: (node, event) {
+        if (!widget.visible) return KeyEventResult.ignored;
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+          return KeyEventResult.ignored;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp && widget.wrapUp) {
+          widget.onWrap(true);
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown && widget.wrapDown) {
+          widget.onWrap(false);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: AnimatedScale(
+        scale: focused ? 1.03 : 1,
+        duration: const Duration(milliseconds: 120),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          child: Material(
+            color: widget.selected ? scheme.primary.withValues(alpha: 0.85) : Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+              side: focused ? const BorderSide(color: Colors.white, width: 2) : BorderSide.none,
+            ),
+            child: InkWell(
+              focusNode: _focusNode,
+              canRequestFocus: widget.visible,
+              onFocusChange: (bool value) {
+                if (value) widget.onFocused();
+                if (mounted) setState(() {});
+              },
+              borderRadius: BorderRadius.circular(6),
+              onTap: widget.onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: <Widget>[
+                    SizedBox(
+                      width: _ChannelTile._numberWidth,
+                      child: Text(
+                        widget.number,
+                        maxLines: 1,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: widget.selected ? 0.95 : 0.6),
+                          fontSize: 13,
+                          fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
+                          fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
                         ),
-                        fontSize: 13,
-                        fontWeight: widget.selected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                        fontFeatures: const <FontFeature>[
-                          FontFeature.tabularFigures(),
-                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.channel.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: widget.selected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.channel.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

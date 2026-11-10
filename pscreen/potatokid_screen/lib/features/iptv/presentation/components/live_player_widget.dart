@@ -141,6 +141,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   Timer? _channelsHideTimer;
   static const Duration _channelsHideDelay = Duration(seconds: 5);
 
+  /// 换台时临时「预览」频道列表：遥控上/下换台只走 channelInfo 层，
+  /// 不进入 quickControls（那会接管方向键、破坏换台），所以列表显隐要
+  /// 独立于交互层——这里只负责显示，不可聚焦、不可触控。
+  bool _listPeek = false;
+  Timer? _listPeekTimer;
+
   /// 硬解设置已应用到播放器的 Future（_playCurrentSource 会等待它，
   /// 确保进入播放前 hwdec 属性已正确设置）。
   Future<void>? _hwdecReady;
@@ -409,7 +415,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     final bool inControls = context.read<AppBloc>().state.homeRemoteLayer ==
         HomeRemoteLayer.quickControls;
     _showChannelToast(_selectedChannelLabel(), enterInfoLayer: !inControls);
-    if (inControls) _armChannelsHide();
+    if (inControls) {
+      _armChannelsHide();
+    } else {
+      // 全屏换台：顺带把频道列表「预览」出来（不可聚焦/触控，5 秒后自动收起）。
+      // 遥控逻辑保持不变：上/下换台、左/右切源、OK 才进入可操作的列表。
+      _peekChannelList();
+    }
   }
 
   /// 播放提交（停止切换 `LiveChannelController.commitDelay` 后）：真正换源。
@@ -525,6 +537,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       _channelSourceLabel(withNumber: true),
       enterInfoLayer: true,
     );
+  }
+
+  /// 全屏换台时短暂展示频道列表（只显示、不接管按键），5 秒后自动收起。
+  void _peekChannelList() {
+    if (!mounted) return;
+    if (!_listPeek) setState(() => _listPeek = true);
+    _listPeekTimer?.cancel();
+    _listPeekTimer = Timer(_channelsHideDelay, () {
+      _listPeekTimer = null;
+      if (!mounted) return;
+      setState(() => _listPeek = false);
+    });
   }
 
   void _showChannelPanel() {
@@ -918,6 +942,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _toastNameVN.dispose();
     _barsActiveVN.dispose();
     _channelsHideTimer?.cancel();
+    _listPeekTimer?.cancel();
     _watchdog.dispose();
     _probe.dispose();
     _bufferStallWatch?.cancel();
@@ -991,25 +1016,32 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
             child: BlocBuilder<AppBloc, AppState>(
               buildWhen: (previous, current) => previous.showChannels != current.showChannels,
               builder: (context, state) {
+                // interactive：OK 打开的「可操作」列表（quickControls 层）。
+                final bool interactive = state.showChannels;
+                // visible：可操作列表，或换台时的临时预览（仅全屏/频道信息层）。
+                final bool layerAllowsPeek = state.homeRemoteLayer == HomeRemoteLayer.fullscreen ||
+                    state.homeRemoteLayer == HomeRemoteLayer.channelInfo;
+                final bool visible = interactive || (_listPeek && layerAllowsPeek);
                 // 列表处于可见时确保有 30 秒计时（初始显示也算）。
-                if (state.showChannels && (mounted && _channelsHideTimer == null)) {
+                if (interactive && (mounted && _channelsHideTimer == null)) {
                   _armChannelsHide();
                 }
                 return AnimatedSlide(
-                  offset: state.showChannels ? Offset.zero : const Offset(1, 0),
+                  offset: visible ? Offset.zero : const Offset(1, 0),
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
                   child: ExcludeFocus(
-                    excluding: !state.showChannels,
+                    excluding: !interactive,
                     child: IgnorePointer(
-                      ignoring: !state.showChannels,
+                      ignoring: !interactive,
                       child: SizedBox(
                         width: 220,
                         child: FocusTraversalGroup(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: <Widget>[
-                              if (AppFlavorConfig.flavor == AppFlavor.tv)
+                              // TV 端胶囊与根 Focus 抢键（遥控够不到），只在触屏 flavor 显示。
+                              if (AppFlavorConfig.flavor != AppFlavor.tv)
                                 const Padding(
                                   padding: EdgeInsets.only(right: 12, bottom: 8),
                                   child: TvUpdatePill(),
@@ -1017,7 +1049,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                               Expanded(
                                 child: NotificationListener<ScrollNotification>(
                                   onNotification: (_) {
-                                    if (state.showChannels) _markChannelsActivity();
+                                    if (interactive) _markChannelsActivity();
                                     return false;
                                   },
                                   // 频道与胶囊共享同一焦点层；当前频道默认聚焦。
@@ -1028,7 +1060,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                                       selectedIndex: _channelController.index,
                                       onChanged: _channelController.select,
                                       onActivated: _activateChannelFromPanel,
-                                      visible: state.showChannels,
+                                      // 预览态也要滚到当前频道（外层 ExcludeFocus
+                                      // 保证预览态不会被条目抢焦点）。
+                                      visible: visible,
                                     ),
                                   ),
                                 ),
