@@ -55,6 +55,10 @@ class MainApp extends StatelessWidget {
   /// 当前挂载的导航壳（供 [TvNavigator] 远程切 Tab 使用）。
   static StatefulNavigationShell? current;
 
+  /// 部分 Android TV 会把同一次返回同时投递为 KeyEvent 与系统 popRoute。
+  static const int _sameBackWindowMs = 280;
+  static int _lastHomeBackAt = 0;
+
   /// 「时间」Tab 在 [_tabs] 中的序号（上/下键在此切换时钟样式）。
   static const int _timeBranchIndex = 1;
 
@@ -114,26 +118,29 @@ class MainApp extends StatelessWidget {
 
     final int cur = navigationShell.currentIndex;
 
-    // 首页按可见交互层逐级返回：频道面板最上层；页面按钮其次；裸屏返回
-    // 先呼出顶部导航。导航已经可见时再次返回，才进入退出确认。
+    // 首页返回键按固定状态链前进：全屏 → 频道信息 → 快捷控制 → AppBar
+    // → 退出确认。各层显隐只由 homeRemoteLayer 决定。
     if (cur == 0) {
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastHomeBackAt < _sameBackWindowMs) return true;
+      _lastHomeBackAt = now;
       final AppState state = context.read<AppBloc>().state;
-      if (state.showChannels) {
-        HomeNowPlayingController.instance.hideChannelPanel();
-        return true;
+      switch (state.homeRemoteLayer) {
+        case HomeRemoteLayer.fullscreen:
+          HomeNowPlayingController.instance.showChannelInfo();
+          return true;
+        case HomeRemoteLayer.channelInfo:
+          _showHomeChannels(context);
+          return true;
+        case HomeRemoteLayer.quickControls:
+          HomeNowPlayingController.instance.hideChannelPanel();
+          context.read<AppBloc>().add(
+            const SetHomeRemoteLayer(HomeRemoteLayer.appBar),
+          );
+          return true;
+        case HomeRemoteLayer.appBar:
+          return false;
       }
-      if (_focusedActionContext() != null) {
-        FocusManager.instance.primaryFocus?.unfocus();
-        if (!state.isChromeVisible) {
-          context.read<AppBloc>().add(const SetChrome(true));
-        }
-        return true;
-      }
-      if (!state.isChromeVisible) {
-        context.read<AppBloc>().add(const SetChrome(true));
-        return true;
-      }
-      return false;
     }
 
     // 设置页行内编辑 → 先取消编辑（页面内返回）。
@@ -370,10 +377,14 @@ class MainApp extends StatelessWidget {
     // 菜单键：显示/隐藏顶部菜单（tabs）。「我的」页 tabs 恒显示，不处理。
     if (key == LogicalKeyboardKey.contextMenu) {
       if (cur != _profileBranchIndex) {
-        if (cur == 0 && !state.isChromeVisible) {
+        if (cur == 0) {
           HomeNowPlayingController.instance.hideChannelPanel();
+          context.read<AppBloc>().add(
+            const SetHomeRemoteLayer(HomeRemoteLayer.appBar),
+          );
+        } else {
+          context.read<AppBloc>().add(SetChrome(!state.isChromeVisible));
         }
-        context.read<AppBloc>().add(SetChrome(!state.isChromeVisible));
       }
       return true;
     }
@@ -467,22 +478,25 @@ class MainApp extends StatelessWidget {
   }
 
   void _showHomeChannels(BuildContext context) {
-    context.read<AppBloc>().add(const SetChrome(false));
     FocusManager.instance.primaryFocus?.unfocus();
     HomeNowPlayingController.instance.showChannelPanel();
   }
 
   void _handleHomeOk(BuildContext context, AppState state) {
-    if (state.showChannels) {
-      HomeNowPlayingController.instance.hideChannelPanel();
-      return;
+    switch (state.homeRemoteLayer) {
+      case HomeRemoteLayer.fullscreen:
+      case HomeRemoteLayer.channelInfo:
+        _showHomeChannels(context);
+        return;
+      case HomeRemoteLayer.quickControls:
+        _activateFocusedAction();
+        return;
+      case HomeRemoteLayer.appBar:
+        context.read<AppBloc>().add(
+          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+        );
+        return;
     }
-    if (_activateFocusedAction()) return;
-    if (state.isChromeVisible) {
-      context.read<AppBloc>().add(const SetChrome(false));
-      return;
-    }
-    _showHomeChannels(context);
   }
 
   bool _handleHomeArrow(
@@ -494,16 +508,15 @@ class MainApp extends StatelessWidget {
     final bool down = key == LogicalKeyboardKey.arrowDown;
     final bool left = key == LogicalKeyboardKey.arrowLeft;
 
-    // 频道面板是最上层：上下继续保持快速切台；左键退出面板；右键预留给
-    // 后续的线路详情，当前先吞掉，绝不穿透成切源。
-    if (state.showChannels) {
-      if (up) {
-        LiveChannelController.instance.previous();
-      } else if (down) {
-        LiveChannelController.instance.next();
-      } else if (left) {
-        HomeNowPlayingController.instance.hideChannelPanel();
-      }
+    // 快捷控制层内全部方向键只移动真实焦点，频道与胶囊使用同一焦点树。
+    if (state.homeRemoteLayer == HomeRemoteLayer.quickControls) {
+      final TraversalDirection direction = switch (key) {
+        LogicalKeyboardKey.arrowUp => TraversalDirection.up,
+        LogicalKeyboardKey.arrowDown => TraversalDirection.down,
+        LogicalKeyboardKey.arrowLeft => TraversalDirection.left,
+        _ => TraversalDirection.right,
+      };
+      _moveFocus(direction);
       return true;
     }
 
@@ -522,7 +535,7 @@ class MainApp extends StatelessWidget {
 
     // 顶部导航可见时，左右只切 Tab；向下尝试进入页面按钮。首页没有按钮
     // 时进入频道面板，使导航层和播放器层之间仍有明确路径。
-    if (state.isChromeVisible) {
+    if (state.homeRemoteLayer == HomeRemoteLayer.appBar) {
       if (key == LogicalKeyboardKey.arrowLeft ||
           key == LogicalKeyboardKey.arrowRight) {
         _goTabWrapped(
@@ -536,7 +549,7 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 只有纯全屏播放层保留电视快捷键。
+    // 全屏和频道信息层保留快速切台、切源；换台会刷新同一个频道信息层。
     if (up) {
       LiveChannelController.instance.previous();
     } else if (down) {

@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/app/app_flavor.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
@@ -32,6 +33,7 @@ import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
+import 'package:potatokid_screen/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
@@ -328,6 +330,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.addListener(_onChannelSelected);
     _channelController.onPlayCommit.addListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
+    HomeNowPlayingController.instance.onShowChannelInfo = _showCurrentChannelInfo;
     HomeNowPlayingController.instance.onShowChannelPanel = _showChannelPanel;
     HomeNowPlayingController.instance.onHideChannelPanel = _hideChannelPanel;
     // 锁屏/解锁边沿：锁屏即暂停、解锁即恢复（儿童模式）。
@@ -401,10 +404,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 这里**不** open，播放交给 [_onPlayCommit] 延迟提交。
   /// 长按连切时选中照旧飞快跟手，但不会每 80ms 就换一次流。
   void _onChannelSelected() {
-    // 换台算一次列表操作：显示列表并重置 30 秒计时。
-    _markChannelsActivity();
     // 频道名立即跟着选中走（此时源序号按首源显示，提交后会用真实源号再刷一次）。
-    if (mounted) _showChannelToast(_selectedChannelLabel());
+    if (!mounted) return;
+    final bool inControls = context.read<AppBloc>().state.homeRemoteLayer ==
+        HomeRemoteLayer.quickControls;
+    _showChannelToast(_selectedChannelLabel(), enterInfoLayer: !inControls);
+    if (inControls) _armChannelsHide();
   }
 
   /// 播放提交（停止切换 `LiveChannelController.commitDelay` 后）：真正换源。
@@ -495,7 +500,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 频道列表操作（换台/滑动）：显示列表并重置 30 秒自动收起计时。
   void _markChannelsActivity() {
     if (!mounted) return;
-    context.read<AppBloc>().add(const SetChannels(true));
+    context.read<AppBloc>().add(
+      const SetHomeRemoteLayer(HomeRemoteLayer.quickControls),
+    );
     _armChannelsHide();
   }
 
@@ -504,13 +511,28 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelsHideTimer = Timer(_channelsHideDelay, () {
       _channelsHideTimer = null;
       if (!mounted) return;
-      context.read<AppBloc>().add(const SetChannels(false));
+      _toastTimer?.cancel();
+      _toastNameVN.value = null;
+      context.read<AppBloc>().add(
+        const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+      );
     });
+  }
+
+  void _showCurrentChannelInfo() {
+    if (!mounted) return;
+    _showChannelToast(
+      _channelSourceLabel(withNumber: true),
+      enterInfoLayer: true,
+    );
   }
 
   void _showChannelPanel() {
     if (!mounted) return;
-    _showChannelToast(_channelSourceLabel(withNumber: true));
+    _showChannelToast(
+      _channelSourceLabel(withNumber: true),
+      enterInfoLayer: false,
+    );
     _markChannelsActivity();
   }
 
@@ -520,7 +542,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _toastNameVN.value = null;
     _channelsHideTimer?.cancel();
     _channelsHideTimer = null;
-    context.read<AppBloc>().add(const SetChannels(false));
+    context.read<AppBloc>().add(
+      const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+    );
+  }
+
+  void _activateChannelFromPanel(int index) {
+    _channelController.select(index);
+    _hideChannelPanel();
   }
 
   Future<void> _openChannel(int index, {bool force = false}) async {
@@ -851,12 +880,27 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
 
   /// 左下角显示当前频道名与源序号，30 秒后自动消失。
   /// 使用 ValueNotifier 局部刷新，避免 setState 导致 Video 重建闪烁。
-  void _showChannelToast(String name) {
+  void _showChannelToast(String name, {bool enterInfoLayer = true}) {
     _toastTimer?.cancel();
     _toastNameVN.value = name;
+    if (enterInfoLayer) {
+      final HomeRemoteLayer layer = context.read<AppBloc>().state.homeRemoteLayer;
+      if (layer == HomeRemoteLayer.fullscreen ||
+          layer == HomeRemoteLayer.channelInfo) {
+        context.read<AppBloc>().add(
+          const SetHomeRemoteLayer(HomeRemoteLayer.channelInfo),
+        );
+      }
+    }
     _toastTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
       _toastNameVN.value = null;
+      if (context.read<AppBloc>().state.homeRemoteLayer ==
+          HomeRemoteLayer.channelInfo) {
+        context.read<AppBloc>().add(
+          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+        );
+      }
     });
   }
 
@@ -867,6 +911,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.removeListener(_onChannelSelected);
     _channelController.onPlayCommit.removeListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = null;
+    HomeNowPlayingController.instance.onShowChannelInfo = null;
     HomeNowPlayingController.instance.onShowChannelPanel = null;
     HomeNowPlayingController.instance.onHideChannelPanel = null;
     _toastTimer?.cancel();
@@ -954,21 +999,43 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                   offset: state.showChannels ? Offset.zero : const Offset(1, 0),
                   duration: const Duration(milliseconds: 250),
                   curve: Curves.easeInOut,
-                  // 滑动列表也算操作：重置 30 秒计时并确保显示。
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: (_) {
-                      if (state.showChannels) _markChannelsActivity();
-                      return false;
-                    },
-                    // 频道条直接监听「选中」通知：高亮与滚动跟随必须**立即**，
-                    // 不能等播放提交（_openChannel 的 setState）——那是 400ms 之后的事。
-                    child: ListenableBuilder(
-                      listenable: _channelController,
-                      builder: (context, _) => ChannelBar(
-                        channels: widget.channels,
-                        selectedIndex: _channelController.index,
-                        onChanged: _channelController.select,
-                        visible: state.showChannels,
+                  child: ExcludeFocus(
+                    excluding: !state.showChannels,
+                    child: IgnorePointer(
+                      ignoring: !state.showChannels,
+                      child: SizedBox(
+                        width: 220,
+                        child: FocusTraversalGroup(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              if (AppFlavorConfig.flavor == AppFlavor.tv)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 12, bottom: 8),
+                                  child: TvUpdatePill(),
+                                ),
+                              Expanded(
+                                child: NotificationListener<ScrollNotification>(
+                                  onNotification: (_) {
+                                    if (state.showChannels) _markChannelsActivity();
+                                    return false;
+                                  },
+                                  // 频道与胶囊共享同一焦点层；当前频道默认聚焦。
+                                  child: ListenableBuilder(
+                                    listenable: _channelController,
+                                    builder: (context, _) => ChannelBar(
+                                      channels: widget.channels,
+                                      selectedIndex: _channelController.index,
+                                      onChanged: _channelController.select,
+                                      onActivated: _activateChannelFromPanel,
+                                      visible: state.showChannels,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1008,8 +1075,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          children: [
                           WeatherNowPanel(),
                           SizedBox(width: 16),
                           Column(
@@ -1019,11 +1089,15 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                               Text(sourceTips, style: TextStyle(color: textColor, fontSize: 14)),
                             ],
                           ),
-                        ],
+                          ],
+                        ),
                       ),
                       SizedBox(height: 8),
-                      Row(
-                        children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          children: [
                           Column(
                             children: [
                               DirectionWidget(hotUp: true, hotDown: true, size: 52),
@@ -1048,7 +1122,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                           _ClockPanel(color: textColor),
                           SizedBox(width: 8),
                           WeatherDaysPanel(),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),

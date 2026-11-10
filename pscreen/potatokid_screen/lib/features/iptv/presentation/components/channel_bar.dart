@@ -14,12 +14,14 @@ class ChannelBar extends StatefulWidget {
     required this.channels,
     required this.selectedIndex,
     required this.onChanged,
+    required this.onActivated,
     required this.visible,
   });
 
   final List<IptvChannel> channels;
   final int selectedIndex;
   final ValueChanged<int> onChanged;
+  final ValueChanged<int> onActivated;
 
   /// 列表是否可见（用于呼出时定位到当前频道）
   final bool visible;
@@ -84,7 +86,8 @@ class _ChannelBarState extends State<ChannelBar> {
     final ScrollPosition position = _scrollController.position;
     // 选中项中心对准可视区中心：index*项高 - (视口高 - 项高)/2。
     final double centered =
-        widget.selectedIndex * _itemExtent - (position.viewportDimension - _itemExtent) / 2;
+        widget.selectedIndex * _itemExtent -
+        (position.viewportDimension - _itemExtent) / 2;
     final double target = centered.clamp(0, position.maxScrollExtent);
     if (animate) {
       _scrollController.animateTo(
@@ -123,7 +126,9 @@ class _ChannelBarState extends State<ChannelBar> {
             // 序号从 1 开始，按频道总数的位数左侧补零（8 个频道→`1`，120 个→`001`）。
             number: (index + 1).toString().padLeft(_numberWidth, '0'),
             selected: index == widget.selectedIndex,
-            onTap: () => widget.onChanged(index),
+            visible: widget.visible,
+            onFocused: () => widget.onChanged(index),
+            onTap: () => widget.onActivated(index),
           );
         },
       ),
@@ -131,11 +136,13 @@ class _ChannelBarState extends State<ChannelBar> {
   }
 }
 
-class _ChannelTile extends StatelessWidget {
+class _ChannelTile extends StatefulWidget {
   const _ChannelTile({
     required this.channel,
     required this.number,
     required this.selected,
+    required this.visible,
+    required this.onFocused,
     required this.onTap,
   });
 
@@ -145,56 +152,106 @@ class _ChannelTile extends StatelessWidget {
   final String number;
 
   final bool selected;
+  final bool visible;
+  final VoidCallback onFocused;
   final VoidCallback onTap;
 
   /// 序号列宽（容纳最多 4 位序号）。
   static const double _numberWidth = 34;
 
   @override
+  State<_ChannelTile> createState() => _ChannelTileState();
+}
+
+class _ChannelTileState extends State<_ChannelTile> {
+  final FocusNode _focusNode = FocusNode(debugLabel: 'channel-tile');
+
+  @override
+  void didUpdateWidget(_ChannelTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.visible && _focusNode.hasFocus) {
+      _focusNode.unfocus();
+      return;
+    }
+    if (widget.visible &&
+        widget.selected &&
+        (!oldWidget.visible || !oldWidget.selected)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    // 频道列表项不参与 Flutter 焦点系统：
-    // 导航完全由 LiveChannelController（上下键切台）驱动，
-    // 避免出现「高亮选中项」和「焦点项」不一致导致按 OK 切错台的问题。
-    return ExcludeFocus(
+    final bool focused = _focusNode.hasFocus;
+    return AnimatedScale(
+      scale: focused ? 1.03 : 1,
+      duration: const Duration(milliseconds: 120),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
         child: Material(
-          color: selected
+          color: widget.selected
               ? scheme.primary.withValues(alpha: 0.85)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          child: InkWell(
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(6),
-            onTap: onTap,
+            side: focused
+                ? const BorderSide(color: Colors.white, width: 2)
+                : BorderSide.none,
+          ),
+          child: InkWell(
+            focusNode: _focusNode,
+            canRequestFocus: widget.visible,
+            onFocusChange: (bool value) {
+              if (value) widget.onFocused();
+              if (mounted) setState(() {});
+            },
+            borderRadius: BorderRadius.circular(6),
+            onTap: widget.onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: <Widget>[
                   SizedBox(
-                    width: _numberWidth,
+                    width: _ChannelTile._numberWidth,
                     child: Text(
-                      number,
+                      widget.number,
                       maxLines: 1,
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: selected ? 0.95 : 0.6),
+                        color: Colors.white.withValues(
+                          alpha: widget.selected ? 0.95 : 0.6,
+                        ),
                         fontSize: 13,
-                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                        fontWeight: widget.selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        fontFeatures: const <FontFeature>[
+                          FontFeature.tabularFigures(),
+                        ],
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      channel.name,
+                      widget.channel.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
-                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        fontWeight: widget.selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
                     ),
                   ),

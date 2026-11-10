@@ -38,13 +38,22 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
             : progress == null
                 ? '更新中'
                 : '${(progress * 100).round()}%';
-        return Focus(
-          focusNode: _focusNode,
-          // 焦点进入/离开时重建，切换高亮视觉（放大 + 光晕描边）。
-          onFocusChange: (_) {
-            if (mounted) setState(() {});
+        return Actions(
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                handleTvUpdateTap(context, state);
+                return null;
+              },
+            ),
           },
-          child: Builder(
+          child: Focus(
+            focusNode: _focusNode,
+            // 焦点进入/离开时重建，切换高亮视觉（放大 + 光晕描边）。
+            onFocusChange: (_) {
+              if (mounted) setState(() {});
+            },
+            child: Builder(
             builder: (BuildContext context) {
               final bool focused = _focusNode.hasFocus;
               return AnimatedScale(
@@ -103,6 +112,7 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
                 ),
               );
             },
+            ),
           ),
         );
       },

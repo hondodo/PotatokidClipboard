@@ -14,6 +14,9 @@ class HomeNowPlayingController {
   /// 左/右切换当前频道源。
   void switchSource(int delta) => onSwitchSource?.call(delta);
 
+  /// 显示当前频道信息，不打开频道列表。
+  void Function()? onShowChannelInfo;
+
   /// 显式显示频道面板。供遥控交互层进入频道模式时调用。
   void Function()? onShowChannelPanel;
 
@@ -24,4 +27,6 @@ class HomeNowPlayingController {
   void showChannelPanel() => onShowChannelPanel?.call();
 
   void hideChannelPanel() => onHideChannelPanel?.call();
+
+  void showChannelInfo() => onShowChannelInfo?.call();
 }

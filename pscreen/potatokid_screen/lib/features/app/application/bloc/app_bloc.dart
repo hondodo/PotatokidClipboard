@@ -37,7 +37,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     on<ChangeThemeMode>(_onChangeThemeMode);
     on<SetChrome>(_onSetChrome);
     on<SetChromePeek>(_onSetChromePeek);
-    on<SetChannels>(_onSetChannels);
+    on<SetHomeRemoteLayer>(_onSetHomeRemoteLayer);
     on<SetFloatingRemote>(_onSetFloatingRemote);
     on<SetHardwareDecode>(_onSetHardwareDecode);
     on<ChangeAspectMode>(_onChangeAspectMode);
@@ -92,12 +92,16 @@ class AppBloc extends Bloc<AppEvent, AppState> {
   int _chromePeekToken = 0;
 
   void _onSetChrome(SetChrome event, Emitter<AppState> emit) {
-    // 只改顶部 tab 条，频道列表独立控制。
     _chromePeekToken++;
     emit(
       state.copyWith(
         isChromeVisible: event.visible,
         isChromePeek: false,
+        homeRemoteLayer: event.visible
+            ? HomeRemoteLayer.appBar
+            : state.homeRemoteLayer == HomeRemoteLayer.appBar
+            ? HomeRemoteLayer.fullscreen
+            : state.homeRemoteLayer,
       ),
     );
   }
@@ -113,8 +117,18 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     });
   }
 
-  void _onSetChannels(SetChannels event, Emitter<AppState> emit) {
-    emit(state.copyWith(showChannels: event.show));
+  void _onSetHomeRemoteLayer(
+    SetHomeRemoteLayer event,
+    Emitter<AppState> emit,
+  ) {
+    _chromePeekToken++;
+    emit(
+      state.copyWith(
+        homeRemoteLayer: event.layer,
+        isChromeVisible: event.layer == HomeRemoteLayer.appBar,
+        isChromePeek: false,
+      ),
+    );
   }
 
   void _onSetFloatingRemote(SetFloatingRemote event, Emitter<AppState> emit) {

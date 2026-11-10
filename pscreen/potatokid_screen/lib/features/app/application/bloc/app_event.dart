@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
 /// 应用级事件基类
@@ -27,11 +28,11 @@ class SetChromePeek extends AppEvent {
   final bool visible;
 }
 
-/// 仅设置首页频道列表显隐（供换台/滑动显示、无操作自动隐藏、首页 OK 键切换用）。
-class SetChannels extends AppEvent {
-  const SetChannels(this.show);
+/// 切换首页遥控交互层；同时同步频道列表与顶部 AppBar 的显隐。
+class SetHomeRemoteLayer extends AppEvent {
+  const SetHomeRemoteLayer(this.layer);
 
-  final bool show;
+  final HomeRemoteLayer layer;
 }
 
 /// 设置是否显示悬浮遥控器蒙层

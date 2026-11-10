@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
+/// 首页遥控唯一交互层。频道列表和操作胶囊都属于 [quickControls]。
+enum HomeRemoteLayer { fullscreen, channelInfo, quickControls, appBar }
+
 /// 应用级全局状态（不可变，通过 copyWith 更新）
 class AppState {
   const AppState._({
@@ -8,7 +11,7 @@ class AppState {
     required this.isChromeVisible,
     required this.isChromePeek,
     required this.showFloatingRemote,
-    required this.showChannels,
+    required this.homeRemoteLayer,
     required this.hwdecEnabled,
     required this.aspectMode,
     required this.weatherCity,
@@ -26,7 +29,7 @@ class AppState {
     isChromeVisible: true,
     isChromePeek: false,
     showFloatingRemote: false,
-    showChannels: false,
+    homeRemoteLayer: HomeRemoteLayer.appBar,
     hwdecEnabled: false,
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
@@ -47,8 +50,10 @@ class AppState {
   /// 是否显示悬浮遥控器蒙层（手机调试用）
   final bool showFloatingRemote;
 
-  /// 首页频道交互层是否可见。与顶部导航互斥显示。
-  final bool showChannels;
+  final HomeRemoteLayer homeRemoteLayer;
+
+  /// 兼容播放器绘制层读取；显隐只由 [homeRemoteLayer] 派生。
+  bool get showChannels => homeRemoteLayer == HomeRemoteLayer.quickControls;
 
   /// 是否启用硬件解码（关闭时使用 FFmpeg 软解，TV 设备兼容性更好）
   final bool hwdecEnabled;
@@ -70,7 +75,7 @@ class AppState {
     bool? isChromeVisible,
     bool? isChromePeek,
     bool? showFloatingRemote,
-    bool? showChannels,
+    HomeRemoteLayer? homeRemoteLayer,
     bool? hwdecEnabled,
     VideoAspectMode? aspectMode,
     String? weatherCity,
@@ -81,7 +86,7 @@ class AppState {
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
         isChromePeek: isChromePeek ?? this.isChromePeek,
         showFloatingRemote: showFloatingRemote ?? this.showFloatingRemote,
-        showChannels: showChannels ?? this.showChannels,
+        homeRemoteLayer: homeRemoteLayer ?? this.homeRemoteLayer,
         hwdecEnabled: hwdecEnabled ?? this.hwdecEnabled,
         aspectMode: aspectMode ?? this.aspectMode,
         weatherCity: weatherCity ?? this.weatherCity,
