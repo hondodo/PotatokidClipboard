@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/parental/parental_attempt_gate.dart';
@@ -100,7 +101,7 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
   int get _rows => (widget.questions.isEmpty
       ? 1
       : (_question.options.length + _columns(_question.options) - 1) ~/
-          _columns(_question.options));
+            _columns(_question.options));
 
   @override
   void initState() {
@@ -298,7 +299,8 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
-      _error = '回答错误，还可尝试 '
+      _error =
+          '再想一想，还可以尝试 '
           '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
       _index = widget.questions.isEmpty
           ? 0
@@ -321,50 +323,97 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
       focusNode: _focusNode,
       skipTraversal: true,
       onKeyEvent: _onKey,
-      child: ColoredBox(
-        color: Colors.black,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              Color(0xFF234E70),
+              Color(0xFF1B425B),
+              Color(0xFF16324A),
+            ],
+          ),
+        ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(40, 20, 40, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Expanded(
-                      child: Column(
+          child: MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.2,
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints viewport) {
+                final bool compact = viewport.maxHeight < 600;
+                final double horizontalPadding = compact ? 24 : 40;
+                final double verticalPadding = compact ? 14 : 22;
+                final double gap = compact ? 8 : 12;
+                return Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: verticalPadding,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Text(
-                            '第 ${_index + 1} / ${widget.questions.length} 题'
-                            '${q.multiple ? '（多选，选好后按「确认答案」）' : ''}',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.white60,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  '第 ${_index + 1} / ${widget.questions.length} 题'
+                                  '${q.multiple ? ' · 多选' : ''}',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                if (widget.header != null) ...<Widget>[
+                                  const SizedBox(height: 4),
+                                  widget.header!,
+                                ],
+                              ],
                             ),
                           ),
-                          if (widget.header != null) ...<Widget>[
-                            const SizedBox(height: 6),
-                            widget.header!,
-                          ],
-                          if (q.prompt.isNotEmpty) ...<Widget>[
-                            const SizedBox(height: 10),
-                            Text(
-                              q.prompt,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 30,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                          if (q.promptImageUrl.isNotEmpty) ...<Widget>[
-                            const SizedBox(height: 8),
-                            Image.network(
-                              q.promptImageUrl,
-                              height: 110,
-                              fit: BoxFit.contain,
-                              errorBuilder: (
+                          SizedBox(width: compact ? 10 : 16),
+                          _RequestParentButton(
+                            focused: _area == _QuizFocusArea.request,
+                            compact: compact,
+                            onTap: _requestParent,
+                          ),
+                        ],
+                      ),
+                      if (ParentalAttemptGate.instance.locked) ...<Widget>[
+                        SizedBox(height: gap),
+                        Text(
+                          '先休息一下，'
+                          '${ParentalAttemptGate.instance.remainingLockSec} 秒后再试',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                      SizedBox(height: gap),
+                      if (q.prompt.isNotEmpty)
+                        Text(
+                          q.prompt,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: compact ? 30 : 36,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      if (q.promptImageUrl.isNotEmpty) ...<Widget>[
+                        SizedBox(height: gap),
+                        Image.network(
+                          q.promptImageUrl,
+                          height: compact ? 68 : 100,
+                          fit: BoxFit.contain,
+                          errorBuilder:
+                              (
                                 BuildContext context,
                                 Object error,
                                 StackTrace? stack,
@@ -373,98 +422,78 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
                                 color: Colors.white54,
                                 size: 40,
                               ),
-                            ),
-                          ],
-                        ],
+                        ),
+                      ],
+                      SizedBox(height: gap),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (BuildContext context, BoxConstraints c) {
+                            final int rows = (count / cols).ceil().clamp(1, 10);
+                            final double cellW =
+                                (c.maxWidth - gap * (cols - 1)) / cols;
+                            final double cellH =
+                                (c.maxHeight - gap * (rows - 1)) / rows;
+                            return GridView.count(
+                              crossAxisCount: cols,
+                              mainAxisSpacing: gap,
+                              crossAxisSpacing: gap,
+                              physics: const NeverScrollableScrollPhysics(),
+                              childAspectRatio: cellW / math.max(cellH, 1),
+                              children: <Widget>[
+                                for (int i = 0; i < count; i++)
+                                  _OptionCell(
+                                    option: options[i],
+                                    color: _palette[i % _palette.length]
+                                        .withValues(
+                                          alpha: 0.12 + (i % 3) * 0.03,
+                                        ),
+                                    focused:
+                                        _area == _QuizFocusArea.grid &&
+                                        _row * cols + _col == i,
+                                    selected: _selected.contains(i),
+                                    multiple: q.multiple,
+                                    number: i + 1,
+                                    onTap: () {
+                                      setState(() {
+                                        _area = _QuizFocusArea.grid;
+                                        _row = i ~/ cols;
+                                        _col = i % cols;
+                                        _toggle(i);
+                                      });
+                                    },
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 16),
-                    _RequestParentButton(
-                      focused: _area == _QuizFocusArea.request,
-                      onTap: _requestParent,
-                    ),
-                  ],
-                ),
-                if (ParentalAttemptGate.instance.locked) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(
-                    '连续错误次数过多，已锁定 '
-                    '${ParentalAttemptGate.instance.remainingLockSec} 秒',
-                    style: TextStyle(
-                      color: theme.colorScheme.error,
-                      fontSize: 16,
-                    ),
+                      if (_error.isNotEmpty) ...<Widget>[
+                        SizedBox(height: gap),
+                        Text(
+                          _error,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                      SizedBox(height: gap),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _ConfirmButton(
+                          focused: _area == _QuizFocusArea.confirm,
+                          enabled:
+                              !ParentalAttemptGate.instance.locked &&
+                              (!q.multiple || _selected.isNotEmpty),
+                          compact: compact,
+                          onTap: () => unawaited(_submit()),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 14),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (BuildContext context, BoxConstraints c) {
-                      const double gap = 12;
-                      final int rows = (count / cols).ceil().clamp(1, 10);
-                      final double cellW =
-                          (c.maxWidth - gap * (cols - 1)) / cols;
-                      final double cellH =
-                          (c.maxHeight - gap * (rows - 1)) / rows;
-                      return GridView.count(
-                        crossAxisCount: cols,
-                        mainAxisSpacing: gap,
-                        crossAxisSpacing: gap,
-                        physics: const NeverScrollableScrollPhysics(),
-                        childAspectRatio: cellW / math.max(cellH, 1),
-                        children: <Widget>[
-                          for (int i = 0; i < count; i++)
-                            _OptionCell(
-                              option: options[i],
-                              color: _palette[i % _palette.length]
-                                    .withValues(
-                                      alpha: 0.12 + (i % 3) * 0.03,
-                                    ),
-                              focused: _area == _QuizFocusArea.grid &&
-                                  _row * cols + _col == i,
-                              selected: _selected.contains(i),
-                              multiple: q.multiple,
-                              number: i + 1,
-                              onTap: () {
-                                setState(() {
-                                  _area = _QuizFocusArea.grid;
-                                  _row = i ~/ cols;
-                                  _col = i % cols;
-                                  _toggle(i);
-                                });
-                              },
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                if (_error.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(
-                    _error,
-                    style: TextStyle(color: theme.colorScheme.error, fontSize: 16),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _ConfirmButton(
-                    focused: _area == _QuizFocusArea.confirm,
-                    enabled: !ParentalAttemptGate.instance.locked &&
-                        (!q.multiple || _selected.isNotEmpty),
-                    onTap: () => unawaited(_submit()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '方向键移动 / OK 选中 / 数字键 1~9 选第 1~9 项、0 选第 10 项；'
-                  '选好后按「确认答案」',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white38,
-                  ),
-                ),
-              ],
+                );
+              },
             ),
           ),
         ),
@@ -475,9 +504,14 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
 
 /// 右上角「请求家长解锁」入口（焦点态由本页自绘，不参与 Flutter 焦点遍历）。
 class _RequestParentButton extends StatelessWidget {
-  const _RequestParentButton({required this.focused, required this.onTap});
+  const _RequestParentButton({
+    required this.focused,
+    required this.compact,
+    required this.onTap,
+  });
 
   final bool focused;
+  final bool compact;
   final VoidCallback onTap;
 
   @override
@@ -488,7 +522,10 @@ class _RequestParentButton extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 14 : 18,
+            vertical: compact ? 9 : 12,
+          ),
           decoration: BoxDecoration(
             color: scheme.primary.withValues(alpha: focused ? 0.55 : 0.18),
             borderRadius: BorderRadius.circular(14),
@@ -509,11 +546,14 @@ class _RequestParentButton extends StatelessWidget {
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.mark_unread_chat_alt_outlined,
-                  size: 20, color: Colors.white),
+              Icon(
+                Icons.mark_unread_chat_alt_outlined,
+                size: 20,
+                color: Colors.white,
+              ),
               SizedBox(width: 8),
               Text(
-                '请求家长解锁',
+                '请家长帮忙',
                 style: TextStyle(color: Colors.white, fontSize: 18),
               ),
             ],
@@ -554,9 +594,7 @@ class _OptionCell extends StatelessWidget {
           duration: const Duration(milliseconds: 120),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: base.withValues(
-              alpha: focused || selected ? 0.55 : color.a,
-            ),
+            color: base.withValues(alpha: focused || selected ? 0.55 : color.a),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: base.withValues(alpha: focused ? 0.95 : 0.30),
@@ -583,12 +621,16 @@ class _OptionCell extends StatelessWidget {
                           child: Image.network(
                             ParentalQuizQuestion.resolveImageUrl(option.image),
                             fit: BoxFit.contain,
-                            errorBuilder: (
-                              BuildContext context,
-                              Object error,
-                              StackTrace? stack,
-                            ) => const Icon(Icons.broken_image_outlined,
-                                color: Colors.white54, size: 32),
+                            errorBuilder:
+                                (
+                                  BuildContext context,
+                                  Object error,
+                                  StackTrace? stack,
+                                ) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.white54,
+                                  size: 32,
+                                ),
                           ),
                         )
                       : Text(
@@ -620,9 +662,7 @@ class _OptionCell extends StatelessWidget {
                   right: 0,
                   top: 0,
                   child: Icon(
-                    selected
-                        ? Icons.check_box
-                        : Icons.check_box_outline_blank,
+                    selected ? Icons.check_box : Icons.check_box_outline_blank,
                     size: 18,
                     color: Colors.white.withValues(alpha: 0.85),
                   ),
@@ -631,8 +671,11 @@ class _OptionCell extends StatelessWidget {
                 const Positioned(
                   right: 0,
                   top: 0,
-                  child: Icon(Icons.check_circle,
-                      size: 18, color: Colors.white),
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 18,
+                    color: Colors.white,
+                  ),
                 ),
             ],
           ),
@@ -647,11 +690,13 @@ class _ConfirmButton extends StatelessWidget {
   const _ConfirmButton({
     required this.focused,
     required this.enabled,
+    required this.compact,
     required this.onTap,
   });
 
   final bool focused;
   final bool enabled;
+  final bool compact;
   final VoidCallback onTap;
 
   @override
@@ -662,16 +707,17 @@ class _ConfirmButton extends StatelessWidget {
         onTap: enabled ? onTap : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 14),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 28 : 36,
+            vertical: compact ? 10 : 14,
+          ),
           decoration: BoxDecoration(
             color: scheme.primary.withValues(
               alpha: enabled ? (focused ? 0.75 : 0.35) : 0.12,
             ),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: scheme.primary.withValues(
-                alpha: focused ? 0.95 : 0.3,
-              ),
+              color: scheme.primary.withValues(alpha: focused ? 0.95 : 0.3),
               width: focused ? 3 : 1.5,
             ),
             boxShadow: focused

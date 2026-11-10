@@ -240,14 +240,13 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
 
     return ExcludeFocus(
       child: ColoredBox(
-        // 深色底 + 两团大柔光（静态渐变，不调用 BackdropFilter）。
-        color: const Color(0xFF0B1020),
+        color: const Color(0xFF16324A),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[Color(0xFF111633), Color(0xFF050818)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: <Color>[Color(0xFF234E70), Color(0xFF1B425B), Color(0xFF16324A)],
             ),
           ),
           child: SafeArea(
@@ -296,42 +295,11 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
     final double titleFont = 44 * scale;
     final double gapTitleCards = 36 * scale;
     final double gapCardsFooter = 32 * scale;
-    final double glowSizeA = 400 * scale;
-    final double glowSizeB = 440 * scale;
-    final double glowNegTop = 80 * scale;
-    final double glowNegLeft = 120 * scale;
-    final double glowNegBottom = 120 * scale;
-    final double glowNegRight = 80 * scale;
 
     return Stack(
       children: <Widget>[
-        Positioned(
-          top: -glowNegTop,
-          left: -glowNegLeft,
-          child: Container(
-            width: glowSizeA,
-            height: glowSizeA,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: <Color>[scheme.primary.withValues(alpha: 0.18), scheme.primary.withValues(alpha: 0)],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: -glowNegBottom,
-          right: -glowNegRight,
-          child: Container(
-            width: glowSizeB,
-            height: glowSizeB,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: <Color>[Colors.pinkAccent.withValues(alpha: 0.12), Colors.pinkAccent.withValues(alpha: 0)],
-              ),
-            ),
-          ),
+        const Positioned.fill(
+          child: IgnorePointer(child: CustomPaint(painter: _ParentalBackdropPainter())),
         ),
         Center(
           child: Padding(
@@ -638,4 +606,133 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
       ),
     );
   }
+}
+
+class _ParentalBackdropPainter extends CustomPainter {
+  const _ParentalBackdropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _paintWaves(canvas, size);
+
+    final Paint yellow = Paint()..color = const Color(0xFFFFD166).withValues(alpha: 0.24);
+    final Paint white = Paint()..color = Colors.white.withValues(alpha: 0.15);
+    _paintSparkle(canvas, Offset(size.width * 0.09, size.height * 0.18), size.shortestSide * 0.018, yellow);
+    _paintSparkle(canvas, Offset(size.width * 0.91, size.height * 0.27), size.shortestSide * 0.013, white);
+    _paintSparkle(canvas, Offset(size.width * 0.07, size.height * 0.62), size.shortestSide * 0.011, white);
+    _paintSparkle(canvas, Offset(size.width * 0.94, size.height * 0.67), size.shortestSide * 0.018, yellow);
+
+    final Paint cloud = Paint()
+      ..color = Colors.white.withValues(alpha: 0.10)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.5, size.shortestSide * 0.003)
+      ..strokeCap = StrokeCap.round;
+    _paintCloud(
+      canvas,
+      Rect.fromLTWH(size.width * 0.78, size.height * 0.10, size.width * 0.15, size.height * 0.08),
+      cloud,
+    );
+    _paintCloud(
+      canvas,
+      Rect.fromLTWH(size.width * 0.04, size.height * 0.76, size.width * 0.17, size.height * 0.09),
+      cloud,
+    );
+  }
+
+  void _paintWaves(Canvas canvas, Size size) {
+    final Path tealWave = Path()
+      ..moveTo(0, size.height * 0.82)
+      ..cubicTo(
+        size.width * 0.25,
+        size.height * 0.75,
+        size.width * 0.43,
+        size.height * 0.93,
+        size.width * 0.67,
+        size.height * 0.84,
+      )
+      ..cubicTo(
+        size.width * 0.81,
+        size.height * 0.79,
+        size.width * 0.91,
+        size.height * 0.82,
+        size.width,
+        size.height * 0.76,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(tealWave, Paint()..color = const Color(0xFF45B8AC).withValues(alpha: 0.12));
+
+    final Path coralWave = Path()
+      ..moveTo(0, size.height * 0.92)
+      ..cubicTo(
+        size.width * 0.28,
+        size.height * 0.85,
+        size.width * 0.50,
+        size.height * 1.01,
+        size.width * 0.72,
+        size.height * 0.91,
+      )
+      ..cubicTo(
+        size.width * 0.84,
+        size.height * 0.86,
+        size.width * 0.93,
+        size.height * 0.91,
+        size.width,
+        size.height * 0.87,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(coralWave, Paint()..color = const Color(0xFFFF8A72).withValues(alpha: 0.08));
+  }
+
+  void _paintSparkle(Canvas canvas, Offset center, double radius, Paint paint) {
+    final double inset = radius * 0.28;
+    final Path path = Path()
+      ..moveTo(center.dx, center.dy - radius)
+      ..lineTo(center.dx + inset, center.dy - inset)
+      ..lineTo(center.dx + radius, center.dy)
+      ..lineTo(center.dx + inset, center.dy + inset)
+      ..lineTo(center.dx, center.dy + radius)
+      ..lineTo(center.dx - inset, center.dy + inset)
+      ..lineTo(center.dx - radius, center.dy)
+      ..lineTo(center.dx - inset, center.dy - inset)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  void _paintCloud(Canvas canvas, Rect bounds, Paint paint) {
+    final Path path = Path()
+      ..moveTo(bounds.left, bounds.bottom)
+      ..cubicTo(
+        bounds.left + bounds.width * 0.03,
+        bounds.top + bounds.height * 0.55,
+        bounds.left + bounds.width * 0.20,
+        bounds.top + bounds.height * 0.48,
+        bounds.left + bounds.width * 0.31,
+        bounds.top + bounds.height * 0.57,
+      )
+      ..cubicTo(
+        bounds.left + bounds.width * 0.36,
+        bounds.top + bounds.height * 0.12,
+        bounds.left + bounds.width * 0.71,
+        bounds.top + bounds.height * 0.08,
+        bounds.left + bounds.width * 0.75,
+        bounds.top + bounds.height * 0.52,
+      )
+      ..cubicTo(
+        bounds.right + bounds.width * 0.06,
+        bounds.top + bounds.height * 0.45,
+        bounds.right + bounds.width * 0.08,
+        bounds.bottom,
+        bounds.right,
+        bounds.bottom,
+      )
+      ..lineTo(bounds.left, bounds.bottom);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ParentalBackdropPainter oldDelegate) => false;
 }

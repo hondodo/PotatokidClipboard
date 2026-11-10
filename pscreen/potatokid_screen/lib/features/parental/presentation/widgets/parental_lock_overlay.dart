@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
@@ -39,12 +40,6 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
   List<ParentalQuizQuestion> _quizQuestions = const <ParentalQuizQuestion>[];
   bool _quizLoaded = false;
   bool _quizLoading = false;
-
-  /// 是否处于「整页题库」渲染：quiz 模式 + 合并后题库非空。
-  bool get _quizMode =>
-      _quizLoaded &&
-      _quizQuestions.isNotEmpty &&
-      ParentalStateController.instance.config.unlockMode == 'quiz';
 
   @override
   void initState() {
@@ -104,16 +99,27 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
     try {
       final Map<String, List<ParentalQuizQuestion>> cache =
           await _quizRepository.readCache();
-      _applyBanks(cache);
+      _applyBanks(cache, loadComplete: false);
       final Map<String, List<ParentalQuizQuestion>>? remote =
           await _quizRepository.fetchRemote();
-      if (remote != null) _applyBanks(remote);
+      if (!mounted ||
+          ParentalStateController.instance.config.unlockMode != 'quiz') {
+        return;
+      }
+      if (remote != null) {
+        _applyBanks(remote, loadComplete: true);
+      } else {
+        setState(() => _quizLoaded = true);
+      }
     } finally {
       _quizLoading = false;
     }
   }
 
-  void _applyBanks(Map<String, List<ParentalQuizQuestion>> banks) {
+  void _applyBanks(
+    Map<String, List<ParentalQuizQuestion>> banks, {
+    required bool loadComplete,
+  }) {
     final List<ParentalQuizQuestion> merged = ParentalQuizSelector.select(
       profiles: ParentalStateController.instance.activeProfiles,
       banks: banks,
@@ -127,7 +133,7 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         .toList(growable: false);
     if (!mounted) return;
     setState(() {
-      _quizLoaded = true;
+      _quizLoaded = loadComplete || usable.isNotEmpty;
       _quizQuestions = usable;
     });
   }
@@ -185,25 +191,24 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
               SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
               SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
             },
-            child: _quizMode
-                ? _buildQuizPage()
-                : _LockScreenPage(
-                    // 已选答题模式但题库为空 / 只有填空题：明确提示回退原因，
-                    // 不再静默装作短码就是所选模式。
-                    quizFallback:
-                        _quizLoaded &&
-                        ParentalStateController.instance.config.unlockMode ==
-                            'quiz',
-                  ),
+            child: _buildLockedContent(),
           ),
         );
       },
     );
   }
 
+  Widget _buildLockedContent() {
+    final bool wantsQuiz =
+        ParentalStateController.instance.config.unlockMode == 'quiz';
+    if (!wantsQuiz) return const _LockScreenPage();
+    if (!_quizLoaded) return const _QuizLoadingPage();
+    if (_quizQuestions.isNotEmpty) return _buildQuizPage();
+    return const _LockScreenPage(quizFallback: true);
+  }
+
   Widget _buildQuizPage() {
     final KidWatchTimerController timer = KidWatchTimerController.instance;
-    final int? remainSession = timer.remainingSessionSec;
     final int? remainDaily = timer.remainingDailySec;
     return ParentalQuizPage(
       questions: _quizQuestions,
@@ -211,13 +216,12 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
-            '单次剩余：${remainSession == null ? '未启用' : _LockScreenPageState._fmt(remainSession)}'
-            '　　当日剩余：${remainDaily == null ? '未启用' : _LockScreenPageState._fmt(remainDaily)}',
+            '当日剩余：${_LockScreenPageState._fmtDaily(remainDaily)}',
             style: const TextStyle(color: Colors.white70, fontSize: 14),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 4),
-          const DeviceAccountLabel(color: Colors.white38),
+          const DeviceAccountLabel(color: Colors.white54, fontSize: 14),
         ],
       ),
       onSolved: () async {
@@ -232,6 +236,57 @@ class _ParentalLockOverlayState extends State<ParentalLockOverlay> {
         if (!ok || !mounted) return;
         KidWatchTimerController.instance.unlock();
       },
+    );
+  }
+}
+
+class _QuizLoadingPage extends StatelessWidget {
+  const _QuizLoadingPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color(0xFF234E70),
+            Color(0xFF1B425B),
+            Color(0xFF16324A),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.auto_awesome_rounded,
+              color: Color(0xFFFFD166),
+              size: 56,
+            ),
+            SizedBox(height: 18),
+            Text(
+              '题目准备中…',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 18),
+            SizedBox(
+              width: 180,
+              child: LinearProgressIndicator(
+                minHeight: 5,
+                color: Color(0xFFFFD166),
+                backgroundColor: Colors.white24,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -291,7 +346,12 @@ class _LockScreenPageState extends State<_LockScreenPage> {
   }
 
   Future<void> _openVerify() async {
-    final bool ok = await ParentalVerificationSheet.show(context);
+    final String mode = ParentalStateController.instance.config.unlockMode;
+    final bool ok = await ParentalVerificationSheet.show(
+      context,
+      forceRemote: widget.quizFallback,
+      forceArithmetic: !widget.quizFallback && mode == 'remote',
+    );
     // 远程路径由命令执行器解锁（sheet 观察到锁解除后返回 true），
     // 本地路径（PIN/算术）在此解除；unlock 对未锁状态幂等。
     if (!ok || !mounted) return;
@@ -304,82 +364,146 @@ class _LockScreenPageState extends State<_LockScreenPage> {
     final ParentalStateController parental = ParentalStateController.instance;
     final ParentalUnlockCodeController codes =
         ParentalUnlockCodeController.instance;
-    final int? remainSession = timer.remainingSessionSec;
     final int? remainDaily = timer.remainingDailySec;
     final ThemeData theme = Theme.of(context);
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                Icons.lock_outline,
-                size: 72,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '观看时间已到',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 20),
-              // 剩余取「当前组合中最先到阈值者」（remaining* 内部逐人取最小）。
-              Text(
-                '单次剩余：${remainSession == null ? '未启用' : _fmt(remainSession)}'
-                '　　当日剩余：${remainDaily == null ? '未启用' : _fmt(remainDaily)}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // 逐人已看（分账）：锁屏展示当前组合内每个孩子的 session/daily。
-              for (final String id in timer.activeChildIds)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '${_nameOf(parental, id)}：已看 ${_fmt(timer.sessionSecOf(id))}'
-                    '（当日 ${_fmt(timer.dailySecOf(id))}）',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: Colors.white70,
+    final String mode = parental.config.unlockMode;
+    final String actionLabel = widget.quizFallback
+        ? '请家长帮忙'
+        : mode == 'pin'
+        ? '输入家长 PIN'
+        : '答题解锁';
+    final IconData actionIcon = widget.quizFallback
+        ? Icons.family_restroom_rounded
+        : mode == 'pin'
+        ? Icons.pin_outlined
+        : Icons.quiz_outlined;
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color(0xFF234E70),
+            Color(0xFF1B425B),
+            Color(0xFF16324A),
+          ],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: 920,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.bedtime_rounded,
+                      size: 64,
+                      color: Color(0xFFFFD166),
                     ),
-                  ),
-                ),
-              if (widget.quizFallback) ...<Widget>[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
-                  ),
-                  child: Text(
-                    '答题解锁未生效：当前儿童档案题库为空或只有填空题，已回退短码解锁。'
-                    '请家长先在儿童档案中添加选择题。',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: Colors.amber,
+                    const SizedBox(height: 8),
+                    const Text(
+                      '休息一下吧',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 40,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _lockMessage(timer.lockReason),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 22,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: <Widget>[
+                        SizedBox(
+                          width: 430,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                _watchSummary(timer, parental),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                '当日剩余：${_fmtDaily(remainDaily)}',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              if (widget.quizFallback) ...<Widget>[
+                                const SizedBox(height: 12),
+                                const Text(
+                                  '暂时没有可回答的题目，请家长帮忙解锁',
+                                  style: TextStyle(
+                                    color: Color(0xFFFFD166),
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 116,
+                          child: VerticalDivider(
+                            width: 48,
+                            color: Colors.white24,
+                          ),
+                        ),
+                        Expanded(child: _buildCodeArea(codes, theme)),
+                      ],
+                    ),
+                    const SizedBox(height: 26),
+                    const Divider(color: Colors.white24, height: 1),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: <Widget>[
+                        const Expanded(
+                          child: DeviceAccountLabel(
+                            color: Colors.white60,
+                            fontSize: 16,
+                            textAlign: TextAlign.left,
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        FilledButton.icon(
+                          focusNode: _verifyFocus,
+                          autofocus: true,
+                          onPressed: _openVerify,
+                          icon: Icon(actionIcon),
+                          label: Text(actionLabel),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical: 16,
+                            ),
+                            textStyle: const TextStyle(fontSize: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-              const SizedBox(height: 20),
-              ..._buildCodeArea(codes, theme),
-              const SizedBox(height: 24),
-              FilledButton(
-                focusNode: _verifyFocus,
-                autofocus: true,
-                onPressed: _openVerify,
-                child: const Text('家长验证解锁'),
               ),
-              const SizedBox(height: 16),
-              const DeviceAccountLabel(color: Colors.white38),
-            ],
+            ),
           ),
         ),
       ),
@@ -388,56 +512,106 @@ class _LockScreenPageState extends State<_LockScreenPage> {
 
   /// 短码区：有效 → 展示短码与倒计时；未生成/已过期 → 「重新请求」入口
   ///（方案 §4.2：过期后电视端提示重新请求）。
-  List<Widget> _buildCodeArea(
-    ParentalUnlockCodeController codes,
-    ThemeData theme,
-  ) {
+  Widget _buildCodeArea(ParentalUnlockCodeController codes, ThemeData theme) {
     if (codes.active) {
-      return <Widget>[
-        Text(
-          '解锁码 ${codes.code}',
-          style: const TextStyle(
-            color: Colors.amber,
-            fontSize: 32,
-            letterSpacing: 6,
-            fontWeight: FontWeight.bold,
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Text(
+            '家长解锁码',
+            style: TextStyle(color: Colors.white70, fontSize: 17),
           ),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          '请在手机上确认解锁',
-          style: TextStyle(color: Colors.amber, fontSize: 18),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '有效期 ${codes.remainingSec} 秒',
-          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
-        ),
-      ];
+          const SizedBox(height: 4),
+          Text(
+            _formatCode(codes.code),
+            style: const TextStyle(
+              color: Color(0xFFFFD166),
+              fontSize: 38,
+              letterSpacing: 3,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '等待家长确认 · ${codes.remainingSec} 秒',
+            style: const TextStyle(color: Colors.white60, fontSize: 16),
+          ),
+        ],
+      );
     }
     final bool consumed = codes.consumed;
-    return <Widget>[
-      Text(
-        consumed
-            ? '解锁已确认'
-            : codes.code == null
-            ? '尚未生成解锁码'
-            : '解锁码已过期',
-        style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70),
-      ),
-      if (!consumed) ...<Widget>[
-        const SizedBox(height: 12),
-        OutlinedButton(onPressed: _reissue, child: const Text('重新请求解锁码')),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          consumed
+              ? '家长已确认'
+              : codes.code == null
+              ? '正在获取家长解锁码'
+              : '解锁码已失效',
+          style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70),
+        ),
+        if (!consumed) ...<Widget>[
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _reissue,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('重新获取'),
+          ),
+        ],
       ],
-    ];
+    );
   }
 
-  /// 时长展示：`X 分 Y 秒`（负值按 0 处理——到阈值后剩余即为 0/负）。
-  static String _fmt(int sec) {
-    final int s = sec < 0 ? 0 : sec;
-    return s < 60 ? '$s 秒' : '${s ~/ 60} 分 ${s % 60} 秒';
+  static String _lockMessage(String reason) {
+    if (reason == 'quietHours') return '现在是休息时间';
+    if (reason.startsWith('daily:')) return '今天的观看时间已经用完';
+    return '本次观看时间已经结束';
   }
 
-  static String _nameOf(ParentalStateController parental, String id) =>
-      parental.config.childById(id)?.name ?? id;
+  static String _watchSummary(
+    KidWatchTimerController timer,
+    ParentalStateController parental,
+  ) {
+    final List<String> names = timer.activeChildIds
+        .map((String id) => parental.config.childById(id)?.name ?? id)
+        .toList(growable: false);
+    final int seconds = timer.activeChildIds.fold<int>(
+      0,
+      (int total, String id) => total + timer.sessionSecOf(id),
+    );
+    final String viewers = switch (names.length) {
+      0 => '孩子们',
+      1 => names.first,
+      2 => '${names.first}和${names.last}',
+      _ => '${names.sublist(0, names.length - 1).join('、')}和${names.last}',
+    };
+    return '$viewers本次共观看了 ${_fmtWatch(seconds)}';
+  }
+
+  static String _fmtWatch(int seconds) {
+    final int safe = seconds < 0 ? 0 : seconds;
+    if (safe < 60) return '$safe 秒';
+    final int minutes = safe ~/ 60;
+    final int remainSeconds = safe % 60;
+    return remainSeconds == 0 ? '$minutes 分钟' : '$minutes 分 $remainSeconds 秒';
+  }
+
+  static String _fmtDaily(int? seconds) {
+    if (seconds == null) return '未启用';
+    final int safe = seconds < 0 ? 0 : seconds;
+    if (safe == 0) return '0 分钟';
+    if (safe < 60) return '不足 1 分钟';
+    final int hours = safe ~/ 3600;
+    final int minutes = (safe % 3600) ~/ 60;
+    if (hours == 0) return '$minutes 分钟';
+    return minutes == 0 ? '$hours 小时' : '$hours 小时 $minutes 分钟';
+  }
+
+  static String _formatCode(String? code) {
+    final String value = (code ?? '').trim();
+    if (value.length != 6) return value;
+    return '${value.substring(0, 3)} ${value.substring(3)}';
+  }
 }

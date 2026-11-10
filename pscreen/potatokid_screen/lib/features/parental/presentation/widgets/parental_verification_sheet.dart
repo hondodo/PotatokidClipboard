@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
@@ -9,8 +10,6 @@ import 'package:pscreen_screen/core/parental/parental_config.dart';
 import 'package:pscreen_screen/core/parental/parental_quiz.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
-
-import 'device_account_label.dart';
 
 /// 家长验证层（锁屏解锁与后续选人页 `locked` 闸门共用的统一入口）。
 ///
@@ -28,22 +27,32 @@ import 'device_account_label.dart';
 /// 阶段 3 接入时用于放行进入）。远程路径由命令执行器直接解锁，本层监听
 /// 到锁解除后自行收起（返回 true）。
 class ParentalVerificationSheet extends StatefulWidget {
-  const ParentalVerificationSheet({super.key, this.forceRemote = false});
+  const ParentalVerificationSheet({
+    super.key,
+    this.forceRemote = false,
+    this.forceArithmetic = false,
+  });
 
   /// 强制只走远程短码流程（锁屏「整页题库」右上角「请求家长解锁」入口用）：
   /// 忽略 `unlockMode` 的 quiz/pin/arith 分支，也不展示算术兜底。
   final bool forceRemote;
 
+  /// 主锁屏已展示远程短码时，只打开本机算术题，避免重复展示同一组短码。
+  final bool forceArithmetic;
+
   /// 统一入口：弹出验证层；返回 true = 验证通过（含观察到远程解锁）。
   static Future<bool> show(
     BuildContext context, {
     bool forceRemote = false,
+    bool forceArithmetic = false,
   }) async {
     final bool? ok = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
-      builder: (BuildContext context) =>
-          ParentalVerificationSheet(forceRemote: forceRemote),
+      builder: (BuildContext context) => ParentalVerificationSheet(
+        forceRemote: forceRemote,
+        forceArithmetic: forceArithmetic,
+      ),
     );
     return ok ?? false;
   }
@@ -82,26 +91,31 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
 
   /// 服务端拉取已结束（成功或失败）；结束前若缓存为空显示「加载中」。
   bool _quizLoaded = false;
+  bool _quizLoading = false;
   int _quizIndex = 0;
   final Set<int> _quizSelected = <int>{};
   String _quizError = '';
 
   /// 远程题库刷新到达时，若用户还没作答则换用最新题库（已作答不打断）。
   bool _quizTouched = false;
+  late String _lastMode;
 
   @override
   void initState() {
     super.initState();
     _watchRemoteUnlock = KidWatchTimerController.instance.locked;
     _prevLocked = _watchRemoteUnlock;
+    _lastMode = ParentalStateController.instance.config.unlockMode;
     if (_watchRemoteUnlock) {
       KidWatchTimerController.instance.addListener(_onTimerNotify);
     }
     // 短码状态（重新请求/被消费）变化即时刷新，不等 1s 倒计时 ticker。
     ParentalUnlockCodeController.instance.addListener(_onCodesChanged);
+    ParentalStateController.instance.addListener(_onParentalChanged);
     _newArith();
     // 答题解锁：先用本地缓存立即可答，再后台刷新题库。仅走远程短码时不需要。
     if (!widget.forceRemote &&
+        !widget.forceArithmetic &&
         ParentalStateController.instance.config.unlockMode == 'quiz') {
       unawaited(_loadQuiz());
     }
@@ -120,6 +134,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
   @override
   void dispose() {
     ParentalUnlockCodeController.instance.removeListener(_onCodesChanged);
+    ParentalStateController.instance.removeListener(_onParentalChanged);
     _ticker?.cancel();
     _stopWatchingRemoteUnlock();
     _pinCtrl.dispose();
@@ -130,6 +145,24 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
   /// 短码状态变化 → 刷新展示（重新请求后立即出码）。
   void _onCodesChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onParentalChanged() {
+    if (_closing || !mounted) return;
+    final String nextMode = ParentalStateController.instance.config.unlockMode;
+    if (nextMode == _lastMode) return;
+    _lastMode = nextMode;
+
+    // 锁屏题库由外层全屏页接管；模式切换时关闭旧验证弹窗，避免弹窗
+    // 停留在自己的加载状态并遮住已经准备好的全屏题目。
+    if (_watchRemoteUnlock && nextMode == 'quiz') {
+      _close(false);
+      return;
+    }
+    if (!widget.forceRemote && !widget.forceArithmetic && nextMode == 'quiz') {
+      unawaited(_loadQuiz());
+    }
+    setState(() {});
   }
 
   /// 停止观察远程解锁（本地验证通过 / 用户关闭 / 已开始收起时调用）。
@@ -164,8 +197,25 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     final ParentalAttemptGate gate = ParentalAttemptGate.instance;
     final String mode = config.unlockMode; // remote | pin | arith | quiz
     final bool usePin = mode == 'pin' && config.pin.isNotEmpty;
-    final bool useQuiz = mode == 'quiz';
+    final bool useQuiz =
+        !widget.forceRemote && !widget.forceArithmetic && mode == 'quiz';
     final TextTheme textTheme = Theme.of(context).textTheme;
+    final String title = widget.forceArithmetic
+        ? '答一道题吧'
+        : widget.forceRemote
+        ? '请家长帮忙'
+        : usePin
+        ? '输入家长 PIN'
+        : useQuiz
+        ? '答题解锁'
+        : mode == 'arith'
+        ? '答一道题吧'
+        : '家长验证';
+    final IconData titleIcon = widget.forceArithmetic || mode == 'arith'
+        ? Icons.quiz_outlined
+        : usePin
+        ? Icons.pin_outlined
+        : Icons.family_restroom_rounded;
 
     return PopScope(
       canPop: true,
@@ -189,63 +239,77 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
           SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
         },
         child: FocusTraversalGroup(
-          child: Dialog(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              // 答题模式最多 10 个选项，小屏 / 电视安全区下会超屏；
-              // 统一可滚动，遥控换焦点时 Scrollable 会自动跟随。
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Icon(
-                          Icons.lock_outline,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Text('家长验证', style: textTheme.titleLarge),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    DeviceAccountLabel(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                    const SizedBox(height: 12),
-                    if (gate.locked) ...<Widget>[
-                      Text(
-                        '连续错误次数过多，已锁定 ${gate.remainingLockSec} 秒',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                          fontSize: 16,
-                        ),
+          child: MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.25,
+            child: Dialog(
+              insetPadding: const EdgeInsets.all(24),
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 620,
+                  maxHeight: max(240.0, MediaQuery.sizeOf(context).height - 48),
+                ),
+                // 答题模式最多 10 个选项，小屏 / 电视安全区下会超屏；
+                // 统一可滚动，遥控换焦点时 Scrollable 会自动跟随。
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Icon(
+                            titleIcon,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(title, style: textTheme.titleLarge),
+                          ),
+                          IconButton(
+                            tooltip: '返回',
+                            onPressed: () => _close(false),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
-                    ],
-                    if (widget.forceRemote) ...<Widget>[
-                      ..._buildRemoteSection(gate, showArithHint: false),
-                    ] else ...<Widget>[
-                      if (mode == 'remote') ..._buildRemoteSection(gate),
-                      if (useQuiz) ..._buildQuizSection(gate, textTheme),
-                      if (usePin) ..._buildPinSection(gate, textTheme),
-                      // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
-                      // 答题模式只在题库「加载中」时保持等待；合并后全是填空
-                      // 或没有题库 → 回退短码页（电视端不做算术兜底）。
-                      if (!useQuiz &&
-                          (mode == 'arith' ||
-                              (mode == 'pin' && !usePin) ||
-                              mode == 'remote'))
+                      if (gate.locked) ...<Widget>[
+                        Text(
+                          '先休息一下，${gate.remainingLockSec} 秒后再试',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (widget.forceRemote) ...<Widget>[
+                        ..._buildRemoteSection(gate, showArithHint: false),
+                      ] else if (widget.forceArithmetic) ...<Widget>[
+                        const Text('答对后就可以继续观看', textAlign: TextAlign.center),
+                        const SizedBox(height: 14),
                         ..._buildArithSection(gate, textTheme),
+                      ] else ...<Widget>[
+                        if (mode == 'remote') ..._buildRemoteSection(gate),
+                        if (useQuiz) ..._buildQuizSection(gate, textTheme),
+                        if (usePin) ..._buildPinSection(gate, textTheme),
+                        // arith 模式，或 pin 未配置、remote 断线兜底 → 算术题。
+                        // 答题模式只在题库「加载中」时保持等待；合并后全是填空
+                        // 或没有题库 → 回退短码页（电视端不做算术兜底）。
+                        if (!useQuiz &&
+                            (mode == 'arith' ||
+                                (mode == 'pin' && !usePin) ||
+                                mode == 'remote'))
+                          ..._buildArithSection(gate, textTheme),
+                      ],
                     ],
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () => _close(false),
-                      child: const Text('关闭'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -259,27 +323,34 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
 
   /// 先读缓存（离线也能答），再后台刷新服务端题库。
   Future<void> _loadQuiz() async {
-    final Map<String, List<ParentalQuizQuestion>> cached =
-        await _quizRepo.readCache();
-    if (!mounted) return;
-    setState(() {
-      _quizBanks = cached;
-      if (_quizQuestions.isEmpty) _quizQuestions = _selectQuestions();
-    });
-    final Map<String, List<ParentalQuizQuestion>>? remote =
-        await _quizRepo.fetchRemote();
-    if (!mounted) return;
-    setState(() {
-      if (remote != null) _quizBanks = remote;
-      // 已开始作答则不打断当前题；否则换成最新题库。
-      if (!_quizTouched) {
-        _quizQuestions = _selectQuestions();
-        _quizIndex = 0;
-        _quizSelected.clear();
-        _fillCtrl.clear();
-      }
-      _quizLoaded = true;
-    });
+    if (_quizLoading) return;
+    _quizLoading = true;
+    _quizLoaded = false;
+    try {
+      final Map<String, List<ParentalQuizQuestion>> cached = await _quizRepo
+          .readCache();
+      if (!mounted) return;
+      setState(() {
+        _quizBanks = cached;
+        if (_quizQuestions.isEmpty) _quizQuestions = _selectQuestions();
+      });
+      final Map<String, List<ParentalQuizQuestion>>? remote = await _quizRepo
+          .fetchRemote();
+      if (!mounted) return;
+      setState(() {
+        if (remote != null) _quizBanks = remote;
+        // 已开始作答则不打断当前题；否则换成最新题库。
+        if (!_quizTouched) {
+          _quizQuestions = _selectQuestions();
+          _quizIndex = 0;
+          _quizSelected.clear();
+          _fillCtrl.clear();
+        }
+        _quizLoaded = true;
+      });
+    } finally {
+      _quizLoading = false;
+    }
   }
 
   List<ParentalQuizQuestion> _selectQuestions() {
@@ -320,7 +391,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
             ),
           ),
           Text(
-            '正在加载题库…',
+            '题目准备中…',
             textAlign: TextAlign.center,
             style: textTheme.bodySmall,
           ),
@@ -329,7 +400,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       // 合并后整库都是填空题（电视端已全部跳过）→ 回退短码页，不做算术。
       return <Widget>[
         Text(
-          '所选孩子的题库只有填空题，电视端无法作答，请让家长远程解锁',
+          '暂时没有可回答的题目，请家长帮忙解锁',
           textAlign: TextAlign.center,
           style: textTheme.bodySmall,
         ),
@@ -348,7 +419,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       ),
       if (q.prompt.isNotEmpty) ...<Widget>[
         const SizedBox(height: 4),
-        Text(q.prompt, textAlign: TextAlign.center, style: textTheme.titleLarge),
+        Text(
+          q.prompt,
+          textAlign: TextAlign.center,
+          style: textTheme.titleLarge,
+        ),
       ],
       if (q.promptImageUrl.isNotEmpty) _buildQuizImage(q.promptImageUrl),
       const SizedBox(height: 12),
@@ -410,9 +485,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
               children: <Widget>[
                 if (q.multiple) ...<Widget>[
                   Icon(
-                    selected
-                        ? Icons.check_box
-                        : Icons.check_box_outline_blank,
+                    selected ? Icons.check_box : Icons.check_box_outline_blank,
                     size: 18,
                   ),
                   const SizedBox(width: 6),
@@ -424,11 +497,13 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
                       ParentalQuizQuestion.resolveImageUrl(option.image),
                       height: 44,
                       fit: BoxFit.contain,
-                      errorBuilder: (
-                        BuildContext context,
-                        Object error,
-                        StackTrace? stack,
-                      ) => const Icon(Icons.broken_image_outlined, size: 22),
+                      errorBuilder:
+                          (
+                            BuildContext context,
+                            Object error,
+                            StackTrace? stack,
+                          ) =>
+                              const Icon(Icons.broken_image_outlined, size: 22),
                     ),
                   ),
                   if (option.text.isNotEmpty) const SizedBox(width: 8),
@@ -535,7 +610,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     if (!mounted) return;
     setState(() {
       _quizError =
-          '回答错误，还可尝试 '
+          '再想一想，还可以尝试 '
           '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
       _quizIndex = _quizQuestions.isEmpty
           ? 0
@@ -572,7 +647,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         ),
         const SizedBox(height: 6),
         Text(
-          '请在手机上确认解锁（有效期 ${codes.remainingSec} 秒）',
+          '等待家长确认 · ${codes.remainingSec} 秒',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
@@ -582,14 +657,14 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     } else {
       children.addAll(<Widget>[
         Text(
-          codes.code == null ? '尚未生成解锁码' : '解锁码已过期',
+          codes.code == null ? '正在获取解锁码' : '解锁码已失效',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: gate.locked ? null : _reissue,
-          child: const Text('重新请求解锁码'),
+          child: const Text('重新获取'),
         ),
       ]);
     }
@@ -598,8 +673,11 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       children.add(Divider(height: 1, color: Theme.of(context).dividerColor));
       children.add(const SizedBox(height: 12));
       children.add(
-        Text('断线兜底：在本机完成下方算术题即可解锁',
-            style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          '手机暂时无法连接？答对下面的题目也可以解锁',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       );
       children.add(const SizedBox(height: 8));
     }
@@ -674,9 +752,9 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
       Text(
         '$_arithA + $_arithB = ?',
         textAlign: TextAlign.center,
-        style: textTheme.headlineSmall,
+        style: textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 18),
       Wrap(
         spacing: 12,
         runSpacing: 8,
@@ -684,7 +762,8 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         children: <Widget>[
           for (final int option in _arithOptions)
             SizedBox(
-              width: 96,
+              width: 112,
+              height: 56,
               child: OutlinedButton(
                 autofocus: option == _arithOptions.first,
                 onPressed: gate.locked
@@ -718,7 +797,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
     if (!mounted) return;
     setState(() {
       _arithError =
-          '回答错误，还可尝试 '
+          '再想一想，还可以尝试 '
           '${ParentalAttemptGate.maxFailures - gate.failCount} 次';
       _newArith(); // 换一题，防背答案。
     });

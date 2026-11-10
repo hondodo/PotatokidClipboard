@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 
@@ -42,8 +43,12 @@ class _DeviceAccountLabelState extends State<DeviceAccountLabel> {
   @override
   Widget build(BuildContext context) {
     final String text = _account == null
-        ? '账号：读取中…'
-        : (_account!.isEmpty ? '账号：未登录' : '账号：$_account');
+        ? 'parental_device_account_loading'.tr()
+        : (_account!.isEmpty
+              ? 'parental_device_account_unavailable'.tr()
+              : 'parental_device_account_value'.tr(
+                  namedArgs: <String, String>{'__ACCOUNT__': _account!},
+                ));
     return Text(
       text,
       textAlign: widget.textAlign,
