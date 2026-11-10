@@ -144,16 +144,21 @@ function requireServiceToken(config) {
 }
 
 // 空间不足时按 createdAt 最旧优先淘汰，只作用于 mirror 目录。
-function planEvictions(store, incomingSize, maxBytes) {
+// pinned 记录（儿童档案头像等重要素材）跳过淘汰，即使超量也只保留 pinned，
+// 剩下位置才让普通图片按顺序被淘汰。
+function planEvictions(store, incomingSize, maxBytes, isPinned = false) {
   const used = sumBytes(store);
-  if (incomingSize > maxBytes) {
+  if (!isPinned && incomingSize > maxBytes) {
     throw new ApiError(413, 300004, `单个文件超过镜像总量上限 ${maxBytes} 字节`);
   }
-  const items = Object.values(store.data.files || {}).sort(
-    (a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || String(a.id).localeCompare(String(b.id))
-  );
+  const items = Object.values(store.data.files || {})
+    .filter((a) => !a.pinned)
+    .sort(
+      (a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || String(a.id).localeCompare(String(b.id))
+    );
   const evicted = [];
   let projected = used;
+  // pinned 文件的 incomingSize 也计入总量（但本文件自身不会被淘汰）。
   for (const item of items) {
     if (projected + incomingSize <= maxBytes) break;
     evicted.push(item);
@@ -188,14 +193,14 @@ function createFilesRouter({ config, store, audit }) {
     }
   }
 
-  async function commit({ tempPath, name, size, sha256, originServer, originPath, actor, ip }) {
+  async function commit({ tempPath, name, size, sha256, originServer, originPath, actor, ip, pinned = false }) {
     const id = newFileId();
     const relPath = path.join(dayDir(), `${id}_${name}`);
     const abs = path.resolve(config.mirrorRoot, relPath);
     const max = maxBytesOf(config);
 
     return serializedFinalize(async () => {
-      const { evicted } = planEvictions(store, size, max);
+      const { evicted } = planEvictions(store, size, max, pinned);
       fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o700 });
       fs.renameSync(tempPath, abs);
 
@@ -215,6 +220,7 @@ function createFilesRouter({ config, store, audit }) {
           storedPath: relPath,
           uploadedBy: actor || '',
           uploadedIp: ip || '',
+          ...(pinned ? { pinned: true } : {}),
         };
         db.files[id] = record;
         return { record, evicted };
@@ -305,6 +311,7 @@ function createFilesRouter({ config, store, audit }) {
 
         if (!saved || saved.size <= 0) throw new ApiError(200, 400005, '文件为空');
         const safeName = sanitizeName(name);
+        const pinned = String(req.get('x-pinned') || '').toLowerCase() === 'true';
         const result = await commit({
           tempPath,
           name: safeName,
@@ -314,6 +321,7 @@ function createFilesRouter({ config, store, audit }) {
           originPath,
           actor: 'service',
           ip: clientIp(req),
+          pinned,
         });
         ok(
           res,
@@ -364,6 +372,35 @@ function createFilesRouter({ config, store, audit }) {
 
   router.get('/api/files/:id/download', requireServiceToken(config), serviceDownload);
   router.head('/api/files/:id/download', requireServiceToken(config), serviceDownload);
+
+  /** 公开下载 pinned 记录（儿童档案头像等）：无令牌，返回 image/*，长缓存。
+   *  只有 `record.pinned === true` 才能访问，防止普通镜像文件被公网扫走。 */
+  const publicMimeByExt = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+  function publicAvatar(req, res, next) {
+    const record = (store.data.files || {})[req.params.id];
+    if (!record) throw new ApiError(404, 400018, '资源不存在');
+    if (!record.pinned) throw new ApiError(403, 400011, '无访问权限');
+    const abs = absMirrorPath(config, record);
+    if (!abs.startsWith(path.resolve(config.mirrorRoot) + path.sep) || !fs.existsSync(abs)) {
+      throw new ApiError(410, 400018, '资源已失效');
+    }
+    const lowerName = String(record.name || '').toLowerCase();
+    let ext = path.extname(lowerName);
+    if (!publicMimeByExt[ext]) {
+      // 从 originPath 尾部兜底
+      const opExt = path.extname(String(record.originPath || '').toLowerCase());
+      ext = publicMimeByExt[opExt] ? opExt : '.png';
+    }
+    res.setHeader('Content-Type', publicMimeByExt[ext]);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(abs, (err) => {
+      if (!err) return;
+      if (!res.headersSent) return next(err);
+      return undefined;
+    });
+  }
+  router.get('/api/files/:id/avatar', publicAvatar);
+  router.head('/api/files/:id/avatar', publicAvatar);
 
   return router;
 }

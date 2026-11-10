@@ -222,6 +222,64 @@ class ParentalAdminApi {
     return '${body['url'] ?? ''}';
   }
 
+  /// 上传儿童档案头像：base64 → 返回 app_server 公网直链。
+  /// 服务端自动按 sha256 去重（同一张图第二次上传会复用已有 URL）。
+  ///
+  /// [onSendProgress] 可选：客户端压成 512×512 PNG 后约 150–300KB，
+  /// JSON + base64 后 HTTP body ~400KB；在局域网里 ~100ms 就能发完，
+  /// 但给个回调让上层决定要不要显示进度（比如编辑器里的上涨条）。
+  Future<String> uploadAvatar(
+    String deviceId, {
+    required List<int> bytes,
+    void Function(int sent, int total)? onSendProgress,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/avatar').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'deviceId': deviceId,
+        'data': base64Encode(bytes),
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+      onSendProgress: onSendProgress,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final String url = '${body['url'] ?? ''}';
+    if (url.isEmpty) {
+      throw const ServerApiException('头像上传失败：未返回地址');
+    }
+    return url;
+  }
+
+  /// 列出当前家长可用的头像素材（所有能管理的 TV 的头像合并、按 sha256 去重）。
+  Future<List<AvatarItem>> listAvatars() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/avatars').toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic raw = body['avatars'];
+    if (raw is! List) return const <AvatarItem>[];
+    return raw
+        .whereType<Map>()
+        .map(
+          (Map item) => AvatarItem.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  /// 从家长可用的头像列表移除某个素材（不会删除 app_server 上的物理文件，
+  /// 因为其他电视/档案可能还在引用同一个 sha256 的图）。
+  Future<void> deleteAvatar(String avatarId) async {
+    await DioManager().send(
+      url: _uri('/api/admin/parental/avatar/$avatarId').toString(),
+      method: HttpMethod.DELETE,
+      notTipNetError: true,
+    );
+  }
+
   /// 设置当前账号给这台设备起的私有别名（空串 = 清除，回落默认名称）。
   ///
   /// 服务端返回落盘后的别名；调用方据此更新本地列表，失败时保持旧值并提示。
@@ -386,5 +444,36 @@ class ParentalMachine {
         commDisplayName: '${json['commDisplayName'] ?? ''}',
         alias: '${json['alias'] ?? ''}',
         online: json['online'] == true,
+      );
+}
+
+/// 一张上传到 app_server 并已镜像到公网的儿童档案头像素材。
+class AvatarItem {
+  const AvatarItem({
+    required this.id,
+    required this.url,
+    required this.sha256,
+    this.mime = 'image/png',
+    this.size = 0,
+    this.uploadedBy = '',
+    this.createdAt = '',
+  });
+
+  final String id;
+  final String url;
+  final String sha256;
+  final String mime;
+  final int size;
+  final String uploadedBy;
+  final String createdAt;
+
+  factory AvatarItem.fromJson(Map<String, dynamic> json) => AvatarItem(
+        id: '${json['id'] ?? ''}',
+        url: '${json['url'] ?? ''}',
+        sha256: '${json['sha256'] ?? ''}',
+        mime: '${json['mime'] ?? 'image/png'}',
+        size: (json['size'] as num?)?.toInt() ?? 0,
+        uploadedBy: '${json['uploadedBy'] ?? ''}',
+        createdAt: '${json['createdAt'] ?? ''}',
       );
 }

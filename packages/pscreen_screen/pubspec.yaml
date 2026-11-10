@@ -42,3 +42,4 @@ flutter:
   # （宿主若用目录通配声明，会被解析成 <宿主目录>/packages/… 而构建失败）。
   assets:
     - assets/datas/
+    - assets/parental/avatars/

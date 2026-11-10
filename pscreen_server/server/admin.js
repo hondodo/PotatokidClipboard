@@ -41,6 +41,10 @@ const QUIZ_IMAGE_URL_RE = /^\/api\/parental\/quiz-image\/[a-z0-9]+\.(?:png|jpg|j
 const QUIZ_IMAGE_FILE_RE = /^[a-z0-9]+\.(?:png|jpg|jpeg|webp|gif)$/;
 // 一台设备可绑定的家长账号上限。
 const MAX_PARENT_ACCOUNTS = 20;
+// 头像字段校验：preset:xxx 或 http(s)://...；空字符串 = 客户端回落。
+const AVATAR_PRESET_RE = /^preset:[A-Za-z0-9_-]{1,32}$/;
+const AVATAR_URL_RE = /^https?:\/\//;
+const MAX_AVATAR_URL_LEN = 512;
 // 设备备注 / 家长私有别名的长度上限；占位名视为「未设置」，避免历史脏数据被当成真名。
 const MAX_MACHINE_NAME = 40;
 const MAX_ALIAS_LENGTH = 40;
@@ -304,12 +308,30 @@ function normalizeParental(value) {
         if (child.locked !== undefined && child.locked !== null && typeof child.locked !== 'boolean') {
             throw new Error(`${at}.locked 必须是布尔值`);
         }
+        // avatar：可选字段；缺省 → 客户端回落（preset 或派生）；给出则必须是
+        // preset:xxx 或 http(s):// 开头的 URL（长度 ≤ 512）；禁止外链白名单以外。
+        let avatar;
+        if (child.avatar !== undefined && child.avatar !== null && child.avatar !== '') {
+            if (typeof child.avatar !== 'string') {
+                throw new Error(`${at}.avatar 必须是字符串`);
+            }
+            const trimmed = child.avatar.trim();
+            if (trimmed.length > MAX_AVATAR_URL_LEN) {
+                throw new Error(`${at}.avatar 长度不能超过 ${MAX_AVATAR_URL_LEN} 字符`);
+            }
+            if (AVATAR_PRESET_RE.test(trimmed) || AVATAR_URL_RE.test(trimmed)) {
+                avatar = trimmed;
+            } else {
+                throw new Error(`${at}.avatar 必须是 preset:xxx 或以 http(s):// 开头的 URL`);
+            }
+        }
         children.push({
             id,
             name: child.name.trim().slice(0, 40),
             ...(age !== undefined ? { age } : {}),
             profileMode,
             locked: child.locked === true,
+            ...(avatar !== undefined ? { avatar } : {}),
             hideGroups: normalizeParentalNameList(child.hideGroups, `${at}.hideGroups`),
             hideChannels: normalizeParentalNameList(child.hideChannels, `${at}.hideChannels`),
             allowGroups: normalizeParentalNameList(child.allowGroups, `${at}.allowGroups`),
@@ -523,6 +545,10 @@ function attachAdmin(app, options = {}) {
     // 避免管理页保存 parental 时把题库冲掉，也避开 ws config 帧 128KiB 上限。
     const quizFile = path.join(adminDir, 'parental_quizzes.json');
     const quizImageDir = path.join(adminDir, 'parental-quiz-images');
+    // 儿童档案头像：上传到 app_server（公网直链），本地只存索引 + sha256 去重。
+    const avatarFile = path.join(adminDir, 'parental_avatars.json');
+    const avatarImageDir = path.join(adminDir, 'parental-avatars');
+    const MAX_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024; // 客户端已压到 ≤300KB，留余量
 
     // 会话签名密钥：首次启动生成，之后保持不变（重启不会踢掉已登录会话）。
     let secret;
@@ -765,6 +791,80 @@ function attachAdmin(app, options = {}) {
     function childExists(machine, childId) {
         const children = machine.parental && Array.isArray(machine.parental.children) ? machine.parental.children : [];
         return children.some((child) => child.id === childId);
+    }
+
+    // ------------------------------------------------------------ 头像索引
+
+    /** 头像素材索引：{ "<deviceId>": [ { id, url, sha256, mime, size, uploadedBy, createdAt, childIds: [] } ] }。
+     *  跨设备相同 sha256 的图片视为同一张（列表接口会按 sha256 去重）。 */
+    function readAvatarStore() {
+        const raw = readJson(avatarFile, {});
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const result = {};
+        for (const [deviceId, list] of Object.entries(raw)) {
+            if (!safeDeviceId(deviceId) || !Array.isArray(list)) continue;
+            const items = [];
+            const seenSha = new Set();
+            for (const item of list) {
+                if (!item || typeof item !== 'object') continue;
+                const sha = typeof item.sha256 === 'string' ? item.sha256 : '';
+                if (!sha || seenSha.has(sha)) continue;
+                seenSha.add(sha);
+                const url = typeof item.url === 'string' ? item.url.trim() : '';
+                if (!url) continue;
+                items.push({
+                    id: typeof item.id === 'string' ? item.id.trim() : '',
+                    url,
+                    sha256: sha,
+                    mime: typeof item.mime === 'string' ? item.mime : 'image/png',
+                    size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
+                    uploadedBy: typeof item.uploadedBy === 'string' ? item.uploadedBy : '',
+                    createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+                    childIds: Array.isArray(item.childIds) ? item.childIds.filter((x) => typeof x === 'string') : [],
+                });
+            }
+            if (items.length > 0) result[deviceId] = items;
+        }
+        return result;
+    }
+
+    function saveAvatarStore(store) {
+        writeJson(avatarFile, store);
+    }
+
+    /** 按 family 维度合并头像（同一家长能管的所有 tv 的头像，按 sha256 去重）。 */
+    function listAvatarsForParent(parentName) {
+        const store = readAvatarStore();
+        const machines = readMachines();
+        const merged = [];
+        const seenSha = new Set();
+        for (const [deviceId, items] of Object.entries(store)) {
+            const machine = machines[deviceId];
+            if (!machine || machineKind(machine) !== 'tv') continue;
+            const isOwner = machine.owner === parentName;
+            const isParent = Array.isArray(machine.parents) && machine.parents.includes(parentName);
+            if (!isOwner && !isParent) continue;
+            for (const item of items) {
+                if (seenSha.has(item.sha256)) continue;
+                seenSha.add(item.sha256);
+                merged.push(item);
+            }
+        }
+        return merged;
+    }
+
+    /** 图片 magic bytes → mime；不合法返回 null（防止伪装成图片上传任意字节）。 */
+    function detectImageMime(buffer) {
+        if (!buffer || buffer.length < 8) return null;
+        if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'image/png';
+        if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'image/jpeg';
+        if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46
+            && buffer.length >= 12
+            && buffer.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+        // GIF 87a / 89a
+        if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38
+            && (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61) return 'image/gif';
+        return null;
     }
 
     /** 机器 → 生效配置：机器设置 > 所属用户设置 > 未配置（App 回落 .env）。 */
@@ -1538,6 +1638,122 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, { url: `/api/parental/quiz-image/${name}` }, '图片已上传');
         } catch (error) {
             console.error('[quiz] 图片上传失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 儿童档案头像上传：base64 → magic bytes 校验 → sha256 去重 → 同步转发 app_server。
+     *  同一个 sha256 第二次上传会直接返回已有的 URL（不重复转发）。
+     *  必须走 mirrorAndWait（同步等待公网 URL 回来再存索引），这样客户端拿到的一定是可直连地址。 */
+    app.post('/api/admin/parental/avatar', requireParentOperator, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持儿童档案');
+            if (req.adminUser.role === 'parent' && !machine.parents.includes(req.adminUser.name)) {
+                return jsonFail(res, '只能给你管理的电视上传头像', 403, 403);
+            }
+            let data = typeof body.data === 'string' ? body.data : '';
+            const dataUrl = data.match(/^data:(image\/[a-z+]+);base64,([\s\S]*)$/i);
+            if (dataUrl) data = dataUrl[2];
+            if (!data) return jsonFail(res, '图片内容为空');
+            const buffer = Buffer.from(data, 'base64');
+            if (!buffer.length) return jsonFail(res, '图片内容为空');
+            if (buffer.length > MAX_AVATAR_IMAGE_BYTES) {
+                return jsonFail(res, `图片不能超过 ${MAX_AVATAR_IMAGE_BYTES / 1024 / 1024}MB`);
+            }
+            const mime = detectImageMime(buffer);
+            if (!mime) return jsonFail(res, '仅支持 PNG / JPEG / WebP / GIF 图片（magic bytes 校验未通过）');
+
+            const sha = crypto.createHash('sha256').update(buffer).digest('hex');
+            const store = readAvatarStore();
+            const existing = (store[id] || []).find((item) => item.sha256 === sha);
+            if (existing) {
+                return jsonOk(res, { url: existing.url, sha256: sha, id: existing.id, reused: true }, '头像已存在');
+            }
+
+            fs.mkdirSync(avatarImageDir, { recursive: true });
+            const extMap = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+            const ext = extMap[mime] || 'png';
+            const localName = `${sha.slice(0, 16)}.${ext}`;
+            const localPath = path.join(avatarImageDir, localName);
+            if (!fs.existsSync(localPath)) fs.writeFileSync(localPath, buffer);
+
+            if (!forward || typeof forward.mirrorAndWait !== 'function') {
+                return jsonFail(res, '上传镜像转发未配置（请先配置 datas/forward_config.json 的 baseUrl 和 serviceToken）');
+            }
+            const mirrorResult = await forward.mirrorAndWait(localPath, `parental-avatars/${id}/${localName}`, { 'x-pinned': 'true' });
+            // app_server mirror 返回的是 /download 路由（需要 Service Token），
+            // 我们要 /avatar 公开路由（无令牌、返回 image/*、长缓存）。两者只差路径段，直接替换。
+            let downloadUrl = mirrorResult.downloadUrl;
+            if (downloadUrl && downloadUrl.endsWith('/download')) {
+                downloadUrl = downloadUrl.slice(0, -'/download'.length) + '/avatar';
+            }
+            if (!downloadUrl || !AVATAR_URL_RE.test(downloadUrl)) {
+                return jsonFail(res, '镜像转发成功但未返回有效的下载地址');
+            }
+
+            const avatarId = mirrorResult.id || `local_${sha.slice(0, 12)}`;
+            const record = {
+                id: avatarId,
+                url: downloadUrl,
+                sha256: sha,
+                mime,
+                size: buffer.length,
+                uploadedBy: req.adminUser.name,
+                createdAt: new Date().toISOString(),
+                childIds: [],
+            };
+            if (!store[id]) store[id] = [];
+            store[id].push(record);
+            saveAvatarStore(store);
+            console.log(`[avatar] ${req.adminUser.name} 上传头像 ${avatarId} → ${downloadUrl}`);
+            return jsonOk(res, { url: downloadUrl, sha256: sha, id: avatarId, mime: mime }, '头像已上传');
+        } catch (error) {
+            console.error('[avatar] 上传失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 列出可用头像素材：按家庭维度合并（所有该家长能管的 tv 的头像，按 sha256 去重）。 */
+    app.get('/api/admin/parental/avatars', requireParentOperator, (req, res) => {
+        try {
+            const avatars = listAvatarsForParent(req.adminUser.name);
+            return jsonOk(res, { avatars });
+        } catch (error) {
+            console.error('[avatar] 列表失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 从索引移除头像素材（app_server 那边的物理文件不动，避免其他电视/档案还在引用）。 */
+    app.delete('/api/admin/parental/avatar/:avatarId', requireParentOperator, (req, res) => {
+        try {
+            const avatarId = String(req.params.avatarId || '').trim();
+            if (!avatarId) return jsonFail(res, 'avatarId 无效');
+            const store = readAvatarStore();
+            let removed = 0;
+            const machines = readMachines();
+            const parentName = req.adminUser.name;
+            for (const [deviceId, list] of Object.entries(store)) {
+                const machine = machines[deviceId];
+                if (!machine) continue;
+                if (req.adminUser.role === 'parent') {
+                    const isOwner = machine.owner === parentName;
+                    const isParent = Array.isArray(machine.parents) && machine.parents.includes(parentName);
+                    if (!isOwner && !isParent) continue;
+                }
+                const before = list.length;
+                store[deviceId] = list.filter((item) => item.id !== avatarId);
+                removed += before - store[deviceId].length;
+            }
+            saveAvatarStore(store);
+            return jsonOk(res, { removed }, removed > 0 ? '头像已移除' : '头像未找到');
+        } catch (error) {
+            console.error('[avatar] 删除失败:', error);
             return jsonFail(res, error.message);
         }
     });

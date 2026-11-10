@@ -52,6 +52,8 @@ dependencies:
   package_info_plus: ^10.2.2
   # 答题题库导入（JSON / CSV）与题目配图选择
   file_picker: ^13.3.2
+  # 头像上传前客户端裁剪（中心裁 1:1 → 512×512 PNG）
+  image: ^4.3.0
   # 网络恢复监听（App 更新下载失败后补一次静默重试）
   connectivity_plus: ^7.3.1
   # 屏幕能力共享包（IPTV / 天气 / 时钟 / 消息协议 / 网络基础设施）

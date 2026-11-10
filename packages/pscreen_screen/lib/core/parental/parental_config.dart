@@ -66,6 +66,7 @@ class ChildProfile {
     this.age,
     this.profileMode = 'mild',
     this.locked = false,
+    this.avatar,
     this.hideGroups = const <String>[],
     this.hideChannels = const <String>[],
     this.allowGroups = const <String>[],
@@ -84,6 +85,13 @@ class ChildProfile {
 
   /// 是否受验证保护（勾选该档案需家长验证）。
   final bool locked;
+
+  /// 头像；可选。
+  ///
+  /// - `null` / 空 → 客户端回落（preset 或按 id 派生）
+  /// - `preset:avatar001` 等 → 内置资源（`packages/pscreen_screen/assets/parental/avatars/avatar001.png`）
+  /// - `http(s)://` 开头 → 家长上传到 app_server 的公网直链
+  final String? avatar;
 
   /// 温和档：分组黑名单 / 频道名黑名单（两者取并集隐藏）。
   final List<String> hideGroups;
@@ -107,12 +115,24 @@ class ChildProfile {
   factory ChildProfile.fromJson(Map<String, dynamic> json) {
     final String id = (json['id'] as String?)?.trim() ?? '';
     final String name = (json['name'] as String?)?.trim() ?? '';
+    final String? avatar = (() {
+      final raw = json['avatar'];
+      if (raw is String) {
+        final String s = raw.trim();
+        if (s.isEmpty) return null;
+        // 宽松解析：preset:xxx 或以 http(s):// 开头都接受；非法值回落 null。
+        if (s.startsWith('preset:')) return s;
+        if (s.startsWith('http://') || s.startsWith('https://')) return s;
+      }
+      return null;
+    })();
     return ChildProfile(
       id: id,
       name: name.isEmpty ? id : name,
       age: json['age'] is num ? (json['age'] as num).toInt() : null,
       profileMode: json['profileMode'] == 'strict' ? 'strict' : 'mild',
       locked: json['locked'] == true,
+      avatar: avatar,
       hideGroups: _stringList(json['hideGroups']),
       hideChannels: _stringList(json['hideChannels']),
       allowGroups: _stringList(json['allowGroups']),
@@ -129,6 +149,7 @@ class ChildProfile {
         if (age != null) 'age': age,
         'profileMode': profileMode,
         if (locked) 'locked': true,
+        if (avatar != null && avatar!.isNotEmpty) 'avatar': avatar,
         if (hideGroups.isNotEmpty) 'hideGroups': hideGroups,
         if (hideChannels.isNotEmpty) 'hideChannels': hideChannels,
         if (allowGroups.isNotEmpty) 'allowGroups': allowGroups,

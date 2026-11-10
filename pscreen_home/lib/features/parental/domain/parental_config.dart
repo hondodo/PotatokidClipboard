@@ -97,6 +97,7 @@ class ParentalChild {
     required this.name,
     this.age,
     this.profileMode = 'mild',
+    this.avatar,
     this.hideGroups = const <String>[],
     this.hideChannels = const <String>[],
     this.allowGroups = const <String>[],
@@ -113,6 +114,9 @@ class ParentalChild {
 
   /// 档位：`mild | strict`（唯一按档案生效的档位来源）。
   final String profileMode;
+
+  /// 头像；可选。`preset:xxx` / `http(s)://...`；空 = 客户端回落。
+  final String? avatar;
 
   final List<String> hideGroups;
   final List<String> hideChannels;
@@ -137,6 +141,16 @@ class ParentalChild {
   String get profileModeLabel => isStrict ? '严格档' : '温和档';
 
   factory ParentalChild.fromJson(Map<String, dynamic> json) {
+    final String? avatar = (() {
+      final dynamic raw = json['avatar'];
+      if (raw is String) {
+        final String s = raw.trim();
+        if (s.isEmpty) return null;
+        if (s.startsWith('preset:')) return s;
+        if (s.startsWith('http://') || s.startsWith('https://')) return s;
+      }
+      return null;
+    })();
     return ParentalChild(
       id: _string(json['id']),
       name: _string(json['name']),
@@ -144,6 +158,7 @@ class ParentalChild {
       profileMode: _string(json['profileMode'], fallback: 'mild') == 'strict'
           ? 'strict'
           : 'mild',
+      avatar: avatar,
       hideGroups: _stringList(json['hideGroups']),
       hideChannels: _stringList(json['hideChannels']),
       allowGroups: _stringList(json['allowGroups']),
@@ -160,6 +175,7 @@ class ParentalChild {
         'name': name,
         if (age != null) 'age': age,
         'profileMode': profileMode,
+        if (avatar != null && avatar!.isNotEmpty) 'avatar': avatar,
         'hideGroups': hideGroups,
         'hideChannels': hideChannels,
         'allowGroups': allowGroups,
@@ -174,6 +190,7 @@ class ParentalChild {
     String? name,
     int? age,
     String? profileMode,
+    String? avatar,
     List<String>? hideGroups,
     List<String>? hideChannels,
     List<String>? allowGroups,
@@ -188,6 +205,7 @@ class ParentalChild {
         name: name ?? this.name,
         age: age ?? this.age,
         profileMode: profileMode ?? this.profileMode,
+        avatar: avatar ?? this.avatar,
         hideGroups: hideGroups ?? this.hideGroups,
         hideChannels: hideChannels ?? this.hideChannels,
         allowGroups: allowGroups ?? this.allowGroups,

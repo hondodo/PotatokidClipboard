@@ -218,7 +218,7 @@ function createForwarder(options = {}) {
     /**
      * 单次 multipart 上传。返回 {ok, status, id, sha256, error}，自身不抛出。
      */
-    function uploadOnce(config, filePath, originPath) {
+    function uploadOnce(config, filePath, originPath, extraHeaders = {}) {
         return new Promise((resolve) => {
             let settled = false;
             let completedHash = null;
@@ -270,6 +270,7 @@ function createForwarder(options = {}) {
                     'X-Origin-Path': encodeHeaderPath(originPath),
                     Accept: 'application/json',
                     Connection: 'close',
+                    ...extraHeaders,
                     // Host 由 Node 自动填充；显式端口已包含在内。
                 },
             };
@@ -320,6 +321,7 @@ function createForwarder(options = {}) {
                         ok: true,
                         status: response.statusCode,
                         id: data.id === undefined ? null : data.id,
+                        downloadUrl: typeof data.downloadUrl === 'string' ? data.downloadUrl : null,
                         sha256: localSha || (typeof data.sha256 === 'string' ? data.sha256 : null),
                         error: null,
                     });
@@ -363,7 +365,7 @@ function createForwarder(options = {}) {
         });
     }
 
-    async function runMirror(filePath, originPath) {
+    async function runMirror(filePath, originPath, extraHeaders = {}) {
         const config = readConfig();
         if (!config.enabled) return; // 关闭时完全不发请求、不写日志
 
@@ -404,7 +406,7 @@ function createForwarder(options = {}) {
         inflight += 1;
         const startedAt = Date.now();
         const attempts = config.retries + 1;
-        let result = { ok: false, status: null, id: null, sha256: null, error: '未执行' };
+        let result = { ok: false, status: null, id: null, downloadUrl: null, sha256: null, error: '未执行' };
         let attemptsUsed = 0;
         try {
             for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -412,14 +414,14 @@ function createForwarder(options = {}) {
                     await sleep(Math.min(1000 * Math.pow(2, attempt - 1), 30000));
                 }
                 attemptsUsed = attempt + 1;
-                result = await uploadOnce(config, filePath, relPath);
+                result = await uploadOnce(config, filePath, relPath, extraHeaders);
                 if (result.ok) break;
                 if (attempt < attempts - 1) {
                     console.warn(`[forward] 转发失败（第 ${attempt + 1}/${attempts} 次）: ${relPath} - ${result.error}`);
                 }
             }
         } catch (error) {
-            result = { ok: false, status: null, id: null, sha256: null, error: `转发异常: ${error.message}` };
+            result = { ok: false, status: null, id: null, downloadUrl: null, sha256: null, error: `转发异常: ${error.message}` };
         } finally {
             inflight -= 1;
         }
@@ -441,15 +443,36 @@ function createForwarder(options = {}) {
         } else {
             console.error(`[forward] 转发失败: ${relPath} - ${result.error}`);
         }
+        return result;
+    }
+
+    /**
+     * 等待转发完成并返回结果：成功时 resolve { ok, id, downloadUrl, sha256, status }，
+     * 失败时 throw（让调用方决定是否继续；例如头像上传场景必须拿到公网 URL，
+     * 转发失败直接报错给家长，避免头像存了 pscreen_server 但没同步到 app_server）。
+     * 内部与 mirrorToYuntu 共用 runMirror，配置/重试/超时规则完全一致。
+     */
+    async function mirrorAndWait(filePath, originPath, extraHeaders = {}) {
+        const result = await runMirror(filePath, originPath, extraHeaders);
+        if (!result || !result.ok) {
+            throw new Error(result ? result.error : '转发未执行');
+        }
+        return {
+            ok: true,
+            id: result.id,
+            downloadUrl: result.downloadUrl,
+            sha256: result.sha256,
+            status: result.status,
+        };
     }
 
     /**
      * fire-and-forget：调用方不需要 await，异常只记录日志，绝不影响上传响应。
      */
-    function mirrorToYuntu(filePath, originPath) {
+    function mirrorToYuntu(filePath, originPath, extraHeaders = {}) {
         let task;
         try {
-            task = runMirror(filePath, originPath);
+            task = runMirror(filePath, originPath, extraHeaders);
         } catch (error) {
             console.error('[forward] 启动转发任务失败:', error.message);
             return Promise.resolve();
@@ -503,7 +526,7 @@ function createForwarder(options = {}) {
     // 启动即生成模板，方便管理员直接填写令牌。
     ensureConfigFile();
 
-    return { mirrorToYuntu, status, configPath, logPath };
+    return { mirrorToYuntu, mirrorAndWait, status, configPath, logPath };
 }
 
 module.exports = { createForwarder };

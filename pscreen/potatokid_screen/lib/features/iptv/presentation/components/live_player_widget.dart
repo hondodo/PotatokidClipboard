@@ -103,6 +103,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
   /// 进入播放即推进看门狗结算。
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<int?>? _widthSub;
+
   /// 卡顿事件记账（buffering 边沿）：playing 期间 buffering=true 记起点，
   /// 恢复时超过 1s 打一条日志——用于与 relay 侧的请求空窗对表。
   StreamSubscription<bool>? _bufferingSub;
@@ -228,7 +229,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
       final String trimmed = msg.trim();
       // 直播源不支持 seek 时 media_kit 会把同一错误拆成多行报出，
       // 都属于非致命（源本身可播，画面会闪一下），整组忽略、不触发回退。
-      if (trimmed.contains('Cannot seek in this stream') || trimmed.contains('--force-seekable')) {
+      if (trimmed.contains('Cannot seek in this stream') ||
+          trimmed.contains('--force-seekable') ||
+          trimmed.contains('Failed to recognize file format.')) {
         Injection.get<LogService>().info('[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed');
         return;
       }
@@ -582,11 +585,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         'audioParams=${_probe.audioParamsReady}',
       );
     }
-    _bufferStall.notifyState(
-      playing: s.playing,
-      buffering: s.buffering,
-      established: established,
-    );
+    _bufferStall.notifyState(playing: s.playing, buffering: s.buffering, established: established);
   }
 
   IptvChannel? _currentChannel() {

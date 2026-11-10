@@ -543,15 +543,23 @@ class MainApp extends StatelessWidget {
             ),
           ),
         ),
-        // 消息浮层：全局最上层，独立于 rootOkHandler 焦点链；详情内 D-pad
-        // 滚动由上面的拦截层转发 [MessageOverlay.scrollDetail]。
-        const Positioned.fill(child: MessageOverlay()),
-        // 儿童模式选人页：开机确认一次（未确认全屏遮挡，未确定不进直播），
-        // 置于消息浮层之上、锁屏之下（锁屏优先级最高）。
-        const Positioned.fill(child: ParentalSelectOverlay()),
-        // 儿童模式锁屏覆盖层：置于最上层（盖住导航条/悬浮遥控/消息浮层），
-        // 展示判据统一读 KidWatchTimerController.locked（到阈值/重启保持/解除）。
-        const Positioned.fill(child: ParentalLockOverlay()),
+        // 三个覆盖层（消息浮层 / 选人页 / 锁屏）都在 Scaffold.body 的 Stack
+        // 顶层，不在 Material → DefaultTextStyle 子树里，导致无样式祖先时
+        // 走 Flutter 兜底（黄色 + 双下划线）。统一包 DefaultTextStyle，
+        // 用 theme.bodyMedium 兜底并显式关 decoration。
+        DefaultTextStyle(
+          style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+                decoration: TextDecoration.none,
+                decorationColor: Colors.transparent,
+              ),
+          child: Stack(
+            children: const <Widget>[
+              Positioned.fill(child: MessageOverlay()),
+              Positioned.fill(child: ParentalSelectOverlay()),
+              Positioned.fill(child: ParentalLockOverlay()),
+            ],
+          ),
+        ),
       ],
     );
   }

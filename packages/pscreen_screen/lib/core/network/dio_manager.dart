@@ -93,6 +93,10 @@ class DioManager {
     Duration? connectTimeout,
     Duration? receiveTimeout,
     Duration? sendTimeout,
+    /// 上传进度回调（发送阶段）。两个参数都是字节数；负值表示未知。
+    void Function(int sent, int total)? onSendProgress,
+    /// 下载进度回调（接收阶段）。
+    void Function(int received, int total)? onReceiveProgress,
   }) async {
     await _initCompleter.future;
 
@@ -111,6 +115,8 @@ class DioManager {
           sendTimeout: sendTimeout,
         ),
         cancelToken: cancelToken ?? _sessionCancelToken,
+        onSendProgress: onSendProgress,
+        onReceiveProgress: onReceiveProgress,
       );
 
       final statusCode = response.statusCode ?? -1;
@@ -136,6 +142,8 @@ class DioManager {
           connectTimeout: connectTimeout,
           receiveTimeout: receiveTimeout,
           sendTimeout: sendTimeout,
+          onSendProgress: onSendProgress,
+          onReceiveProgress: onReceiveProgress,
         );
       }
       // 不用 connectivity_plus 预判网络状态：部分 Android 设备（如 API 25 +

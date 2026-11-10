@@ -261,6 +261,7 @@ class _ParentalLocalConfigEditorState
           age: prev?.age,
           profileMode: d.strict ? 'strict' : 'mild',
           locked: prev?.locked ?? false,
+          avatar: prev?.avatar,
           hideGroups: prev?.hideGroups ?? const <String>[],
           hideChannels: prev?.hideChannels ?? const <String>[],
           allowGroups: prev?.allowGroups ?? const <String>[],

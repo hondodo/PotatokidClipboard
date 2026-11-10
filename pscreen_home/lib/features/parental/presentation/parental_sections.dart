@@ -56,6 +56,7 @@ class ChildrenSection extends StatelessWidget {
               onPressed: () async {
                 final ParentalChild? child = await ChildProfileEditorSheet.show(
                   context,
+                  deviceId: deviceId!,
                 );
                 if (child == null) return;
                 await onSave(
@@ -96,6 +97,7 @@ class ChildrenSection extends StatelessWidget {
               final ParentalChild? next = await ChildProfileEditorSheet.show(
                 context,
                 initial: config.children[i],
+                deviceId: deviceId!,
               );
               if (next == null) return;
               final List<ParentalChild> children = List<ParentalChild>.of(
