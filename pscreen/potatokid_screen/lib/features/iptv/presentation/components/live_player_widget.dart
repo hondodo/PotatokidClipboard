@@ -328,7 +328,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.addListener(_onChannelSelected);
     _channelController.onPlayCommit.addListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
-    HomeNowPlayingController.instance.onToggleChannelPanel = _toggleChannelPanel;
+    HomeNowPlayingController.instance.onShowChannelPanel = _showChannelPanel;
+    HomeNowPlayingController.instance.onHideChannelPanel = _hideChannelPanel;
     // 锁屏/解锁边沿：锁屏即暂停、解锁即恢复（儿童模式）。
     _lastKidLocked = KidWatchTimerController.instance.locked;
     KidWatchTimerController.instance.addListener(_onKidLockChanged);
@@ -507,22 +508,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     });
   }
 
-  /// 首页 OK 键：显示/隐藏「左下角频道信息 + 右侧频道列表」。
-  /// 两者都可见时统一隐藏；否则统一显示并重置各自的自动隐藏计时。
-  void _toggleChannelPanel() {
+  void _showChannelPanel() {
     if (!mounted) return;
-    final bool toastVisible = _toastNameVN.value != null;
-    final bool listVisible = context.read<AppBloc>().state.showChannels;
-    if (toastVisible && listVisible) {
-      _toastTimer?.cancel();
-      _toastNameVN.value = null;
-      _channelsHideTimer?.cancel();
-      _channelsHideTimer = null;
-      context.read<AppBloc>().add(const SetChannels(false));
-    } else {
-      _showChannelToast(_channelSourceLabel(withNumber: true));
-      _markChannelsActivity();
-    }
+    _showChannelToast(_channelSourceLabel(withNumber: true));
+    _markChannelsActivity();
+  }
+
+  void _hideChannelPanel() {
+    if (!mounted) return;
+    _toastTimer?.cancel();
+    _toastNameVN.value = null;
+    _channelsHideTimer?.cancel();
+    _channelsHideTimer = null;
+    context.read<AppBloc>().add(const SetChannels(false));
   }
 
   Future<void> _openChannel(int index, {bool force = false}) async {
@@ -869,7 +867,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
     _channelController.removeListener(_onChannelSelected);
     _channelController.onPlayCommit.removeListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = null;
-    HomeNowPlayingController.instance.onToggleChannelPanel = null;
+    HomeNowPlayingController.instance.onShowChannelPanel = null;
+    HomeNowPlayingController.instance.onHideChannelPanel = null;
     _toastTimer?.cancel();
     _toastNameVN.dispose();
     _barsActiveVN.dispose();
@@ -1028,14 +1027,21 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
                           Column(
                             children: [
                               DirectionWidget(hotUp: true, hotDown: true, size: 52),
-                              Text('更换频道', style: TextStyle(color: textColor, fontSize: 14)),
+                              Text('iptv_hint_change_channel'.tr(), style: TextStyle(color: textColor, fontSize: 14)),
                             ],
                           ),
                           SizedBox(width: 8),
                           Column(
                             children: [
                               DirectionWidget(hotLeft: true, hotRight: true, size: 52),
-                              Text('更换播放源', style: TextStyle(color: textColor, fontSize: 14)),
+                              Text('iptv_hint_change_source'.tr(), style: TextStyle(color: textColor, fontSize: 14)),
+                            ],
+                          ),
+                          SizedBox(width: 8),
+                          Column(
+                            children: [
+                              DirectionWidget(hotOk: true, size: 52),
+                              Text('iptv_hint_channel_list'.tr(), style: TextStyle(color: textColor, fontSize: 14)),
                             ],
                           ),
                           SizedBox(width: 8),
@@ -1159,21 +1165,27 @@ class _AudioNowPlaying extends StatelessWidget {
               ),
             ),
           ),
-          // 前景信息：时间 → 频道 → 天气，纵向居中。
-          Center(
-            child: Column(
-              //mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: <Widget>[
-                const SizedBox(height: 32),
-                _ClockPanel(color: Colors.white, timeSize: timeSize, horizontalSize: true),
-                const SizedBox(height: 16),
-                Column(
-                  children: [
+          // 前景信息：所有内容参与真实布局，空间不足时局部缩小，不再用
+          // Transform.scale 放大绘制区域造成横向和纵向 overflow。
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 960),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: _ClockPanel(color: Colors.white, timeSize: timeSize, horizontalSize: true),
+                    ),
+                    const SizedBox(height: 20),
                     Icon(Icons.radio_rounded, size: iconSize, color: Colors.white.withValues(alpha: 0.92)),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Text(
                       name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
@@ -1182,27 +1194,25 @@ class _AudioNowPlaying extends StatelessWidget {
                         letterSpacing: 1.5,
                       ),
                     ),
-
                     if (sourceTips.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
                         sourceTips,
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: tipsSize),
                       ),
                     ],
+                    const SizedBox(height: 20),
+                    const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[WeatherNowPanel(), SizedBox(width: 24), WeatherDaysPanel()],
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                Transform.scale(
-                  scale: 2.0,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const <Widget>[WeatherNowPanel(), SizedBox(width: 24), WeatherDaysPanel()],
-                  ),
-                ),
-                const SizedBox(height: 32),
-              ],
+              ),
             ),
           ),
         ],

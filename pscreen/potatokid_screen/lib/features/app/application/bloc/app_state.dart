@@ -17,7 +17,7 @@ class AppState {
   });
 
   /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
-  /// 导航条与频道条默认可见，
+  /// 导航条默认可见，频道条默认隐藏，避免两个遥控交互层同时出现，
   /// 悬浮遥控器默认**隐藏**（需在「我的」页开启），
   /// 硬解默认**关闭**（TV 设备兼容性考虑，用户可在「我的」页开启），
   /// 清理失效源默认**关闭**。
@@ -26,7 +26,7 @@ class AppState {
     isChromeVisible: true,
     isChromePeek: false,
     showFloatingRemote: false,
-    showChannels: true,
+    showChannels: false,
     hwdecEnabled: false,
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
@@ -47,7 +47,7 @@ class AppState {
   /// 是否显示悬浮遥控器蒙层（手机调试用）
   final bool showFloatingRemote;
 
-  /// 首页频道条是否可见（OK 随 [isChromeVisible] 一起同步；菜单键单独切换）
+  /// 首页频道交互层是否可见。与顶部导航互斥显示。
   final bool showChannels;
 
   /// 是否启用硬件解码（关闭时使用 FFmpeg 软解，TV 设备兼容性更好）

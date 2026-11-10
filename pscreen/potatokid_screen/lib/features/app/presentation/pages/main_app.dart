@@ -44,9 +44,9 @@ class _TabDescriptor {
 /// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
 /// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
 /// - **进入内容页（首页直播/时间）时导航条立即收起**，仅按键时短暂预览（时间页）；
-/// - **OK 键**：首页显示/隐藏「左下角频道信息 + 右侧频道列表」，
-///   「我的」页正文焦点内激活设置行；
-/// - **返回键**：非首页先回直播；「我的」页先退出正文选中；仅首页才二次确认退出。
+/// - 首页按交互层路由：频道面板 → 页面焦点 → 顶部导航 → 全屏播放；
+/// - 全屏播放保留上下切台、左右切源；出现控件后方向键只操作当前层；
+/// - **返回键**：逐层关闭频道面板/页面焦点，裸屏时先呼出导航，再次返回才退出。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -114,6 +114,28 @@ class MainApp extends StatelessWidget {
 
     final int cur = navigationShell.currentIndex;
 
+    // 首页按可见交互层逐级返回：频道面板最上层；页面按钮其次；裸屏返回
+    // 先呼出顶部导航。导航已经可见时再次返回，才进入退出确认。
+    if (cur == 0) {
+      final AppState state = context.read<AppBloc>().state;
+      if (state.showChannels) {
+        HomeNowPlayingController.instance.hideChannelPanel();
+        return true;
+      }
+      if (_focusedActionContext() != null) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        if (!state.isChromeVisible) {
+          context.read<AppBloc>().add(const SetChrome(true));
+        }
+        return true;
+      }
+      if (!state.isChromeVisible) {
+        context.read<AppBloc>().add(const SetChrome(true));
+        return true;
+      }
+      return false;
+    }
+
     // 设置页行内编辑 → 先取消编辑（页面内返回）。
     final VoidCallback? cancelInline = ProfilePage.onCancelInlineEdit;
     if (cur == _profileBranchIndex &&
@@ -139,7 +161,7 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 首页 → 维持现有二次确认退出。
+    // 非首页的分层处理完毕后才允许退出。
     return false;
   }
 
@@ -218,10 +240,10 @@ class MainApp extends StatelessWidget {
     _ => null,
   };
 
-  /// 统一的按键逻辑（按「导航条显隐」分模式）：
-  /// - 左右：导航条显示时切 tab；隐藏时首页切换当前频道的源。
-  /// - 上下：首页切频道、时间页切样式，其余滚动/焦点移动。
-  /// - OK：首页显示/隐藏「频道信息 + 频道列表」，「我的」页激活设置行。
+  /// 统一的按键逻辑（按最上层交互对象分发）：
+  /// - 首页：频道面板 → 页面焦点 → 顶部导航 → 全屏播放；
+  /// - 全屏播放：左右切源、上下切台、OK 呼出频道面板；
+  /// - 出现可交互 UI 后：方向键与 OK 仅操作当前层，不再穿透到播放器；
   /// - 菜单：显示/隐藏顶部导航条。
   /// - 返回：二次确认后退出应用。
   /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
@@ -314,6 +336,10 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.gameButtonA;
     if (ok) {
+      if (cur == 0) {
+        _handleHomeOk(context, state);
+        return true;
+      }
       // 行内输入编辑态 OK = 提交输入，不走 activate。
       // 悬浮遥控器直调本方法、不经焦点链，页面 Focus 拦截不到，故在此优先处理；
       // 物理/蓝牙遥控器的 OK 已被页面 Focus 消费（见 ProfilePage._handlePageKey）。
@@ -344,9 +370,22 @@ class MainApp extends StatelessWidget {
     // 菜单键：显示/隐藏顶部菜单（tabs）。「我的」页 tabs 恒显示，不处理。
     if (key == LogicalKeyboardKey.contextMenu) {
       if (cur != _profileBranchIndex) {
+        if (cur == 0 && !state.isChromeVisible) {
+          HomeNowPlayingController.instance.hideChannelPanel();
+        }
         context.read<AppBloc>().add(SetChrome(!state.isChromeVisible));
       }
       return true;
+    }
+
+    // 首页拥有明确的交互层，必须在通用左右/上下逻辑之前处理，避免可见按钮
+    // 或频道面板的按键穿透到切源、切台。
+    if (cur == 0 &&
+        (key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight ||
+            key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown)) {
+      return _handleHomeArrow(context, state, key);
     }
 
     if (key == LogicalKeyboardKey.arrowLeft ||
@@ -364,13 +403,6 @@ class MainApp extends StatelessWidget {
         _goTabWrapped(context, cur, delta);
         return true;
       }
-      // 导航条隐藏时，首页左/右始终用于切换当前频道的源。
-      // 提示条不可见也照样触发——切源本身会重新显示提示条，
-      // 并在 30 秒无操作后自动隐藏（隐藏规则见 LivePlayerWidget）。
-      if (cur == 0) {
-        HomeNowPlayingController.instance.switchSource(delta);
-        return true;
-      }
       return false;
     }
 
@@ -378,11 +410,6 @@ class MainApp extends StatelessWidget {
         key == LogicalKeyboardKey.arrowDown) {
       final bool up = key == LogicalKeyboardKey.arrowUp;
       switch (cur) {
-        case 0: // 首页：上下切频道
-          up
-              ? LiveChannelController.instance.previous()
-              : LiveChannelController.instance.next();
-          break;
         case _timeBranchIndex: // 时间：上下切样式
           up
               ? TimeStyleController.instance.previous()
@@ -415,16 +442,114 @@ class MainApp extends StatelessWidget {
     _goTab(context, next, keepChrome: true);
   }
 
-  void _moveFocus(TraversalDirection direction) {
+  BuildContext? _focusedActionContext() {
+    final BuildContext? context = FocusManager.instance.primaryFocus?.context;
+    if (context == null ||
+        !_TvContentFocusMarker.contains(context) ||
+        Actions.maybeFind<ActivateIntent>(context) == null) {
+      return null;
+    }
+    return context;
+  }
+
+  bool _activateFocusedAction() {
+    final BuildContext? context = _focusedActionContext();
+    if (context == null) return false;
+    Actions.invoke(context, const ActivateIntent());
+    return true;
+  }
+
+  bool _moveFocus(TraversalDirection direction) {
     final FocusScopeNode? scope =
         FocusManager.instance.primaryFocus?.enclosingScope;
-    if (scope == null) return;
-    scope.focusInDirection(direction);
+    if (scope == null) return false;
+    return scope.focusInDirection(direction);
+  }
+
+  void _showHomeChannels(BuildContext context) {
+    context.read<AppBloc>().add(const SetChrome(false));
+    FocusManager.instance.primaryFocus?.unfocus();
+    HomeNowPlayingController.instance.showChannelPanel();
+  }
+
+  void _handleHomeOk(BuildContext context, AppState state) {
+    if (state.showChannels) {
+      HomeNowPlayingController.instance.hideChannelPanel();
+      return;
+    }
+    if (_activateFocusedAction()) return;
+    if (state.isChromeVisible) {
+      context.read<AppBloc>().add(const SetChrome(false));
+      return;
+    }
+    _showHomeChannels(context);
+  }
+
+  bool _handleHomeArrow(
+    BuildContext context,
+    AppState state,
+    LogicalKeyboardKey key,
+  ) {
+    final bool up = key == LogicalKeyboardKey.arrowUp;
+    final bool down = key == LogicalKeyboardKey.arrowDown;
+    final bool left = key == LogicalKeyboardKey.arrowLeft;
+
+    // 频道面板是最上层：上下继续保持快速切台；左键退出面板；右键预留给
+    // 后续的线路详情，当前先吞掉，绝不穿透成切源。
+    if (state.showChannels) {
+      if (up) {
+        LiveChannelController.instance.previous();
+      } else if (down) {
+        LiveChannelController.instance.next();
+      } else if (left) {
+        HomeNowPlayingController.instance.hideChannelPanel();
+      }
+      return true;
+    }
+
+    // 首页普通按钮获得焦点后，四向键只做空间焦点移动。实体遥控器与悬浮
+    // 遥控器都经这里执行，避免后者绕过 Flutter 焦点树。
+    if (_focusedActionContext() != null) {
+      final TraversalDirection direction = switch (key) {
+        LogicalKeyboardKey.arrowUp => TraversalDirection.up,
+        LogicalKeyboardKey.arrowDown => TraversalDirection.down,
+        LogicalKeyboardKey.arrowLeft => TraversalDirection.left,
+        _ => TraversalDirection.right,
+      };
+      _moveFocus(direction);
+      return true;
+    }
+
+    // 顶部导航可见时，左右只切 Tab；向下尝试进入页面按钮。首页没有按钮
+    // 时进入频道面板，使导航层和播放器层之间仍有明确路径。
+    if (state.isChromeVisible) {
+      if (key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight) {
+        _goTabWrapped(
+          context,
+          navigationShell.currentIndex,
+          key == LogicalKeyboardKey.arrowRight ? 1 : -1,
+        );
+      } else if (down && !_moveFocus(TraversalDirection.down)) {
+        _showHomeChannels(context);
+      }
+      return true;
+    }
+
+    // 只有纯全屏播放层保留电视快捷键。
+    if (up) {
+      LiveChannelController.instance.previous();
+    } else if (down) {
+      LiveChannelController.instance.next();
+    } else {
+      HomeNowPlayingController.instance.switchSource(left ? -1 : 1);
+    }
+    return true;
   }
 
   /// OK 键：
   /// - 「我的」页正文焦点内 → 激活当前设置行；
-  /// - 首页 → 显示/隐藏「左下角频道信息 + 右侧频道列表」；
+  /// - 首页由 [_handleHomeOk] 按当前交互层处理；
   /// - 其余 → 激活焦点控件（若有）。
   void _pressOk(BuildContext context) {
     final int cur = navigationShell.currentIndex;
@@ -432,10 +557,6 @@ class MainApp extends StatelessWidget {
         !_profileReadonly &&
         ProfileFocusController.instance.focused) {
       ProfileFocusController.instance.activate();
-      return;
-    }
-    if (cur == 0) {
-      HomeNowPlayingController.instance.toggleChannelPanel();
       return;
     }
     final BuildContext? focusContext =
@@ -494,6 +615,12 @@ class MainApp extends StatelessWidget {
                             _profileBranchIndex) {
                           return;
                         }
+                        final AppState state = context.read<AppBloc>().state;
+                        if (navigationShell.currentIndex == 0 &&
+                            state.showChannels) {
+                          HomeNowPlayingController.instance.hideChannelPanel();
+                          return;
+                        }
                         context.read<AppBloc>().add(SetChrome(!chromeShown));
                       },
                       child: ListenableBuilder(
@@ -506,13 +633,15 @@ class MainApp extends StatelessWidget {
                           // 判定式不成立时 children 仅 shell 且 index=0，
                           // 与现状等价。
                           final bool readonly = _profileReadonly;
-                          return IndexedStack(
-                            sizing: StackFit.expand,
-                            index: readonly ? 1 : 0,
-                            children: <Widget>[
-                              navigationShell,
-                              if (readonly) const ProfileReadonlyPage(),
-                            ],
+                          return _TvContentFocusMarker(
+                            child: IndexedStack(
+                              sizing: StackFit.expand,
+                              index: readonly ? 1 : 0,
+                              children: <Widget>[
+                                navigationShell,
+                                if (readonly) const ProfileReadonlyPage(),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -565,6 +694,20 @@ class MainApp extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 标记页面正文焦点，供根遥控分发器区分“页面按钮”和顶部导航焦点。
+/// 不参与布局，也不让业务页面依赖壳层的具体 FocusNode。
+class _TvContentFocusMarker extends InheritedWidget {
+  const _TvContentFocusMarker({required super.child});
+
+  static bool contains(BuildContext context) =>
+      context
+          .getElementForInheritedWidgetOfExactType<_TvContentFocusMarker>() !=
+      null;
+
+  @override
+  bool updateShouldNotify(_TvContentFocusMarker oldWidget) => false;
 }
 
 /// 顶部横向导航条：3 个 tab，焦点即切页、高亮显示。

@@ -14,9 +14,14 @@ class HomeNowPlayingController {
   /// 左/右切换当前频道源。
   void switchSource(int delta) => onSwitchSource?.call(delta);
 
-  /// 切换「左下角频道信息 + 右侧频道列表」的回调（播放器注册）。
-  void Function()? onToggleChannelPanel;
+  /// 显式显示频道面板。供遥控交互层进入频道模式时调用。
+  void Function()? onShowChannelPanel;
 
-  /// 首页 OK 键：显示/隐藏左下角频道信息与右侧频道列表。
-  void toggleChannelPanel() => onToggleChannelPanel?.call();
+  /// 显式关闭频道面板。返回键逐层退出时不能使用 toggle，否则频道名提示
+  /// 已先消失时可能把列表反向打开。
+  void Function()? onHideChannelPanel;
+
+  void showChannelPanel() => onShowChannelPanel?.call();
+
+  void hideChannelPanel() => onHideChannelPanel?.call();
 }
