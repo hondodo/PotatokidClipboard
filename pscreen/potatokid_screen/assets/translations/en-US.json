@@ -110,6 +110,15 @@
   "parental_quiz_progress": "Question {__CURRENT__} of {__TOTAL__}",
   "parental_quiz_progress_multiple": "Question {__CURRENT__} of {__TOTAL__} · Select all that apply",
   "parental_confirm_answer": "Confirm answer",
+  "capsule_test_one": "Test capsule 1",
+  "capsule_test_two": "Test capsule 2",
+  "capsule_test_one_triggered": "Test 1 activated",
+  "capsule_test_two_triggered": "Test 2 activated",
+  "capsule_test_ok_message": "Test capsule {__NUMBER__}: OK activated",
+  "capsule_install_update": "Install update",
+  "capsule_download_progress": "Download {__PROGRESS__}%",
+  "capsule_finish_watching": "Finish watching",
+  "capsule_exit_app": "Exit app",
   "disclaimer_title": "Disclaimer",
   "disclaimer_body": "This software only aggregates publicly available internet live streams for playback and does not store or produce any audio or video content. All channel data comes from the internet and the copyright belongs to the original rights holders. If any content infringes your lawful rights, please contact 416049529@qq.com and we will handle it promptly. This software is for personal learning and technical research only; please do not use it for commercial purposes."
 }

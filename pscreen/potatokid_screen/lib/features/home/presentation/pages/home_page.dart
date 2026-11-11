@@ -5,9 +5,7 @@ import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
-import 'package:potatokid_screen/app/app_flavor.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/live_player_widget.dart';
-import 'package:potatokid_screen/features/update/presentation/update_pill.dart';
 
 /// 首页（电视）：「首页」Tab 主体为全屏 IPTV 直播。
 /// 频道列表由全局 [IptvBloc] 提供（main 中已用缓存优先加载并自动播放首个频道），
@@ -30,16 +28,7 @@ class HomePage extends StatelessWidget {
                 Positioned(left: 16, bottom: 16, child: const _CachedListNotice()),
               // 定时关闭倒计时：左上角按秒刷新，未开启时自动隐藏。
               const Positioned(left: 16, top: 16, child: _SleepCountdownBadge()),
-              // 更新胶囊：右上角悬浮，仅在「有更新 + 下载中/已就绪」时出现。
-              // TV 端遥控的方向 / OK 由根 Focus 统一接管（见 MainApp._handleRootKey），
-              // 胶囊拿不到焦点、还会和「OK 呼出频道信息」抢键，因此电视端不显示，
-              // 更新入口收敛到「启动弹窗 + 设置→版本」；触屏 flavor 保留胶囊。
-              if (AppFlavorConfig.flavor != AppFlavor.tv)
-                const Positioned(
-                  right: 16,
-                  top: 16,
-                  child: SafeArea(child: TvUpdatePill()),
-                ),
+              // 更新与遥控测试胶囊由播放器快捷控制层统一绘制，避免重复焦点节点。
               // // 天气小组件：右上角悬浮，无数据时自动隐藏。
               // const Positioned(
               //   top: 12,

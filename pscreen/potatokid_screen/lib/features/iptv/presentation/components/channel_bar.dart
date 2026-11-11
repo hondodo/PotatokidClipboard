@@ -17,6 +17,7 @@ class ChannelBar extends StatefulWidget {
     required this.onChanged,
     required this.onActivated,
     required this.visible,
+    required this.interactive,
   });
 
   final List<IptvChannel> channels;
@@ -26,6 +27,9 @@ class ChannelBar extends StatefulWidget {
 
   /// 列表是否可见（用于呼出时定位到当前频道）
   final bool visible;
+
+  /// 是否为可操作面板。预览列表虽然可见，但不能获得遥控焦点。
+  final bool interactive;
 
   @override
   State<ChannelBar> createState() => _ChannelBarState();
@@ -115,7 +119,7 @@ class _ChannelBarState extends State<ChannelBar> {
             // 序号从 1 开始，按频道总数的位数左侧补零（8 个频道→`1`，120 个→`001`）。
             number: (index + 1).toString().padLeft(_numberWidth, '0'),
             selected: index == widget.selectedIndex,
-            visible: widget.visible,
+            interactive: widget.interactive,
             // 首尾循环：第一个再按上跳到最后一个，最后一个再按下跳回第一个。
             wrapUp: index == 0,
             wrapDown: index == widget.channels.length - 1,
@@ -134,7 +138,7 @@ class _ChannelTile extends StatefulWidget {
     required this.channel,
     required this.number,
     required this.selected,
-    required this.visible,
+    required this.interactive,
     required this.wrapUp,
     required this.wrapDown,
     required this.onWrap,
@@ -148,7 +152,7 @@ class _ChannelTile extends StatefulWidget {
   final String number;
 
   final bool selected;
-  final bool visible;
+  final bool interactive;
 
   /// 本项是否为第一个 / 最后一个频道（用于首尾循环）。
   final bool wrapUp;
@@ -173,11 +177,14 @@ class _ChannelTileState extends State<_ChannelTile> {
   @override
   void didUpdateWidget(_ChannelTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.visible && _focusNode.hasFocus) {
+    if (!widget.interactive && _focusNode.hasFocus) {
       _focusNode.unfocus();
       return;
     }
-    if (widget.visible && widget.selected && (!oldWidget.visible || !oldWidget.selected)) {
+    // 预览转为正式面板时外观仍然可见，但交互状态发生变化，需重新聚焦。
+    if (widget.interactive &&
+        widget.selected &&
+        (!oldWidget.interactive || !oldWidget.selected)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _focusNode.requestFocus();
       });
@@ -199,7 +206,7 @@ class _ChannelTileState extends State<_ChannelTile> {
     return Focus(
       canRequestFocus: false,
       onKeyEvent: (node, event) {
-        if (!widget.visible) return KeyEventResult.ignored;
+        if (!widget.interactive) return KeyEventResult.ignored;
         if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
           return KeyEventResult.ignored;
         }
@@ -226,7 +233,7 @@ class _ChannelTileState extends State<_ChannelTile> {
             ),
             child: InkWell(
               focusNode: _focusNode,
-              canRequestFocus: widget.visible,
+              canRequestFocus: widget.interactive,
               onFocusChange: (bool value) {
                 if (value) widget.onFocused();
                 if (mounted) setState(() {});

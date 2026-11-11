@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -19,34 +18,22 @@ import 'package:potatokid_screen/features/parental/presentation/widgets/parental
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_readonly_page.dart';
+import 'package:potatokid_screen/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/features/time/application/time_style_controller.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/utils/key_repeat_controller.dart';
-import 'package:potatokid_screen/shared/widgets/auto_hide_chrome.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:potatokid_screen/shared/widgets/exit_confirm_scope.dart';
 import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-/// 单个顶部 Tab 的静态描述（图标 + 文案 key）。
-class _TabDescriptor {
-  const _TabDescriptor(this.labelKey, this.icon, this.selectedIcon);
-
-  final String labelKey;
-  final IconData icon;
-  final IconData selectedIcon;
-}
 
 /// Tab 外壳：承载 [StatefulShellRoute.indexedStack] 的多分支页面。
 ///
-/// - 顶部横向导航条（首页直播 | 时间 | 我的），图标+文字横排；
-/// - **左右键焦点移到哪个 tab 即切换页面**（无需 OK）；
-/// - **菜单键**（contextMenu）显示/隐藏顶部导航条；手机端点屏同样切换（便于调试）；
-/// - **进入内容页（首页直播/时间）时导航条立即收起**，仅按键时短暂预览（时间页）；
-/// - 首页按交互层路由：频道面板 → 页面焦点 → 顶部导航 → 全屏播放；
+/// - 全局半透明胶囊 Mask 提供直播、时间、设置页面切换；
+/// - 菜单键不再用于导航，预留给后续功能；
+/// - 首页按交互层路由：频道信息 → 频道列表 → 胶囊 Mask；
 /// - 全屏播放保留上下切台、左右切源；出现控件后方向键只操作当前层；
-/// - **返回键**：逐层关闭频道面板/页面焦点，裸屏时先呼出导航，再次返回才退出。
+/// - **返回键**：逐层进入频道信息、频道列表与胶囊 Mask。
 class MainApp extends StatelessWidget {
   const MainApp({super.key, required this.navigationShell});
 
@@ -59,33 +46,20 @@ class MainApp extends StatelessWidget {
   static const int _sameBackWindowMs = 280;
   static int _lastHomeBackAt = 0;
 
-  /// 「时间」Tab 在 [_tabs] 中的序号（上/下键在此切换时钟样式）。
+  /// 「时间」页面序号（上/下键在此切换时钟样式）。
   static const int _timeBranchIndex = 1;
 
-  /// 「我的」Tab 在 [_tabs] 中的序号（上/下键在导航条与设置行间移动）。
+  /// 「设置」页面序号（上/下键在设置行间移动）。
   static const int _profileBranchIndex = 2;
 
-  static const List<_TabDescriptor> _tabs = <_TabDescriptor>[
-    _TabDescriptor('home_title', Icons.live_tv_outlined, Icons.live_tv),
-    _TabDescriptor('time_title', Icons.schedule_outlined, Icons.schedule),
-    _TabDescriptor('profile_title', Icons.settings_outlined, Icons.settings),
-  ];
-
-  void _goTab(BuildContext context, int index, {bool keepChrome = true}) {
-    // 进入「我的」时回到位于导航条的状态，并保持导航条常显（设置页需要可见的选择态）。
-    // 其余页面切完仍保持导航条可见（[keepChrome] 默认 true），由 AutoHideChrome
-    // 在 10 秒无操作后统一收起；否则点/按一次 tab 就立刻收起，要再切必须重新
-    // 呼出（触摸/遥控都表现为「点一下就收起、很难切回」）。
-    // 已在目标页时不改条状态：否则菜单键呼出导航条后，选中 tab 的 autofocus
-    // 回调会再次走本方法把条立刻收起（表现为「按键没反应」）。
-    final AppBloc bloc = context.read<AppBloc>();
+  void _goTab(BuildContext context, int index) {
+    // 儿童模式只能停留在直播页；UI 过滤之外再做一次导航层保护。
+    if (ParentalStateController.instance.enabled && index != 0) return;
     if (index != navigationShell.currentIndex) {
       if (index == _profileBranchIndex) {
         ProfileFocusController.instance.reset();
-        bloc.add(const SetChrome(true));
-      } else {
-        bloc.add(SetChrome(keepChrome));
       }
+      context.read<AppBloc>().add(const SetChrome(false));
     }
     navigationShell.goBranch(
       index,
@@ -117,29 +91,42 @@ class MainApp extends StatelessWidget {
     }
 
     final int cur = navigationShell.currentIndex;
+    final AppState appState = context.read<AppBloc>().state;
 
-    // 首页返回键按固定状态链前进：全屏 → 频道信息 → 快捷控制 → AppBar
-    // → 退出确认。各层显隐只由 homeRemoteLayer 决定。
+    // 系统返回可能不产生键盘事件，不能只依赖 Mask 的 Focus.onKeyEvent。
+    // 从直播打开则回频道列表，从其它页面打开则关闭 Mask 留在原页面。
+    if (appState.homeRemoteLayer == HomeRemoteLayer.capsuleControls) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      if (cur == 0) {
+        _showHomeChannels(context);
+      } else {
+        context.read<AppBloc>().add(
+          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+        );
+      }
+      return true;
+    }
+
+    // 首页返回键按固定状态链前进：全屏 → 频道信息 → 频道列表 → 胶囊 Mask。
     if (cur == 0) {
       final int now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastHomeBackAt < _sameBackWindowMs) return true;
       _lastHomeBackAt = now;
-      final AppState state = context.read<AppBloc>().state;
-      switch (state.homeRemoteLayer) {
+      switch (appState.homeRemoteLayer) {
         case HomeRemoteLayer.fullscreen:
           HomeNowPlayingController.instance.showChannelInfo();
           return true;
         case HomeRemoteLayer.channelInfo:
           _showHomeChannels(context);
           return true;
-        case HomeRemoteLayer.quickControls:
+        case HomeRemoteLayer.channelList:
           HomeNowPlayingController.instance.hideChannelPanel();
           context.read<AppBloc>().add(
-            const SetHomeRemoteLayer(HomeRemoteLayer.appBar),
+            const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls),
           );
           return true;
-        case HomeRemoteLayer.appBar:
-          return false;
+        case HomeRemoteLayer.capsuleControls:
+          return true;
       }
     }
 
@@ -161,10 +148,11 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 非首页 → 回直播。
+    // 非首页 → 打开全局胶囊导航层，并默认聚焦直播入口。
     if (cur != 0) {
-      _goTab(context, 0);
-      unawaited(_BackToLiveHint.maybeShow(context));
+      context.read<AppBloc>().add(
+        const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls),
+      );
       return true;
     }
 
@@ -181,7 +169,12 @@ class MainApp extends StatelessWidget {
   KeyEventResult _handleRootKey(BuildContext context, KeyEvent event) {
     // 确认弹窗（退出/重置）打开期间一律让位：把按键交给弹窗自己的焦点树，
     // 否则方向键被这里吃掉（选不中弹窗按钮）、OK 还会触发下层的设置行。
-    if (ConfirmDialog.isShowing) return KeyEventResult.ignored;
+    if (ConfirmDialog.isShowing) {
+      if (event is KeyDownEvent) {
+        ConfirmDialog.handleKey(event.logicalKey);
+      }
+      return KeyEventResult.handled;
+    }
 
     final bool isVertical =
         event.logicalKey == LogicalKeyboardKey.arrowUp ||
@@ -229,6 +222,10 @@ class MainApp extends StatelessWidget {
       RemoteButton.menu => LogicalKeyboardKey.contextMenu,
       RemoteButton.back => LogicalKeyboardKey.escape,
     };
+    if (ConfirmDialog.isShowing) {
+      ConfirmDialog.handleKey(key);
+      return;
+    }
     _handleLogical(context, key);
   }
 
@@ -248,10 +245,10 @@ class MainApp extends StatelessWidget {
   };
 
   /// 统一的按键逻辑（按最上层交互对象分发）：
-  /// - 首页：频道面板 → 页面焦点 → 顶部导航 → 全屏播放；
+  /// - 首页：频道信息 → 频道列表 → 胶囊 Mask → 全屏播放；
   /// - 全屏播放：左右切源、上下切台、OK 呼出频道面板；
   /// - 出现可交互 UI 后：方向键与 OK 仅操作当前层，不再穿透到播放器；
-  /// - 菜单：显示/隐藏顶部导航条。
+  /// - 菜单：预留，不在这里消费。
   /// - 返回：二次确认后退出应用。
   /// - 数字：首页直选频道号（见 [ChannelNumberInputController]）。
   bool _handleLogical(BuildContext context, LogicalKeyboardKey key) {
@@ -308,23 +305,11 @@ class MainApp extends StatelessWidget {
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;
 
-    // 时间页：导航条隐藏时，左/右键直接呼出并切换 tab（切完保持 10 秒再自动
-    // 收起），不必先按菜单键；上/下键只让导航条短暂露出（仅显示、不可聚焦，
-    // 3 秒自动收起），切样式的动作照常执行。首页不做，避免与切源/切台/OK 叠加。
-    if (cur == _timeBranchIndex && !state.isChromeVisible) {
-      if (key == LogicalKeyboardKey.arrowLeft ||
-          key == LogicalKeyboardKey.arrowRight) {
-        _goTabWrapped(
-          context,
-          cur,
-          key == LogicalKeyboardKey.arrowRight ? 1 : -1,
-        );
-        return true;
-      }
-      if (key == LogicalKeyboardKey.arrowUp ||
-          key == LogicalKeyboardKey.arrowDown) {
-        context.read<AppBloc>().add(const SetChromePeek(true));
-      }
+    // 半透明 Mask 显示时由它独占全部遥控事件。悬浮遥控器不经过焦点树，
+    // 因此也通过同一个控制器转发，避免物理键与屏幕遥控行为不同。
+    if (state.homeRemoteLayer == HomeRemoteLayer.capsuleControls &&
+        CapsuleControlsController.instance.handleKey(key)) {
+      return true;
     }
 
     // 数字键：仅首页生效 —— 累积输入频道号，2 秒无输入后跳台（超范围会提示）。
@@ -374,19 +359,9 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 菜单键：显示/隐藏顶部菜单（tabs）。「我的」页 tabs 恒显示，不处理。
+    // 菜单键预留给后续功能，不再呼出旧顶部导航。
     if (key == LogicalKeyboardKey.contextMenu) {
-      if (cur != _profileBranchIndex) {
-        if (cur == 0) {
-          HomeNowPlayingController.instance.hideChannelPanel();
-          context.read<AppBloc>().add(
-            const SetHomeRemoteLayer(HomeRemoteLayer.appBar),
-          );
-        } else {
-          context.read<AppBloc>().add(SetChrome(!state.isChromeVisible));
-        }
-      }
-      return true;
+      return false;
     }
 
     // 首页拥有明确的交互层，必须在通用左右/上下逻辑之前处理，避免可见按钮
@@ -407,11 +382,6 @@ class MainApp extends StatelessWidget {
           !_profileReadonly &&
           ProfileFocusController.instance.focused) {
         ProfileFocusController.instance.step(delta);
-        return true;
-      }
-      // 导航条可见时，左右优先用于切换 tab。
-      if (state.isChromeVisible) {
-        _goTabWrapped(context, cur, delta);
         return true;
       }
       return false;
@@ -444,13 +414,6 @@ class MainApp extends StatelessWidget {
     }
 
     return false;
-  }
-
-  /// 循环切换 tab（左右）：保持导航条可见，方便连续左右切换。
-  void _goTabWrapped(BuildContext context, int current, int delta) {
-    final int next =
-        (current + delta + MainApp._tabs.length) % MainApp._tabs.length;
-    _goTab(context, next, keepChrome: true);
   }
 
   BuildContext? _focusedActionContext() {
@@ -488,13 +451,18 @@ class MainApp extends StatelessWidget {
       case HomeRemoteLayer.channelInfo:
         _showHomeChannels(context);
         return;
-      case HomeRemoteLayer.quickControls:
-        _activateFocusedAction();
+      case HomeRemoteLayer.channelList:
+        // 面板切层后的同一帧若焦点尚未落下，OK 仍应可靠收起而非无响应。
+        if (!_activateFocusedAction()) {
+          HomeNowPlayingController.instance.hideChannelPanel();
+        }
         return;
-      case HomeRemoteLayer.appBar:
-        context.read<AppBloc>().add(
-          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
-        );
+      case HomeRemoteLayer.capsuleControls:
+        if (!_activateFocusedAction()) {
+          context.read<AppBloc>().add(
+            const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+          );
+        }
         return;
     }
   }
@@ -508,8 +476,13 @@ class MainApp extends StatelessWidget {
     final bool down = key == LogicalKeyboardKey.arrowDown;
     final bool left = key == LogicalKeyboardKey.arrowLeft;
 
-    // 快捷控制层内全部方向键只移动真实焦点，频道与胶囊使用同一焦点树。
-    if (state.homeRemoteLayer == HomeRemoteLayer.quickControls) {
+    // 频道列表层：左/右直接进入胶囊，避免依赖 Flutter 的几何焦点猜测；
+    // 上/下仍在频道列表内移动。
+    if (state.homeRemoteLayer == HomeRemoteLayer.channelList) {
+      if (left || key == LogicalKeyboardKey.arrowRight) {
+        HomeNowPlayingController.instance.switchSource(left ? -1 : 1);
+        return true;
+      }
       final TraversalDirection direction = switch (key) {
         LogicalKeyboardKey.arrowUp => TraversalDirection.up,
         LogicalKeyboardKey.arrowDown => TraversalDirection.down,
@@ -533,23 +506,8 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 顶部导航可见时，左右只切 Tab；向下尝试进入页面按钮。首页没有按钮
-    // 时进入频道面板，使导航层和播放器层之间仍有明确路径。
-    if (state.homeRemoteLayer == HomeRemoteLayer.appBar) {
-      if (key == LogicalKeyboardKey.arrowLeft ||
-          key == LogicalKeyboardKey.arrowRight) {
-        _goTabWrapped(
-          context,
-          navigationShell.currentIndex,
-          key == LogicalKeyboardKey.arrowRight ? 1 : -1,
-        );
-      } else if (down && !_moveFocus(TraversalDirection.down)) {
-        _showHomeChannels(context);
-      }
-      return true;
-    }
-
-    // 全屏和频道信息层保留快速切台、切源；换台会刷新同一个频道信息层。
+    // 全屏和频道信息层始终保持稳定直播语义：上/下切台、左/右切源。
+    // 胶囊入口固定为 OK 打开频道列表后再按左/右，避免同一按键含义随更新状态变化。
     if (up) {
       LiveChannelController.instance.previous();
     } else if (down) {
@@ -586,103 +544,112 @@ class MainApp extends StatelessWidget {
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
+    if (ParentalStateController.instance.enabled &&
+        navigationShell.currentIndex != 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted || !ParentalStateController.instance.enabled) {
+          return;
+        }
+        _goTab(context, 0);
+        context.read<AppBloc>().add(
+          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+        );
+      });
+    }
     // 场景注入（阶段 1 收尾）：直播/时间计入观看、「我的」（设置）不计入
     //（口径见儿童模式方案「场景计时」）；值未变时 setViewingScene 内部早返回。
     KidWatchTimerController.instance.setViewingScene(
       navigationShell.currentIndex != _profileBranchIndex,
     );
-    // 顶部导航条显隐（「我的」页恒显示）。
-    final bool chromeVisible = context.select<AppBloc, bool>(
-      (bloc) => bloc.state.isChromeVisible,
-    );
-    // 预览态只影响绘制，不参与焦点/切页（避免显示瞬间抢走正文焦点或误切页）。
-    final bool chromePeek = context.select<AppBloc, bool>(
-      (bloc) => bloc.state.isChromePeek,
-    );
-    final bool chromeShown = chromeVisible || chromePeek;
-    // 自动收起触发点：切到非「我的」tab / 菜单键呼出后 10 秒；「我的」不自动收起。
     return Stack(
       children: <Widget>[
         ExitConfirmScope(
           onBackRequested: () => _handleBack(context),
-          child: AutoHideChrome(
-            currentIndex: navigationShell.currentIndex,
-            profileBranchIndex: _profileBranchIndex,
-            child: Focus(
-              debugLabel: 'MainApp.rootOkHandler',
-              canRequestFocus: false,
-              onKeyEvent: (node, event) => _handleRootKey(context, event),
-              child: Scaffold(
-                backgroundColor: Colors.black,
-                body: Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    // 内容区（首页为全屏直播视频）始终铺满整个屏幕，
-                    // 导航条作为悬浮层叠在其上，因此视频永远以最大画面播放。
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      // 触摸降级：点视频/任意空白背景切换顶部导航条显隐（便于手机调试）。
-                      // 「我的」页 tabs 始终显示，不参与显隐。
-                      onTap: () {
-                        if (navigationShell.currentIndex ==
-                            _profileBranchIndex) {
-                          return;
+          child: Focus(
+            debugLabel: 'MainApp.rootOkHandler',
+            canRequestFocus: false,
+            onKeyEvent: (node, event) => _handleRootKey(context, event),
+            child: Scaffold(
+              backgroundColor: Colors.black,
+              body: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  // 内容区始终铺满整个屏幕；页面切换统一由胶囊 Mask 提供。
+                  GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    child: ListenableBuilder(
+                      listenable: ParentalStateController.instance,
+                      builder: (context, _) {
+                        if (ParentalStateController.instance.enabled &&
+                            navigationShell.currentIndex != 0) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!context.mounted ||
+                                !ParentalStateController.instance.enabled ||
+                                navigationShell.currentIndex == 0) {
+                              return;
+                            }
+                            _goTab(context, 0);
+                            context.read<AppBloc>().add(
+                              const SetHomeRemoteLayer(
+                                HomeRemoteLayer.fullscreen,
+                              ),
+                            );
+                          });
                         }
-                        final AppState state = context.read<AppBloc>().state;
-                        if (navigationShell.currentIndex == 0 &&
-                            state.showChannels) {
-                          HomeNowPlayingController.instance.hideChannelPanel();
-                          return;
-                        }
-                        context.read<AppBloc>().add(SetChrome(!chromeShown));
+                        // 儿童模式生效时「我的」分支整页替换为只读页
+                        //（方案 5.2/5.3）：IndexedStack 翻转——shell 常驻
+                        //（保住各分支状态与视频），非选中子节点不绘制、
+                        // 不命中、焦点被排除（RenderIndexedStack）；
+                        // 判定式不成立时 children 仅 shell 且 index=0，
+                        // 与现状等价。
+                        final bool readonly = _profileReadonly;
+                        return _TvContentFocusMarker(
+                          child: IndexedStack(
+                            sizing: StackFit.expand,
+                            index: readonly ? 1 : 0,
+                            children: <Widget>[
+                              navigationShell,
+                              if (readonly) const ProfileReadonlyPage(),
+                            ],
+                          ),
+                        );
                       },
-                      child: ListenableBuilder(
-                        listenable: ParentalStateController.instance,
-                        builder: (context, _) {
-                          // 儿童模式生效时「我的」分支整页替换为只读页
-                          //（方案 5.2/5.3）：IndexedStack 翻转——shell 常驻
-                          //（保住各分支状态与视频），非选中子节点不绘制、
-                          // 不命中、焦点被排除（RenderIndexedStack）；
-                          // 判定式不成立时 children 仅 shell 且 index=0，
-                          // 与现状等价。
-                          final bool readonly = _profileReadonly;
-                          return _TvContentFocusMarker(
-                            child: IndexedStack(
-                              sizing: StackFit.expand,
-                              index: readonly ? 1 : 0,
-                              children: <Widget>[
-                                navigationShell,
-                                if (readonly) const ProfileReadonlyPage(),
-                              ],
+                    ),
+                  ),
+                  BlocBuilder<AppBloc, AppState>(
+                    buildWhen: (previous, current) =>
+                        previous.homeRemoteLayer != current.homeRemoteLayer,
+                    builder: (context, state) => CapsuleControlsOverlay(
+                      visible:
+                          state.homeRemoteLayer ==
+                          HomeRemoteLayer.capsuleControls,
+                      currentTab: navigationShell.currentIndex,
+                      onExitRequested: () =>
+                          ExitConfirmScope.requestExit(context),
+                      onTabSelected: (int index) {
+                        _goTab(context, index);
+                        context.read<AppBloc>().add(
+                          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
+                        );
+                      },
+                      onClose: () {
+                        if (navigationShell.currentIndex == 0) {
+                          _showHomeChannels(context);
+                        } else {
+                          context.read<AppBloc>().add(
+                            const SetHomeRemoteLayer(
+                              HomeRemoteLayer.fullscreen,
                             ),
                           );
-                        },
-                      ),
+                        }
+                      },
                     ),
-                    // 顶部导航条：随 isChromeVisible 折叠/展开，悬浮在视频上方。
-                    // 直接用 context.select 读 chrome，随切分支(父重建)也会刷新 selected。
-                    Align(
-                      alignment: Alignment.topCenter,
-                      child: ClipRect(
-                        child: AnimatedAlign(
-                          alignment: Alignment.topCenter,
-                          heightFactor: chromeShown ? 1 : 0,
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeInOut,
-                          child: _TopNavBar(
-                            currentIndex: navigationShell.currentIndex,
-                            chromeVisible: chromeVisible,
-                            onTabSelected: (index) => _goTab(context, index),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // 悬浮遥控器蒙层（手机调试用），置于最上层。
-                    FloatingRemote(
-                      onKey: (button) => _onRemoteButton(context, button),
-                    ),
-                  ],
-                ),
+                  ),
+                  // 悬浮遥控器蒙层（手机调试用），置于最上层。
+                  FloatingRemote(
+                    onKey: (button) => _onRemoteButton(context, button),
+                  ),
+                ],
               ),
             ),
           ),
@@ -709,7 +676,7 @@ class MainApp extends StatelessWidget {
   }
 }
 
-/// 标记页面正文焦点，供根遥控分发器区分“页面按钮”和顶部导航焦点。
+/// 标记页面正文焦点，供根遥控分发器区分页面按钮与播放器按键。
 /// 不参与布局，也不让业务页面依赖壳层的具体 FocusNode。
 class _TvContentFocusMarker extends InheritedWidget {
   const _TvContentFocusMarker({required super.child});
@@ -721,176 +688,4 @@ class _TvContentFocusMarker extends InheritedWidget {
 
   @override
   bool updateShouldNotify(_TvContentFocusMarker oldWidget) => false;
-}
-
-/// 顶部横向导航条：3 个 tab，焦点即切页、高亮显示。
-class _TopNavBar extends StatelessWidget {
-  const _TopNavBar({
-    required this.currentIndex,
-    required this.chromeVisible,
-    required this.onTabSelected,
-  });
-
-  final int currentIndex;
-  final bool chromeVisible;
-  final ValueChanged<int> onTabSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer.withValues(alpha: 0.92),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(color: Colors.black45, blurRadius: 8),
-        ],
-      ),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(width: 12),
-          // Expanded 均分剩余宽度，窄屏也不溢出。
-          for (int i = 0; i < MainApp._tabs.length; i++)
-            Expanded(
-              child: _TopTab(
-                index: i,
-                descriptor: MainApp._tabs[i],
-                selected: i == currentIndex,
-                canRequestFocus: chromeVisible,
-                onFocused: onTabSelected,
-              ),
-            ),
-          const SizedBox(width: 12),
-        ],
-      ),
-    );
-  }
-}
-
-class _TopTab extends StatefulWidget {
-  const _TopTab({
-    required this.index,
-    required this.descriptor,
-    required this.selected,
-    required this.canRequestFocus,
-    required this.onFocused,
-  });
-
-  final int index;
-  final _TabDescriptor descriptor;
-  final bool selected;
-  final bool canRequestFocus;
-  final ValueChanged<int> onFocused;
-
-  @override
-  State<_TopTab> createState() => _TopTabState();
-}
-
-class _TopTabState extends State<_TopTab> {
-  late final FocusNode _focusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode = FocusNode()..addListener(_onFocusChanged);
-  }
-
-  @override
-  void didUpdateWidget(_TopTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 导航条收起时释放聚焦点，让焦点落回内容区。
-    if (!widget.canRequestFocus && _focusNode.hasFocus) {
-      _focusNode.unfocus();
-    }
-  }
-
-  void _onFocusChanged() {
-    // 触摸/聚焦到某 tab 时切换页面。
-    if (_focusNode.hasFocus) {
-      widget.onFocused(widget.index);
-    }
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    // 高亮仅跟随「当前选中 tab」。
-    // 切换 tab 走 goBranch，焦点不会同步到新 tab；若用 selected||focused，
-    // 旧 tab 会因残留焦点而持续高亮（遥控器端明显）。
-    final bool active = widget.selected;
-    final IconData icon = widget.selected
-        ? widget.descriptor.selectedIcon
-        : widget.descriptor.icon;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Focus(
-        focusNode: _focusNode,
-        canRequestFocus: widget.canRequestFocus,
-        autofocus: widget.selected && widget.canRequestFocus,
-        // 触摸降级：手机直接点 tab 也触发切换（requestFocus 会走焦点监听→切页+高亮）
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _focusNode.requestFocus(),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: active
-                  ? scheme.primary.withValues(alpha: 0.9)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Icon(icon, color: Colors.white, size: 22),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    widget.descriptor.labelKey.tr(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 「二级页按返回键回直播」的一次性提示。
-///
-/// 只在首次真正触发时提示一次；用本地持久化记住，重启不再打扰。
-class _BackToLiveHint {
-  static const String _prefsKey = 'tv_back_to_live_hint_shown';
-
-  /// 同进程内只尝试一次，避免预置未落盘时反复弹。
-  static bool _attempted = false;
-
-  static Future<void> maybeShow(BuildContext context) async {
-    if (_attempted) return;
-    _attempted = true;
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_prefsKey) ?? false) return;
-    await prefs.setBool(_prefsKey, true);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('back_to_live_hint'.tr()),
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 }

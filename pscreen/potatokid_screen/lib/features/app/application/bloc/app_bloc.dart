@@ -95,13 +95,9 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     _chromePeekToken++;
     emit(
       state.copyWith(
-        isChromeVisible: event.visible,
+        isChromeVisible: false,
         isChromePeek: false,
-        homeRemoteLayer: event.visible
-            ? HomeRemoteLayer.appBar
-            : state.homeRemoteLayer == HomeRemoteLayer.appBar
-            ? HomeRemoteLayer.fullscreen
-            : state.homeRemoteLayer,
+        homeRemoteLayer: state.homeRemoteLayer,
       ),
     );
   }
@@ -125,7 +121,7 @@ class AppBloc extends Bloc<AppEvent, AppState> {
     emit(
       state.copyWith(
         homeRemoteLayer: event.layer,
-        isChromeVisible: event.layer == HomeRemoteLayer.appBar,
+        isChromeVisible: false,
         isChromePeek: false,
       ),
     );

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
-/// 首页遥控唯一交互层。频道列表和操作胶囊都属于 [quickControls]。
-enum HomeRemoteLayer { fullscreen, channelInfo, quickControls, appBar }
+/// 首页遥控唯一交互层。频道列表与右上角胶囊分层，避免方向键依赖几何遍历。
+enum HomeRemoteLayer { fullscreen, channelInfo, channelList, capsuleControls }
 
 /// 应用级全局状态（不可变，通过 copyWith 更新）
 class AppState {
@@ -26,10 +26,10 @@ class AppState {
   /// 清理失效源默认**关闭**。
   factory AppState.initial() => const AppState._(
     themeMode: ThemeMode.dark,
-    isChromeVisible: true,
+    isChromeVisible: false,
     isChromePeek: false,
     showFloatingRemote: false,
-    homeRemoteLayer: HomeRemoteLayer.appBar,
+    homeRemoteLayer: HomeRemoteLayer.fullscreen,
     hwdecEnabled: false,
     aspectMode: VideoAspectMode.original,
     weatherCity: '',
@@ -39,7 +39,7 @@ class AppState {
 
   final ThemeMode themeMode;
 
-  /// AppBar 与底部导航栏（顶部 tab 条）是否可见（false 时进入沉浸式全屏）
+  /// 旧顶部导航兼容字段；顶部导航已移除，当前始终为 false。
   final bool isChromeVisible;
 
   /// 导航条的「短暂预览」态：仅用于显示，**不参与焦点/切页**。
@@ -53,7 +53,7 @@ class AppState {
   final HomeRemoteLayer homeRemoteLayer;
 
   /// 兼容播放器绘制层读取；显隐只由 [homeRemoteLayer] 派生。
-  bool get showChannels => homeRemoteLayer == HomeRemoteLayer.quickControls;
+  bool get showChannels => homeRemoteLayer == HomeRemoteLayer.channelList;
 
   /// 是否启用硬件解码（关闭时使用 FFmpeg 软解，TV 设备兼容性更好）
   final bool hwdecEnabled;

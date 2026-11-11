@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class AppTabController {
   AppTabController._();
 
-  /// 「我的」在 MainApp._tabs 中的序号（与 MainApp._profileBranchIndex 一致）。
+  /// 「设置」分支序号（与 MainApp._profileBranchIndex 一致）。
   static const int profileIndex = 2;
 
   static final ValueNotifier<int> _branch = ValueNotifier<int>(0);

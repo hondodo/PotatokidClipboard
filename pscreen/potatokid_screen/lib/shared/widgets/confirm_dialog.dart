@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// 共用确认弹窗：TV 遥控器可用（聚焦高亮 + 默认聚焦安全项），返回键即取消。
 ///
@@ -8,7 +9,7 @@ import 'package:flutter/material.dart';
 /// - [cancelAutofocus] 默认 true，即默认聚焦「取消」，遥控器误按 OK 不会执行危险操作；
 /// - 弹窗自身接管返回键（[PopScope] + `canPop: false`），并按 [_samePressWindow]
 ///   忽略同一次返回键被投递两次的第二下，避免弹窗闪一下就消失。
-class ConfirmDialog extends StatelessWidget {
+class ConfirmDialog extends StatefulWidget {
   const ConfirmDialog({
     super.key,
     required this.title,
@@ -45,6 +46,11 @@ class ConfirmDialog extends StatelessWidget {
   static bool get isShowing => _showing;
 
   static bool _showing = false;
+  static _ConfirmDialogState? _activeState;
+
+  /// 供根遥控分发器和屏幕模拟遥控器显式操作当前弹窗。
+  static bool handleKey(LogicalKeyboardKey key) =>
+      _activeState?.handleKey(key) ?? false;
 
   /// 弹出确认框，返回 true=用户确认，false=取消/返回键关闭。
   ///
@@ -87,22 +93,88 @@ class ConfirmDialog extends StatelessWidget {
   }
 
   @override
+  State<ConfirmDialog> createState() => _ConfirmDialogState();
+}
+
+class _ConfirmDialogState extends State<ConfirmDialog> {
+  late final FocusNode _cancelFocus;
+  late final FocusNode _confirmFocus;
+
+  @override
+  void initState() {
+    super.initState();
+    _cancelFocus = FocusNode(debugLabel: 'ConfirmDialog.cancel');
+    _confirmFocus = FocusNode(debugLabel: 'ConfirmDialog.confirm');
+    ConfirmDialog._activeState = this;
+  }
+
+  @override
+  void dispose() {
+    if (identical(ConfirmDialog._activeState, this)) {
+      ConfirmDialog._activeState = null;
+    }
+    _cancelFocus.dispose();
+    _confirmFocus.dispose();
+    super.dispose();
+  }
+
+  bool handleKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowUp) {
+      _cancelFocus.requestFocus();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.arrowDown) {
+      _confirmFocus.requestFocus();
+      return true;
+    }
+    final bool ok =
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.gameButtonA;
+    if (ok) {
+      Navigator.of(context).pop(_confirmFocus.hasFocus);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+      Navigator.of(context).pop(false);
+      return true;
+    }
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: <Widget>[
-        // 默认聚焦「取消」：遥控器误按 OK 不会直接执行危险操作。
-        ConfirmDialogButton(
-          autofocus: cancelAutofocus,
-          label: cancelLabel,
-          onPressed: () => Navigator.of(context).pop(false),
-        ),
-        ConfirmDialogButton(
-          label: confirmLabel,
-          onPressed: () => Navigator.of(context).pop(true),
-        ),
-      ],
+    return Focus(
+      canRequestFocus: false,
+      onKeyEvent: (FocusNode node, KeyEvent event) {
+        if (event is! KeyDownEvent) return KeyEventResult.handled;
+        return handleKey(event.logicalKey)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
+      },
+      child: AlertDialog(
+        title: Text(widget.title),
+        content: Text(widget.message),
+        actions: <Widget>[
+          // 默认聚焦「取消」：遥控器误按 OK 不会直接执行危险操作。
+          ConfirmDialogButton(
+            focusNode: _cancelFocus,
+            autofocus: widget.cancelAutofocus,
+            label: widget.cancelLabel,
+            onPressed: () => Navigator.of(context).pop(false),
+          ),
+          ConfirmDialogButton(
+            focusNode: _confirmFocus,
+            autofocus: !widget.cancelAutofocus,
+            label: widget.confirmLabel,
+            onPressed: () => Navigator.of(context).pop(true),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -116,17 +188,20 @@ class ConfirmDialogButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.onPressed,
+    this.focusNode,
     this.autofocus = false,
   });
 
   final String label;
   final VoidCallback onPressed;
+  final FocusNode? focusNode;
   final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return OutlinedButton(
+      focusNode: focusNode,
       autofocus: autofocus,
       onPressed: onPressed,
       style: ButtonStyle(

@@ -110,6 +110,15 @@
   "parental_quiz_progress": "{__CURRENT__} / {__TOTAL__} 問目",
   "parental_quiz_progress_multiple": "{__CURRENT__} / {__TOTAL__} 問目 · 複数選択",
   "parental_confirm_answer": "答えを決定",
+  "capsule_test_one": "テストカプセル1",
+  "capsule_test_two": "テストカプセル2",
+  "capsule_test_one_triggered": "テスト1を実行しました",
+  "capsule_test_two_triggered": "テスト2を実行しました",
+  "capsule_test_ok_message": "テストカプセル {__NUMBER__}：OKを実行しました",
+  "capsule_install_update": "アップデートをインストール",
+  "capsule_download_progress": "ダウンロード {__PROGRESS__}%",
+  "capsule_finish_watching": "視聴を終了",
+  "capsule_exit_app": "アプリを終了",
   "disclaimer_title": "免責事項",
   "disclaimer_body": "本ソフトウェアはインターネット上の公開ライブストリームを集約して再生するのみで、音声・映像コンテンツの保存や制作は行いません。すべてのチャンネルデータはインターネットから取得したものであり、著作権は原著作者に帰属します。権利を侵害する内容がある場合は 416049529@qq.com までご連絡ください。確認後、速やかに対応いたします。本ソフトウェアは個人の学習および技術研究用です。商用利用はご遠慮ください。"
 }

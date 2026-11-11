@@ -1,12 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:potatokid_screen/core/app_exit_controller.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 
 /// 返回键二次确认：拦截系统返回，先弹窗确认再退出应用。
 ///
 /// TV 盒子上系统返回键会直接结束应用，容易误触；这里统一拦截并确认。
-/// 确认后调用 [SystemNavigator.pop]（结束 Activity），与系统返回的最终效果一致。
+/// 确认后先停止播放器，再通过 [AppExitController] 执行平台对应的完整退出。
 /// 弹窗外观与返回键处理由 [ConfirmDialog] 统一提供（与「重置」弹窗一致）。
 class ExitConfirmScope extends StatefulWidget {
   const ExitConfirmScope({
@@ -44,7 +44,7 @@ class ExitConfirmScope extends StatefulWidget {
     }
 
     if (confirmed) {
-      await SystemNavigator.pop();
+      await AppExitController.instance.exit();
     }
   }
 

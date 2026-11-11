@@ -110,6 +110,15 @@
   "parental_quiz_progress": "第 {__CURRENT__} / {__TOTAL__} 题",
   "parental_quiz_progress_multiple": "第 {__CURRENT__} / {__TOTAL__} 题 · 多选",
   "parental_confirm_answer": "确认答案",
+  "capsule_test_one": "测试胶囊一",
+  "capsule_test_two": "测试胶囊二",
+  "capsule_test_one_triggered": "测试一已触发",
+  "capsule_test_two_triggered": "测试二已触发",
+  "capsule_test_ok_message": "测试胶囊 {__NUMBER__}：OK 已触发",
+  "capsule_install_update": "安装更新",
+  "capsule_download_progress": "下载 {__PROGRESS__}%",
+  "capsule_finish_watching": "结束观看",
+  "capsule_exit_app": "退出应用",
   "disclaimer_title": "免责声明",
   "disclaimer_body": "本软件仅聚合网络公开直播源用于播放，不存储、不制作任何音视频内容；所有频道数据均来自互联网，版权归原权利人所有。若相关内容侵犯了您的合法权益，请通过 416049529@qq.com 告知，我们将及时处理。本软件仅供个人学习与技术研究，请勿用于商业用途。"
 }
