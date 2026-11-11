@@ -1,11 +1,8 @@
 import 'dart:async';
 
-import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
-import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
-import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
@@ -61,8 +58,13 @@ class _ChannelBarState extends State<ChannelBar> {
       final bool rapid = (now - _lastIndexChangeAt) < _rapidScrollThresholdMs;
       _lastIndexChangeAt = now;
 
-      if (rapid) {
-        // 快速滚动：jumpTo 即时跟上，避免动画队列滞后。
+      // 首尾循环不生成滚动动画：目标项可能在视口外，平滑滚动会让它晚 200ms
+      // 才被构建，期间旧焦点项被销毁 → 方向键短暂失灵。瞬时跳转让目标项当帧
+      // 构建，配合 _ChannelTile 在 initState 里请求焦点，焦点立刻接上。
+      final bool wrappedJump = (widget.selectedIndex - oldWidget.selectedIndex).abs() > 1;
+
+      if (rapid || wrappedJump) {
+        // 快速滚动 / 跨屏跳转：jumpTo 即时跟上，避免动画队列滞后。
         _scrollToSelected(animate: false);
         _settleTimer?.cancel();
         _settleTimer = Timer(const Duration(milliseconds: _settleDelayMs), () => _scrollToSelected(animate: true));
@@ -155,54 +157,8 @@ class _ChannelBarState extends State<ChannelBar> {
               },
             ),
           ),
-          // 纯文案引导：仅可操作的频道列表层显示，不可聚焦、不拦截按键。
-          if (widget.interactive) const _KidCapsuleBackHint(),
         ],
       ),
-    );
-  }
-}
-
-/// 儿童模式下有更新可安装时，提示「再按一次返回键」进入快捷胶囊菜单。
-///
-/// 只读文案，不参与焦点树、不改变频道列表的滚动与切台行为。
-class _KidCapsuleBackHint extends StatelessWidget {
-  const _KidCapsuleBackHint();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: ParentalStateController.instance,
-      builder: (BuildContext context, _) {
-        if (!kidModeOn) return const SizedBox.shrink();
-        return ValueListenableBuilder<AppUpdateState>(
-          valueListenable: AppUpdateController.instance,
-          builder: (BuildContext context, AppUpdateState update, _) {
-            if (!update.showPill || update.forceBlocked) {
-              return const SizedBox.shrink();
-            }
-            return Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(8, 8, 8, 2),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: KidPalette.capsule,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Text(
-                'kid_capsule_back_hint'.tr(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }
@@ -247,6 +203,18 @@ class _ChannelTile extends StatefulWidget {
 
 class _ChannelTileState extends State<_ChannelTile> {
   final FocusNode _focusNode = FocusNode(debugLabel: 'channel-tile');
+
+  @override
+  void initState() {
+    super.initState();
+    // 首尾循环跨屏跳转时，目标项是新建的 State（不会走 didUpdateWidget），
+    // 这里补一次聚焦，避免焦点落在被销毁的旧项上导致方向键短暂失灵。
+    if (widget.interactive && widget.selected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.interactive && widget.selected) _focusNode.requestFocus();
+      });
+    }
+  }
 
   @override
   void didUpdateWidget(_ChannelTile oldWidget) {
