@@ -40,6 +40,36 @@ abstract final class KidPalette {
   );
 }
 
+/// 普通（成人）模式播放页视觉基线。
+///
+/// 取自既有的成人外壳配色：更新胶囊品牌蓝 `#2F6BFF`、胶囊本体深蓝 `#263247`、
+/// 胶囊选中绿 `#16865A`。播放页的浮层统一用这套色，避免黑底白字与设置页脱节。
+abstract final class AdultPalette {
+  /// 选中行 / 热键 / 音频台图标：淡橙色。浅底配深色字（白字在浅橙上对比度不足）。
+  static const Color selection = Color(0xFFFFB066);
+  static const Color selectionInk = Color(0xFF1E2A3C);
+
+  /// 浮层面板底色（深蓝，与胶囊同源）。
+  static const Color panel = Color(0xFF263247);
+  static const Color panelDeep = Color(0xFF1E2A3C);
+
+  /// 播放舞台（加载 / 音频台）的近黑蓝渐变。
+  static const Color stageTop = Color(0xFF0A1018);
+  static const Color stageBottom = Color(0xFF121A28);
+
+  static const LinearGradient panelGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[panel, panelDeep],
+  );
+
+  static const LinearGradient stage = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: <Color>[stageTop, stageBottom],
+  );
+}
+
 /// 是否套用儿童模式外观。与全部业务分支共用同一个生效判定式，只读不改。
 bool get kidModeOn => ParentalStateController.instance.enabled;
 

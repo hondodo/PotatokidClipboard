@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 
 /// 遥控方向键提示：以「圆形底盘 + 四向箭头 + 中心 OK」的图形表示遥控器方向键。
 ///
@@ -72,7 +73,8 @@ class _DirectionWidgetState extends State<DirectionWidget> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
+    // 儿童模式：深色底盘 + 暖黄热键；普通模式：深蓝底盘 + 品牌蓝热键。
+    final bool kid = kidModeOn;
 
     return SizedBox.square(
       dimension: widget.size,
@@ -80,17 +82,20 @@ class _DirectionWidgetState extends State<DirectionWidget> with SingleTickerProv
         animation: _hotOpacity,
         builder: (BuildContext context, Widget? child) {
           return DecoratedBox(
-            decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: 0.5)),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: kid ? Colors.black.withValues(alpha: 0.28) : AdultPalette.panel.withValues(alpha: 0.7),
+            ),
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                _cap(scheme, alignment: Alignment.topCenter, icon: Icons.keyboard_arrow_up, hot: widget.hotUp),
-                _cap(scheme, alignment: Alignment.bottomCenter, icon: Icons.keyboard_arrow_down, hot: widget.hotDown),
-                _cap(scheme, alignment: Alignment.centerLeft, icon: Icons.keyboard_arrow_left, hot: widget.hotLeft),
-                _cap(scheme, alignment: Alignment.centerRight, icon: Icons.keyboard_arrow_right, hot: widget.hotRight),
+                _cap(alignment: Alignment.topCenter, icon: Icons.keyboard_arrow_up, hot: widget.hotUp),
+                _cap(alignment: Alignment.bottomCenter, icon: Icons.keyboard_arrow_down, hot: widget.hotDown),
+                _cap(alignment: Alignment.centerLeft, icon: Icons.keyboard_arrow_left, hot: widget.hotLeft),
+                _cap(alignment: Alignment.centerRight, icon: Icons.keyboard_arrow_right, hot: widget.hotRight),
                 Align(
                   alignment: Alignment.center,
-                  child: _okKey(scheme, hot: widget.hotOk),
+                  child: _okKey(hot: widget.hotOk),
                 ),
               ],
             ),
@@ -103,8 +108,14 @@ class _DirectionWidgetState extends State<DirectionWidget> with SingleTickerProv
   /// 方向键帽：贴着底盘边缘，使键心距圆心约 0.36×边长。
   ///
   /// 键帽直径取 0.28×边长时，键帽恰好完整落在底盘内且不与中心键重叠。
-  Widget _cap(ColorScheme scheme, {required Alignment alignment, required IconData icon, required bool hot}) {
+  Widget _cap({required Alignment alignment, required IconData icon, required bool hot}) {
     final double d = widget.size * 0.28;
+    final bool kid = kidModeOn;
+    final Color hotColor = kid ? KidPalette.accent : AdultPalette.selection;
+    final Color idleColor = Colors.white.withValues(alpha: kid ? 0.18 : 0.20);
+    final Color iconColor = hot
+        ? (kid ? KidPalette.accentInk : AdultPalette.selectionInk)
+        : Colors.white.withValues(alpha: 0.9);
     return Align(
       alignment: alignment,
       child: Opacity(
@@ -114,20 +125,28 @@ class _DirectionWidgetState extends State<DirectionWidget> with SingleTickerProv
           height: d,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: hot ? Colors.amber.shade200 : Colors.white.withValues(alpha: 0.5),
+            color: hot ? hotColor : idleColor,
             boxShadow: hot
-                ? <BoxShadow>[BoxShadow(color: scheme.primary.withValues(alpha: 0.55), blurRadius: 8, spreadRadius: 1)]
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: hotColor.withValues(alpha: 0.55),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ]
                 : null,
           ),
-          child: Icon(icon, size: d * 0.68, color: hot ? Colors.black : Colors.black87),
+          child: Icon(icon, size: d * 0.68, color: iconColor),
         ),
       ),
     );
   }
 
   /// 中心 OK 键。
-  Widget _okKey(ColorScheme scheme, {required bool hot}) {
+  Widget _okKey({required bool hot}) {
     final double d = widget.size * 0.40;
+    final bool kid = kidModeOn;
+    final Color hotColor = kid ? KidPalette.accent : AdultPalette.selection;
     return Opacity(
       opacity: hot ? _hotOpacity.value : 1,
       child: Container(
@@ -136,15 +155,23 @@ class _DirectionWidgetState extends State<DirectionWidget> with SingleTickerProv
         alignment: Alignment.center,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: hot ? Colors.amber.shade100 : Colors.white.withValues(alpha: 0.5),
+          color: hot ? hotColor : Colors.white.withValues(alpha: kid ? 0.18 : 0.20),
           boxShadow: hot
-              ? <BoxShadow>[BoxShadow(color: scheme.primary.withValues(alpha: 0.55), blurRadius: 8, spreadRadius: 1)]
+              ? <BoxShadow>[
+                  BoxShadow(
+                    color: hotColor.withValues(alpha: 0.55),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ]
               : null,
         ),
         child: Text(
           'OK',
           style: TextStyle(
-            color: hot ? Colors.black : Colors.black87,
+            color: hot
+                ? (kid ? KidPalette.accentInk : AdultPalette.selectionInk)
+                : Colors.white.withValues(alpha: 0.9),
             fontSize: d * 0.42,
             fontWeight: FontWeight.w600,
             height: 1,

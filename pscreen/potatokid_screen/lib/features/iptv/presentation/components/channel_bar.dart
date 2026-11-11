@@ -108,11 +108,29 @@ class _ChannelBarState extends State<ChannelBar> {
 
   @override
   Widget build(BuildContext context) {
+    // 儿童模式：频道列表换成深蓝渐变面板（圆角 + 描边 + 阴影）。
+    final bool kid = kidModeOn;
     return Container(
       width: 200,
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(12)),
+      decoration: kid
+          ? BoxDecoration(
+              gradient: KidPalette.dialog,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white24),
+              boxShadow: const <BoxShadow>[
+                BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6)),
+              ],
+            )
+          : BoxDecoration(
+              gradient: AdultPalette.panelGradient,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+              boxShadow: const <BoxShadow>[
+                BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6)),
+              ],
+            ),
       child: Column(
         children: <Widget>[
           Expanded(
@@ -255,8 +273,19 @@ class _ChannelTileState extends State<_ChannelTile> {
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
     final bool focused = _focusNode.hasFocus;
+    // 儿童模式：暖黄胶囊 + 深色字；普通模式：淡橙胶囊 + 深色字。
+    final bool kid = kidModeOn;
+    final double tileRadius = kid ? 14 : 8;
+    final Color tileColor = widget.selected
+        ? (kid ? KidPalette.accent : AdultPalette.selection)
+        : Colors.transparent;
+    final Color numberColor = widget.selected
+        ? (kid ? KidPalette.accentInk.withValues(alpha: 0.85) : AdultPalette.selectionInk.withValues(alpha: 0.8))
+        : (kid ? KidPalette.softBlue : Colors.white.withValues(alpha: 0.54));
+    final Color nameColor = widget.selected
+        ? (kid ? KidPalette.accentInk : AdultPalette.selectionInk)
+        : Colors.white;
     // 首尾循环：焦点停在第一个/最后一个再按上/下时，直接把选中跳到另一端。
     // 只拦截「到头」的这一下，其余方向键照旧交给壳层做焦点移动。
     return Focus(
@@ -282,9 +311,9 @@ class _ChannelTileState extends State<_ChannelTile> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
           child: Material(
-            color: widget.selected ? scheme.primary.withValues(alpha: 0.85) : Colors.transparent,
+            color: tileColor,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(tileRadius),
               side: focused ? const BorderSide(color: Colors.white, width: 2) : BorderSide.none,
             ),
             child: InkWell(
@@ -294,7 +323,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                 if (value) widget.onFocused();
                 if (mounted) setState(() {});
               },
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(tileRadius),
               onTap: widget.onTap,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -307,7 +336,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                         maxLines: 1,
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: widget.selected ? 0.95 : 0.6),
+                          color: numberColor,
                           fontSize: 13,
                           fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
                           fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
@@ -321,7 +350,7 @@ class _ChannelTileState extends State<_ChannelTile> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white,
+                          color: nameColor,
                           fontSize: 14,
                           fontWeight: widget.selected ? FontWeight.bold : FontWeight.normal,
                         ),

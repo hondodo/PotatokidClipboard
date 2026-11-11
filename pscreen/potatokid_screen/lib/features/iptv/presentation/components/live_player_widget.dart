@@ -33,6 +33,7 @@ import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_now_panel.dart';
@@ -1073,7 +1074,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   Widget build(BuildContext context) {
     final VideoController? controller = _controller;
     if (controller == null || widget.channels.isEmpty) {
-      return const ColoredBox(color: Colors.black);
+      // 起播前的空场：儿童深蓝渐变 / 成人近黑蓝渐变，避免整屏纯黑。
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: kidModeOn ? KidPalette.background : AdultPalette.stage,
+        ),
+      );
     }
     return BlocListener<AppBloc, AppState>(
       listenWhen: (prev, curr) => prev.hwdecEnabled != curr.hwdecEnabled,
@@ -1097,13 +1103,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                 previous.backgroundPlayback != current.backgroundPlayback,
             builder: (context, state) {
               final VideoAspectMode mode = state.aspectMode;
-              return ColoredBox(
-                color: Colors.black,
+              final bool kid = kidModeOn;
+              // 未出画面时（加载 / 音频台）透出舞台渐变，故 Video 填充透明。
+              return DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: kid ? KidPalette.background : AdultPalette.stage,
+                ),
                 child: Video(
                   controller: controller,
                   controls: NoVideoControls,
                   fit: mode.fit,
                   aspectRatio: mode.aspectRatio,
+                  fill: Colors.transparent,
                   // 「后台播放」开关（默认关）：关闭时保持 media_kit 默认行为——退到后台即暂停；
                   // 开启后不暂停，安卓退到后台/息屏时声音继续播。
                   pauseUponEnteringBackgroundMode: !state.backgroundPlayback,
@@ -1204,17 +1215,22 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                   sourceTips = labels[1];
                 }
               }
+              // 儿童模式：深蓝渐变 + 暖黄/浅蓝；普通模式：深蓝面板 + 品牌蓝层级文字。
+              final bool kid = kidModeOn;
+              final Color tipsColor = kid ? KidPalette.softBlue : Colors.white54;
+              final Color sourceColor = kid ? textColor : Colors.white70;
               return Positioned(
                 left: 16,
                 bottom: 24,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
+                  padding: EdgeInsets.symmetric(horizontal: kid ? 20 : 18, vertical: kid ? 14 : 12),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(8),
+                    gradient: kid ? KidPalette.dialog : AdultPalette.panelGradient,
+                    borderRadius: BorderRadius.circular(kid ? 20 : 16),
+                    border: Border.all(color: kid ? Colors.white24 : Colors.white12),
+                    boxShadow: const <BoxShadow>[
+                      BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6)),
+                    ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1233,13 +1249,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                   name,
                                   style: TextStyle(
                                     color: textColor,
-                                    fontSize: 16,
+                                    fontSize: kid ? 16 : 18,
+                                    fontWeight: kid ? FontWeight.normal : FontWeight.w600,
                                   ),
                                 ),
                                 Text(
                                   sourceTips,
                                   style: TextStyle(
-                                    color: textColor,
+                                    color: sourceColor,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -1264,8 +1281,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                 Text(
                                   'iptv_hint_change_channel'.tr(),
                                   style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 14,
+                                    color: tipsColor,
+                                    fontSize: kid ? 14 : 13,
                                   ),
                                 ),
                               ],
@@ -1281,8 +1298,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                 Text(
                                   'iptv_hint_change_source'.tr(),
                                   style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 14,
+                                    color: tipsColor,
+                                    fontSize: kid ? 14 : 13,
                                   ),
                                 ),
                               ],
@@ -1294,8 +1311,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                 Text(
                                   'iptv_hint_channel_list'.tr(),
                                   style: TextStyle(
-                                    color: textColor,
-                                    fontSize: 14,
+                                    color: tipsColor,
+                                    fontSize: kid ? 14 : 13,
                                   ),
                                 ),
                               ],
@@ -1335,11 +1352,14 @@ class _ChannelNumberOverlay extends StatelessWidget {
             ChannelNumberInputController.instance;
         if (!input.visible) return const SizedBox.shrink();
         final bool outOfRange = input.outOfRange;
+        final bool kid = kidModeOn;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.65),
+            // 普通模式沿用浮层的深蓝面板，与信息卡/列表统一。
+            color: kid ? Colors.black.withValues(alpha: 0.65) : AdultPalette.panel.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(12),
+            border: kid ? null : Border.all(color: Colors.white12),
           ),
           child: Text(
             outOfRange ? 'iptv_channel_number_out_of_range'.tr() : input.digits,
@@ -1408,6 +1428,8 @@ class _AudioNowPlaying extends StatelessWidget {
     final double nameSize = (shortSide * 0.042).clamp(24.0, 54.0);
     final double tipsSize = (shortSide * 0.026).clamp(16.0, 32.0);
     final double timeSize = (shortSide * 0.075).clamp(48.0, 92.0);
+    // 儿童模式：深蓝渐变打底、暖黄收音机图标 + 浅蓝源文案、暖黄声条。
+    final bool kid = kidModeOn;
     return AnimatedOpacity(
       opacity: visible ? 1 : 0,
       duration: const Duration(milliseconds: 300),
@@ -1415,6 +1437,14 @@ class _AudioNowPlaying extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
+          // 整屏底色：儿童深蓝渐变 / 成人近黑蓝渐变（盖上播放器底，不影响视频台）。
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: kid ? KidPalette.background : AdultPalette.stage,
+              ),
+            ),
+          ),
           // 氛围层：贴底的跳动声条。低透明度，只做背景，不抢前景信息。
           // 用 ValueListenableBuilder 局部刷新：播放状态变化只重建这一层，
           // 不会牵连上面的 [Video]。
@@ -1427,7 +1457,12 @@ class _AudioNowPlaying extends StatelessWidget {
                 child: ValueListenableBuilder<bool>(
                   valueListenable: barsActive,
                   builder: (BuildContext context, bool active, Widget? _) =>
-                      _EqualizerBars(active: active),
+                      _EqualizerBars(
+                        active: active,
+                        color: kid
+                            ? KidPalette.accent.withValues(alpha: 0.30)
+                            : AdultPalette.selection.withValues(alpha: 0.18),
+                      ),
                 ),
               ),
             ),
@@ -1451,11 +1486,25 @@ class _AudioNowPlaying extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Icon(
-                      Icons.radio_rounded,
-                      size: iconSize,
-                      color: Colors.white.withValues(alpha: 0.92),
-                    ),
+                    // 儿童模式：收音机图标放在半透明圆形底盘里，暖黄点亮。
+                    if (kid)
+                      Container(
+                        width: iconSize * 1.5,
+                        height: iconSize * 1.5,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.08),
+                          border: Border.all(color: KidPalette.softBlue.withValues(alpha: 0.45), width: 2),
+                        ),
+                        child: Icon(Icons.radio_rounded, size: iconSize, color: KidPalette.accent),
+                      )
+                    else
+                      Icon(
+                        Icons.radio_rounded,
+                        size: iconSize,
+                        color: AdultPalette.selection.withValues(alpha: 0.92),
+                      ),
                     const SizedBox(height: 12),
                     Text(
                       name,
@@ -1475,7 +1524,7 @@ class _AudioNowPlaying extends StatelessWidget {
                         sourceTips,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
+                          color: kid ? KidPalette.softBlue : Colors.white.withValues(alpha: 0.7),
                           fontSize: tipsSize,
                         ),
                       ),
@@ -1512,11 +1561,14 @@ class _AudioNowPlaying extends StatelessWidget {
 /// [active] 为 false 时停掉动画：该层始终留在树上（做淡入淡出），
 /// 不主动停会导致「连接中/不播音频」时也在后台逐帧空转。
 class _EqualizerBars extends StatefulWidget {
-  const _EqualizerBars({required this.active});
+  const _EqualizerBars({required this.active, required this.color});
 
   /// 是否让声条跳动（由 `LivePlayerWidget._barsActiveVN` 驱动：
   /// 确认是音频节目且确实出声了才为 true）。
   final bool active;
+
+  /// 声条颜色（儿童模式用暖黄，成人模式用白色低透明度）。
+  final Color color;
 
   @override
   State<_EqualizerBars> createState() => _EqualizerBarsState();
@@ -1555,10 +1607,7 @@ class _EqualizerBarsState extends State<_EqualizerBars>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _EqualizerBarsPainter(
-        animation: _controller,
-        color: Colors.white.withValues(alpha: 0.22),
-      ),
+      painter: _EqualizerBarsPainter(animation: _controller, color: widget.color),
     );
   }
 }
