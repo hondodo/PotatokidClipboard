@@ -94,12 +94,20 @@ class MainApp extends StatelessWidget {
     final int cur = navigationShell.currentIndex;
     final AppState appState = context.read<AppBloc>().state;
 
+    // 同一次返回可能同时以按键事件与系统 popRoute 投递（见 _sameBackWindowMs）：
+    // 统一在这里去重，避免一次按键连走两级迁移——胶囊页会「闪一下又弹回来」。
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastHomeBackAt < _sameBackWindowMs) return true;
+    _lastHomeBackAt = now;
+
     // 系统返回可能不产生键盘事件，不能只依赖 Mask 的 Focus.onKeyEvent。
-    // 从直播打开则回频道列表，从其它页面打开则关闭 Mask 留在原页面。
+    // 胶囊页是返回链的最后一站：关闭 Mask（直播页连同频道面板）回到全屏，
+    // 避免「列表 → 胶囊 → 列表」来回打转、只能靠「首页」回到直播。
     if (appState.homeRemoteLayer == HomeRemoteLayer.capsuleControls) {
       FocusManager.instance.primaryFocus?.unfocus();
       if (cur == 0) {
-        _showHomeChannels(context);
+        // 内部已取消提示并切回 fullscreen 层。
+        HomeNowPlayingController.instance.hideChannelPanel();
       } else {
         context.read<AppBloc>().add(
           const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
@@ -110,9 +118,6 @@ class MainApp extends StatelessWidget {
 
     // 首页返回键按固定状态链前进：全屏 → 频道信息 → 频道列表 → 胶囊 Mask。
     if (cur == 0) {
-      final int now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastHomeBackAt < _sameBackWindowMs) return true;
-      _lastHomeBackAt = now;
       switch (appState.homeRemoteLayer) {
         case HomeRemoteLayer.fullscreen:
           HomeNowPlayingController.instance.showChannelInfo();
@@ -149,11 +154,9 @@ class MainApp extends StatelessWidget {
       return true;
     }
 
-    // 非首页 → 打开全局胶囊导航层，并默认聚焦直播入口。
+    // 非首页（时间 / 设置）→ 直接回直播页，不再先弹胶囊菜单。
     if (cur != 0) {
-      context.read<AppBloc>().add(
-        const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls),
-      );
+      _goTab(context, 0);
       return true;
     }
 
@@ -640,17 +643,9 @@ class MainApp extends StatelessWidget {
                           const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
                         );
                       },
-                      onClose: () {
-                        if (navigationShell.currentIndex == 0) {
-                          _showHomeChannels(context);
-                        } else {
-                          context.read<AppBloc>().add(
-                            const SetHomeRemoteLayer(
-                              HomeRemoteLayer.fullscreen,
-                            ),
-                          );
-                        }
-                      },
+                      // 返回键与系统返回走同一套分层逻辑（含双投递去重），
+                      // 否则同一次按键会先关 Mask 再被 popRoute 推回列表。
+                      onClose: () => _handleBack(context),
                     ),
                   ),
                 ],

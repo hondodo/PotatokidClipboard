@@ -358,7 +358,7 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
           final List<_CapsuleEntry> tabs = <_CapsuleEntry>[
                   _CapsuleEntry(
                     id: 'tab-live',
-                    label: 'home_title'.tr(),
+                    label: 'capsule_tab_live'.tr(),
                     icon: Icons.live_tv_rounded,
                     audience: _CapsuleAudience.parentOnly,
                     active: widget.currentTab == 0,
