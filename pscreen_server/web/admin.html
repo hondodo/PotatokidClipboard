@@ -335,11 +335,6 @@
 
   <section id="login-view" class="login-wrap">
     <div class="card login-card">
-      <div class="seg">
-        <button class="seg-btn active" type="button" data-auth="login">登录</button>
-        <button class="seg-btn" type="button" data-auth="register">注册</button>
-      </div>
-
       <form id="login-form">
         <label>用户名
           <input id="login-username" autocomplete="username" placeholder="honghao" required>
@@ -349,20 +344,7 @@
         </label>
         <button class="btn primary" type="submit">登录</button>
         <p class="hint">管理员账号固定为 <strong>honghao</strong>；普通账号需在「用户与家庭」里提升为<strong>管理员或家长</strong>后才能进入本页（家长仅可查看概览与配置设备/儿童模式）。</p>
-      </form>
-
-      <form id="register-form" hidden>
-        <label>用户名
-          <input id="register-username" autocomplete="username" placeholder="2-64 位字母 / 数字 / 中文" required>
-        </label>
-        <label>密码
-          <input id="register-password" type="password" autocomplete="new-password" placeholder="至少 4 位" required>
-        </label>
-        <label>确认密码
-          <input id="register-password-2" type="password" autocomplete="new-password" required>
-        </label>
-        <button class="btn primary" type="submit">注册普通账号</button>
-        <p class="hint">注册后默认没有管理员权限，也不会自动登录。</p>
+        <p class="hint">公开注册已关闭。家长如需自定义登录名，请在家长 App 的「设置登录名」中完成；其他账号由管理员在「用户与家庭」里创建。</p>
       </form>
 
       <p id="auth-msg" class="msg"></p>
@@ -707,14 +689,7 @@
     el.className = `msg ${kind}`;
   }
 
-  function switchAuth(mode) {
-    document.querySelectorAll('[data-auth]').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.auth === mode);
-    });
-    $('login-form').hidden = mode !== 'login';
-    $('register-form').hidden = mode !== 'register';
-    setAuthMessage('');
-  }
+  // 公开注册已下线：登录页只有一种模式，不再切换表单。
 
   function showLogin() {
     state.me = null;
@@ -763,10 +738,6 @@
     }
   }
 
-  document.querySelectorAll('[data-auth]').forEach((btn) => {
-    btn.addEventListener('click', () => switchAuth(btn.dataset.auth));
-  });
-
   $('login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const username = $('login-username').value.trim();
@@ -784,33 +755,6 @@
       showDashboard();
       await loadOverview(false, true);
       startPolling();
-    } catch (error) {
-      setAuthMessage(error.message, 'error');
-    }
-  });
-
-  $('register-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const username = $('register-username').value.trim();
-    const password = $('register-password').value;
-    const password2 = $('register-password-2').value;
-    if (!username || !password) return;
-    if (password !== password2) {
-      setAuthMessage('两次输入的密码不一致', 'error');
-      return;
-    }
-    setAuthMessage('注册中…');
-    try {
-      await api('/api/admin/register', {
-        method: 'POST',
-        body: JSON.stringify({ username, password }),
-      });
-      $('register-username').value = '';
-      $('register-password').value = '';
-      $('register-password-2').value = '';
-      switchAuth('login');
-      $('login-username').value = username;
-      setAuthMessage('注册成功，请登录', 'ok');
     } catch (error) {
       setAuthMessage(error.message, 'error');
     }

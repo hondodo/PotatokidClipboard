@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 
 /// 共用确认弹窗：TV 遥控器可用（聚焦高亮 + 默认聚焦安全项），返回键即取消。
 ///
@@ -9,6 +10,9 @@ import 'package:flutter/services.dart';
 /// - [cancelAutofocus] 默认 true，即默认聚焦「取消」，遥控器误按 OK 不会执行危险操作；
 /// - 弹窗自身接管返回键（[PopScope] + `canPop: false`），并按 [_samePressWindow]
 ///   忽略同一次返回键被投递两次的第二下，避免弹窗闪一下就消失。
+///
+/// [kidStyle] 只影响配色（深蓝卡片 + 白字 + 暖黄焦点），由调用方按儿童模式
+/// 注入；不传时与原来完全一致，避免污染「重置」等其它调用方。
 class ConfirmDialog extends StatefulWidget {
   const ConfirmDialog({
     super.key,
@@ -17,6 +21,7 @@ class ConfirmDialog extends StatefulWidget {
     required this.cancelLabel,
     required this.confirmLabel,
     this.cancelAutofocus = true,
+    this.kidStyle = false,
   });
 
   /// 标题文案。
@@ -33,6 +38,9 @@ class ConfirmDialog extends StatefulWidget {
 
   /// 是否默认聚焦「取消」（危险操作应保持 true）。
   final bool cancelAutofocus;
+
+  /// 儿童模式外观（纯视觉开关）。
+  final bool kidStyle;
 
   /// 同一次返回键可能在极短时间内被投递两次（按键事件 + 系统 popRoute），
   /// 弹窗打开后这段时间内的返回视为同一次按键，直接忽略。
@@ -62,6 +70,7 @@ class ConfirmDialog extends StatefulWidget {
     required String cancelLabel,
     required String confirmLabel,
     bool cancelAutofocus = true,
+    bool kidStyle = false,
   }) async {
     final DateTime openedAt = DateTime.now();
     _showing = true;
@@ -83,6 +92,7 @@ class ConfirmDialog extends StatefulWidget {
             cancelLabel: cancelLabel,
             confirmLabel: confirmLabel,
             cancelAutofocus: cancelAutofocus,
+            kidStyle: kidStyle,
           ),
         ),
       );
@@ -148,6 +158,7 @@ class _ConfirmDialogState extends State<ConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool kid = widget.kidStyle;
     return Focus(
       canRequestFocus: false,
       onKeyEvent: (FocusNode node, KeyEvent event) {
@@ -157,6 +168,24 @@ class _ConfirmDialogState extends State<ConfirmDialog> {
             : KeyEventResult.ignored;
       },
       child: AlertDialog(
+        backgroundColor: kid ? const Color(0xFF1C465B) : null,
+        surfaceTintColor: kid ? Colors.transparent : null,
+        shape: kid
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+                side: const BorderSide(color: Colors.white24),
+              )
+            : null,
+        titleTextStyle: kid
+            ? const TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.w600,
+              )
+            : null,
+        contentTextStyle: kid
+            ? const TextStyle(color: Colors.white70, fontSize: 18)
+            : null,
         title: Text(widget.title),
         content: Text(widget.message),
         actions: <Widget>[
@@ -165,12 +194,14 @@ class _ConfirmDialogState extends State<ConfirmDialog> {
             focusNode: _cancelFocus,
             autofocus: widget.cancelAutofocus,
             label: widget.cancelLabel,
+            kidStyle: kid,
             onPressed: () => Navigator.of(context).pop(false),
           ),
           ConfirmDialogButton(
             focusNode: _confirmFocus,
             autofocus: !widget.cancelAutofocus,
             label: widget.confirmLabel,
+            kidStyle: kid,
             onPressed: () => Navigator.of(context).pop(true),
           ),
         ],
@@ -190,12 +221,14 @@ class ConfirmDialogButton extends StatelessWidget {
     required this.onPressed,
     this.focusNode,
     this.autofocus = false,
+    this.kidStyle = false,
   });
 
   final String label;
   final VoidCallback onPressed;
   final FocusNode? focusNode;
   final bool autofocus;
+  final bool kidStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -205,18 +238,30 @@ class ConfirmDialogButton extends StatelessWidget {
       autofocus: autofocus,
       onPressed: onPressed,
       style: ButtonStyle(
-        foregroundColor: WidgetStatePropertyAll<Color?>(scheme.onSurface),
+        foregroundColor: WidgetStateProperty.resolveWith<Color?>(
+          (Set<WidgetState> states) => kidStyle
+              ? (states.contains(WidgetState.focused)
+                    ? KidPalette.accentInk
+                    : Colors.white)
+              : scheme.onSurface,
+        ),
         backgroundColor: WidgetStateProperty.resolveWith<Color?>(
           (Set<WidgetState> states) => states.contains(WidgetState.focused)
-              ? scheme.primary.withValues(alpha: 0.30)
+              ? (kidStyle
+                    ? KidPalette.accent
+                    : scheme.primary.withValues(alpha: 0.30))
               : Colors.transparent,
         ),
         side: WidgetStateProperty.resolveWith<BorderSide>(
           (Set<WidgetState> states) => BorderSide(
-            color: states.contains(WidgetState.focused)
-                ? scheme.primary
-                : scheme.outline,
-            width: states.contains(WidgetState.focused) ? 2 : 1,
+            color: kidStyle
+                ? (states.contains(WidgetState.focused)
+                      ? Colors.white
+                      : KidPalette.softBlue)
+                : (states.contains(WidgetState.focused)
+                      ? scheme.primary
+                      : scheme.outline),
+            width: states.contains(WidgetState.focused) ? 2 : 1.5,
           ),
         ),
         padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(

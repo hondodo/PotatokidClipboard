@@ -18,10 +18,14 @@ const crypto = require('crypto');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
 const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
+const claims = require('./claims');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 家长自定义登录名的一次性凭证：短时有效，且带独立前缀，不能当 pk_admin 会话用。
+const CLAIM_TICKET_TTL_MS = 10 * 60 * 1000;
+const CLAIM_TOKEN_PREFIX = 'clm.';
 const MACHINE_ONLINE_MS = 90 * 1000;
 const MAX_HOMES = 50;
 const MAX_HOME_NAME = 64;
@@ -1014,9 +1018,98 @@ function attachAdmin(app, options = {}) {
         });
     }
 
+    // claim ticket 复用会话的 HMAC 密钥，但加独立前缀：带上前缀的串无法被
+    // verifySession() 解析，因此即便被塞进 pk_admin cookie 也不能冒充登录态。
+    const claimTicketsFile = path.join(adminDir, 'claim_tickets.json');
+
+    function signClaimTicket(account) {
+        const payload = {
+            u: account,
+            exp: nowMs() + CLAIM_TICKET_TTL_MS,
+            kind: 'claim',
+            jti: crypto.randomBytes(16).toString('hex'),
+        };
+        return CLAIM_TOKEN_PREFIX + signSession(payload);
+    }
+
+    function verifyClaimTicket(token, account) {
+        if (typeof token !== 'string' || !token.startsWith(CLAIM_TOKEN_PREFIX)) return null;
+        const payload = verifySession(token.slice(CLAIM_TOKEN_PREFIX.length));
+        if (!payload || payload.kind !== 'claim' || payload.u !== account) return null;
+        if (typeof payload.jti !== 'string' || !payload.jti) return null;
+        return payload;
+    }
+
     // ------------------------------------------------------------ Admin API
 
-    app.post('/api/admin/register', (req, res) => {
+    // 家长自定义登录名（route 2 / claim）：只允许设备自举的 parent 账号领票一次。
+    // 认证来源是已登录的 pk_admin 会话，不碰 /api/login，也不改中控端登录链路。
+    app.post('/api/admin/claim/ticket', requireParentOperator, (req, res) => {
+        try {
+            const name = req.adminUser.name;
+            const info = readUserInfo(name);
+            if (req.adminUser.role !== 'parent' || !claims.isDerivedAccount(name)) {
+                return jsonFail(res, '只有设备自举的家长账号可以设置登录名', 403, 403);
+            }
+            if (info.claimedAt || info.claimedTo) {
+                return jsonFail(res, '该账号已设置过登录名', 403, 403);
+            }
+            return jsonOk(res, {
+                claimToken: signClaimTicket(name),
+                expiresIn: Math.round(CLAIM_TICKET_TTL_MS / 1000),
+            });
+        } catch (error) {
+            console.error('[admin] 签发 claim 凭证失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    app.post('/api/admin/claim', requireParentOperator, (req, res) => {
+        try {
+            const oldName = req.adminUser.name;
+            const body = req.body || {};
+            const payload = verifyClaimTicket(body.claimToken, oldName);
+            if (!payload) return jsonFail(res, '凭证无效或已过期，请重新获取', 403, 403);
+            const verdict = claims.validateClaimName(body.account, {
+                adminUsername: ADMIN_USERNAME,
+                accountExists: (name) => fs.existsSync(passwordPath(name)),
+            });
+            if (!verdict.ok) return jsonFail(res, verdict.reason);
+            const info = readUserInfo(oldName);
+            if (req.adminUser.role !== 'parent' || !claims.isDerivedAccount(oldName)
+                || info.role !== 'parent' || info.claimedAt || info.claimedTo) {
+                return jsonFail(res, '该账号不能重复设置登录名', 403, 403);
+            }
+            // 先核销 jti 再迁移：并发重复提交只会有一个请求真正改名。
+            if (!claims.consumeTicket(claimTicketsFile, payload.jti, nowMs(), CLAIM_TICKET_TTL_MS)) {
+                return jsonFail(res, '凭证已被使用，请重新获取', 403, 403);
+            }
+            // 自定义登录名可猜，必须换掉设备自举的默认口令 123456；新口令
+            // 只在这次响应里下发一次，客户端持久化后仍按原有 MD5 校验登录。
+            const newPassword = crypto.randomBytes(12).toString('base64url');
+            const result = claims.applyAccountRename({
+                datasDir,
+                registerUsersDir,
+                oldName,
+                newName: verdict.name,
+                newPasswordMd5: hashPassword(newPassword),
+            });
+            setSessionCookie(res, verdict.name);
+            console.log(`[admin] 家长账号改名: ${oldName} -> ${verdict.name} 备份=${result.backupDir}`);
+            return jsonOk(res, {
+                account: verdict.name,
+                password: newPassword,
+                changed: result.changed,
+            }, '登录名已设置');
+        } catch (error) {
+            console.error('[admin] claim 失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    // 公开自助注册已关闭：过去开放此端点产生了大量无人认领的账号。
+    // 家长登录名改由 /api/admin/claim 的 ticket 流程产生；这里仅允许管理员补建账号。
+    app.post('/api/admin/register', requireAdmin, (req, res) => {
         try {
             const username = safeUsername(req.body ? req.body.username : '');
             const password = typeof req.body?.password === 'string' ? req.body.password.trim() : '';

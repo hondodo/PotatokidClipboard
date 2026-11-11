@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 
@@ -126,9 +127,16 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
 Future<void> handleTvUpdateTap(BuildContext context, AppUpdateState state) async {
   final AppUpdateController controller = AppUpdateController.instance;
   final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+  final bool kid = kidModeOn;
   if (state.phase != AppUpdatePhase.ready && state.phase != AppUpdatePhase.installing) {
+    // 只换文案与外观，下载触发逻辑不变；儿童模式用遥控口径，不出现「点/点击」。
     messenger?.showSnackBar(
-      const SnackBar(content: Text('正在后台下载更新，完成后可从这里安装'), behavior: SnackBarBehavior.floating),
+      kid
+          ? kidSnackBar('kid_update_downloading'.tr())
+          : const SnackBar(
+              content: Text('正在后台下载更新，完成后可从这里安装'),
+              behavior: SnackBarBehavior.floating,
+            ),
     );
     await controller.ensureDownloadedNow();
     return;
@@ -136,7 +144,12 @@ Future<void> handleTvUpdateTap(BuildContext context, AppUpdateState state) async
   final bool started = await controller.install();
   if (!started) {
     messenger?.showSnackBar(
-      const SnackBar(content: Text('无法拉起系统安装器，请检查「安装未知应用」权限'), behavior: SnackBarBehavior.floating),
+      kid
+          ? kidSnackBar('kid_update_install_failed'.tr())
+          : const SnackBar(
+              content: Text('无法拉起系统安装器，请检查「安装未知应用」权限'),
+              behavior: SnackBarBehavior.floating,
+            ),
     );
   }
 }
@@ -273,16 +286,18 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
         _testTwoActive = !_testTwoActive;
       }
     });
+    // 测试胶囊是遥控触发链路的探针，文案与触发保持不变，只统一提示条外观。
+    final String message = 'capsule_test_ok_message'.tr(
+      namedArgs: <String, String>{'__NUMBER__': '$number'},
+    );
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text(
-          'capsule_test_ok_message'.tr(
-            namedArgs: <String, String>{'__NUMBER__': '$number'},
-          ),
-        ),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
+      kidModeOn
+          ? kidSnackBar(message, duration: const Duration(seconds: 2))
+          : SnackBar(
+              content: Text(message),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
     );
   }
 
@@ -319,8 +334,12 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
             if (update.showPill)
               _CapsuleEntry(
                 id: 'update',
+                // 纯文案：ready 时把「安装更新」换成已下载状态 + 遥控操作口径，
+                // 不用「点这里安装」（电视只有遥控器），onActivate 与焦点行为不变。
                 label: update.phase == AppUpdatePhase.ready
-                    ? 'capsule_install_update'.tr()
+                    ? (childMode
+                          ? 'kid_capsule_update_ready'.tr()
+                          : 'capsule_install_update'.tr())
                     : 'capsule_download_progress'.tr(
                         namedArgs: <String, String>{
                           '__PROGRESS__':
@@ -387,7 +406,9 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
               canRequestFocus: false,
               onKeyEvent: _handleKeyEvent,
               child: ColoredBox(
-                color: Colors.black.withValues(alpha: 0.68),
+                color: childMode
+                    ? KidPalette.mask
+                    : Colors.black.withValues(alpha: 0.68),
                 child: SafeArea(
                   child: Center(
                     child: SingleChildScrollView(
@@ -398,15 +419,24 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          _CapsuleRow(entries: actions, nodeOf: _node),
+                          _CapsuleRow(
+                            entries: actions,
+                            nodeOf: _node,
+                            kidMode: childMode,
+                          ),
                           if (tabs.isNotEmpty) ...<Widget>[
                             const SizedBox(height: 28),
-                            _CapsuleRow(entries: tabs, nodeOf: _node),
+                            _CapsuleRow(
+                              entries: tabs,
+                              nodeOf: _node,
+                              kidMode: childMode,
+                            ),
                           ],
                           const SizedBox(height: 28),
                           _CapsuleRow(
                             entries: exitActions,
                             nodeOf: _node,
+                            kidMode: childMode,
                           ),
                         ],
                       ),
@@ -449,10 +479,15 @@ class _CapsuleEntry {
 }
 
 class _CapsuleRow extends StatelessWidget {
-  const _CapsuleRow({required this.entries, required this.nodeOf});
+  const _CapsuleRow({
+    required this.entries,
+    required this.nodeOf,
+    required this.kidMode,
+  });
 
   final List<_CapsuleEntry> entries;
   final FocusNode Function(String id) nodeOf;
+  final bool kidMode;
 
   @override
   Widget build(BuildContext context) {
@@ -465,6 +500,7 @@ class _CapsuleRow extends StatelessWidget {
             (entry) => _CapsuleButton(
               entry: entry,
               focusNode: nodeOf(entry.id),
+              kidMode: kidMode,
             ),
           )
           .toList(growable: false),
@@ -473,10 +509,15 @@ class _CapsuleRow extends StatelessWidget {
 }
 
 class _CapsuleButton extends StatefulWidget {
-  const _CapsuleButton({required this.entry, required this.focusNode});
+  const _CapsuleButton({
+    required this.entry,
+    required this.focusNode,
+    required this.kidMode,
+  });
 
   final _CapsuleEntry entry;
   final FocusNode focusNode;
+  final bool kidMode;
 
   @override
   State<_CapsuleButton> createState() => _CapsuleButtonState();
@@ -494,14 +535,24 @@ class _CapsuleButtonState extends State<_CapsuleButton> {
         scale: widget.focusNode.hasFocus ? 1.08 : 1,
         duration: const Duration(milliseconds: 120),
         child: Material(
-          color: widget.entry.active
-              ? const Color(0xFF16865A)
-              : const Color(0xFF263247),
+          color: widget.kidMode
+              ? (widget.entry.active
+                    ? KidPalette.capsuleActive
+                    : KidPalette.capsule)
+              : (widget.entry.active
+                    ? const Color(0xFF16865A)
+                    : const Color(0xFF263247)),
+          elevation: widget.kidMode && widget.focusNode.hasFocus ? 12 : 0,
+          shadowColor: widget.kidMode
+              ? const Color(0x99FFD166)
+              : Colors.transparent,
           shape: StadiumBorder(
             side: BorderSide(
               color: widget.focusNode.hasFocus
                   ? Colors.white
-                  : Colors.white.withValues(alpha: 0.18),
+                  : (widget.kidMode
+                        ? KidPalette.softBlue
+                        : Colors.white.withValues(alpha: 0.18)),
               width: widget.focusNode.hasFocus ? 3 : 1,
             ),
           ),

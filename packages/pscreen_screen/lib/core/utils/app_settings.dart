@@ -34,6 +34,16 @@ class AppSettings {
   static const String _keyRemotePassword = 'app_remote_password_v1';
   static const String _keyDisplayName = 'app_display_name_v1';
 
+  /// 家长端自定义登录名（claim 成功后写入）。
+  ///
+  /// 独立于 `remoteAccount`：后者是调试开关下的手动凭据，语义不同。
+  /// 只有 parent flavor 显式开启 claim 闸门后才会读取它，中控端 / TV 端
+  /// 完全不感知这个字段，登录链路保持原样。
+  static const String _keyClaimedAccount = 'app_claimed_account_v1';
+
+  /// claim 时服务端生成的一次性随机口令（自定义登录名不能用默认口令）。
+  static const String _keyClaimedPassword = 'app_claimed_password_v1';
+
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
   Future<void>? _loading;
 
@@ -69,6 +79,12 @@ class AppSettings {
   /// 账号展示名（可改）；**空串表示未设置**，各处回落显示账号 id。
   String _displayName = '';
 
+  /// 家长端自定义登录名；**空串表示仍用设备派生账号**。
+  String _claimedAccount = '';
+
+  /// 家长端 claim 口令；**空串表示回落到原有默认口令**。
+  String _claimedPassword = '';
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -77,7 +93,7 @@ class AppSettings {
   bool get hwdecEnabled => _hwdecEnabled;
   VideoAspectMode get aspectMode => _aspectMode;
 
-  /// 天气城市：空串表示「自动」（IP 反查定位）。
+  /// 天气城市：空串表示「自动」（IP 反查）。
   String get weatherCity => _weatherCity;
 
   /// 是否开启「清理失效源」。
@@ -95,6 +111,14 @@ class AppSettings {
   /// 账号展示名：空串表示未设置（回落显示账号 id）。
   /// 仅用于展示，不参与登录/域名/存储键。
   String get displayName => _displayName;
+
+  /// 家长端自定义登录名：空串表示未设置（回落派生账号）。
+  /// 仅 parent flavor 开启 claim 闸门后生效。
+  String get claimedAccount => _claimedAccount;
+
+  /// 家长端 claim 口令：空串表示回落到原有默认口令。
+  /// 仅 parent flavor 开启 claim 闸门后生效。
+  String get claimedPassword => _claimedPassword;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -133,6 +157,8 @@ class AppSettings {
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
       _remotePassword = prefs.getString(_keyRemotePassword) ?? '';
       _displayName = prefs.getString(_keyDisplayName) ?? '';
+      _claimedAccount = prefs.getString(_keyClaimedAccount) ?? '';
+      _claimedPassword = prefs.getString(_keyClaimedPassword) ?? '';
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -259,6 +285,35 @@ class AppSettings {
     }
   }
 
+  /// 保存家长端自定义登录名（空串表示清除，回落设备派生账号）。
+  ///
+  /// 由「设置登录名」页在服务端 claim 成功后调用；写入后重启仍生效，
+  /// 因为 [DeviceCredentials.enforceDerivedAccount] 在 claim 闸门开启时
+  /// 不会再把它抹回派生值。
+  Future<void> setClaimedAccount(String account) async {
+    _claimedAccount = account.trim();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyClaimedAccount, _claimedAccount);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
+  /// 保存 claim 生成的新随机口令（空串表示清除，回落原默认口令）。
+  ///
+  /// 自定义登录名是可猜的，不能沿用设备自举的默认口令；该口令由服务端
+  /// 在 claim 响应里一次性下发，之后 HTTP 登录与 ws 握手都提交它的 MD5。
+  Future<void> setClaimedPassword(String password) async {
+    _claimedPassword = password.trim();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyClaimedPassword, _claimedPassword);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
   /// 清空**全部**持久化缓存并把内存中的设置恢复为默认值。
   ///
   /// 设置页「重置」使用：清空后立即重启应用，等同于首次安装。
@@ -272,6 +327,10 @@ class AppSettings {
   /// **例外（儿童模式状态）**：`kid_watch_*` / `parental_*` 前缀的键**不清理**——
   /// 否则孩子可经「我的 → 重置」一键清零双计时熔断。家长解除儿童模式时走
   /// `ParentalStateController` 的显式清除入口（见 `KidWatchTimerController.clearAll`）。
+  ///
+  /// 注意：重置会清除 [claimedAccount] 与 [claimedPassword]，家长端下次启动
+  /// 回落到设备派生账号。服务端账号不会因此删除，且新口令不会再次下发，
+  /// 所以重置后无法自行登录回原账号，需管理员介入。
   Future<void> clearAllPersisted() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -293,6 +352,9 @@ class AppSettings {
     _backgroundPlayback = false;
     _remoteAccount = '';
     _remotePassword = '';
+    _displayName = '';
+    _claimedAccount = '';
+    _claimedPassword = '';
   }
 
   /// 是否为儿童模式状态键（不参与「重置」清理）。

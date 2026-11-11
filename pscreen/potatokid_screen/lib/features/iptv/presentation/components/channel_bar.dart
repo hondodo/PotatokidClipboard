@@ -1,7 +1,11 @@
 import 'dart:async';
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 右侧垂直频道条：由 [LiveChannelController.index] 驱动，永远与当前播放频道同步。
@@ -109,26 +113,78 @@ class _ChannelBarState extends State<ChannelBar> {
       margin: const EdgeInsets.only(right: 12),
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(12)),
-      child: ListView.builder(
-        controller: _scrollController,
-        itemExtent: _itemExtent,
-        itemCount: widget.channels.length,
-        itemBuilder: (context, index) {
-          return _ChannelTile(
-            channel: widget.channels[index],
-            // 序号从 1 开始，按频道总数的位数左侧补零（8 个频道→`1`，120 个→`001`）。
-            number: (index + 1).toString().padLeft(_numberWidth, '0'),
-            selected: index == widget.selectedIndex,
-            interactive: widget.interactive,
-            // 首尾循环：第一个再按上跳到最后一个，最后一个再按下跳回第一个。
-            wrapUp: index == 0,
-            wrapDown: index == widget.channels.length - 1,
-            onWrap: (bool toLast) => widget.onChanged(toLast ? widget.channels.length - 1 : 0),
-            onFocused: () => widget.onChanged(index),
-            onTap: () => widget.onActivated(index),
-          );
-        },
+      child: Column(
+        children: <Widget>[
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              itemExtent: _itemExtent,
+              itemCount: widget.channels.length,
+              itemBuilder: (context, index) {
+                return _ChannelTile(
+                  channel: widget.channels[index],
+                  // 序号从 1 开始，按频道总数的位数左侧补零（8 个频道→`1`，120 个→`001`）。
+                  number: (index + 1).toString().padLeft(_numberWidth, '0'),
+                  selected: index == widget.selectedIndex,
+                  interactive: widget.interactive,
+                  // 首尾循环：第一个再按上跳到最后一个，最后一个再按下跳回第一个。
+                  wrapUp: index == 0,
+                  wrapDown: index == widget.channels.length - 1,
+                  onWrap: (bool toLast) => widget.onChanged(toLast ? widget.channels.length - 1 : 0),
+                  onFocused: () => widget.onChanged(index),
+                  onTap: () => widget.onActivated(index),
+                );
+              },
+            ),
+          ),
+          // 纯文案引导：仅可操作的频道列表层显示，不可聚焦、不拦截按键。
+          if (widget.interactive) const _KidCapsuleBackHint(),
+        ],
       ),
+    );
+  }
+}
+
+/// 儿童模式下有更新可安装时，提示「再按一次返回键」进入快捷胶囊菜单。
+///
+/// 只读文案，不参与焦点树、不改变频道列表的滚动与切台行为。
+class _KidCapsuleBackHint extends StatelessWidget {
+  const _KidCapsuleBackHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ParentalStateController.instance,
+      builder: (BuildContext context, _) {
+        if (!kidModeOn) return const SizedBox.shrink();
+        return ValueListenableBuilder<AppUpdateState>(
+          valueListenable: AppUpdateController.instance,
+          builder: (BuildContext context, AppUpdateState update, _) {
+            if (!update.showPill || update.forceBlocked) {
+              return const SizedBox.shrink();
+            }
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: KidPalette.capsule,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                'kid_capsule_back_hint'.tr(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -6,6 +6,17 @@ import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 import 'package:pscreen_screen/core/network/http_method.dart';
 
+/// 设置登录名成功后服务端返回的新凭据。
+///
+/// [password] 是服务端为自定义登录名生成的随机口令，只下发这一次，
+/// 客户端必须立即持久化；之后 HTTP 登录与 ws 握手都提交它的 MD5。
+class ClaimAccountResult {
+  const ClaimAccountResult({required this.account, required this.password});
+
+  final String account;
+  final String password;
+}
+
 /// 家长视图读写一台 TV 儿童模式配置所用的管理端接口（与 Admin 页同一
 /// Node 服务，Cookie 由 Dio 的持久化 cookie jar 自动携带）：
 ///
@@ -308,6 +319,51 @@ class ParentalAdminApi {
       notTipNetError: true,
     );
     _dataOf(data);
+  }
+
+  /// 领取「设置登录名」的一次性凭证（服务端签发，短时有效）。
+  ///
+  /// 需先调 [ensureAdminSession] 拿到 `pk_admin` 会话；服务端只给
+  /// 设备自举的 parent 账号签票，且一个账号只能成功改名一次。
+  Future<String> requestClaimTicket() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/claim/ticket').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final String token = '${body['claimToken'] ?? ''}'.trim();
+    if (token.isEmpty) throw const ServerApiException('服务端未返回凭证');
+    return token;
+  }
+
+  /// 把当前设备派生账号改名为自定义登录名。
+  ///
+  /// 服务端会在同一个请求里迁移 `parents` / `owner` / 别名 / 观看记录等
+  /// 所有账号引用，并重签管理会话；成功后客户端需把返回值写入
+  /// `AppSettings.setClaimedAccount()`，重启后才会继续用新账号登录。
+  Future<ClaimAccountResult> claimAccount({
+    required String account,
+    required String claimToken,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/claim').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'account': account.trim(),
+        'claimToken': claimToken,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final String name = '${body['account'] ?? ''}'.trim();
+    final String password = '${body['password'] ?? ''}'.trim();
+    if (name.isEmpty) throw const ServerApiException('服务端未返回新登录名');
+    if (password.isEmpty) throw const ServerApiException('服务端未返回新口令');
+    return ClaimAccountResult(account: name, password: password);
   }
 
   /// 校验业务 `code`；非 0 抛 [ServerApiException]（带服务端 msg），

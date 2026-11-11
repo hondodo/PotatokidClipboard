@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pscreen_home/core/device/device_identity.dart';
+import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
@@ -168,7 +170,7 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
               const SizedBox(height: 4),
               Text(
                 '家长视图可查看遥控通道的连接状态与网关地址，并可更改设备名称；'
-                '账号由设备自动生成，其它设置项不对家长开放。',
+                '默认账号由设备自动生成，可在下方设置自定义登录名。',
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
               ),
               const SizedBox(height: 12),
@@ -212,6 +214,17 @@ class _ParentalRealtimeSettingsSheetState extends State<ParentalRealtimeSettings
                 label: Text(AppConfig.enableChangeAccount ? '保存并重连' : '保存名称'),
               ),
               const SizedBox(height: 12),
+              if (AppFlavorConfig.isParentOnly) ...<Widget>[
+                const Divider(height: 24),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.how_to_reg_outlined),
+                  title: const Text('设置登录名'),
+                  subtitle: const Text('让家长账号跟着人走，换设备不再变成另一个家长'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push(RouteNames.claimAccountPath),
+                ),
+              ],
               RealtimeStatusSection(channel: widget.channel),
               const SizedBox(height: 16),
               Text('版本与更新', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),

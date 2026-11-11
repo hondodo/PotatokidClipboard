@@ -49,6 +49,25 @@ flutter build apk --debug --flavor parent --dart-define=APP_FLAVOR=parent
   - `DeviceReporter` / `RealtimeChannel` 仍会按中控设备上报；
   - 服务端仍需针对 `parent` 包名/账号做权限收敛，不能只依赖客户端隐藏。
 
+### 自定义登录名（claim）
+
+- `DeviceCredentials.configureClaimEnabled(isParentOnly)` 只在 parent flavor
+  开启；board / phone 与 TV 端不调用，账号仍恒为
+  `<flavor>.<kind>.<设备号>`，**登录链路逐字不变**。
+- 入口：家长视图右上角设置弹层 →「设置登录名」→ `/claim-account`（页面内
+  另有 `isParentOnly` 自检，中控端深链也进不来）。
+- 流程：换管理会话 → `POST /api/admin/claim/ticket` 领 10 分钟一次性凭证 →
+  `POST /api/admin/claim` 提交改名（服务端同请求迁移 `parents` / `owner` /
+  `aliases` / `parental.ownerAccount` / 观看记录等全部账号引用）→ 本地写入
+  `AppSettings.claimedAccount`，重启后继续用新名登录。
+- claim 会为自定义登录名生成新的随机口令（只下发一次、保存在本机
+  `claimedPassword`），避免可猜的登录名沿用默认口令被冒充；校验方式仍是
+  账号文件里的 MD5 比对，`/api/login` 与 ws 握手链路不变。服务端公开注册
+  `/api/admin/register` 已改为管理员专用。
+- 一个设备只能设置一次；「我的 → 重置」会同时清掉 `claimedAccount` 与
+  `claimedPassword`，下次启动回落设备派生账号。服务端账号不删除，但新口令
+  不会再次下发，重置后无法自行登录回原账号，需管理员介入。
+
 ## 合并清单检查
 
 ```bash

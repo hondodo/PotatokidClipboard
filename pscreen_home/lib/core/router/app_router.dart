@@ -4,6 +4,7 @@ import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/home/presentation/pages/device_detail_page.dart';
 import 'package:pscreen_home/features/home/presentation/pages/home_controll_board.dart';
+import 'package:pscreen_home/features/parental/presentation/claim_account_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_page.dart';
 import 'package:pscreen_home/features/remote_control/presentation/remote_control_page.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
@@ -111,6 +112,12 @@ class AppRouter {
             path: RouteNames.parental,
             name: RouteNames.parental,
             builder: (context, state) => const ParentalPage(),
+          ),
+          GoRoute(
+            path: RouteNames.claimAccount,
+            name: RouteNames.claimAccount,
+            // 页面内部用 isParentOnly 自检，中控端即便深链也只会看到提示页。
+            builder: (context, state) => const ClaimAccountPage(),
           ),
           GoRoute(
             path: RouteNames.settings,

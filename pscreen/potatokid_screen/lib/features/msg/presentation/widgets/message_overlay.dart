@@ -1,7 +1,13 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
+import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 
 /// 消息浮层：顶部滑入卡片 + 详情窗（设计 §5.2）。
+///
+/// 儿童模式只换卡片配色与标题/提示文案（深蓝渐变 + 白字 + 遥控口径），
+/// 滑入动画、显示/隐藏时机、详情滚动与按键分发完全不变。
 class MessageOverlay extends StatefulWidget {
   const MessageOverlay({super.key});
 
@@ -67,45 +73,60 @@ class _MessageOverlayState extends State<MessageOverlay> {
   Widget build(BuildContext context) {
     final String text = _controller.text ?? '';
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    // 常驻挂载以驱动顶部滑入动画；隐藏时透明并忽略指针，不挡下层操作。
-    return IgnorePointer(
-      ignoring: !_controller.visible,
-      child: Opacity(
-        opacity: _controller.visible ? 1 : 0,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 48),
-            child: AnimatedSlide(
-              duration: const Duration(milliseconds: 220),
-              offset: _controller.visible ? Offset.zero : const Offset(0, -1.5),
-              child: Material(
-                color: scheme.surfaceContainerHigh,
-                elevation: 8,
-                borderRadius: BorderRadius.circular(16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: _controller.detail
-                      ? _DetailPane(
-                          text: text,
-                          scrollController: _detailScroll,
+    return ListenableBuilder(
+      listenable: ParentalStateController.instance,
+      builder: (BuildContext context, _) {
+        final bool kid = kidModeOn;
+        final Widget card = ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: _controller.detail
+              ? _DetailPane(
+                  text: text,
+                  scrollController: _detailScroll,
+                  kid: kid,
+                )
+              : _PreviewPane(text: text, kid: kid),
+        );
+        // 常驻挂载以驱动顶部滑入动画；隐藏时透明并忽略指针，不挡下层操作。
+        return IgnorePointer(
+          ignoring: !_controller.visible,
+          child: Opacity(
+            opacity: _controller.visible ? 1 : 0,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 220),
+                  offset: _controller.visible ? Offset.zero : const Offset(0, -1.5),
+                  child: kid
+                      ? KidSurface(
+                          dialog: true,
+                          borderRadius: 16,
+                          child: card,
                         )
-                      : _PreviewPane(text: text),
+                      : Material(
+                          color: scheme.surfaceContainerHigh,
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(16),
+                          child: card,
+                        ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
 /// 卡片预览：截断单行。
 class _PreviewPane extends StatelessWidget {
-  const _PreviewPane({required this.text});
+  const _PreviewPane({required this.text, required this.kid});
 
   final String text;
+  final bool kid;
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +136,9 @@ class _PreviewPane extends StatelessWidget {
         text,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.titleMedium,
+        style: kid
+            ? const TextStyle(color: Colors.white, fontSize: 18)
+            : Theme.of(context).textTheme.titleMedium,
       ),
     );
   }
@@ -123,10 +146,15 @@ class _PreviewPane extends StatelessWidget {
 
 /// 详情窗：全文可滚动（D-pad 上下，经 [MessageOverlay.scrollDetail] 驱动）。
 class _DetailPane extends StatelessWidget {
-  const _DetailPane({required this.text, required this.scrollController});
+  const _DetailPane({
+    required this.text,
+    required this.scrollController,
+    required this.kid,
+  });
 
   final String text;
   final ScrollController scrollController;
+  final bool kid;
 
   @override
   Widget build(BuildContext context) {
@@ -139,8 +167,14 @@ class _DetailPane extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
             child: Text(
-              '消息详情',
-              style: Theme.of(context).textTheme.labelLarge,
+              kid ? 'kid_msg_detail_title'.tr() : '消息详情',
+              style: kid
+                  ? const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    )
+                  : Theme.of(context).textTheme.labelLarge,
             ),
           ),
           Expanded(
@@ -149,15 +183,22 @@ class _DetailPane extends StatelessWidget {
               child: SingleChildScrollView(
                 controller: scrollController,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(text, style: Theme.of(context).textTheme.bodyLarge),
+                child: Text(
+                  text,
+                  style: kid
+                      ? const TextStyle(color: Colors.white70, fontSize: 18)
+                      : Theme.of(context).textTheme.bodyLarge,
+                ),
               ),
             ),
           ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              '返回：关闭',
-              style: Theme.of(context).textTheme.labelSmall,
+              kid ? 'kid_msg_back_hint'.tr() : '返回：关闭',
+              style: kid
+                  ? const TextStyle(color: Colors.white54, fontSize: 15)
+                  : Theme.of(context).textTheme.labelSmall,
             ),
           ),
         ],

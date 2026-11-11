@@ -47,4 +47,10 @@ class RouteNames {
 
   /// 家长视图完整路径
   static String get parentalPath => '/$parental';
+
+  // 家长端自定义登录名（仅 parent flavor 可达，页面内再做 flavor 自检）
+  static const String claimAccount = 'claim-account';
+
+  /// 设置登录名完整路径
+  static String get claimAccountPath => '/$claimAccount';
 }

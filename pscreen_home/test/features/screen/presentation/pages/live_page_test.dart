@@ -211,15 +211,31 @@ void main() {
 
     await _pumpLivePage(tester, size: const Size(1200, 900));
 
-    expect(find.text('直播定时关闭 05:00'), findsOneWidget);
+    // 角标实现已改为只渲染 SleepTimerController.remainingLabel（mm:ss），
+    // 不再拼「直播定时关闭」前缀；断言要限定在 LiveSleepTimerBadge 内，
+    // 避免命中页面上其它含时间的文本。
+    expect(
+      find.descendant(
+        of: find.byType(LiveSleepTimerBadge),
+        matching: find.text('05:00'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('直播定时关闭 04:59'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(LiveSleepTimerBadge),
+        matching: find.text('04:59'),
+      ),
+      findsOneWidget,
+    );
 
-    // 关闭定时后角标消失。
+    // 关闭定时后角标内容消失（widget 仍在，内部回落 SizedBox.shrink）。
     SleepTimerController.instance.setMinutes(null);
     await tester.pump();
-    expect(find.textContaining('直播定时关闭'), findsNothing);
+    expect(find.text('04:59'), findsNothing);
+    expect(find.byType(LiveSleepTimerBadge), findsOneWidget);
   });
 
   testWidgets('悬浮小窗只显示画面和频道名，不显示列表/切台/全屏/返回按钮', (WidgetTester tester) async {

@@ -2,6 +2,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:potatokid_screen/core/app_exit_controller.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 
 /// 返回键二次确认：拦截系统返回，先弹窗确认再退出应用。
 ///
@@ -30,13 +31,16 @@ class ExitConfirmScope extends StatefulWidget {
     _showing = true;
 
     bool confirmed = false;
+    // 儿童模式只换文案与配色，二次确认 / 默认聚焦取消 / 退出流程不变。
+    final bool kid = kidModeOn;
     try {
       confirmed = await ConfirmDialog.show(
         context,
-        title: 'exit_confirm_title'.tr(),
-        message: 'exit_confirm_message'.tr(),
-        cancelLabel: 'exit_confirm_cancel'.tr(),
-        confirmLabel: 'exit_confirm_ok'.tr(),
+        title: (kid ? 'kid_exit_confirm_title' : 'exit_confirm_title').tr(),
+        message: (kid ? 'kid_exit_confirm_message' : 'exit_confirm_message').tr(),
+        cancelLabel: (kid ? 'kid_exit_confirm_cancel' : 'exit_confirm_cancel').tr(),
+        confirmLabel: (kid ? 'kid_exit_confirm_ok' : 'exit_confirm_ok').tr(),
+        kidStyle: kid,
       );
     } finally {
       // 先复位再退出：进程被系统挂起时 finally 不一定执行，避免守卫永久卡住。

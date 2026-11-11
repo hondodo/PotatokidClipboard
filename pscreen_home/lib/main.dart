@@ -57,6 +57,9 @@ void main() {
       DeviceCredentials.configureAccountScope(
         '${AppFlavorConfig.raw}.${kindOfApp(clientInfo.app)}',
       );
+      // 只有 parent flavor 允许用已 claim 的自定义登录名；board / phone 与
+      // TV 端均保持「账号恒等于派生值」的原有登录链路，行为不变。
+      DeviceCredentials.configureClaimEnabled(AppFlavorConfig.isParentOnly);
 
       // 1.1 数据文件（频道顺序 / 隐藏列表 / 天气城市）：先用本地值
       //     （持久化缓存 → 包内 assets 默认）保证后续任意时刻都有可用值。
