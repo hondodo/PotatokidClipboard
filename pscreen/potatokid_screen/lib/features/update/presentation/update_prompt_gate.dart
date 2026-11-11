@@ -7,14 +7,10 @@ import 'package:pscreen_screen/core/update/app_update_controller.dart';
 
 /// 可用更新弹窗门控：挂载在 [MaterialApp.builder] 上。
 ///
-/// 首次检测到有可用更新（且非强更拦截）时弹一次「发现新版本」对话框；
-/// 「立即更新」触发下载/安装（已就绪则直接拉起系统安装器），「稍后」仅关闭。
-/// [MaterialApp.router] 组件被重建也只提示一次。
+/// 新版本**下载完成**（[AppUpdatePhase.ready]）后弹一次「新版本已就绪」对话框。
 ///
-/// 下载完成补提示：首次提示选了「稍后」后，等 [AppUpdatePhase.ready] 再补弹一次
-/// 「新版本准备好啦」，覆盖「稍后 → 下载完成」这段原本没有任何提示的空白。
-/// 补提示是独立的一次性标志，不影响 [_prompted] 的原有语义；用户已在首次提示里
-/// 点了「立即更新」或弹窗期间就已下载完成时都不会重复弹窗。
+/// 检测到更新时不再弹窗打扰：后台静默下载，进度由直播页右上角提示与胶囊页展示；
+/// 「立即安装」拉起系统安装器，「稍后」仅关闭，同一次启动只提示一次。
 ///
 /// 电视端用：弹窗按钮走焦点系统，遥控方向键 + OK 即可操作，主按钮 autofocus。
 /// 儿童模式只换卡片外观与文案（[KidSurface] / 暖黄按钮 / `*_kid` 文案），
@@ -37,14 +33,8 @@ class UpdatePromptGate extends StatefulWidget {
 }
 
 class _UpdatePromptGateState extends State<UpdatePromptGate> {
-  /// 进程级一次性标志：同一次启动「首次发现更新」只提示一次。
+  /// 进程级一次性标志：同一次启动只提示一次。
   static bool _prompted = false;
-
-  /// 首次提示选了「稍后」，等下载完成再补一次提示。
-  static bool _deferredToReady = false;
-
-  /// 下载完成的补提示同一次启动只补一次。
-  static bool _readyPrompted = false;
 
   bool _showing = false;
 
@@ -67,18 +57,11 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
     final AppUpdateState state = AppUpdateController.instance.state;
     if (state.forceBlocked) return; // 强更整页接管，不弹普通提示。
     if (state.result?.hasUpdate != true) return;
-    if (state.phase == AppUpdatePhase.installing) return;
-
-    // 首次发现：沿用原有的一次性逻辑；ready 补提示只在「稍后」之后触发。
-    final bool firstPrompt = !_prompted;
-    final bool readyFollowUp = !firstPrompt &&
-        _deferredToReady &&
-        !_readyPrompted &&
-        state.phase == AppUpdatePhase.ready;
-    if (!firstPrompt && !readyFollowUp) return;
+    // 只在下载完成后提示：检测到更新时保持静默，避免两次弹窗打扰。
+    if (state.phase != AppUpdatePhase.ready) return;
+    if (_prompted) return;
     debugPrint(
-      '[UpdatePrompt] 触发弹窗 first=$firstPrompt readyFollowUp=$readyFollowUp '
-      'hasUpdate=${state.result?.hasUpdate} phase=${state.phase} '
+      '[UpdatePrompt] 触发弹窗 hasUpdate=${state.result?.hasUpdate} phase=${state.phase} '
       'nav=${widget.navigatorKey?.currentState != null}',
     );
     _showing = true;
@@ -87,15 +70,15 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
         _showing = false;
         return;
       }
-      unawaited(_showPrompt(isFirstPrompt: firstPrompt));
+      unawaited(_showPrompt());
     });
   }
 
-  Future<void> _showPrompt({required bool isFirstPrompt}) async {
+  Future<void> _showPrompt() async {
     final AppUpdateController controller = AppUpdateController.instance;
     final AppUpdateState state = controller.state;
     final latest = state.result?.latest;
-    if (latest == null) {
+    if (latest == null || state.phase != AppUpdatePhase.ready) {
       _showing = false;
       return;
     }
@@ -109,57 +92,30 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
       _showing = false;
       return;
     }
-    _prompted = true; // 先置位：本次启动后续状态变化不再触发「首次」提示。
-    if (state.phase == AppUpdatePhase.ready) {
-      // 首次弹窗时就已经下载完成（缓存命中）：不需要再补一次 ready 提示。
-      _readyPrompted = true;
-    }
+    _prompted = true; // 本次启动只提示一次。
 
-    final bool ready = state.phase == AppUpdatePhase.ready;
     final bool kid = kidModeOn;
-    final int? bytes = state.result?.download?.size;
-    final String sizeText = bytes != null && bytes > 0
-        ? '（约 ${(bytes / 1024 / 1024).toStringAsFixed(1)}MB）'
-        : '';
     final String title = kid
-        ? (ready
-              ? 'kid_update_title_ready'.tr()
-              : 'kid_update_title_new'.tr())
-        : (ready ? '新版本已就绪' : '发现新版本');
+        ? 'kid_update_title_ready'.tr()
+        : '新版本已就绪';
     final String body = kid
-        ? (ready
-              ? 'kid_update_body_ready'.tr()
-              : 'kid_update_body_new'.tr())
-        : ready
-        ? '新版本 v${latest.version}+${latest.build} 已下载完成，是否立即安装？'
-        : '检测到新版本 v${latest.version}+${latest.build}$sizeText，是否立即更新？';
+        ? 'kid_update_body_ready'.tr()
+        : '新版本 v${latest.version}+${latest.build} 已下载完成，是否立即安装？';
     final String laterLabel = kid ? 'kid_update_later'.tr() : '稍后';
-    final String confirmLabel = kid
-        ? (ready
-              ? 'kid_update_install'.tr()
-              : 'kid_update_download'.tr())
-        : (ready ? '立即安装' : '立即更新');
+    final String confirmLabel = kid ? 'kid_update_install'.tr() : '立即安装';
 
-    /// 与原实现一致：ready 直接安装，否则下载完立即安装。
     Future<void> confirm(BuildContext dialogCtx) async {
       Navigator.of(dialogCtx).pop(true);
-      if (ready) {
-        await controller.install();
-        return;
-      }
-      await controller.ensureDownloadedNow();
-      if (controller.state.phase == AppUpdatePhase.ready) {
-        final bool started = await controller.install();
-        if (!started && navContext.mounted) {
-          ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-            kid
-                ? kidSnackBar('kid_update_install_failed'.tr())
-                : const SnackBar(
-                    content: Text('无法拉起系统安装器，请检查「安装未知应用」权限'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-          );
-        }
+      final bool started = await controller.install();
+      if (!started && navContext.mounted) {
+        ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+          kid
+              ? kidSnackBar('kid_update_install_failed'.tr())
+              : const SnackBar(
+                  content: Text('无法拉起系统安装器，请检查「安装未知应用」权限'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+        );
       }
     }
 
@@ -167,7 +123,7 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
       _showing = false;
       return;
     }
-    final bool? confirmed = await showDialog<bool>(
+    await showDialog<bool>(
       context: navContext,
       barrierDismissible: false, // 遥控无触摸：需明确选择（back 键等同「稍后」）。
       builder: (BuildContext dialogContext) {
@@ -256,22 +212,6 @@ class _UpdatePromptGateState extends State<UpdatePromptGate> {
       },
     );
     _showing = false;
-
-    // 只有「首次提示被推迟」并且下载还在进行时才挂起补提示。
-    // 弹窗里已经点了「立即更新」（下载/安装由本弹窗接管）或弹窗期间就已 ready，
-    // 都不再补弹，避免连续两次模态弹窗。
-    if (isFirstPrompt) {
-      if (confirmed == true ||
-          controller.state.phase == AppUpdatePhase.ready ||
-          controller.state.phase == AppUpdatePhase.installing) {
-        _readyPrompted = true;
-      } else {
-        _deferredToReady = true;
-      }
-    } else {
-      _deferredToReady = false;
-      _readyPrompted = true;
-    }
   }
 
   @override
