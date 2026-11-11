@@ -12,6 +12,7 @@ class ChildrenSection extends StatelessWidget {
     required this.config,
     required this.onSave,
     this.deviceId,
+    this.shrinkWrap = false,
   });
 
   final ParentalConfig config;
@@ -22,11 +23,17 @@ class ChildrenSection extends StatelessWidget {
   /// 当前选中的电视；为空时不显示「题库」入口（题库按设备 + 档案存储）。
   final String? deviceId;
 
+  /// 是否作为子列表嵌入到另一个滚动容器（如 Tab 页的 ListView）。
+  /// 嵌入时必须 shrinkWrap + 禁用自身滚动，否则因无限高度崩溃。
+  final bool shrinkWrap;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       children: <Widget>[
         Card(
           margin: EdgeInsets.zero,
@@ -806,11 +813,15 @@ class ParentalSettingsSection extends StatefulWidget {
     required this.config,
     required this.machine,
     required this.onSave,
+    this.shrinkWrap = false,
   });
 
   final ParentalConfig config;
   final ParentalMachine? machine;
   final Future<void> Function(ParentalConfig next) onSave;
+
+  /// 是否作为子列表嵌入到另一个滚动容器。嵌入时收缩自身高度并禁用滚动。
+  final bool shrinkWrap;
 
   @override
   State<ParentalSettingsSection> createState() =>
@@ -852,6 +863,8 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
     final String fallbackOwner = widget.machine?.owner ?? '';
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      shrinkWrap: widget.shrinkWrap,
+      physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       children: <Widget>[
         TextField(
           controller: _owner,

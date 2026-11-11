@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 
 /// 热水器快捷卡片：状态 / 当前水温 + 目标温度加减 + 电源键。
 ///
@@ -74,18 +76,11 @@ class WaterHeaterWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: on ? 0.20 : 0.10),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Icon(
-                      Icons.shower_rounded,
-                      size: 21,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                  DeviceTypeIcon(
+                    color: _accent,
+                    icon: Icons.shower_rounded,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -117,29 +112,12 @@ class WaterHeaterWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: on ? '关闭热水器' : '开启热水器',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
+                  PowerToggleButton(
+                    on: on,
+                    isToggling: isToggling,
+                    color: _accent,
                     onPressed: isToggling ? null : onToggle,
-                    icon: isToggling
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _accent,
-                            ),
-                          )
-                        : Icon(
-                            Icons.power_settings_new_rounded,
-                            size: 20,
-                            color: on ? _accent : theme.colorScheme.outline,
-                          ),
+                    tooltip: on ? '关闭热水器' : '开启热水器',
                   ),
                 ],
               ),

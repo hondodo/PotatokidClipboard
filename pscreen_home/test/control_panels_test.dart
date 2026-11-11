@@ -909,7 +909,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('风扇灯组合卡：灯亮度 + 风扇状态在 240x112 内无溢出', (WidgetTester tester) async {
+  testWidgets('风扇灯组合卡：灯/风扇子开关 + 亮度滑条在 240x188 内无溢出', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 300);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -921,12 +921,16 @@ void main() {
           body: Center(
             child: SizedBox(
               width: 240,
-              height: 112,
+              height: 188,
               child: FanLightWidget(
                 light: _light(),
                 fan: _fanLight(),
-                isToggling: false,
+                isTogglingMaster: false,
                 onToggleMaster: () {},
+                isTogglingLight: false,
+                onToggleLight: () {},
+                isTogglingFan: false,
+                onToggleFan: () {},
                 onOpenDetail: () {},
               ),
             ),
@@ -935,8 +939,8 @@ void main() {
       ),
     );
 
-    expect(find.text('灯 80%'), findsOneWidget);
-    expect(find.text('直吹风 100'), findsOneWidget);
+    expect(find.text('灯'), findsOneWidget);
+    expect(find.text('风扇'), findsOneWidget);
     expect(find.byTooltip('关闭总开关'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

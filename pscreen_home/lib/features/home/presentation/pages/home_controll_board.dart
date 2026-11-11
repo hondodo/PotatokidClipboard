@@ -1337,15 +1337,35 @@ class _ControlGridState extends State<_ControlGrid> {
           if (fan != null && comboPrimary != null && comboPrimary.isLight) {
             final String toggleId =
                 fan.masterSwitchEntityId ?? comboPrimary.entityId;
+            final String lightId = comboPrimary.entityId;
+            final String fanId = fan.entity.entityId;
             return FanLightWidget(
               light: comboPrimary,
               fan: fan,
               areaLabel: areaLabel,
               showAreaInTitle: state.selectedAreaId.isEmpty,
-              isToggling: state.togglingIds.contains(toggleId),
+              isTogglingMaster: state.togglingIds.contains(toggleId),
               onToggleMaster: () => context.read<HomeBloc>().add(
                 ToggleEntity(entityId: toggleId),
               ),
+              isTogglingLight: state.togglingIds.contains(lightId),
+              onToggleLight: () => context.read<HomeBloc>().add(
+                ToggleEntity(entityId: lightId),
+              ),
+              isTogglingFan: state.togglingIds.contains(fanId),
+              onToggleFan: () => context.read<HomeBloc>().add(
+                ToggleEntity(entityId: fanId),
+              ),
+              // 仅当灯真正支持调光时才挂亮度回调，避免向指示灯 / 纯开关灯
+              // 误发调光指令。
+              onBrightnessChanged: comboPrimary.supportsBrightness
+                  ? (int percent) => context.read<HomeBloc>().add(
+                        SetLightBrightness(
+                          entityId: lightId,
+                          percent: percent,
+                        ),
+                      )
+                  : null,
               onOpenDetail: () => _openDeviceDetail(context, group),
             );
           }
@@ -1515,19 +1535,24 @@ class _ControlGridState extends State<_ControlGrid> {
               ToggleEntity(entityId: entity.entityId),
             );
             if (entity.domain == 'light') {
+              // 仅当灯真正支持调光时挂亮度回调：指示灯 / 纯开关灯不渲染滑条，
+              // 也不应收到调光指令。
+              final bool dimmable = entity.supportsBrightness;
               return LightWidget(
                 entity: entity,
                 isToggling: toggling,
                 onToggle: onTap,
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
-                onBrightnessChanged: (int percent) =>
-                    context.read<HomeBloc>().add(
-                      SetLightBrightness(
-                        entityId: entity.entityId,
-                        percent: percent,
-                      ),
-                    ),
+                onBrightnessChanged: dimmable
+                    ? (int percent) =>
+                        context.read<HomeBloc>().add(
+                          SetLightBrightness(
+                            entityId: entity.entityId,
+                            percent: percent,
+                          ),
+                        )
+                    : null,
               );
             }
             return ButtonWidget(
@@ -1604,10 +1629,10 @@ class _ControlGridState extends State<_ControlGrid> {
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 240,
-                mainAxisExtent: 112,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
+                maxCrossAxisExtent: 300,
+                mainAxisExtent: 188,
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
               ),
               itemCount: groups.length,
               itemBuilder: (BuildContext context, int index) {

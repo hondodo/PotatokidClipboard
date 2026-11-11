@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/projector_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 
 /// 投影仪快捷卡片：开关机 / 当前应用 / 输入源 / 音量 / 亮度。
 class ProjectorWidget extends StatelessWidget {
@@ -46,18 +48,11 @@ class ProjectorWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: on ? 0.18 : 0.08),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Icon(
-                      Icons.cast_connected_rounded,
-                      size: 21,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                  DeviceTypeIcon(
+                    color: _accent,
+                    icon: Icons.cast_connected_rounded,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -91,20 +86,12 @@ class ProjectorWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: on ? '关机' : '开机',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
+                  PowerToggleButton(
+                    on: on,
+                    isToggling: isBusy,
+                    color: _accent,
                     onPressed: isBusy ? null : onPower,
-                    icon: Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 19,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                    tooltip: on ? '关机' : '开机',
                   ),
                 ],
               ),

@@ -9,10 +9,13 @@ import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/presentation/child_profile_editor.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_device_manager_sheet.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_realtime_settings_sheet.dart';
-import 'package:pscreen_home/features/parental/presentation/parental_sections.dart';
-import 'package:pscreen_home/features/remote_control/presentation/widgets/target_remote_panel.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
 import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
@@ -28,6 +31,10 @@ import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 ///   ⑤遥控快捷入口（只渲染遥控面板，不打开完整中控台）⑥账号一致性引导。
 /// - 档案读写走管理端接口（`GET /api/device/config` 读、
 ///   `PUT /api/admin/machines/:id` 写 parental 字段）。
+///
+/// 页面骨架（5 个领域模块）在此装配；各 Tab 的具体渲染拆分到
+/// `parental_today_page.dart` / `parental_rules_tab.dart` / `parental_mine_tab.dart`，
+/// 行为副作用通过 [ParentalActions] 下发给这些无状态视图。
 class ParentalPage extends StatefulWidget {
   const ParentalPage({super.key, this.api});
 
@@ -40,11 +47,9 @@ class ParentalPage extends StatefulWidget {
 
 class _ParentalPageState extends State<ParentalPage> {
   static const List<_TabSpec> _tabs = <_TabSpec>[
-    _TabSpec('遥控', Icons.settings_remote_outlined),
-    _TabSpec('档案', Icons.child_care_outlined),
-    _TabSpec('观看者', Icons.visibility_outlined),
-    _TabSpec('解锁', Icons.lock_open_outlined),
-    _TabSpec('设置', Icons.tune_outlined),
+    _TabSpec('今天', Icons.today_outlined),
+    _TabSpec('规则', Icons.rule_outlined),
+    _TabSpec('我的', Icons.person_outline),
   ];
 
   ParentalAdminApi get _api => widget.api ?? const ParentalAdminApi();
@@ -250,8 +255,8 @@ class _ParentalPageState extends State<ParentalPage> {
       setState(() {
         _watchEvents = watch;
         _activeEvents = active;
-        _unlockEvents = _dedupeUnlock(unlock);
-        _unlockAckEvents = _dedupeUnlock(acks);
+        _unlockEvents = unlock;
+        _unlockAckEvents = acks;
       });
     } catch (_) {
       // 事件查询依赖 WS 在线；失败不阻塞档案 / 设置等模块。
@@ -539,6 +544,71 @@ class _ParentalPageState extends State<ParentalPage> {
     );
   }
 
+  /// 子页面下钻：返回后补拉一次事件与会话，保证首页数字新鲜。
+  Future<void> _push(Widget page) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    if (AccountSession.isParentOrAdmin) {
+      unawaited(_loadEvents());
+      unawaited(_loadParentalSessions());
+    }
+  }
+
+  /// 三个 Tab 视图需要的副作用回调集合（数据加载 / 保存 / 解锁 / 导航等）。
+  ParentalActions get _actions => ParentalActions(
+        reload: () => _reload(),
+        saveConfig: _saveConfig,
+        unlock: _sendUnlock,
+        openDeviceManager: () => _openDeviceManager(),
+        push: _push,
+        sendRemoteCommand: (String command) =>
+            _sendRemoteCommand(_selected?.commAccount ?? '', command),
+        refreshPermission: () => _refreshPermission(),
+        toggleChildLock: (ParentalChild child) {
+          unawaited(_toggleChildLock(child));
+        },
+        addChildExtra: (ParentalChild child) {
+          unawaited(_addChildExtra(child));
+        },
+        editChild: (ParentalChild child) {
+          unawaited(_editChild(child));
+        },
+        unbind: (String deviceId) {
+          unawaited(_bindDevice(deviceId, bind: false));
+        },
+      );
+
+  Future<void> _toggleChildLock(ParentalChild child) async {
+    final List<ParentalChild> next = _config.children
+        .map((ParentalChild c) => c.id == child.id ? c.copyWith(locked: !c.locked) : c)
+        .toList(growable: false);
+    await _saveConfig(_config.copyWith(children: next));
+    _hint(child.locked ? '已解锁，电视恢复播放' : '已暂停，电视停止播放');
+  }
+
+  Future<void> _addChildExtra(ParentalChild child) async {
+    final int next = (child.dailyLimitMin ?? 0) + 15;
+    final List<ParentalChild> updated = _config.children
+        .map((ParentalChild c) => c.id == child.id ? c.copyWith(dailyLimitMin: next) : c)
+        .toList(growable: false);
+    await _saveConfig(_config.copyWith(children: updated));
+    _hint('今日额度 +15 分钟，已同步到电视');
+  }
+
+  Future<void> _editChild(ParentalChild child) async {
+    final ParentalMachine? machine = _selected;
+    if (machine == null) return;
+    final ParentalChild? next = await ChildProfileEditorSheet.show(
+      context,
+      initial: child,
+      deviceId: machine.id,
+    );
+    if (next == null || !mounted) return;
+    final List<ParentalChild> updated = _config.children
+        .map((ParentalChild c) => c.id == child.id ? next : c)
+        .toList(growable: false);
+    await _saveConfig(_config.copyWith(children: updated));
+  }
+
   @override
   Widget build(BuildContext context) {
     // 角色闸门：user 即使经深链进入也不提供任何家长能力（口径「能弹 = 能点」）。
@@ -654,7 +724,7 @@ class _ParentalPageState extends State<ParentalPage> {
                 TextButton(onPressed: () => context.go(RouteNames.home), child: const Text('中控台')),
             ],
             bottom: TabBar(
-              isScrollable: true,
+              isScrollable: false,
               tabs: _tabs
                   .map((_TabSpec tab) => Tab(icon: Icon(tab.icon, size: 20), text: tab.label))
                   .toList(growable: false),
@@ -682,39 +752,34 @@ class _ParentalPageState extends State<ParentalPage> {
                 ),
               // 家长即使暂时没有已绑定设备也保留入口，便于扫码添加。
               if (_machines.isNotEmpty || AccountSession.isParent) _buildMachineSelector(),
-              ?ownerBanner,
+              if (ownerBanner != null) ownerBanner,
               Expanded(
                 child: TabBarView(
                   children: <Widget>[
-                    _buildRemoteTab(),
-                    ChildrenSection(
+                    ParentalTodayView(
+                      machines: _machines,
+                      selected: _selected,
                       config: _config,
-                      onSave: _saveConfig,
-                      deviceId: _selected?.id,
-                    ),
-                    WatchSection(
-                      config: _config,
-                      machine: _selected,
                       watchEvents: _watchEvents,
                       activeEvents: _activeEvents,
+                      unlockEvents: _unlockEvents,
+                      unlockAckEvents: _unlockAckEvents,
                       sessions: _sessions,
-                    ),
-                    UnlockSection(
-                      events: _unlockEvents,
-                      onUnlock: _sendUnlock,
-                      machine: _selected,
-                      acks: _unlockAckEvents,
-                      isAdmin: AccountSession.isAdmin,
                       myAccount: _myAccount,
-                      onManageDevices:
-                          AccountSession.isParent ? () => unawaited(_openDeviceManager()) : null,
+                      isAdmin: AccountSession.isAdmin,
+                      actions: _actions,
                     ),
-                    ParentalSettingsSection(
-                      // 换设备重建编辑态，避免残留上一台的输入。
-                      key: ValueKey<String>(_selected?.id ?? 'none'),
+                    ParentalRulesView(
                       config: _config,
-                      machine: _selected,
-                      onSave: _saveConfig,
+                      selected: _selected,
+                      actions: _actions,
+                    ),
+                    ParentalMineView(
+                      machines: _machines,
+                      selected: _selected,
+                      config: _config,
+                      myAccount: _myAccount,
+                      actions: _actions,
                     ),
                   ],
                 ),
@@ -804,31 +869,6 @@ class _ParentalPageState extends State<ParentalPage> {
               onPressed: () => unawaited(_openDeviceManager()),
             ),
         ],
-      ),
-    );
-  }
-
-  /// 模块⑤ 遥控快捷入口：只渲染遥控面板（TargetRemotePanel → 面板注册表
-  /// → 直播控制行来自 live_remote_panel），不打开完整中控台。
-  Widget _buildRemoteTab() {
-    final ParentalMachine? machine = _selected;
-    final String account = machine?.commAccount ?? '';
-    if (account.isEmpty) {
-      return const Center(child: Text('未选择可遥控的设备'));
-    }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      child: TargetRemotePanel(
-        account: account,
-        title: machine == null
-            ? null
-            : DeviceDisplayName.resolve(
-                account: machine.commAccount.isEmpty ? machine.id : machine.commAccount,
-                alias: machine.alias,
-                displayName: machine.commDisplayName,
-                machineName: machine.nameSet ? machine.name : '',
-              ),
-        onCommand: (String command) => unawaited(_sendRemoteCommand(account, command)),
       ),
     );
   }

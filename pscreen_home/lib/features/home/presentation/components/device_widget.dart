@@ -3,6 +3,8 @@ import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 import 'package:pscreen_home/features/home/presentation/components/ha_domain_icons.dart';
 
 /// 设备合并卡片：同一物理设备的全部实体聚合为一张卡。
@@ -45,8 +47,6 @@ class DeviceWidget extends StatelessWidget {
   /// 主实体亮度调整完成（0-100），主实体不支持调光时为 null
   final ValueChanged<int>? onBrightnessChanged;
 
-  static const Color _lightAccent = Color(0xFFFFB74D);
-
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -54,15 +54,13 @@ class DeviceWidget extends StatelessWidget {
     final bool available = !group.isUnavailable;
     final bool on = primary?.isOn ?? false;
     final String domain = primary?.domain ?? group.entities.first.domain;
-    final bool isLight = domain == 'light';
     final bool canDim = primary != null &&
         primary.isLight &&
         primary.supportsBrightness &&
         primary.isAvailable &&
         onBrightnessChanged != null;
-    final Color accent = on
-        ? (isLight ? _lightAccent : theme.colorScheme.primary)
-        : theme.colorScheme.onSurfaceVariant;
+    final Color typeColor = HaDomainColors.of(domain);
+    final Color accent = HaDomainColors.soft(typeColor, on: on);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -82,26 +80,10 @@ class DeviceWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: on ? 0.18 : 0.10),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: isToggling
-                        ? Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: accent,
-                            ),
-                          )
-                        : Icon(
-                            HaDomainIcons.of(domain),
-                            color: accent,
-                            size: 21,
-                          ),
+                  DeviceTypeIcon(
+                    domain: domain,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -157,25 +139,13 @@ class DeviceWidget extends StatelessWidget {
                     ),
                   // 快捷电源键：仅当存在可开关主实体时显示
                   if (primary != null)
-                    IconButton(
-                      tooltip: '开关主控',
-                      visualDensity: VisualDensity.compact,
+                    PowerToggleButton(
+                      on: on,
+                      isToggling: isToggling,
+                      color: accent,
                       onPressed:
                           available && !isToggling ? onTogglePrimary : null,
-                      icon: isToggling
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: accent,
-                              ),
-                            )
-                          : Icon(
-                              Icons.power_settings_new_rounded,
-                              color: accent,
-                              size: 22,
-                            ),
+                      tooltip: '开关主控',
                     ),
                 ],
               ),
@@ -193,9 +163,9 @@ class DeviceWidget extends StatelessWidget {
                     ],
                     // 触屏无 hover，底轨需常显且对比明显；加粗到触屏友好尺寸。
                     trackColor: theme.colorScheme.outlineVariant,
-                    height: 16,
-                    thumbWidth: 6,
-                    thumbHeight: 28,
+                    height: 28,
+                    thumbWidth: 12,
+                    thumbHeight: 42,
                     onChangeEnd: (double value) =>
                         onBrightnessChanged?.call(value.round()),
                   ),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/range_hood_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 
 /// 油烟机卡片：电源 / 风量 / 灯光 / 延时。
 class RangeHoodWidget extends StatelessWidget {
@@ -41,18 +43,11 @@ class RangeHoodWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.air_rounded,
-                      size: 19,
-                      color: _accent,
-                    ),
+                  DeviceTypeIcon(
+                    color: _accent,
+                    icon: Icons.air_rounded,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 9),
                   Expanded(
@@ -86,20 +81,12 @@ class RangeHoodWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: on ? '关闭油烟机' : '开启油烟机',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
+                  PowerToggleButton(
+                    on: on,
+                    isToggling: isToggling,
+                    color: _accent,
                     onPressed: isToggling ? null : onToggle,
-                    icon: Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 19,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                    tooltip: on ? '关闭油烟机' : '开启油烟机',
                   ),
                 ],
               ),

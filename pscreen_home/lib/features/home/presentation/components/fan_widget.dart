@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/fan_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 
 /// 风扇快捷卡片：模式 + 档位 + 摆风，卡片右上角电源。
 ///
@@ -51,18 +53,11 @@ class FanWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: on ? 0.16 : 0.08),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Icon(
-                      Icons.wind_power_rounded,
-                      size: 21,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                  DeviceTypeIcon(
+                    color: _accent,
+                    icon: Icons.wind_power_rounded,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -96,20 +91,12 @@ class FanWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: on ? '关闭风扇' : '开启风扇',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
+                  PowerToggleButton(
+                    on: on,
+                    isToggling: isToggling,
+                    color: _accent,
                     onPressed: isToggling ? null : onToggle,
-                    icon: Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 19,
-                      color: on ? _accent : theme.colorScheme.outline,
-                    ),
+                    tooltip: on ? '关闭风扇' : '开启风扇',
                   ),
                 ],
               ),

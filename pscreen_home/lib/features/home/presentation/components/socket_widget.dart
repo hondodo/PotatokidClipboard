@@ -8,6 +8,8 @@ import 'package:pscreen_home/features/home/domain/models/metric_source.dart';
 import 'package:pscreen_home/features/home/domain/models/socket_summary.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
+import 'package:pscreen_home/features/home/presentation/components/power_toggle_button.dart';
 
 /// 智能插座卡片：开关 + 当前功率 + 功率趋势 + 累计电量。
 class SocketWidget extends StatefulWidget {
@@ -169,18 +171,11 @@ class _SocketWidgetState extends State<SocketWidget> {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.outlet_rounded,
-                      size: 19,
-                      color: accent,
-                    ),
+                  DeviceTypeIcon(
+                    color: accent,
+                    icon: Icons.outlet_rounded,
+                    on: on,
+                    size: 54,
                   ),
                   const SizedBox(width: 9),
                   Expanded(
@@ -212,20 +207,12 @@ class _SocketWidgetState extends State<SocketWidget> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: on ? '关闭插座' : '开启插座',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
+                  PowerToggleButton(
+                    on: on,
+                    isToggling: isToggling,
+                    color: color,
                     onPressed: isToggling ? null : onToggle,
-                    icon: Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 19,
-                      color: color,
-                    ),
+                    tooltip: on ? '关闭插座' : '开启插座',
                   ),
                 ],
               ),

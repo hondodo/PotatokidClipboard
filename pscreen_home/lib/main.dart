@@ -54,9 +54,7 @@ void main() {
       // 1.05 账号作用域 = 当前构建 flavor + 实际 kind（如 `board.home`），
       //      最终账号 = 作用域 + 设备号（见 DeviceCredentials）。
       final ClientInfo clientInfo = await ClientInfo.current();
-      DeviceCredentials.configureAccountScope(
-        '${AppFlavorConfig.raw}.${kindOfApp(clientInfo.app)}',
-      );
+      DeviceCredentials.configureAccountScope('${AppFlavorConfig.raw}.${kindOfApp(clientInfo.app)}');
       // 只有 parent flavor 允许用已 claim 的自定义登录名；board / phone 与
       // TV 端均保持「账号恒等于派生值」的原有登录链路，行为不变。
       DeviceCredentials.configureClaimEnabled(AppFlavorConfig.isParentOnly);
@@ -108,10 +106,7 @@ void main() {
       // 3.2 登录取角色：/api/login 响应含 user.role，下面 initialize()
       //     创建路由时读取它决定 initialLocation（parent 直落家长视图），
       //     所以必须先登录；服务端不可达时超时降级为空角色（按 user 处理）。
-      await AccountSession.loginWithSaved().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => false,
-      );
+      await AccountSession.loginWithSaved().timeout(const Duration(seconds: 8), onTimeout: () => false);
 
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();

@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
+import 'package:pscreen_home/features/home/presentation/components/device_type_icon.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 
-/// 灯光快捷卡片：开关 + 亮度滑条。
+/// 灯光快捷卡片：开关 +（仅可调光灯）亮度滑条。
 ///
 /// 卡片空白处点击切开关；底部渐变滑条拖动调整亮度（松手才下发，
-/// 避免拖动过程刷屏）。关闭 / 不支持调光时滑条置灰。
+/// 避免拖动过程刷屏）。
+///
+/// 重要：亮度滑条**只在实体真正支持调光**（`entity.supportsBrightness`，
+/// 即 HA 的 color_mode 不只是 onoff）时才渲染。纯开关灯 / 指示灯没有调光
+/// 能力，绝不显示滑条——否则会让老人误以为能调亮度，并可能误发调光指令。
 class LightWidget extends StatelessWidget {
   const LightWidget({
     super.key,
@@ -24,7 +29,7 @@ class LightWidget extends StatelessWidget {
   final String? areaLabel;
   final bool showAreaInTitle;
 
-  /// 亮度调整完成（0-100）
+  /// 亮度调整完成（0-100）。仅当实体支持调光且本回调非空时滑条才出现。
   final ValueChanged<int>? onBrightnessChanged;
 
   static const Color _accent = Color(0xFFFFB74D);
@@ -55,26 +60,12 @@ class LightWidget extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: on ? 0.20 : 0.10),
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: isToggling
-                        ? const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _accent,
-                            ),
-                          )
-                        : Icon(
-                            Icons.lightbulb_rounded,
-                            size: 21,
-                            color: on ? _accent : theme.colorScheme.outline,
-                          ),
+                  DeviceTypeIcon(
+                    color: _accent,
+                    icon: Icons.lightbulb_rounded,
+                    on: on,
+                    isToggling: isToggling,
+                    size: 54,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -124,24 +115,26 @@ class LightWidget extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              GradientSlider(
-                value: percent.toDouble(),
-                min: 0,
-                max: 100,
-                colors: const <Color>[
-                  Color(0xFFFF9E4A),
-                  Color(0xFFFFC46B),
-                ],
-                // 触屏无 hover，底轨必须常显且与卡片背景对比明显；
-                // 同时加粗到触屏友好的尺寸（原 10 / 4×18 太细小）。
-                trackColor: theme.colorScheme.outlineVariant,
-                height: 16,
-                thumbWidth: 6,
-                thumbHeight: 28,
-                enabled: canDim,
-                onChangeEnd: (double value) =>
-                    onBrightnessChanged?.call(value.round()),
-              ),
+              // 仅真正可调光的灯才显示亮度滑条；指示灯 / 纯开关灯不显示。
+              if (canDim)
+                GradientSlider(
+                  value: percent.toDouble(),
+                  min: 0,
+                  max: 100,
+                  colors: const <Color>[
+                    Color(0xFFFF9E4A),
+                    Color(0xFFFFC46B),
+                  ],
+                  // 触屏无 hover，底轨必须常显且与卡片背景对比明显；
+                  // 同时加粗到触屏友好的尺寸（原 10 / 4×18 太细小）。
+                  trackColor: theme.colorScheme.outlineVariant,
+                  height: 28,
+                  thumbWidth: 12,
+                  thumbHeight: 42,
+                  enabled: canDim,
+                  onChangeEnd: (double value) =>
+                      onBrightnessChanged?.call(value.round()),
+                ),
             ],
           ),
         ),

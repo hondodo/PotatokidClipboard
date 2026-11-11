@@ -14,9 +14,9 @@ class GradientSlider extends StatefulWidget {
     this.max = 100,
     this.onChanged,
     this.onChangeEnd,
-    this.height = 14,
-    this.thumbWidth = 6,
-    this.thumbHeight = 22,
+    this.height = 28,
+    this.thumbWidth = 12,
+    this.thumbHeight = 42,
     this.enabled = true,
     this.trackColor,
   }) : assert(colors.length >= 2, '渐变至少需要两种颜色');
@@ -84,8 +84,9 @@ class _GradientSliderState extends State<GradientSlider> {
         final double width = constraints.maxWidth;
         final double thumbLeft = (width * fraction - widget.thumbWidth / 2)
             .clamp(0.0, width - widget.thumbWidth);
-        // 亮度从 0 起时，关闭状态不画拇指，避免卡片左下角出现一条白线
-        final bool showThumb = !(fraction == 0 && widget.min == 0);
+        // 始终显示拇指，即便在 0% 也明确标识「这是一条可拖动的滑条」，
+        // 避免墙面屏用户把空轨误认为不可操作的装饰条。
+        final bool showThumb = true;
         return Opacity(
           opacity: widget.enabled ? 1 : 0.45,
           child: GestureDetector(
@@ -145,11 +146,15 @@ class _GradientSliderState extends State<GradientSlider> {
                           color: Colors.white,
                           borderRadius:
                               BorderRadius.circular(widget.thumbWidth),
+                          border: Border.all(
+                            color: const Color(0xFFCFCFCF),
+                            width: 1.5,
+                          ),
                           boxShadow: const <BoxShadow>[
                             BoxShadow(
-                              color: Color(0x33000000),
-                              blurRadius: 4,
-                              offset: Offset(0, 1),
+                              color: Color(0x55000000),
+                              blurRadius: 6,
+                              offset: Offset(0, 2),
                             ),
                           ],
                         ),

@@ -331,8 +331,21 @@ function createAdminApp({ config, store, audit, secret, uploads }) {
   const app = express();
   if (config.trustProxy) app.set('trust proxy', true);
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '32kb' }));
-  app.use(express.urlencoded({ extended: false, limit: '32kb' }));
+  // 分片上传的 PUT 由 uploads.addChunk 以原始流读取 req（pipeline(req,...)），
+  // 不能被 json/urlencoded 解析器预处理，否则 8MB 分片会因超过默认上限被 413 拒绝
+  // （curl 的 --data-binary 默认 Content-Type 为 application/x-www-form-urlencoded，
+  // 会被 urlencoded 解析器当作表单解析而触发 PayloadTooLargeError）。
+  // 仅对分片 PUT 跳过 body 解析；其余 JSON 接口（init/complete 等）保持原样。
+  const isRawChunkUpload = (req) =>
+    req.method === 'PUT' && /\/api\/admin\/uploads\/[^/]+\/chunks\//.test(req.path);
+  app.use((req, res, next) => {
+    if (isRawChunkUpload(req)) return next();
+    express.json({ limit: '32kb' })(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (isRawChunkUpload(req)) return next();
+    express.urlencoded({ extended: false, limit: '32kb' })(req, res, next);
+  });
   app.use(cookieParser());
   app.use('/static', express.static(webDir(config), { index: false, maxAge: '5m' }));
   app.use(createAdminRouter({ config, store, audit, secret, uploads }));
