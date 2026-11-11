@@ -8,6 +8,7 @@ import 'package:potatokid_screen/features/app/application/app_tab_controller.dar
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/app/application/remote_key_dispatcher.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -544,6 +545,13 @@ class MainApp extends StatelessWidget {
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
+    // 屏幕模拟遥控已挂到 Navigator 之上（见 App.builder），拿不到本壳层的
+    // context，故把既有的按键入口注册到全局分发器。这里只接线，不改
+    // _handleRootKey / _handleLogical / _handleBack，真实遥控行为不受影响。
+    RemoteKeyDispatcher.instance.attach((RemoteButton button) {
+      if (!context.mounted) return;
+      _onRemoteButton(context, button);
+    });
     if (ParentalStateController.instance.enabled &&
         navigationShell.currentIndex != 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -644,10 +652,6 @@ class MainApp extends StatelessWidget {
                         }
                       },
                     ),
-                  ),
-                  // 悬浮遥控器蒙层（手机调试用），置于最上层。
-                  FloatingRemote(
-                    onKey: (button) => _onRemoteButton(context, button),
                   ),
                 ],
               ),

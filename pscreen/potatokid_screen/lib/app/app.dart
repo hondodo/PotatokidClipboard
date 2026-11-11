@@ -8,8 +8,10 @@ import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
+import 'package:potatokid_screen/features/app/application/remote_key_dispatcher.dart';
 import 'package:potatokid_screen/features/update/presentation/force_update_page.dart';
 import 'package:potatokid_screen/features/update/presentation/update_prompt_gate.dart';
+import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 import 'package:potatokid_screen/shared/widgets/tv_design_viewport.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
 
@@ -91,10 +93,19 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               locale: context.locale,
               // 可用更新弹窗门控：同一次启动只提示一次，遥控可操作。
               // 传根 Navigator key：门控挂在 builder 上，自身 context 在 Navigator 之上。
+              // 屏幕模拟遥控挂在 Navigator 之上：所有 DialogRoute 都在它下面，
+              // 弹窗期间也不会被遮住。按键经 RemoteKeyDispatcher 回到 MainApp，
+              // 真实遥控的焦点链路径不变（遥控器自身 ExcludeFocus）。
               builder: (BuildContext ctx, Widget? child) => TvDesignViewport(
-                child: UpdatePromptGate(
-                  navigatorKey: appRouter.navigatorKey,
-                  child: child ?? const SizedBox.shrink(),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    UpdatePromptGate(
+                      navigatorKey: appRouter.navigatorKey,
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                    FloatingRemote(onKey: RemoteKeyDispatcher.instance.dispatch),
+                  ],
                 ),
               ),
             );

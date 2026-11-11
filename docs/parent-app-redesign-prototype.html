@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>薯仔家长 · 改造后交互原型</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6f5;color:#1d2b27;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+h1,h2,h3,p{margin:0}
+button,input,select,textarea{font:inherit}
+.wrap{max-width:1300px;margin:0 auto;padding:28px 24px 48px}
+.head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.head h1{font-size:20px;font-weight:600}
+.head span{font-size:12px;color:#6b7a75}
+.lead{font-size:13px;color:#6b7a75;margin:6px 0 22px}
+.grid{display:grid;grid-template-columns:196px 380px minmax(0,1fr);gap:24px;align-items:start}
+.panel{background:#fff;border:1px solid #e3e9e6;border-radius:14px;padding:16px}
+.side h2,.notes h2{font-size:12px;font-weight:600;margin-bottom:12px;color:#7b8a85;letter-spacing:.04em}
+.navbtn{display:block;width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:9px;padding:8px 10px;cursor:pointer;color:#1d2b27;margin-bottom:3px}
+.navbtn:hover{background:#f2f6f4}
+.navbtn.on{background:#e1f5ee;border-color:#9fe1cb;color:#0f6e56;font-weight:600}
+.navbtn small{display:block;font-size:11px;color:#82918c;font-weight:400;margin-top:1px}
+.sidehint{margin-top:16px;padding-top:14px;border-top:1px solid #eef2f0;font-size:11px;color:#82918c;line-height:1.75}
+.phone{position:relative;width:360px;height:716px;background:#fff;border:10px solid #26332e;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(20,40,32,.09)}
+.status{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;color:#52625c;flex:0 0 auto}
+.appbar{height:48px;display:flex;align-items:center;gap:9px;padding:0 14px;border-bottom:1px solid #f0f3f1;flex:0 0 auto}
+.appbar .title{font-size:16px;font-weight:600;flex:1}
+.appbar .sub{font-size:11px;color:#82918c;font-weight:400}
+.iconbtn{width:30px;height:30px;border-radius:8px;border:1px solid #e3e9e6;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;color:#52625c;flex:0 0 auto}
+.screen{flex:1;overflow-y:auto;padding:14px 15px 22px;background:#f7f9f8;scrollbar-width:thin}
+.tabbar{height:56px;border-top:1px solid #e9eeeb;display:flex;background:#fff;flex:0 0 auto}
+.tab{flex:1;border:0;background:transparent;cursor:pointer;color:#82918c;font-size:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.tab .dot{width:17px;height:17px;border-radius:6px;background:#d8e2dd}
+.tab.on{color:#0f6e56;font-weight:600}
+.tab.on .dot{background:#0f6e56}
+.card{background:#fff;border:1px solid #e6ece9;border-radius:12px;padding:13px;margin-bottom:11px}
+.card.flat{background:#eef5f1;border-color:transparent}
+.card.warn{background:#fdf5e6;border-color:#f0dcac}
+.card.click{cursor:pointer}
+.card.click:hover{border-color:#9fe1cb}
+.muted{color:#7b8a85;font-size:12px}
+.tiny{font-size:11px;color:#82918c}
+.row{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sec-title{font-size:12px;color:#7b8a85;margin:16px 2px 8px}
+.big{font-size:22px;font-weight:600}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid #cfdcd6;background:#fff;color:#1d2b27;border-radius:9px;padding:8px 12px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:#0f6e56}
+.btn.primary{background:#0f6e56;border-color:#0f6e56;color:#fff}
+.btn.ghost{border-color:transparent;color:#0f6e56;background:#eef7f3}
+.btn.danger{color:#a32d2d;border-color:#eec7c7}
+.btn.sm{padding:5px 9px;font-size:12px;border-radius:7px}
+.btn.block{width:100%}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+input[type=text],input[type=number],select,textarea{width:100%;border:1px solid #dde6e1;border-radius:8px;padding:8px 10px;background:#fff;color:#1d2b27;outline:none}
+input:focus,textarea:focus,select:focus{border-color:#0f6e56}
+label.f{display:block;font-size:12px;color:#52625c;margin:10px 0 4px}
+.err{color:#a32d2d;font-size:11px;margin-top:3px;min-height:14px}
+.chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:11px;background:#eef2f0;color:#52625c}
+.chip.green{background:#e1f5ee;color:#0f6e56}
+.chip.amber{background:#fdf3e3;color:#854f0b}
+.chip.red{background:#fcebeb;color:#a32d2d}
+.avatar{width:40px;height:40px;border-radius:14px;background:#e1f5ee;color:#0f6e56;display:flex;align-items:center;justify-content:center;font-weight:600;flex:0 0 auto}
+.ring{width:54px;height:54px;flex:0 0 auto}
+.progress{height:6px;border-radius:6px;background:#edf2ef;overflow:hidden;margin:9px 0 6px}
+.progress i{display:block;height:100%;background:#0f6e56;border-radius:6px}
+.divider{height:1px;background:#eef2f0;margin:12px 0}
+.opt{border:1px solid #dde6e1;border-radius:9px;padding:9px 11px;margin-bottom:7px;cursor:pointer;background:#fff}
+.opt.on{border-color:#0f6e56;background:#eef7f3}
+.opt .t{font-size:13px;font-weight:600}
+.opt .d{font-size:11px;color:#7b8a85;margin-top:1px}
+.tag{display:inline-block;border:1px solid #dde6e1;background:#f7f9f8;border-radius:7px;padding:3px 8px;font-size:11px;margin:0 5px 5px 0;cursor:pointer}
+.tag.on{background:#e1f5ee;border-color:#9fe1cb;color:#0f6e56}
+.stepdots{display:flex;gap:5px;justify-content:center;margin:8px 0 16px}
+.stepdots i{width:6px;height:6px;border-radius:6px;background:#d8e2dd}
+.stepdots i.on{background:#0f6e56;width:18px}
+.tv{width:146px;height:94px;border:6px solid #26332e;border-radius:10px;margin:8px auto 12px;display:flex;align-items:center;justify-content:center;background:#eef7f3}
+.qr{width:42px;height:42px;border:5px solid #26332e;background:#fff;position:relative}
+.qr:after{content:"";position:absolute;right:6px;top:6px;width:8px;height:8px;background:#26332e}
+.banner{background:#fff8e8;border:1px solid #f0dcac;border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:12px}
+.toast{position:absolute;left:50%;transform:translateX(-50%);bottom:74px;background:#26332e;color:#fff;padding:9px 14px;border-radius:10px;font-size:12px;z-index:20;max-width:300px;text-align:center}
+.notes h3{font-size:13px;font-weight:600;margin:14px 0 5px}
+.notes ul{margin:0;padding-left:16px;font-size:12px;color:#52625c;line-height:1.85}
+.notes .flag{color:#a32d2d}
+.notes .fix{color:#0f6e56}
+.notes .kv{font-size:12px;color:#52625c;margin:4px 0}
+.foot{margin-top:22px;background:#fff;border:1px solid #e3e9e6;border-radius:14px;padding:18px}
+.foot h2{font-size:14px;font-weight:600;margin-bottom:8px}
+.foot ol{margin:0;padding-left:18px;font-size:12px;color:#52625c;line-height:1.9}
+.foot .warnline{margin-top:10px;font-size:12px;color:#854f0b}
+@media(max-width:1120px){.grid{grid-template-columns:186px 380px}.notes{grid-column:1/-1}}
+@media(max-width:680px){.grid{grid-template-columns:1fr}.phone{margin:0 auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><h1>薯仔家长 · 改造后交互原型</h1><span>parent flavor 概念稿 · 可点击 · 未改动任何源码</span></div>
+  <p class="lead">点击左侧页面名或手机里的按钮可切换、操作；右侧列出每页针对的旧问题与新做法。数据为示意，不代表真实接口返回值。</p>
+  <div class="grid">
+    <aside class="panel side">
+      <h2>页面地图</h2>
+      <button class="navbtn" data-page="onboard">0 · 首次使用向导<small>连接电视 + 账号授权</small></button>
+      <button class="navbtn" data-page="today">1 · 今天（首页）<small>孩子状态 + 待办</small></button>
+      <button class="navbtn" data-page="rules">2 · 规则<small>按孩子管理配置</small></button>
+      <button class="navbtn" data-page="child">3 · 孩子详情<small>分组表单 + 即时校验</small></button>
+      <button class="navbtn" data-page="unlock">4 · 解锁中心<small>请求不再 60 秒消失</small></button>
+      <button class="navbtn" data-page="quiz">5 · 答题题库<small>独立页面 + 草稿保护</small></button>
+      <button class="navbtn" data-page="mine">6 · 我的 / 设置<small>电视、解锁方式、权限</small></button>
+      <div class="sidehint">底部只有「今天 / 规则 / 我的」三个 Tab。遥控能力收进孩子状态卡的快捷按钮，不再单独占一个 Tab；中控台、时钟屏保、HA 网格等页面由路由白名单挡住。</div>
+    </aside>
+    <main>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>薯仔家长 · 预览</span><span>●●●</span></div>
+        <div class="appbar" id="appbar"></div>
+        <div class="screen" id="screen"></div>
+        <div class="tabbar" id="tabbar"></div>
+      </div>
+    </main>
+    <aside class="panel notes" id="notes"></aside>
+  </div>
+  <section class="foot">
+    <h2>这些改动里，需要服务端配合的只有 4 件</h2>
+    <ol>
+      <li>解锁请求持久化并带状态（待处理 / 已批准 / 已拒绝 / 已过期），替代现在依赖 60 秒短码 + WS 事件的瞬时模型。</li>
+      <li>按孩子跨设备合并「今日时长 / 观看会话」，现在只有按设备上报的 <code>parental_watch</code>，前端无法可靠求和。</li>
+      <li>扫码绑定时把当前设备派生的家长账号回填并授权，避免「必须去 Web 后台改角色」这一跳板。</li>
+      <li>把 <code>normalizeParental()</code> 的校验规则下沉为两端共用、并统一按档位名单语义，杜绝 App / 后台轮流编辑互相清空。</li>
+    </ol>
+    <p class="warnline">其余（路由门控、页面重组、向导、即时校验、术语统一、保存反馈一致）基本都是 Flutter 前端工作量；题库、头像、别名、私有别名等接口服务端已经具备。</p>
+  </section>
+</div>
+<script>
+const S = {
+  page:'today', tab:'today', onboard:0, connected:false, authed:false,
+  child:{name:'小薯',age:7,limit:90,single:30,block:'21:00-07:00',tier:'gentle',locked:false,
+    blockTags:['购物','游戏'],allowTags:['少儿','纪录片']},
+  used:52, extra:0, paused:false,
+  requests:[
+    {id:1,child:'小薯',tv:'客厅电视',reason:'想看《动物世界》',left:45,status:'pending'},
+    {id:2,child:'小薯',tv:'卧室电视',reason:'额度用完，申请加时',left:0,status:'expired'}
+  ],
+  quiz:[], unlockMode:'remote', pin:'', draft:null, importText:'', importResult:'',
+  errors:{}, toast:'', banner:false, savedAt:'', tvs:['客厅电视','卧室电视'], alias:'客厅电视'
+};
+const MODES = {
+  remote:{t:'远程确认',d:'孩子在电视上发起请求，你在手机上批准。推荐，无需额外配置。'},
+  pin:{t:'PIN 码',d:'孩子在电视上输入你设定的数字密码。'},
+  arith:{t:'算术题',d:'孩子在电视上做一道随机算术题，答对即解锁。'},
+  quiz:{t:'答题解锁',d:'孩子回答你维护的题目，适合把复习内容变成看片门票。'}
+};
+const TABS = [['today','今天'],['rules','规则'],['mine','我的']];
+const NAVPAGES = ['today','rules','mine'];
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function pct(){const lim=Number(S.child.limit)||90;return Math.min((S.used+S.extra)/lim,1)}
+function ring(v){const c=144.5;return '<svg class="ring" viewBox="0 0 56 56"><circle cx="28" cy="28" r="23" fill="none" stroke="#edf2ef" stroke-width="5"/><circle cx="28" cy="28" r="23" fill="none" stroke="#0f6e56" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+(c*v).toFixed(1)+' '+c+'" transform="rotate(-90 28 28)"/><text x="28" y="31" text-anchor="middle" font-size="12" font-weight="600" fill="#0f6e56">'+Math.round(v*100)+'%</text></svg>'}
+function toast(msg){S.toast=msg;render();clearTimeout(S._t);S._t=setTimeout(()=>{S.toast='';render()},2500)}
+
+const APPBAR = {
+  onboard:()=>'<div class="title">开始使用 <span class="sub">3 步即可用</span></div>',
+  today:()=>'<div class="title">今天 <span class="sub">薯仔家长</span></div><button class="iconbtn" data-act="nav" data-v="unlock" title="解锁请求">◎</button>',
+  rules:()=>'<div class="title">规则</div><button class="btn sm primary" data-act="addChild">+ 添加孩子</button>',
+  mine:()=>'<div class="title">我的</div>',
+  child:()=>'<button class="iconbtn" data-act="back">‹</button><div class="title">'+esc(S.child.name)+'的规则</div><button class="btn sm primary" data-act="saveChild">保存</button>',
+  unlock:()=>'<button class="iconbtn" data-act="back">‹</button><div class="title">解锁请求</div>',
+  quiz:()=>'<button class="iconbtn" data-act="quizExit">‹</button><div class="title">答题题库</div><button class="btn sm primary" data-act="saveQuiz">保存</button>'
+};
+
+const PAGES = {
+  onboard(){
+    const dots='<div class="stepdots">'+[0,1,2].map(i=>'<i class="'+(i===S.onboard?'on':'')+'"></i>').join('')+'</div>';
+    if(S.onboard===0)return dots+'<div style="text-align:center;font-size:17px;font-weight:600;margin-top:4px">先连接家里的电视</div><p class="muted" style="text-align:center;margin:6px 0 4px">二维码在电视的「我的」页里，不用记设备号，也不用去后台查。</p><div class="tv"><div class="qr"></div></div><div class="card flat"><div class="tiny">第 1 步 · 打开电视「我的」页 → 找到「绑定家长手机」二维码 → 用手机扫一扫。</div></div><button class="btn primary block" data-act="scan">扫码连接电视</button><button class="btn block" style="margin-top:8px;border:0;color:#7b8a85" data-act="nav" data-v="today">跳过，先看看首页</button>';
+    if(S.onboard===1)return dots+'<div style="text-align:center;font-size:17px;font-weight:600;margin-top:4px">找到一台电视</div><p class="muted" style="text-align:center;margin:6px 0 14px">给它起个家里叫得顺口的名字。</p><div class="card"><div class="row"><div class="avatar" style="background:#e6f1fb;color:#185fa5">TV</div><div><div style="font-weight:600">客厅电视</div><div class="tiny">设备号 8F3C… · 在线</div></div></div><label class="f">别名（只在你手机上显示）</label><input type="text" data-bind="alias" value="'+esc(S.alias)+'"><div class="tiny" style="margin-top:5px">以后首页和解锁请求里都会显示这个名字。</div></div><button class="btn primary block" data-act="onboardNext">继续</button>';
+    return dots+'<div style="text-align:center;font-size:17px;font-weight:600;margin-top:4px">确认家长权限</div><p class="muted" style="text-align:center;margin:6px 0 14px">这台手机的家长账号由设备号生成，需要授权一次。</p><div class="card"><div class="tiny">当前账号</div><div style="font-family:ui-monospace,monospace;font-size:12px;margin:4px 0 10px">parent.phone.8f3c21</div><div class="between"><span class="muted">当前角色</span><span class="chip '+(S.authed?'green':'amber')+'">'+(S.authed?'家长 · 已授权':'尚未授权')+'</span></div><div class="divider"></div><button class="btn sm" data-act="copyAccount">复制账号</button> <button class="btn sm" data-act="authHelp">查看授权步骤</button></div><div class="card '+(S.authed?'flat':'warn')+'"><div class="tiny">'+(S.authed?'权限检查通过，可以开始使用了。':'在 Web 后台「用户管理」把上面这串账号的角色改为「家长」，改完回来点下面的按钮；不需要重装或重启 App。')+'</div></div><button class="btn primary block" data-act="recheck">'+(S.authed?'进入首页':'我已授权，重新检查')+'</button>';
+  },
+  today(){
+    const used=S.used+S.extra, lim=Number(S.child.limit)||90, pend=S.requests.filter(r=>r.status==='pending');
+    return '<div class="between" style="margin-bottom:14px"><div><div class="tiny">家庭视图</div><div style="font-size:14px;font-weight:600">全部电视 · '+S.tvs.length+' 台在线</div></div><button class="btn sm" data-act="nav" data-v="mine">管理</button></div>'
+      +'<div class="big" style="margin-bottom:12px">今天</div>'
+      +(S.banner?'<div class="banner"><div class="between"><span>小薯 在客厅电视请求解锁</span><button class="btn sm" data-act="nav" data-v="unlock">查看</button></div></div>':'')
+      +(pend.length?'<div class="card warn"><div class="between"><div><div style="font-weight:600;font-size:13px">'+pend.length+' 条解锁请求待处理</div><div class="tiny">'+esc(pend[0].child)+' · '+esc(pend[0].reason)+' · 剩余 '+pend[0].left+' 秒</div></div><button class="btn sm primary" data-act="nav" data-v="unlock">去处理</button></div></div>':'<div class="card flat"><div class="tiny">暂时没有待处理的解锁请求。</div></div>')
+      +'<div class="card"><div class="row"><div class="avatar">薯</div><div style="flex:1"><div style="font-weight:600">'+esc(S.child.name)+' <span class="chip '+(S.paused?'':'green')+'">'+(S.paused?'已暂停':'正在看')+'</span></div><div class="tiny">客厅电视 · 今日已看 '+used+' / '+lim+' 分钟</div></div>'+ring(pct())+'</div>'
+      +'<div class="progress"><i style="width:'+(pct()*100).toFixed(0)+'%"></i></div>'
+      +'<div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn sm" data-act="pause">'+(S.paused?'恢复观看':'暂停')+'</button><button class="btn sm" data-act="extra">加时 15 分钟</button><button class="btn sm ghost" data-act="nav" data-v="child">改规则 ›</button></div></div>'
+      +'<div class="sec-title">今日记录 · 已按孩子合并</div>'
+      +'<div class="card"><div class="between"><div><div style="font-size:13px">10:05–10:38 <span class="muted">动物世界</span></div><div class="tiny">客厅电视 · 33 分钟</div></div><span class="chip">已结束</span></div><div class="divider"></div><div class="between"><div><div style="font-size:13px">13:20–13:39 <span class="muted">少儿动画</span></div><div class="tiny">卧室电视 · 19 分钟</div></div><span class="chip green">进行中</span></div><div class="tiny" style="margin-top:10px;color:#0f6e56">两台电视的时长已自动合并，不用逐台切换查看。</div></div>'
+      +'<button class="btn block" style="margin-top:4px" data-act="showBanner">模拟一条解锁通知 ›</button>';
+  },
+  rules(){
+    return '<div class="card flat"><div style="font-size:13px;font-weight:600">规则跟着孩子走</div><div class="tiny" style="margin-top:3px">设置一次，自动应用到已连接的 '+S.tvs.length+' 台电视；不再按设备重复配置。</div></div>'
+      +'<div class="between"><div class="sec-title" style="margin:0">孩子</div><span class="tiny">1 位</span></div>'
+      +'<div class="card click" data-act="nav" data-v="child"><div class="row"><div class="avatar">薯</div><div style="flex:1"><div style="font-weight:600">'+esc(S.child.name)+' · '+S.child.age+' 岁 <span class="chip">温和档</span></div><div class="tiny">单日 '+S.child.limit+' 分钟 · 单次 '+S.child.single+' 分钟 · 禁看 '+esc(S.child.block)+'</div></div><span class="muted">›</span></div></div>'
+      +'<div class="sec-title">全局设置</div>'
+      +'<div class="card"><div class="between" data-act="nav" data-v="mine" style="cursor:pointer;padding:4px 0"><span>解锁方式</span><span class="muted">'+MODES[S.unlockMode].t+' ›</span></div><div class="divider"></div><div class="between" data-act="nav" data-v="quiz" style="cursor:pointer;padding:4px 0"><span>答题题库</span><span class="muted">'+S.quiz.length+' 题 ›</span></div><div class="divider"></div><div class="between" data-act="nav" data-v="child" style="cursor:pointer;padding:4px 0"><span>禁看时段</span><span class="muted">'+esc(S.child.block)+' ›</span></div></div>'
+      +'<div class="card"><div class="tiny">解锁方式、题库属于这个家庭，而不是某台电视；换电视不会丢配置。</div></div>';
+  },
+  child(){
+    const c=S.child;
+    const tags=(arr,key)=>arr.map(t=>'<span class="tag on" data-act="toggleTag" data-v="'+key+'|'+t+'">'+t+' ×</span>').join('');
+    return '<div class="card flat"><div class="tiny">改动会同步到 '+S.tvs.length+' 台电视；保存后会回读确认，不会静默回滚。'+(S.savedAt?' 上次保存：'+S.savedAt:'')+'</div></div>'
+      +'<div class="sec-title">基本信息</div><div class="card"><div class="row"><div class="avatar">薯</div><button class="btn sm" data-act="changeAvatar">更换头像</button><span class="tiny">头像会显示在电视和这台手机上</span></div><label class="f">名字</label><input type="text" data-bind="child.name" value="'+esc(c.name)+'"><label class="f">年龄</label><input type="number" data-bind="child.age" value="'+esc(c.age)+'"><div class="err" id="err-child-age"></div></div>'
+      +'<div class="sec-title">屏幕时间</div><div class="card"><label class="f">单日限额（分钟）</label><input type="number" data-bind="child.limit" value="'+esc(c.limit)+'"><label class="f">单次时长（分钟）</label><input type="number" data-bind="child.single" value="'+esc(c.single)+'"><div class="progress"><i style="width:'+(pct()*100).toFixed(0)+'%"></i></div><div class="tiny">今天已用 '+(S.used+S.extra)+' 分钟，占限额 '+Math.round(pct()*100)+'%</div></div>'
+      +'<div class="sec-title">禁看时段</div><div class="card"><label class="f">格式 HH:MM-HH:MM，起止不能相同</label><input type="text" data-bind="child.block" value="'+esc(c.block)+'"><div class="err" id="err-child-block"></div><div class="progress"><i style="width:100%;background:#f0dcac"></i></div><div class="tiny">21:00 至次日 07:00 自动锁屏（跨天时段会拆成两段校验）。</div></div>'
+      +'<div class="sec-title">内容限制</div><div class="card"><div class="row" style="margin-bottom:10px"><button class="btn sm '+(c.tier==='gentle'?'primary':'')+'" data-act="tier" data-v="gentle">温和档</button><button class="btn sm '+(c.tier==='strict'?'primary':'')+'" data-act="tier" data-v="strict">严格档</button></div>'
+      +(c.tier==='gentle'
+        ? '<div class="tiny">只排除下面这些分组，其余都能看。</div><div style="margin-top:8px">'+tags(c.blockTags,'blockTags')+'</div><div class="tiny" style="margin-top:6px">点标签移除，或 <button class="btn sm" data-act="addTag" data-v="blockTags">+ 添加黑名单分组</button></div>'
+        : '<div class="tiny">只允许下面这些分组，其余全部屏蔽。严格档必须至少留一组。</div><div style="margin-top:8px">'+tags(c.allowTags,'allowTags')+'</div><div class="tiny" style="margin-top:6px">点标签移除，或 <button class="btn sm" data-act="addTag" data-v="allowTags">+ 添加白名单分组</button></div>')
+      +'<div class="divider"></div><div class="between"><span class="muted">锁定这个孩子（暂停所有观看）</span><button class="btn sm '+(c.locked?'danger':'')+'" data-act="lock">'+(c.locked?'已锁定 · 点此解锁':'锁定')+'</button></div></div>'
+      +'<button class="btn primary block" data-act="saveChild">保存规则</button>';
+  },
+  unlock(){
+    const cards=S.requests.map(r=>{
+      const badge={pending:'<span class="chip amber">待处理 · 剩 '+r.left+' 秒</span>',approved:'<span class="chip green">已批准</span>',rejected:'<span class="chip">已拒绝</span>',expired:'<span class="chip red">已过期</span>'}[r.status];
+      return '<div class="card"><div class="between"><div style="font-weight:600">'+esc(r.child)+' <span class="chip">'+esc(r.tv)+'</span></div>'+badge+'</div><div class="tiny" style="margin:7px 0 10px">'+esc(r.reason)+' · 由孩子在电视上发起</div>'
+        +(r.status==='pending'?'<div class="row"><button class="btn sm primary" data-act="approve" data-v="'+r.id+'">批准解锁</button><button class="btn sm" data-act="reject" data-v="'+r.id+'">拒绝</button></div>':'')
+        +(r.status==='expired'?'<button class="btn sm" data-act="reRequest" data-v="'+r.id+'">提示孩子重新发起</button>':'')
+        +'</div>';
+    }).join('');
+    return '<div class="card flat"><div class="tiny">请求会一直保留，直到你处理为止；过期的也能查看，让孩子在电视上重新发起即可，不再要求 60 秒内守着手机。</div></div>'
+      +'<div class="sec-title">待处理与历史</div>'+cards
+      +'<div class="card"><div class="tiny">批准后电视会立即解除限制并显示回执；如果电视离线，请求保留为「等待下发」，联网后自动继续。</div></div>'
+      +'<button class="btn block" data-act="showBanner">预览全局通知横幅 ›</button>';
+  },
+  quiz(){
+    if(S.draft){
+      const d=S.draft;
+      return '<div class="card flat"><div class="tiny">题目属于孩子，不属于设备；换电视不用重新录入。</div></div>'
+        +'<label class="f">题干</label><input type="text" data-bind="draft.q" value="'+esc(d.q)+'" placeholder="例如：熊猫主要吃什么？"><div class="err" id="err-draft-q"></div>'
+        +'<label class="f">选项（2–10 个，点圆点标出正确答案）</label>'
+        +d.opts.map((o,i)=>'<div class="row" style="margin-bottom:6px"><button class="btn sm '+(d.answer===i?'primary':'')+'" data-act="answer" data-v="'+i+'">'+(d.answer===i?'✓':'○')+'</button><input type="text" data-bind="draft.opts.'+i+'" value="'+esc(o)+'"></div>').join('')
+        +'<div class="row"><button class="btn sm" data-act="addOpt">+ 添加选项</button><button class="btn sm" data-act="uploadPic">添加配图</button></div>'
+        +'<div class="divider"></div><div class="row"><button class="btn primary" data-act="commitQuestion">保存这道题目</button><button class="btn" data-act="cancelDraft">取消</button></div>'
+        +'<div class="tiny" style="margin-top:10px">未保存就退出会二次确认，不会像现在这样静默丢弃。</div>';
+    }
+    const list=S.quiz.length?S.quiz.map((q,i)=>'<div class="card"><div class="between"><div style="font-size:13px;font-weight:600">'+(i+1)+'. '+esc(q.q)+'</div><button class="btn sm danger" data-act="delQuestion" data-v="'+i+'">删除</button></div><div class="tiny" style="margin-top:5px">正确答案：'+esc(q.opts[q.answer]||'')+' · 共 '+q.opts.length+' 个选项</div></div>').join(''):'<div class="card" style="text-align:center;padding:22px 14px"><div style="font-size:14px;font-weight:600">还没有题目</div><div class="tiny" style="margin:5px 0 12px">添加第一题，或从文件导入已有题库。</div><button class="btn primary sm" data-act="addQuestion">添加第一题</button></div>';
+    return '<div class="card flat"><div class="between"><span class="tiny">'+esc(S.child.name)+'的题库 · 最多 200 题</span><span class="chip green">'+S.quiz.length+' 题</span></div></div>'
+      +'<div class="row" style="margin-bottom:12px"><button class="btn primary sm" data-act="addQuestion">+ 添加题目</button><button class="btn sm" data-act="toggleImport">导入 JSON / CSV</button></div>'
+      +(S.importText!==''||S.importResult?'<div class="card"><label class="f">粘贴内容（示例：题干,选项A,选项B,正确序号）</label><textarea rows="3" data-bind="importText" placeholder="熊猫吃什么,竹子,肉,1">'+esc(S.importText)+'</textarea><div class="row" style="margin-top:8px"><button class="btn sm" data-act="fillDemo">填入示例</button><button class="btn sm primary" data-act="doImport">校验并导入</button></div><div class="tiny" style="margin-top:8px;color:'+(S.importResult.indexOf('失败')>=0?'#a32d2d':'#0f6e56')+'">'+esc(S.importResult)+'</div></div>':'')
+      +'<div class="sec-title">题目列表</div>'+list
+      +'<div class="card"><div class="tiny">保存为整库提交，服务端回读后显示「已保存 N 题」；退出时若还有未保存改动会弹二次确认。</div></div>';
+  },
+  mine(){
+    const modes=Object.keys(MODES).map(k=>{
+      const m=MODES[k],on=S.unlockMode===k;
+      const extra=(k==='pin'&&on)?'<label class="f">设定 PIN（4–6 位数字）</label><input type="text" data-bind="pin" value="'+esc(S.pin)+'" placeholder="例如 2580">':'';
+      const quizHint=(k==='quiz'&&on&&S.quiz.length===0)?'<div class="banner" style="margin:9px 0 0">题库还是空的，答题解锁会回退到短码页。<button class="btn sm" data-act="nav" data-v="quiz">添加第一题 ›</button></div>':'';
+      return '<div class="opt '+(on?'on':'')+'" data-act="setMode" data-v="'+k+'"><div class="between"><span class="t">'+m.t+'</span>'+(on?'<span class="chip green">当前</span>':'')+'</div><div class="d">'+m.d+'</div>'+extra+quizHint+'</div>';
+    }).join('');
+    return '<div class="sec-title">家庭与电视</div><div class="card">'
+      +S.tvs.map((t,i)=>'<div class="between" style="padding:5px 0"><div><div style="font-size:13px">'+esc(t)+'</div><div class="tiny">'+(i===0?'在线 · 正在播放':'在线 · 空闲')+'</div></div><button class="btn sm" data-act="unbind" data-v="'+i+'">解绑</button></div>').join('')
+      +'<div class="divider"></div><button class="btn block" data-act="addTv">+ 连接一台电视</button></div>'
+      +'<div class="sec-title">解锁方式</div>'+modes
+      +'<div class="card flat"><div class="tiny">选择后立即生效并回读确认；若前置条件没满足，会在这张卡片里就地给出入口，不用跨 Tab 找。</div></div>'
+      +'<div class="sec-title">账号与权限</div><div class="card"><div class="between"><span class="muted">当前角色</span><span class="chip green">家长</span></div><div class="divider"></div><div class="tiny">家长账号</div><div style="font-family:ui-monospace,monospace;font-size:12px;margin:3px 0 9px">parent.phone.8f3c21</div><div class="row"><button class="btn sm" data-act="copyAccount">复制账号</button><button class="btn sm" data-act="recheckAuth">重新检查权限</button></div></div>'
+      +'<div class="sec-title">其他</div><div class="card"><div class="between" style="padding:4px 0"><span>解锁通知</span><span class="muted">已开启 ›</span></div><div class="divider"></div><div class="between" style="padding:4px 0"><span>服务器地址</span><span class="muted">已连接 ›</span></div><div class="divider"></div><div class="between" style="padding:4px 0"><span>版本</span><span class="muted">1.4.2 ›</span></div></div>'
+      +'<div class="card"><div class="tiny">这里只保留家长需要的设置；HA 网格、布局、IPTV、频道、场景上报等中控台设置不再出现在这个 App 里。</div></div>';
+  }
+};
+
+const NOTES = {
+  onboard:'<h2>首次使用向导 · 对应改造点</h2><ul><li><span class="flag">旧：</span>没有登录页，静默登录失败后直接落到「当前账号没有家长权限」空态，只有一串看不懂的派生 ID。</li><li><span class="fix">新：</span>3 步向导明确告诉用户二维码在哪、别名是什么、账号从哪来、去哪里授权。</li><li><span class="fix">新：</span>「我已授权，重新检查」让登录失败可自愈，不必重启 App 或重装。</li><li><span class="flag">仍需服务端：</span>理想形态是扫码时直接完成授权，彻底去掉「去 Web 后台改角色」这一步。</li></ul><h3>术语</h3><p class="kv">统一叫「电视」「别名」「家长账号」，不再混用设备 / 展示名 / 私有别名 / 设备备注。</p>',
+  today:'<h2>首页「今天」· 对应改造点</h2><ul><li><span class="flag">旧：</span>顶部设备下拉驱动全部 5 个 Tab，切设备清空重拉；观看者 Tab 纯只读，看不出能做什么。</li><li><span class="fix">新：</span>默认「全部电视」，孩子卡直接给出暂停、加时、改规则三个动作。</li><li><span class="fix">新：</span>待办解锁请求上首页，不必自己切到解锁 Tab 才发现。</li><li><span class="flag">仍需服务端：</span>跨设备时长合并需要按孩子聚合的会话数据。</li></ul><h3>信息密度</h3><p class="kv">首屏只回答两件事：孩子今天看了多久、有没有事等我处理。</p>',
+  rules:'<h2>规则 Tab · 对应改造点</h2><ul><li><span class="flag">旧：</span>档案、题库、解锁方式分散在档案卡图标、二层弹层、设置 Tab 三处。</li><li><span class="fix">新：</span>孩子列表 + 全局设置两张清单，规则明确跟着孩子走、自动应用到所有电视。</li><li><span class="fix">新：</span>题库、解锁方式不再绑定「当前选中的设备」，未选设备时入口不会消失。</li></ul>',
+  child:'<h2>孩子详情 · 对应改造点</h2><ul><li><span class="flag">旧：</span>10+ 字段塞进一个弹层，无 validator，填错直到服务端整体拒绝才回滚；档位切换后另一组名单被静默清空。</li><li><span class="fix">新：</span>按「基本信息 / 屏幕时间 / 禁看时段 / 内容限制」分组，逐项即时校验。</li><li><span class="fix">新：</span>温和档只显示黑名单、严格档只显示白名单，用标签点选代替手填通配字符串。</li><li><span class="fix">新：</span>顶部常驻保存 + 保存后回读确认 + 明确写出「会同步到几台电视」。</li></ul><h3>可以试</h3><p class="kv">把年龄改成 200、或把禁看时段改成 abc，错误提示会当场出现；保存时会被拦下。</p>',
+  unlock:'<h2>解锁中心 · 对应改造点</h2><ul><li><span class="flag">旧：</span>短码 60 秒过期即失效，家长必须守着手机；后台只有只读台账，App 里靠全局弹层碰运气。</li><li><span class="fix">新：</span>请求列表持久化，批准 / 拒绝是两个明确的按钮，处理结果留痕。</li><li><span class="fix">新：</span>过期项给出「提示孩子重新发起」，而不是无声消失。</li></ul><h3>可以试</h3><p class="kv">点「批准解锁」看状态变化，再点「预览全局通知横幅」回首页看横幅。</p>',
+  quiz:'<h2>答题题库 · 对应改造点</h2><ul><li><span class="flag">旧：</span>题库藏在档案卡片图标里的外层弹层，单题再套内层弹层；关闭时 _dirty 直接丢弃，改动无声消失。</li><li><span class="fix">新：</span>独立页面，题目列表 + 单页表单 + 导入校验预览；未保存退出有二次确认。</li><li><span class="fix">新：</span>导入给出格式示例和逐行校验结果，不再让用户猜 CSV 格式。</li></ul><h3>可以试</h3><p class="kv">添加一道题 → 在「我的」切到答题解锁，看前置条件如何就地补齐。</p>',
+  mine:'<h2>我的 / 设置 · 对应改造点</h2><ul><li><span class="flag">旧：</span>parent flavor 仍带着中控台设置项、HA 初始化、屏保时钟、场景上报；标题硬编码「薯仔的中控台」。</li><li><span class="fix">新：</span>只留电视、解锁方式、账号权限、通知、关于五组。</li><li><span class="fix">新：</span>4 种解锁方式变成带说明的卡片，选中即生效；前置条件（如空题库）在卡片内就地给出入口，不用跨 Tab 往返。</li><li><span class="fix">新：</span>路由白名单由框架层保证，UI 找不到入口的页面也不会通过深链、错误页返回、遥控命令溜进去。</li></ul>'
+};
+
+function render(){
+  document.getElementById('appbar').innerHTML=APPBAR[S.page]();
+  document.getElementById('screen').innerHTML=PAGES[S.page]()+(S.toast?'<div class="toast">'+esc(S.toast)+'</div>':'');
+  document.getElementById('tabbar').innerHTML=NAVPAGES.includes(S.page)?TABS.map(t=>'<button class="tab '+(S.tab===t[0]?'on':'')+'" data-act="nav" data-v="'+t[0]+'"><span class="dot"></span>'+t[1]+'</button>').join(''):'';
+  document.getElementById('tabbar').style.display=NAVPAGES.includes(S.page)?'flex':'none';
+  document.getElementById('notes').innerHTML='<h2>为什么这样改</h2>'+(NOTES[S.page]||'');
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.page===S.page));
+  document.querySelectorAll('[data-bind]').forEach(el=>{
+    const p=el.dataset.bind, v=get(p);
+    if(v!==undefined&&v!==null&&el.value!==String(v))el.value=String(v);
+  });
+}
+function get(p){let o=S;for(const k of p.split('.')){if(o==null)return undefined;o=o[k]}return o}
+function set(p,v){const ks=p.split('.');let o=S;for(let i=0;i<ks.length-1;i++)o=o[ks[i]];o[ks[ks.length-1]]=v}
+function liveValidate(el){
+  const p=el.dataset.bind;let msg='';
+  if(p==='child.age'){const n=Number(el.value);if(!Number.isInteger(n)||n<0||n>150)msg='年龄请填 0–150 的整数';}
+  if(p==='child.limit'||p==='child.single'){const n=Number(el.value);if(!Number.isInteger(n)||n<1||n>1440)msg='请填 1–1440 之间的整数分钟';}
+  if(p==='child.block'){const parts=String(el.value).split('-');const ok=/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/.test(el.value)&&parts[0]!==parts[1];if(!ok)msg='格式应为 21:00-07:00，且起止不能相同';}
+  if(p==='draft.q'&&!String(el.value).trim())msg='题干不能为空';
+  S.errors[p]=msg;
+  const box=document.getElementById('err-'+p.replace(/\./g,'-'));
+  if(box)box.textContent=msg;
+  el.style.borderColor=msg?'#a32d2d':'';
+}
+function hasErrors(){return Object.values(S.errors).some(Boolean)}
+
+function A(a,v,el){
+  switch(a){
+    case 'nav': S.page=v; if(NAVPAGES.includes(v))S.tab=v; S.banner=(S.banner&&v==='today'); render(); break;
+    case 'back': S.page=S.tab&&NAVPAGES.includes(S.tab)?S.tab:'today'; render(); break;
+    case 'scan': S.onboard=1; S.connected=true; render(); break;
+    case 'onboardNext': S.onboard=2; render(); toast('已连接：'+S.alias); break;
+    case 'recheck':
+      if(S.authed){S.page='today';S.tab='today';render();}
+      else {S.authed=true;render();toast('权限检查通过：家长');}
+      break;
+    case 'authHelp': toast('Web 后台 → 用户管理 → 找到该账号 → 角色改为「家长」'); break;
+    case 'copyAccount': toast('已复制 parent.phone.8f3c21'); break;
+    case 'pause': S.paused=!S.paused; render(); toast(S.paused?'已暂停客厅电视':'已恢复观看'); break;
+    case 'extra': S.extra+=15; render(); toast('今日额度 +15 分钟，已同步到 2 台电视'); break;
+    case 'showBanner': S.banner=true; S.page='today';S.tab='today';render(); toast('已收到一条解锁请求通知'); break;
+    case 'addChild': toast('示例原型只保留一位孩子；真实实现走新建档案向导'); break;
+    case 'changeAvatar': toast('打开头像选择（服务端已有上传接口）'); break;
+    case 'tier': S.child.tier=v; render(); toast(v==='gentle'?'温和档：只排除黑名单分组':'严格档：只允许白名单分组'); break;
+    case 'toggleTag': {const [key,t]=v.split('|'); S.child[key]=S.child[key].filter(x=>x!==t); render(); break;}
+    case 'addTag': {const key=v; const t=key==='blockTags'?'短视频':'科普'; if(!S.child[key].includes(t))S.child[key].push(t); render(); toast('已添加分组：'+t); break;}
+    case 'lock': S.child.locked=!S.child.locked; render(); toast(S.child.locked?'已锁定，所有电视停止播放':'已解锁'); break;
+    case 'saveChild':
+      if(hasErrors()){toast('有字段填写不正确，请先修正标红项');break;}
+      if(S.child.tier==='strict'&&S.child.allowTags.length===0){toast('严格档至少要保留一组白名单');break;}
+      S.savedAt='刚刚'; render(); toast('已保存，服务端回读确认 · 已同步 2 台电视'); break;
+    case 'approve': {const r=S.requests.find(x=>x.id===Number(v));if(r)r.status='approved';render();toast('已批准，电视已解除限制');break;}
+    case 'reject': {const r=S.requests.find(x=>x.id===Number(v));if(r)r.status='rejected';render();toast('已拒绝，电视会显示「家长未同意」');break;}
+    case 'reRequest': toast('已提示孩子：请在电视上重新发起解锁'); break;
+    case 'setMode':
+      if(S.unlockMode!==v){S.unlockMode=v;render();toast('解锁方式已更新为「'+MODES[v].t+'」，服务端已确认');}
+      break;
+    case 'addQuestion': S.draft={q:'',opts:['',''],answer:0};S.errors={};render();break;
+    case 'addOpt': if(S.draft.opts.length<10){S.draft.opts.push('');render();}else toast('最多 10 个选项');break;
+    case 'answer': S.draft.answer=Number(v);render();break;
+    case 'uploadPic': toast('选择配图（服务端已有上传接口）');break;
+    case 'commitQuestion': {
+      const d=S.draft;if(!d.q.trim()){toast('请先填写题干');break;}
+      const filled=d.opts.filter(o=>o.trim()).length;if(filled<2){toast('至少需要 2 个非空选项');break;}
+      d.opts=d.opts.filter(o=>o.trim());S.quiz.push({q:d.q,opts:d.opts.slice(),answer:Math.min(d.answer,d.opts.length-1)});
+      S.draft=null;render();toast('已加入题目，别忘了点右上角「保存」');break;
+    }
+    case 'cancelDraft': S.draft=null;S.errors={};render();toast('已丢弃这道未保存的题目（经二次确认）');break;
+    case 'delQuestion': S.quiz.splice(Number(v),1);render();toast('已移除，点「保存」后生效');break;
+    case 'saveQuiz': toast('已保存 '+S.quiz.length+' 题，服务端回读确认');break;
+    case 'toggleImport': S.importText=S.importText||' ';render();break;
+    case 'fillDemo': S.importText='熊猫吃什么,竹子,肉,1\n地球是圆的吗,是,不是,1';S.importResult='';render();break;
+    case 'doImport': {
+      const lines=String(S.importText).trim().split('\n').filter(Boolean);
+      let ok=0,bad=0;
+      lines.forEach(l=>{const c=l.split(',');if(c.length>=4&&Number(c[c.length-1])>=1)ok++;else bad++;});
+      for(let i=0;i<ok;i++)S.quiz.push({q:'导入题目 '+(S.quiz.length+1),opts:['选项A','选项B'],answer:0});
+      S.importResult=ok+' 行校验通过'+(bad?'，'+bad+' 行格式错误（需：题干,选项A,选项B,正确序号）':'，已加入待保存列表');
+      render();break;
+    }
+    case 'quizExit': if(S.draft){toast('还有未保存的题目：保留编辑 / 丢弃');break;} S.page='mine';render();break;
+    case 'addTv': S.page='onboard';S.onboard=0;render();break;
+    case 'unbind': toast('示例原型不实际解绑；真实实现有二次确认');break;
+    case 'recheckAuth': toast('权限检查通过：家长');break;
+  }
+}
+
+document.addEventListener('click',e=>{
+  const nav=e.target.closest('.navbtn[data-page]');
+  if(nav){S.page=nav.dataset.page;if(NAVPAGES.includes(S.page))S.tab=S.page;render();return;}
+  const t=e.target.closest('[data-act]');
+  if(t)A(t.dataset.act,t.dataset.v,t);
+});
+document.addEventListener('input',e=>{
+  const p=e.target.dataset.bind;if(!p)return;
+  set(p,e.target.type==='number'?Number(e.target.value):e.target.value);
+  liveValidate(e.target);
+  if(p==='child.limit'||p==='child.single'){const bar=document.querySelector('.progress i');}
+});
+render();
+</script>
+</body>
+</html>

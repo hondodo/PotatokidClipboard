@@ -13,6 +13,10 @@ enum RemoteButton { up, down, left, right, ok, menu, back }
 /// 处理逻辑（切频道/切源、操作胶囊 Mask、上/下切时钟样式）。
 /// 显隐只由全局 [AppState.showFloatingRemote]（在「我的」页开关）决定。
 ///
+/// 挂载在 `MaterialApp.router` 的 builder 层、Navigator **之上**，因此能盖住
+/// 所有 `showDialog` 弹出的 DialogRoute（退出确认 / 重置确认 / 家长验证 /
+/// 更新提示）；整层 [ExcludeFocus] 保证它不进入真实遥控的焦点链。
+///
 /// 上角有一把锁：锁定后固定位置、避免误拖。锁定只在本次运行有效，避免把
 /// 旧版“保持显示”的持久化值误当成“禁止拖动”。
 class FloatingRemote extends StatefulWidget {
@@ -43,29 +47,36 @@ class _FloatingRemoteState extends State<FloatingRemote> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AppBloc, AppState>(
-      buildWhen: (previous, current) =>
-          previous.showFloatingRemote != current.showFloatingRemote,
-      builder: (context, state) {
-        // 开关关闭时一并收起（锁定与否都收起）。
-        if (!state.showFloatingRemote) {
-          return const SizedBox.shrink();
-        }
-        return Positioned(
-          left: _offset.dx,
-          top: _offset.dy,
-          child: GestureDetector(
-            onPanUpdate: _locked
-                ? null
-                : (details) => setState(() => _offset += details.delta),
-            child: _RemotePad(
-              onKey: widget.onKey,
-              locked: _locked,
-              onToggleLock: _toggleLock,
-            ),
-          ),
-        );
-      },
+    // 始终以 Positioned 作为 Stack 的直接子节点：显隐变化不改变布局角色，
+    // 隐藏时只是一个 0 尺寸的定位空盒，不参与 Stack 的非定位 sizing。
+    // 整层 ExcludeFocus：本遥控器只靠 onKey 回调工作，不能让它的 InkWell
+    // 抢到焦点，否则真实遥控的方向键遍历 / OK 会误触发模拟按键，且
+    // MainApp 的 rootOkHandler（Focus.onKeyEvent）将收不到事件。
+    return Positioned(
+      left: _offset.dx,
+      top: _offset.dy,
+      child: ExcludeFocus(
+        child: BlocBuilder<AppBloc, AppState>(
+          buildWhen: (previous, current) =>
+              previous.showFloatingRemote != current.showFloatingRemote,
+          builder: (context, state) {
+            // 开关关闭时一并收起（锁定与否都收起）。
+            if (!state.showFloatingRemote) {
+              return const SizedBox.shrink();
+            }
+            return GestureDetector(
+              onPanUpdate: _locked
+                  ? null
+                  : (details) => setState(() => _offset += details.delta),
+              child: _RemotePad(
+                onKey: widget.onKey,
+                locked: _locked,
+                onToggleLock: _toggleLock,
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
