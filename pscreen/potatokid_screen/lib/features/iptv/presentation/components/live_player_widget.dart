@@ -17,6 +17,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/update/app_update_controller.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/buffer_stall_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_failure_guard.dart';
@@ -1195,6 +1196,25 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
               },
             ),
           ),
+          // 右上角更新状态提示：只读、不可聚焦、不可点击。
+          // 频道列表（含换台预览）占用右侧时不显示，避免被遮住。
+          if (!_listPeek)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: SafeArea(
+                child: BlocBuilder<AppBloc, AppState>(
+                  buildWhen: (previous, current) =>
+                      previous.showChannels != current.showChannels ||
+                      previous.homeRemoteLayer != current.homeRemoteLayer,
+                  // 频道列表 / 快捷胶囊菜单占用右侧时隐藏，避免压住它们。
+                  builder: (context, state) =>
+                      state.showChannels || state.homeRemoteLayer == HomeRemoteLayer.capsuleControls
+                      ? const SizedBox.shrink()
+                      : const _LiveUpdateIndicator(),
+                ),
+              ),
+            ),
           // 数字键直选频道时的回显：左上角显示已按下的数字（`1`/`12`/`123`），
           // 号码超出范围时改显示提示文案，让用户随时知道自己按到了第几号。
           const Positioned(left: 24, top: 84, child: _ChannelNumberOverlay()),
@@ -1767,6 +1787,161 @@ class _ClockPanelState extends State<_ClockPanel> {
           style: TextStyle(color: widget.color, fontSize: subSize),
         ),
       ],
+    );
+  }
+}
+
+/// 直播页右上角的更新状态提示。
+///
+/// 直播页的方向/OK 被根处理器接管，遥控焦点到不了右上角，所以这里只做
+/// **纯状态展示**（`IgnorePointer` + `ExcludeFocus`，不可点击、不可聚焦）：
+/// 下载中显示进度；就绪后显示「怎样手动更新」的引导，并在 30 秒后自动收起，
+/// 避免长期占着画面右上角（列表/快捷菜单打开时也会临时隐藏）。
+class _LiveUpdateIndicator extends StatefulWidget {
+  const _LiveUpdateIndicator();
+
+  @override
+  State<_LiveUpdateIndicator> createState() => _LiveUpdateIndicatorState();
+}
+
+class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
+  /// 就绪后提示的展示时长。
+  static const Duration _readyVisibleDuration = Duration(seconds: 30);
+
+  /// 就绪提示的截止时刻（静态：列表/菜单开关导致组件重建时不会重新计时）。
+  static DateTime? _readyHideAt;
+
+  Timer? _hideTimer;
+  bool _hidden = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AppUpdateController.instance.addListener(_onUpdateChanged);
+    _syncReadyVisibility();
+  }
+
+  @override
+  void dispose() {
+    AppUpdateController.instance.removeListener(_onUpdateChanged);
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onUpdateChanged() {
+    if (!mounted) return;
+    setState(_syncReadyVisibility);
+  }
+
+  /// 只在「就绪 / 安装中」计时；离开就绪态（如重新下载）时重新武装。
+  void _syncReadyVisibility() {
+    final AppUpdateState state = AppUpdateController.instance.state;
+    final bool ready = state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing;
+    if (!ready) {
+      _hideTimer?.cancel();
+      _hideTimer = null;
+      _readyHideAt = null;
+      _hidden = false;
+      return;
+    }
+    final DateTime deadline = _readyHideAt ??= DateTime.now().add(_readyVisibleDuration);
+    final Duration left = deadline.difference(DateTime.now());
+    if (left <= Duration.zero) {
+      _hidden = true;
+      _hideTimer?.cancel();
+      _hideTimer = null;
+      return;
+    }
+    _hidden = false;
+    _hideTimer ??= Timer(left, () {
+      _hideTimer = null;
+      if (mounted) setState(() => _hidden = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool kid = kidModeOn;
+    final AppUpdateState update = AppUpdateController.instance.state;
+    if (!update.showPill || update.forceBlocked) {
+      return const SizedBox.shrink();
+    }
+    final bool ready = update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing;
+    if (ready && _hidden) {
+      return const SizedBox.shrink();
+    }
+    final bool failed = update.phase == AppUpdatePhase.failed;
+    final int percent = ((update.progress ?? 0) * 100).round();
+    final Color accent = kid ? KidPalette.accent : AdultPalette.selection;
+
+    final String? title = ready ? (kid ? 'kid_update_title_ready'.tr() : 'live_update_ready_title'.tr()) : null;
+    final String line;
+    if (ready) {
+      line = kid ? 'kid_capsule_back_hint'.tr() : 'live_update_ready_hint'.tr();
+    } else if (failed) {
+      line = 'live_update_failed'.tr();
+    } else {
+      line = kid
+          ? 'kid_capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'})
+          : 'capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'});
+    }
+
+    return IgnorePointer(
+      child: ExcludeFocus(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: kid ? KidPalette.capsule : AdultPalette.panel.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: kid ? Colors.white24 : Colors.white12),
+            boxShadow: const <BoxShadow>[
+              BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 4)),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (ready)
+                Icon(Icons.download_done_rounded, size: 18, color: accent)
+              else if (failed)
+                Icon(Icons.error_outline_rounded, size: 18, color: Colors.white70)
+              else
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, value: update.progress, color: accent),
+                ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    if (title != null) ...<Widget>[
+                      Text(
+                        title,
+                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                    ],
+                    Text(
+                      line,
+                      style: TextStyle(
+                        color: title == null ? Colors.white : Colors.white70,
+                        fontSize: title == null ? 14 : 12,
+                        fontWeight: title == null ? FontWeight.w600 : FontWeight.normal,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
