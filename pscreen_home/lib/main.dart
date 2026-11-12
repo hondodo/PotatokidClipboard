@@ -158,6 +158,10 @@ void main() {
             app: info.app,
             version: info.version,
             build: info.build,
+            // 型号/平台只随连接上报一次，服务端回写 admin 设备表并刷新
+            // 「最后连接时间」；心跳与 report 不重复携带。
+            model: await DeviceIdentity.model(),
+            platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
           );
           ControlLog.i('[实时通道] 已连接 $channel${principal.isNotEmpty ? '（家长号 $principal）' : ''}');
         } catch (e) {

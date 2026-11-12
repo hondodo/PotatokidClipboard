@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
+import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
 import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_repository.dart';
 
@@ -10,7 +12,8 @@ import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_
 /// ws 握手与 HTTP `/api/login` 使用同一组凭据（账号 + 口令 MD5），
 /// 服务端按 `datas/register/users/<账号>` 统一校验，故连接前先走一次
 /// HTTP 登录（完成账号自动建档），再发起 ws 连接。
-/// 握手同时携带 app/version/build（见 [ClientInfo]），供服务端区分控制端。
+/// 握手同时携带 app/version/build（见 [ClientInfo]），供服务端区分控制端；
+/// 并带设备型号/平台，供 admin 后台展示型号与「最后连接时间」。
 ///
 /// 注：本仓库服务的是「可切换遥控目标账号」场景（[switchAccount]），
 /// 与家长端的双凭据模型不同。家长端 parent flavor 的实时通道恒用设备派生号
@@ -20,9 +23,11 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
     required RealtimeChannel channel,
     Future<bool> Function()? httpLogin,
     Future<ClientInfo> Function()? clientInfo,
+    Future<String> Function()? deviceModel,
   })  : _channel = channel,
         _httpLogin = httpLogin ?? PtoolsUtil.loginWithSaved,
-        _clientInfo = clientInfo ?? ClientInfo.current;
+        _clientInfo = clientInfo ?? ClientInfo.current,
+        _deviceModel = deviceModel ?? defaultDeviceModel;
 
   final RealtimeChannel _channel;
 
@@ -31,6 +36,17 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
 
   /// 客户端标识（包名/版本/构建号）读取；测试注入假实现。
   final Future<ClientInfo> Function() _clientInfo;
+
+  /// 设备型号读取；测试注入假实现。
+  final Future<String> Function() _deviceModel;
+
+  /// 只在 Android 上取真实型号：非 Android 宿主没有 `getDeviceModel` 原生通道，
+  /// `PlatformChannelService.deviceModel()` 会兜底成 'Android TV'，上报它会把
+  /// 桌面调试机伪装成电视，所以这里直接留空（服务端保留既有值）。
+  static Future<String> defaultDeviceModel() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return '';
+    return PlatformChannelService.instance.deviceModel();
+  }
 
   @override
   String get savedAccount => AppSettings.instance.remoteAccount;
@@ -82,6 +98,9 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
         app: info.app,
         version: info.version,
         build: info.build,
+        // 型号/平台只随连接上报一次，心跳与 report 不重复携带。
+        model: await _deviceModel(),
+        platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
       );
     } on RealtimeException catch (e) {
       throw RemoteLoginException(e.code, e.message);

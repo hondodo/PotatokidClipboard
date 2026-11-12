@@ -7,8 +7,9 @@ import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_cards.dart';
-import 'package:pscreen_home/features/parental/presentation/parental_sections.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_quiz_editor.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_unlock_section.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 
@@ -165,8 +166,9 @@ class ParentalMineView extends StatelessWidget {
         //    来源失效保留占位，不级联删。入口与 HTML 设计稿一致，从「我的」进入。
         _buildShareCard(context, theme),
         const SizedBox(height: 12),
-        // ⑤ 解锁方式（ownerAccount 输入框已去除，保存时沿用原值）。
-        ParentalSettingsSection(
+        // ⑤ 解锁方式：4 张说明卡 + 顶部「当前配置目标」标注（对齐设计稿）。
+        //    PIN / 题库入口就地给出，不用上翻找设备或跨 Tab。
+        ParentalUnlockSection(
           // 配置变化（含换设备）时重建编辑态，回显最新解锁方式与 PIN。
           key: ValueKey<String>(
             '${selected?.id ?? 'none'}:${config.ownerAccount}'
@@ -175,12 +177,23 @@ class ParentalMineView extends StatelessWidget {
           config: config,
           machine: selected,
           onSave: actions.saveConfig,
-          shrinkWrap: true,
+          onOpenQuiz: () => unawaited(_openQuiz(context)),
         ),
         const SizedBox(height: 12),
         // ⑥ 连接与更新（原设置弹窗的通道状态 + 版本更新搬来）。
         ParentalConnectionCard(channel: channel, version: version),
       ],
+    );
+  }
+
+  /// 答题解锁的题库入口：就地打开当前配置目标设备的第一个孩子题库。
+  /// 与规则页 `_openFirstChildQuiz` 同口径；多孩子取第一个，服务端按规则合并。
+  Future<void> _openQuiz(BuildContext context) async {
+    if (selected == null || config.children.isEmpty) return;
+    await ParentalQuizEditorSheet.show(
+      context,
+      deviceId: selected!.id,
+      child: config.children.first,
     );
   }
 

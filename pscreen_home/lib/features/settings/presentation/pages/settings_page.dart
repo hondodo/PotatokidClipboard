@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -235,6 +236,9 @@ class _SettingsPageState extends State<SettingsPage> {
             app: info.app,
             version: info.version,
             build: info.build,
+            // 型号/平台只随连接上报一次，服务端回写 admin 设备表。
+            model: await DeviceIdentity.model(),
+            platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
           )
           .timeout(
             const Duration(seconds: 25),

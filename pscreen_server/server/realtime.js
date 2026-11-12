@@ -770,6 +770,11 @@ function attachRealtime(httpServer, options = {}) {
         const app = (url.searchParams.get('app') || '').trim().slice(0, 64);
         const version = (url.searchParams.get('version') || '').trim().slice(0, 32);
         const build = (url.searchParams.get('build') || '').trim().slice(0, 32);
+        // 设备型号 / 平台：静态属性，只随每次连接上报一次，ping / report 不重复携带。
+        // 握手时由 admin 回写 machines.json，后台据此展示型号与「最后连接时间」；
+        // 旧客户端不传这两个参数时服务端保留既有值，不会被空串覆盖。
+        const model = (url.searchParams.get('model') || '').trim().slice(0, 64);
+        const platform = (url.searchParams.get('platform') || '').trim().slice(0, 32);
         // 面板类型（home/tv）：显式声明优先，旧客户端按包名兜底。
         const declaredKind = (url.searchParams.get('kind') || '').trim().slice(0, 16);
         const kind = KIND_PATTERN.test(declaredKind) ? declaredKind : kindOf(app);
@@ -835,7 +840,7 @@ function attachRealtime(httpServer, options = {}) {
         // 一并回写到 admin 设备表（machines.json.commAccount/commApp/…）。
         if (deviceId && typeof options.setCommInfo === 'function') {
             try {
-                options.setCommInfo(deviceId, { account, app, version, build });
+                options.setCommInfo(deviceId, { account, app, version, build, model, platform });
             } catch (error) {
                 console.warn('[realtime] 记录通信账号失败:', error.message);
             }
@@ -870,6 +875,7 @@ function attachRealtime(httpServer, options = {}) {
         console.log(
             `[realtime] online ${account}${verifiedPrincipal ? ` (principal ${verifiedPrincipal})` : ''} device=${deviceId || '-'} role=${role} kind=${kind || '-'} name=${name || '-'} ` +
             `app=${app || '-'} version=${version || '-'} build=${build || '-'} ` +
+            `model=${model || '-'} platform=${platform || '-'} ` +
             `ip=${request.socket.remoteAddress} sockets=${sockets.size} total=${wss.clients.size}`,
         );
 

@@ -739,6 +739,9 @@ function attachAdmin(app, options = {}) {
             commBuild: typeof machine.commBuild === 'string' ? machine.commBuild.slice(0, 32) : '',
             firstSeen: Number(machine.firstSeen) || 0,
             lastSeen: Number(machine.lastSeen) || 0,
+            // 最后一次「建立连接」（ws 握手 / 首次建档）的时间，不被 ping/report
+            // 这类保活刷新；与 lastSeen（最后活跃）分开，便于后台区分在线时长。
+            lastConnectedAt: Number(machine.lastConnectedAt) || 0,
         };
     }
 
@@ -2231,6 +2234,9 @@ function attachAdmin(app, options = {}) {
                 name: body.model || body.name || '未命名设备',
                 firstSeen: now,
             });
+            // 首次建档本身就发生在这次连接里，给「最后连接时间」一个初值，
+            // 否则仅靠 HTTP 登录建档的老设备该字段会一直是 0。
+            machine.lastConnectedAt = now;
         }
         if (typeof body.name === 'string' && body.name.trim() && (isNew || machine.name === '未命名设备')) {
             machine.name = body.name.trim().slice(0, 40);
@@ -2295,6 +2301,9 @@ function attachAdmin(app, options = {}) {
     // 落盘代价过高；60s 仍远小于 90s 的在线判定阈值。
     const TOUCH_THROTTLE_MS = 60 * 1000;
     const lastTouchAt = new Map();
+    // 连接时间同样节流：重连风暴时每次握手都全量写 machines.json 不划算，
+    // 分钟级精度对后台「x 分钟前」展示已经足够。
+    const lastConnectAt = new Map();
 
     /**
      * 设备主键精确匹配。
@@ -2494,24 +2503,40 @@ function attachAdmin(app, options = {}) {
     });
 
     console.log(`[admin] Admin 页面: /admin（管理员账号: ${ADMIN_USERNAME}）`);
-    // ws 握手成功后由 realtime 回写设备的通信账号与客户端标识
-    // （app / version / build，仅更新已注册设备，不新建）。
+    // ws 握手成功后由 realtime 回写设备的通信账号、客户端标识与设备型号
+    // （app / version / build / model / platform），并刷新「最后连接时间」。
+    // 型号是静态属性，只在每次连接时上报一次，心跳 / report 不再重复携带。
     // 设备主键必须精确匹配：中控与电视是两个独立客户端，不能共享一条记录。
     function setCommInfo(deviceId, comm) {
         const id = safeDeviceId(deviceId);
+        if (!id) return;
         const info = comm && typeof comm === 'object' ? comm : {};
-        const next = {
-            commAccount: typeof info.account === 'string' ? info.account.trim().slice(0, 64) : '',
-            commApp: typeof info.app === 'string' ? info.app.trim().slice(0, 64) : '',
-            commVersion: typeof info.version === 'string' ? info.version.trim().slice(0, 32) : '',
-            commBuild: typeof info.build === 'string' ? info.build.trim().slice(0, 32) : '',
-        };
-        if (!id || !Object.values(next).some((value) => value)) return;
+        // 只覆盖客户端确实上报了的字段：旧客户端不带 model/platform 时保留
+        // 设备表里已有的型号，绝不能用空串把历史数据清掉。
+        const fields = [
+            ['account', 'commAccount', 64],
+            ['app', 'commApp', 64],
+            ['version', 'commVersion', 32],
+            ['build', 'commBuild', 32],
+            ['model', 'model', 64],
+            ['platform', 'platform', 32],
+        ];
+        const next = {};
+        for (const [source, field, max] of fields) {
+            const value = typeof info[source] === 'string' ? info[source].trim() : '';
+            if (value) next[field] = value.slice(0, max);
+        }
         const machines = readMachines();
-        const key = machines[id] ? id : null;
-        const machine = key ? machines[key] : null;
-        if (!machine || Object.entries(next).every(([field, value]) => machine[field] === value)) return;
+        const key = findMachineKey(machines, id);
+        if (!key) return; // 只更新已建档设备，建档由 ensureMachineForLogin 负责
+        const machine = machines[key];
+        const now = nowMs();
+        const refreshConnect = now - (lastConnectAt.get(key) || 0) >= TOUCH_THROTTLE_MS;
+        const changed = Object.entries(next).some(([field, value]) => machine[field] !== value);
+        if (!changed && !refreshConnect) return;
+        if (refreshConnect) lastConnectAt.set(key, now);
         Object.assign(machine, next);
+        if (refreshConnect) machine.lastConnectedAt = now;
         machines[key] = normalizeMachine(key, machine);
         saveMachines(machines);
     }

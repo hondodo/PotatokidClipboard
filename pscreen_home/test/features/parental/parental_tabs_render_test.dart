@@ -121,7 +121,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // 已绑定电视仍显示，且每台电视行都有常驻遥控入口。
-    expect(find.text('红米笔记本'), findsOneWidget);
+    // 设备名现在还会出现在解锁方式区的「当前配置目标」标注里，故为多处。
+    expect(find.text('红米笔记本'), findsWidgets);
     expect(find.byTooltip('遥控 红米笔记本'), findsOneWidget);
     // 点遥控能进入遥控页（设备级能力，与有无档案无关）。
     await tester.tap(find.byTooltip('遥控 红米笔记本'));
@@ -156,7 +157,15 @@ void main() {
     expect(find.text('解锁方式'), findsOneWidget);
     expect(find.text('连接与更新'), findsOneWidget);
     expect(find.text('保存名字'), findsOneWidget);
-    expect(find.text('保存设置'), findsOneWidget);
+    // 解锁方式改为 4 张说明卡（对齐设计稿）：顶部标注当前配置目标 + 四种方式 + 就地入口。
+    expect(find.textContaining('当前配置目标：红米笔记本'), findsOneWidget);
+    expect(find.text('远程确认'), findsOneWidget);
+    expect(find.text('PIN 码'), findsOneWidget);
+    expect(find.text('算术题'), findsOneWidget);
+    expect(find.text('答题解锁'), findsOneWidget);
+    // 旧的 ChoiceChip + 保存按钮不再出现。
+    expect(find.text('保存设置'), findsNothing);
+    expect(find.text('远程确认（手机弹层）'), findsNothing);
     // 旧的技术字段/大块不再出现。
     expect(find.text('账号与权限'), findsNothing);
     expect(find.textContaining('ownerAccount'), findsNothing);

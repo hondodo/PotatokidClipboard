@@ -343,6 +343,10 @@ class RealtimeChannel {
   String _app = '';
   String _version = '';
   String _build = '';
+  // 设备型号 / 平台：静态属性，只随每次连接握手上报一次（重连自动复用），
+  // ping / report 不重复携带；服务端据此刷新 machines.json 的型号与连接时间。
+  String _model = '';
+  String _platform = '';
   bool _manualClose = false;
   bool _connecting = false;
   int _attempt = 0;
@@ -400,6 +404,9 @@ class RealtimeChannel {
   /// [app] / [version] / [build] 为客户端标识（包名与版本构建号，见
   /// [ClientInfo]），随握手上报，服务端在线日志与 realtime.html 据此
   /// 区分不同控制端；断线重连时自动复用。
+  /// [model] / [platform] 为设备型号与平台，同样只在握手上报一次，服务端
+  /// 回写 admin 设备表（型号展示 + 最后连接时间）；旧服务端会忽略未知参数，
+  /// 不传也不会影响连接。
   ///
   /// 非鉴权类失败（网络/超时）会同时启动后台重连，恢复后自动转已连接。
   Future<void> connect({
@@ -414,6 +421,8 @@ class RealtimeChannel {
     String app = '',
     String version = '',
     String build = '',
+    String model = '',
+    String platform = '',
   }) async {
     _account = account.trim();
     _token = token;
@@ -426,6 +435,8 @@ class RealtimeChannel {
     _app = app.trim();
     _version = version.trim();
     _build = build.trim();
+    _model = model.trim();
+    _platform = platform.trim();
     if (_account.isEmpty) {
       throw const RealtimeException(400, '账号为空');
     }
@@ -721,6 +732,8 @@ class RealtimeChannel {
         if (_app.isNotEmpty) 'app': _app,
         if (_version.isNotEmpty) 'version': _version,
         if (_build.isNotEmpty) 'build': _build,
+        if (_model.isNotEmpty) 'model': _model,
+        if (_platform.isNotEmpty) 'platform': _platform,
       });
       final WebSocketChannel channel = WebSocketChannel.connect(uri);
       await channel.ready.timeout(const Duration(seconds: 12));

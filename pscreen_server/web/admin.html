@@ -385,7 +385,7 @@
               <th style="width:180px">通信账号 / 展示名</th>
               <th style="width:280px">可见家庭</th>
               <th style="width:120px">当前家庭</th>
-              <th style="width:170px">最后心跳</th>
+              <th style="width:170px">最后心跳 / 连接</th>
               <th style="width:130px">操作</th>
             </tr>
           </thead>
@@ -965,7 +965,7 @@
           <span class="mono">${esc(machine.id)}</span>
           <span class="muted">设备备注：${machine.nameSet ? esc(machine.name) : '未设置'}</span>
           ${aliasNotes(machine)}
-          <span class="muted">${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
+          <span class="muted">型号：${esc(machine.model || machine.platform || '未知设备')}${machine.appVersion ? ` · v${esc(machine.appVersion)}` : ''}</span>
         </div>`,
       kindBadge(machine),
       ownerSelect(machine),
@@ -976,7 +976,7 @@
           <span class="muted">来源：${esc(sourceLabel(machine.homesSource))}${machine.homesSource === 'machine' ? '' : (machine.owner ? ' → ' + esc(machine.owner) : '')}</span>
         </div>`,
       machine.currentHome ? `<span class="badge">${esc(machine.currentHome)}</span>` : '<span class="muted">—</span>',
-      `<div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="mono">${esc(machine.ip || '')}</span></div>`,
+      `<div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="muted">最后连接 ${machine.lastConnectedAt ? esc(timeAgo(machine.lastConnectedAt)) : '—'}</span><span class="mono">${esc(machine.ip || '')}</span></div>`,
       `
         <div class="row-actions">
           <button class="btn small" data-action="homes" type="button">家庭</button>

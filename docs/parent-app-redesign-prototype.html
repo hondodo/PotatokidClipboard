@@ -172,6 +172,7 @@ const S = {
       {id:13,name:'小宝', sharedTo:[]}
     ]}
   ],
+  tvTarget:0, // 当前配置目标电视在 tvData 里的下标：解锁方式/题库作用于这台，可与档案共享目标不同
   shareTarget:0, shareEdit:null, shareToDraft:'',
   devices:[
     {name:'A 手机', note:'已登录 AA_parent', bound:['客厅电视']},
@@ -300,11 +301,13 @@ const PAGES = {
       +'<div class="tiny" style="margin-top:7px">注意：这不是电视的备注名，也不是登录账号。</div></div>'
 
       +'<div class="sec-title">我的电视</div><div class="card">'
-      +'<div class="tiny" style="margin-bottom:8px">同一家长号可绑多台电视；规则、解锁方式作用于选中的电视。遥控就在这行，不用先添加孩子档案。</div>'
-      +S.tvData.map((t,i)=>'<div class="between" style="padding:6px 0"><div><div style="font-size:13px">'+esc(t.name)+'</div><div class="tiny">'+(t.online?'在线':'离线')+(i===0?' · 当前配置目标':'')+' · '+t.children.length+' 个档案'+(t.shared&&t.shared.length?' · 引用 '+t.shared.length:'')+'</div></div><div class="row" style="gap:4px"><button class="btn sm" data-act="remote" data-v="'+i+'">遥控</button><button class="btn sm" data-act="renameTv" data-v="'+i+'">改名</button><button class="btn sm" data-act="unbind" data-v="'+i+'">解绑</button></div></div><div style="margin:-2px 0 6px"><button class="btn sm ghost" data-act="shareOpen" data-v="'+i+'">管理档案 / 跨电视共享 ›</button></div>').join('')
+      +'<div class="tiny" style="margin-bottom:8px">同一家长号可绑多台电视；点一台的名字把它设为「当前配置目标」，解锁方式、题库就作用于这台。遥控就在这行，不用先添加孩子档案。</div>'
+      +S.tvData.map((t,i)=>'<div class="between" style="padding:6px 0;align-items:center"><div style="flex:1;cursor:pointer" data-act="selectTarget" data-v="'+i+'" title="点选为当前配置目标（解锁方式作用于这台）"><div style="font-size:13px;'+(i===S.tvTarget?'color:#0f6e56;font-weight:600':'')+'">'+esc(t.name)+(i===S.tvTarget?' <span class="chip green" style="vertical-align:middle">当前配置目标</span>':'')+'</div><div class="tiny">'+(t.online?'在线':'离线')+' · '+t.children.length+' 个档案'+(t.shared&&t.shared.length?' · 引用 '+t.shared.length:'')+(i===S.tvTarget?'':' · 点这行切换配置目标')+'</div></div><div class="row" style="gap:4px"><button class="btn sm" data-act="remote" data-v="'+i+'">遥控</button><button class="btn sm" data-act="renameTv" data-v="'+i+'">改名</button><button class="btn sm" data-act="unbind" data-v="'+i+'">解绑</button></div></div><div style="margin:-2px 0 6px"><button class="btn sm ghost" data-act="shareOpen" data-v="'+i+'">管理档案 / 跨电视共享 ›</button></div>').join('')
       +'<div class="divider"></div><button class="btn block" data-act="addTv">+ 连接一台电视</button></div>'
 
-      +'<div class="sec-title">解锁方式</div>'+modes
+      +'<div class="sec-title">解锁方式 <span class="chip green">'+esc(S.tvData[S.tvTarget].name)+'</span></div>'
+      +'<div class="card" style="padding:9px 11px;margin-bottom:8px;background:#eef7f3;border-color:#cfe9df"><div class="tiny" style="color:#0f6e56">当前配置目标：<b>'+esc(S.tvData[S.tvTarget].name)+'</b> · 下面四种方式只对这台电视生效。要改别的电视，去上面「我的电视」点它的名字切换。</div></div>'
+      +modes
       +'<div class="card flat"><div class="tiny">选择后立即生效并回读确认；若前置条件没满足，会在这张卡片里就地给出入口，不用跨 Tab 找。</div></div>'
 
       +'<div class="sec-title">连接与更新</div><div class="card">'
@@ -452,6 +455,12 @@ function A(a,v,el){
     case 'setMode':
       if(S.unlockMode!==v){S.unlockMode=v;render();toast('解锁方式已更新为「'+MODES[v].t+'」，服务端已确认');}
       break;
+    case 'selectTarget': {
+      const i=Number(v); if(i===S.tvTarget)break;
+      S.tvTarget=i; render();
+      toast('当前配置目标已切换为「'+S.tvData[i].name+'」；解锁方式作用于这台电视');
+      break;
+    }
     case 'addQuestion': S.draft={q:'',opts:['',''],answer:0};S.errors={};render();break;
     case 'addOpt': if(S.draft.opts.length<10){S.draft.opts.push('');render();}else toast('最多 10 个选项');break;
     case 'answer': S.draft.answer=Number(v);render();break;
@@ -536,6 +545,7 @@ document.addEventListener('input',e=>{
   const p=q.get('page');
   if(p&&(PAGES[p]||NAVPAGES.includes(p))){S.page=p;if(NAVPAGES.includes(p))S.tab=p;}
   if(q.has('target'))S.shareTarget=Number(q.get('target'));
+  if(q.has('tv'))S.tvTarget=Number(q.get('tv'));
   if(q.get('auth')==='1')S.authed=true;
   if(q.get('add')){
     const parts=q.get('add').split('|');

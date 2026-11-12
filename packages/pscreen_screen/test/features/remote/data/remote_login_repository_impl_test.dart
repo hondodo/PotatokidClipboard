@@ -42,6 +42,8 @@ class FakeRealtimeChannel implements RealtimeChannel {
     String app = '',
     String version = '',
     String build = '',
+    String model = '',
+    String platform = '',
   }) async {
     lastPrincipal = principal;
     calls.add('connect:$account:$token:$deviceId:$role');
@@ -49,6 +51,8 @@ class FakeRealtimeChannel implements RealtimeChannel {
     lastApp = app;
     lastVersion = version;
     lastBuild = build;
+    lastModel = model;
+    lastPlatform = platform;
     final RealtimeException? error = connectError;
     if (error != null) throw error;
   }
@@ -63,6 +67,10 @@ class FakeRealtimeChannel implements RealtimeChannel {
   String lastApp = '';
   String lastVersion = '';
   String lastBuild = '';
+
+  /// 最近一次 connect 上报的设备型号与平台。
+  String lastModel = '';
+  String lastPlatform = '';
 
   @override
   Future<void> disconnect() async => calls.add('disconnect');
@@ -210,5 +218,17 @@ void main() {
     expect(channel.lastApp, 'com.test.tv');
     expect(channel.lastVersion, '1.0.0');
     expect(channel.lastBuild, '2');
+  });
+
+  test('连接随握手上报设备型号与平台（型号可注入）', () async {
+    repository = RemoteLoginRepositoryImpl(
+      channel: channel,
+      httpLogin: () async => true,
+      deviceModel: () async => 'rk3288',
+    );
+    await repository.ensureLoaded();
+    await repository.autoLogin();
+    expect(channel.lastModel, 'rk3288');
+    expect(channel.lastPlatform, isNotEmpty);
   });
 }
