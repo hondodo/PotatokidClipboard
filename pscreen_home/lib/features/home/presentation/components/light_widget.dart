@@ -125,12 +125,14 @@ class LightWidget extends StatelessWidget {
                     Color(0xFFFF9E4A),
                     Color(0xFFFFC46B),
                   ],
-                  // 触屏无 hover，底轨必须常显且与卡片背景对比明显；
-                  // 同时加粗到触屏友好的尺寸（原 10 / 4×18 太细小）。
+                  // 触屏无 hover，底轨必须常显且与卡片背景对比明显。
+                  // 240×112 网格卡的高度预算：上内边距 12 + 图标行 54 +
+                  // 滑条 36 + 下内边距 10 = 112；thumb 再高 6px 就会溢出，
+                  // 所以 thumbHeight 锁 36，触控宽度仍保留 12。
                   trackColor: theme.colorScheme.outlineVariant,
                   height: 28,
                   thumbWidth: 12,
-                  thumbHeight: 42,
+                  thumbHeight: 36,
                   enabled: canDim,
                   onChangeEnd: (double value) =>
                       onBrightnessChanged?.call(value.round()),

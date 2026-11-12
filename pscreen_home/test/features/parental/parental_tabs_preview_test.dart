@@ -7,9 +7,11 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_share_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
@@ -27,6 +29,11 @@ ParentalActions _stubActions() => ParentalActions(
       unbind: (_) {},
       selectDevice: (_) {},
       renameMachine: (_) {},
+      openShareManagement: (_) {},
+      loadShareView: (_) async => ParentalShareView.empty,
+      setSharedTo: (_, _, _) async => ParentalShareView.empty,
+      addSharedRef: (_, _) async => ParentalShareView.empty,
+      cancelSharedRef: (_, _) async => ParentalShareView.empty,
     );
 
 final ParentalConfig _config = ParentalConfig(
@@ -104,6 +111,70 @@ void main() {
         actions: _stubActions(),
       ),
       r'E:\Code\potatokid_clipboard\.workbuddy\screenshots\mine_preview.png',
+    );
+  });
+
+  testWidgets('渲染 我的页-档案共享 到 PNG', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(840, 3200);
+    tester.view.devicePixelRatio = 2;
+    final ParentalShareView view = ParentalShareView(
+      masters: <ParentalShareMaster>[
+        ParentalShareMaster(
+          id: '1',
+          name: '档案1 · 小薯',
+          dailyLimitMin: 90,
+          sharedTo: const <String>['mama88'],
+        ),
+        const ParentalShareMaster(id: '2', name: '档案2 · 大薯', dailyLimitMin: 60),
+        const ParentalShareMaster(id: '3', name: '档案3 · 奶奶'),
+      ],
+      imported: <ParentalShareImported>[
+        ParentalShareImported(
+          refId: 'bed:11',
+          id: '11',
+          name: '逗逗',
+          dailyLimitMin: 30,
+          source: const ParentalShareSource(
+            machineId: 'bed',
+            machineName: '卧室电视',
+            owner: 'mama88',
+            childId: '11',
+          ),
+        ),
+        const ParentalShareImported(
+          refId: 'bed:10',
+          id: '10',
+          name: '原「小宝」档案',
+          status: 'broken',
+          reason: 'child-missing',
+          source: ParentalShareSource(
+            machineId: 'bed',
+            machineName: '卧室电视',
+            owner: 'mama88',
+            childId: '10',
+          ),
+        ),
+      ],
+      candidates: <ParentalShareCandidate>[
+        const ParentalShareCandidate(
+          machineId: 'bed',
+          machineName: '卧室电视',
+          owner: 'mama88',
+          childId: '12',
+          name: '果果',
+          via: 'shared-to-me',
+        ),
+      ],
+    );
+    await _renderToFile(
+      tester,
+      ParentalSharePage(
+        machine: _machine.copyWith(shareView: view),
+        machines: <ParentalMachine>[_machine.copyWith(shareView: view)],
+        actions: _stubActions(),
+        initialView: view,
+      ),
+      r'E:\Code\potatokid_clipboard\.workbuddy\screenshots\share_preview.png',
     );
   });
 

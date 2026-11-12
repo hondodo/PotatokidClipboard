@@ -26,32 +26,43 @@ class _FakeHaServer {
     return fake;
   }
 
+  /// 客户端在断言结束后可能先断开（尤其心跳用例），此时 socket.add 会抛
+  /// "Bad state: StreamSink is closed" 并把异步错误算到测试失败上。
+  /// 测试服务只负责回包，不对已关闭连接报错。
+  void _safeSend(WebSocket socket, Object payload) {
+    if (socket.closeCode != null) return;
+    try {
+      socket.add(jsonEncode(payload));
+    } on StateError {
+      // 对端已关闭，忽略。
+    }
+  }
+
   Future<void> _handleRequest(HttpRequest request) async {
     final WebSocket socket = await WebSocketTransformer.upgrade(request);
     _sockets.add(socket);
-    socket.add(jsonEncode(<String, dynamic>{'type': 'auth_required'}));
+    _safeSend(socket, <String, dynamic>{'type': 'auth_required'});
     socket.listen(
       (dynamic raw) {
         final Map<String, dynamic> msg =
             jsonDecode(raw as String) as Map<String, dynamic>;
         switch (msg['type']) {
           case 'auth':
-            socket.add(jsonEncode(<String, dynamic>{'type': 'auth_ok'}));
+            _safeSend(socket, <String, dynamic>{'type': 'auth_ok'});
             break;
           case 'subscribe_events':
-            socket.add(
-              jsonEncode(<String, dynamic>{
-                'id': msg['id'],
-                'type': 'result',
-                'success': true,
-              }),
-            );
+            _safeSend(socket, <String, dynamic>{
+              'id': msg['id'],
+              'type': 'result',
+              'success': true,
+            });
             break;
           case 'ping':
             if (answerPing) {
-              socket.add(
-                jsonEncode(<String, dynamic>{'type': 'pong', 'id': msg['id']}),
-              );
+              _safeSend(socket, <String, dynamic>{
+                'type': 'pong',
+                'id': msg['id'],
+              });
             }
             break;
           default:
@@ -59,15 +70,22 @@ class _FakeHaServer {
             break;
         }
       },
+      onDone: () => _sockets.remove(socket),
       onError: (Object _) {},
       cancelOnError: false,
     );
   }
 
   Future<void> close() async {
-    for (final WebSocket socket in _sockets) {
-      await socket.close();
+    // onDone 会从 _sockets 里移除，直接迭代原列表会 Concurrent modification。
+    for (final WebSocket socket in List<WebSocket>.of(_sockets)) {
+      try {
+        await socket.close();
+      } on StateError {
+        // 对端已关闭，忽略。
+      }
     }
+    _sockets.clear();
     await _server.close(force: true);
   }
 }

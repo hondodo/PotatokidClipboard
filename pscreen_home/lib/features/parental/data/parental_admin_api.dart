@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:pscreen_home/core/server/server_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 import 'package:pscreen_screen/core/network/http_method.dart';
@@ -166,6 +167,93 @@ class ParentalAdminApi {
     }
     // 响应缺失时退回请求值（兼容旧服务端），由调用方按需告警。
     return ParentalConfig.fromJson(parental);
+  }
+
+  /// 读取某台电视的档案共享视图（主本 / 已引用含 broken / 可引用候选）。
+  ///
+  /// overview 已随每台机器下发 `parentalShareView`，进入共享页时优先用缓存；
+  /// 写操作后服务端会把最新 view 一并返回，这里统一解析，避免再拉一次 overview。
+  Future<ParentalShareView> fetchShareView(String deviceId) async {
+    final dynamic data = await DioManager().send(
+      url: _uri(
+        '/api/admin/parental/shared-view',
+        queryParameters: <String, dynamic>{'deviceId': deviceId},
+      ).toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    return _shareViewOf(_dataOf(data));
+  }
+
+  /// 设置本台某个主本档案的「对外分享」家长号白名单。
+  ///
+  /// 只有 `children[]` 里的主本能改；`shared[]` 引用档案无权设置。
+  /// 留空列表＝取消分享，任何其他家长都看不到这份档案。
+  Future<ParentalShareView> setChildSharedTo(
+    String deviceId,
+    String childId,
+    List<String> sharedTo,
+  ) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/share-to').toString(),
+      method: HttpMethod.PUT,
+      params: <String, dynamic>{
+        'deviceId': deviceId,
+        'childId': childId,
+        'sharedTo': sharedTo,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    return _shareViewOf(_dataOf(data));
+  }
+
+  /// 在当前电视上引用一个可见的主本档案（只存坐标，不复制内容）。
+  Future<ParentalShareView> addSharedRef(
+    String deviceId, {
+    required String fromMachineId,
+    required String fromChildId,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/shared').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'deviceId': deviceId,
+        'fromMachineId': fromMachineId,
+        'fromChildId': fromChildId,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    return _shareViewOf(_dataOf(data));
+  }
+
+  /// 取消一条引用：只删本台 `shared[]` 坐标，绝不触碰主本档案。
+  Future<ParentalShareView> cancelSharedRef(
+    String deviceId,
+    String refId,
+  ) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/shared').toString(),
+      method: HttpMethod.DELETE,
+      params: <String, dynamic>{'deviceId': deviceId, 'refId': refId},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    return _shareViewOf(_dataOf(data));
+  }
+
+  static ParentalShareView _shareViewOf(Map<String, dynamic> body) {
+    final dynamic view = body['view'];
+    if (view is Map) {
+      return ParentalShareView.fromJson(Map<String, dynamic>.from(view));
+    }
+    // 兼容 overview 直接嵌 `parentalShareView` 的响应形态。
+    final dynamic embedded = body['parentalShareView'];
+    if (embedded is Map) {
+      return ParentalShareView.fromJson(Map<String, dynamic>.from(embedded));
+    }
+    return ParentalShareView.empty;
   }
 
   /// 读取某个儿童档案的题库（服务端已归一化，直接回传原始题目 Map）。
@@ -479,6 +567,7 @@ class ParentalMachine {
     this.commDisplayName = '',
     this.alias = '',
     required this.online,
+    this.shareView,
   });
 
   /// 设备记录主键（`GET /api/device/config` 与 `PUT /api/admin/machines/:id`
@@ -513,19 +602,25 @@ class ParentalMachine {
 
   final bool online;
 
+  /// overview 预展开的档案共享视图；只有 tv 机器会有，非 tv 为 null。
+  /// 写接口返回新 view 后由页面壳原地替换，避免整页重拉。
+  final ParentalShareView? shareView;
+
   /// 别名变更后原地更新当前列表项，避免整表重拉导致下拉选中丢焦点。
-  ParentalMachine copyWith({String? alias}) => ParentalMachine(
-    id: id,
-    name: name,
-    nameSet: nameSet,
-    kind: kind,
-    owner: owner,
-    parents: parents,
-    commAccount: commAccount,
-    commDisplayName: commDisplayName,
-    alias: alias ?? this.alias,
-    online: online,
-  );
+  ParentalMachine copyWith({String? alias, ParentalShareView? shareView}) =>
+      ParentalMachine(
+        id: id,
+        name: name,
+        nameSet: nameSet,
+        kind: kind,
+        owner: owner,
+        parents: parents,
+        commAccount: commAccount,
+        commDisplayName: commDisplayName,
+        alias: alias ?? this.alias,
+        online: online,
+        shareView: shareView ?? this.shareView,
+      );
 
   factory ParentalMachine.fromJson(Map<String, dynamic> json) =>
       ParentalMachine(
@@ -544,6 +639,11 @@ class ParentalMachine {
         commDisplayName: '${json['commDisplayName'] ?? ''}',
         alias: '${json['alias'] ?? ''}',
         online: json['online'] == true,
+        shareView: json['parentalShareView'] is Map
+            ? ParentalShareView.fromJson(
+                Map<String, dynamic>.from(json['parentalShareView'] as Map),
+              )
+            : null,
       );
 }
 

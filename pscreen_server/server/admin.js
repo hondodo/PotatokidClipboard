@@ -19,6 +19,7 @@ const definds = require('./definds');
 const { attachPrograms } = require('./programs');
 const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
 const claims = require('./claims');
+const parentalShare = require('./parental_share');
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
@@ -343,13 +344,20 @@ function normalizeParental(value) {
             sessionLimitMin,
             dailyLimitMin,
             quietHours: normalizeParentalQuietHours(child.quietHours, `${at}.quietHours`),
+            // 档案引用共享：本档案可被引用的家长号白名单（owner opt-in）。
+            // 默认 []＝不对任何其他家长分享；只在共享页显式指定后才有值。
+            sharedTo: parentalShare.normalizeSharedTo(child.sharedTo, `${at}.sharedTo`),
         });
     });
+
+    // 档案引用共享：本台「引用进来」的档案坐标（只存指针不存副本）。
+    const shared = parentalShare.normalizeSharedRefs(value.shared);
 
     return {
         mode: value.mode,
         activeChildIds,
         children,
+        shared,
         unlockMode,
         pin: typeof value.pin === 'string' ? value.pin.trim().slice(0, 32) : '',
         ownerAccount: typeof value.ownerAccount === 'string' ? value.ownerAccount.trim().slice(0, 64) : '',
@@ -791,10 +799,25 @@ function attachAdmin(app, options = {}) {
         return true;
     }
 
-    /** 儿童档案必须属于该电视的 parental（防止往不存在的档塞题库）。 */
+    /**
+     * 儿童档案写护栏三态（档案引用共享）：
+     * - master：本台主本档案，可读写；
+     * - shared：引用进来的档案（主本在别台），只读，写操作须拒绝并提示去主本改；
+     * - missing：既非本台档案也无此引用。
+     * 保留 childExists 布尔版供既有调用点先兼容，新逻辑统一走 childWriteState。
+     */
+    function childWriteState(machine, childId, viewerParent) {
+        return parentalShare.resolveChild(machine, readMachines(), childId, viewerParent || null);
+    }
+
     function childExists(machine, childId) {
         const children = machine.parental && Array.isArray(machine.parental.children) ? machine.parental.children : [];
         return children.some((child) => child.id === childId);
+    }
+
+    /** 题库/头像读取落点：引用档案重定向到主本电视。 */
+    function quizLookup(machine, childId, viewerParent) {
+        return parentalShare.resolveQuizTarget(machine, readMachines(), childId, viewerParent || null);
     }
 
     // ------------------------------------------------------------ 头像索引
@@ -1269,11 +1292,17 @@ function attachAdmin(app, options = {}) {
             // 管理员额外拿到只读的完整别名表（家长仍只拿自己那一条），
             // 供后台排查「这台电视在谁那里叫什么」，不影响设备备注。
             if (admin.role === 'admin') machineFields.aliases = machine.aliases || {};
+            // 档案引用共享：为电视展开家长端共享视图（主本 + 引用 + 可引用候选）。
+            // 只做派生，不落盘；viewer 为当前家长号，引用可见性按 source.sharedTo 白名单校验。
+            const shareView = machineKind(machine) === 'tv'
+                ? parentalShare.buildShareView(machine, readMachines(), admin.name)
+                : null;
             return {
                 ...machineFields,
                 alias,
                 kind: machineKind(machine),
                 ownerName: config.ownerName,
+                parentalShareView: shareView,
                 // 设备通信账号的展示名（后台设备列表 / 家长端按此列回落）。
                 commDisplayName: usersByName.get(machine.commAccount)?.displayName || '',
                 parents: config.parents,
@@ -1426,7 +1455,12 @@ function attachAdmin(app, options = {}) {
                 const sessionSec = Number(sessionSecByChild[childId]);
                 if (!Number.isFinite(sessionSec) || sessionSec <= 0) continue;
                 const startMs = event.ts - sessionSec * 1000;
-                const key = `${machine.id}|${childId}`;
+                // 时长按「主本档案坐标」归并：引用档案归到来源电视 / 主本档案，
+                // 使同一档案在客厅 + 卧室的观看会话累加到同一条（每日限额共用）。
+                // 实际观看的电视仍记录在本条 session 的 machineId/machineName（分台明细）。
+                const anchor = parentalShare.durationAnchorKey(machine, readMachines(), childId);
+                const key = anchor;
+                const anchorChildId = anchor.slice(anchor.indexOf(':') + 1);
                 const last = lastByChild.get(key);
                 if (last && Math.abs(last.startMs - startMs) < 120000) {
                     last.endMs = Math.max(last.endMs, event.ts);
@@ -1434,11 +1468,16 @@ function attachAdmin(app, options = {}) {
                     last.dailySec = Math.max(last.dailySec, Number(dailySecByChild[childId]) || 0);
                     continue;
                 }
-                const child = (machine.parental && machine.parental.children || [])
-                    .find((item) => item.id === childId);
+                const resolved = parentalShare.resolveChild(machine, readMachines(), childId, null);
+                const child = resolved.kind === 'master' ? resolved.child
+                    : resolved.kind === 'shared' ? resolved.child
+                        : (machine.parental && machine.parental.children || []).find((item) => item.id === childId);
                 const session = {
                     machineId: machine.id,
                     machineName: machine.name,
+                    // anchorKey / anchorChildId：家长端据此跨电视合并时长。
+                    anchorKey: anchor,
+                    anchorChildId,
                     childId,
                     childName: child ? child.name : childId,
                     date: data.date || '',
@@ -1691,6 +1730,150 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    // ------------------------------------------------------------ 档案引用共享
+
+    /** 家长可写某台电视：必须是绑定家长；管理员放行。 */
+    function canManageTv(req, machine) {
+        if (!machine) return false;
+        if (req.adminUser.role === 'parent') return Array.isArray(machine.parents) && machine.parents.includes(req.adminUser.name);
+        return true;
+    }
+
+    /**
+     * 设置本台某个主本档案的「对外分享」家长号白名单（owner opt-in）。
+     * 只能改本台 children[] 里的主本档案；引用来的档案无权设置。
+     */
+    app.put('/api/admin/parental/share-to', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            const childId = String(body.childId || '').trim();
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            if (!childId) return jsonFail(res, 'childId 无效');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持儿童档案');
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            const children = machine.parental && Array.isArray(machine.parental.children) ? machine.parental.children : [];
+            const child = children.find((c) => c.id === childId);
+            if (!child) return jsonFail(res, '本台主本档案不存在（引用档案不能设置分享）', 404, 404);
+            child.sharedTo = parentalShare.normalizeSharedTo(body.sharedTo, 'sharedTo');
+            machines[id] = normalizeMachine(id, machine);
+            saveMachines(machines);
+            const view = parentalShare.buildShareView(machines[id], machines, req.adminUser.name);
+            console.log(`[share] ${req.adminUser.name} 设置 ${id}/${childId} sharedTo=${JSON.stringify(child.sharedTo)}`);
+            return jsonOk(res, { deviceId: id, childId, sharedTo: child.sharedTo, view }, '分享范围已保存');
+        } catch (error) {
+            console.error('[share] 设置分享范围失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 添加一条引用：当前家长在自己绑定的目标电视上，引用一个可见的主本档案。
+     * 可见性：来源档案是同一家长号名下其它电视（默认可见），或来源档案 sharedTo 含当前家长号。
+     * 只引用主本（来源 children[]），不允许引用别人「引用进来」的档案（杜绝多级链与环）。
+     */
+    app.post('/api/admin/parental/shared', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            const fromMachineId = safeDeviceId(body.fromMachineId);
+            const fromChildId = String(body.fromChildId || '').trim();
+            if (!id || !fromMachineId || !fromChildId) return jsonFail(res, 'deviceId / fromMachineId / fromChildId 不能为空');
+            if (id === fromMachineId) return jsonFail(res, '不能引用本台自己的档案');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '目标电视不存在', 404, 404);
+            if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持档案引用');
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            const source = machines[fromMachineId];
+            if (!source || machineKind(source) !== 'tv') return jsonFail(res, '来源电视不存在', 404, 404);
+            // 来源档案必须是主本（children[]），不能是引用（shared[]）。
+            const sourceChildren = source.parental && Array.isArray(source.parental.children) ? source.parental.children : [];
+            const child = sourceChildren.find((c) => c.id === fromChildId);
+            if (!child) return jsonFail(res, '来源档案不存在或不是主本档案', 404, 404);
+            const viewer = req.adminUser.name;
+            const sameAccount = Array.isArray(source.parents) && source.parents.includes(viewer);
+            const sharedTo = Array.isArray(child.sharedTo) ? child.sharedTo : [];
+            if (!sameAccount && !sharedTo.includes(viewer)) {
+                // 管理员可代管引用做排查；家长必须命中白名单或同账号。
+                if (req.adminUser.role !== 'admin') {
+                    return jsonFail(res, '该档案未分享给你（需档案所有者在主本上把你加入分享名单）', 403, 403);
+                }
+            }
+            const refs = machine.parental && Array.isArray(machine.parental.shared)
+                ? machine.parental.shared.slice() : [];
+            if (refs.some((r) => r.machineId === fromMachineId && r.childId === fromChildId)) {
+                return jsonFail(res, '已经引用过该档案');
+            }
+            if (refs.length >= parentalShare.MAX_SHARED_REFS) {
+                return jsonFail(res, `最多引用 ${parentalShare.MAX_SHARED_REFS} 个档案`);
+            }
+            refs.push({
+                refId: `${fromMachineId}:${fromChildId}`,
+                owner: (source.parents && source.parents[0]) || viewer,
+                machineId: fromMachineId,
+                childId: fromChildId,
+                createdAt: nowMs(),
+            });
+            if (!machine.parental) machine.parental = { mode: 'off', children: [], shared: [] };
+            machine.parental.shared = parentalShare.normalizeSharedRefs(refs);
+            machines[id] = normalizeMachine(id, machine);
+            saveMachines(machines);
+            const view = parentalShare.buildShareView(machines[id], machines, viewer);
+            console.log(`[share] ${viewer} 在 ${id} 引用 ${fromMachineId}/${fromChildId}`);
+            return jsonOk(res, { deviceId: id, view }, '已引用，主本改一次本台自动同步');
+        } catch (error) {
+            console.error('[share] 添加引用失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 取消一条引用：只删本台 shared[] 里的坐标，绝不触碰主本档案。 */
+    app.delete('/api/admin/parental/shared', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            const refId = String(body.refId || '').trim();
+            if (!id || !refId) return jsonFail(res, 'deviceId / refId 不能为空');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            const refs = machine.parental && Array.isArray(machine.parental.shared) ? machine.parental.shared : [];
+            const next = refs.filter((r) => r.refId !== refId);
+            if (next.length === refs.length) return jsonFail(res, '引用不存在', 404, 404);
+            machine.parental.shared = next;
+            machines[id] = normalizeMachine(id, machine);
+            saveMachines(machines);
+            const view = parentalShare.buildShareView(machines[id], machines, req.adminUser.name);
+            console.log(`[share] ${req.adminUser.name} 在 ${id} 取消引用 ${refId}`);
+            return jsonOk(res, { deviceId: id, view }, '已取消引用（不影响主本档案）');
+        } catch (error) {
+            console.error('[share] 取消引用失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 读取某台电视的完整共享视图（主本 / 已引用含 broken / 可引用候选）。 */
+    app.get('/api/admin/parental/shared-view', requireParentOperator, (req, res) => {
+        try {
+            const id = safeDeviceId(req.query.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const machines = readMachines();
+            const machine = machines[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            const view = parentalShare.buildShareView(machine, machines, req.adminUser.name);
+            return jsonOk(res, { deviceId: id, machineName: machine.name, ...view });
+        } catch (error) {
+            console.error('[share] 读取共享视图失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
     // ------------------------------------------------------------ 答题解锁题库
 
     /** 读取某台电视 / 某个儿童档案的题库（家长视图编辑前拉取）。 */
@@ -1704,8 +1887,18 @@ function attachAdmin(app, options = {}) {
             if (!machine) return jsonFail(res, '设备不存在', 404, 404);
             if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
             if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
-            const bank = (readQuizStore()[id] || {})[childId] || { updatedAt: 0, questions: [] };
-            return jsonOk(res, { deviceId: id, childId, updatedAt: bank.updatedAt, questions: bank.questions });
+            const lookup = quizLookup(machine, childId, req.adminUser.name);
+            if (!lookup.ok) return jsonFail(res, lookup.reason, 404, 404);
+            // 引用档案的题库读主本：落点重定向到来源电视 / 主本档案 id。
+            const bank = (readQuizStore()[lookup.deviceIdForLookup] || {})[lookup.childIdForLookup]
+                || { updatedAt: 0, questions: [] };
+            return jsonOk(res, {
+                deviceId: id, childId,
+                sourceDeviceId: lookup.deviceIdForLookup,
+                sourceChildId: lookup.childIdForLookup,
+                readOnly: lookup.readOnly,
+                updatedAt: bank.updatedAt, questions: bank.questions,
+            });
         } catch (error) {
             console.error('[quiz] 读取失败:', error);
             return jsonFail(res, error.message);
@@ -1724,8 +1917,12 @@ function attachAdmin(app, options = {}) {
             if (!machine) return jsonFail(res, '设备不存在', 404, 404);
             if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
             if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
-            if (machine.parental && !childExists(machine, childId)) {
-                return jsonFail(res, '儿童档案不存在');
+            const state = childWriteState(machine, childId, req.adminUser.name);
+            if (state.kind === 'missing') return jsonFail(res, '儿童档案不存在', 404, 404);
+            if (state.kind === 'broken') return jsonFail(res, '该档案的引用来源已失效，请在「档案共享」页重新选择');
+            if (state.kind === 'shared') {
+                const src = state.source ? (state.source.name || state.source.id) : '主本电视';
+                return jsonFail(res, `该档案由「${src}」维护，只读；请到主本电视修改题库`, 403, 403);
             }
             const questions = normalizeQuizQuestions(body.questions);
             const store = readQuizStore();
@@ -2416,4 +2613,5 @@ module.exports = {
     normalizeMachineAliases,
     normalizeParental,
     normalizeQuizQuestions,
+    parentalShare,
 };

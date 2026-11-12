@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_cards.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_sections.dart';
@@ -11,7 +12,7 @@ import 'package:pscreen_home/features/parental/presentation/parental_subpages.da
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_version.dart';
 
-/// Tab 三：我的（账号 / 我在电视上的名字 / 我的电视 / 解锁方式 / 连接与更新）。
+/// Tab 三：我的（账号 / 我在电视上的名字 / 我的电视 / 档案共享 / 解锁方式 / 连接与更新）。
 ///
 /// 原右上角「设置」弹层的内容已全部并入本页，右上角只留解锁铃铛 + 刷新。
 /// 只保留家长需要的设置，HA 网格、布局、IPTV、频道、场景上报等中控台设置
@@ -160,7 +161,11 @@ class ParentalMineView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        // ④ 解锁方式（ownerAccount 输入框已去除，保存时沿用原值）。
+        // ④ 档案共享：引用代替复制。主本留在原电视，引用方只读；
+        //    来源失效保留占位，不级联删。入口与 HTML 设计稿一致，从「我的」进入。
+        _buildShareCard(context, theme),
+        const SizedBox(height: 12),
+        // ⑤ 解锁方式（ownerAccount 输入框已去除，保存时沿用原值）。
         ParentalSettingsSection(
           // 配置变化（含换设备）时重建编辑态，回显最新解锁方式与 PIN。
           key: ValueKey<String>(
@@ -173,9 +178,39 @@ class ParentalMineView extends StatelessWidget {
           shrinkWrap: true,
         ),
         const SizedBox(height: 12),
-        // ⑤ 连接与更新（原设置弹窗的通道状态 + 版本更新搬来）。
+        // ⑥ 连接与更新（原设置弹窗的通道状态 + 版本更新搬来）。
         ParentalConnectionCard(channel: channel, version: version),
       ],
+    );
+  }
+
+  Widget _buildShareCard(BuildContext context, ThemeData theme) {
+    final ColorScheme scheme = theme.colorScheme;
+    final ParentalMachine? target =
+        selected ?? (machines.isEmpty ? null : machines.first);
+    final int importedCount = target?.shareView?.imported.length ?? 0;
+    final int brokenCount = target?.shareView?.imported
+            .where((ParentalShareImported item) => item.isBroken)
+            .length ??
+        0;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+        leading: Icon(Icons.family_restroom_outlined, color: scheme.primary),
+        title: const Text('档案共享'),
+        subtitle: Text(
+          target == null
+              ? '先绑定一台电视后，可跨电视 / 跨家长引用档案'
+              : brokenCount > 0
+                  ? '当前电视：$importedCount 份引用，其中 $brokenCount 份失效待重新选择'
+                  : '当前电视：$importedCount 份引用 · 主本在别处，本台只读',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: target == null
+            ? null
+            : () => actions.openShareManagement(target),
+      ),
     );
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/injection.dart';
-import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 遥控实时通道状态：连接状态、网关地址与最近错误。
@@ -48,10 +47,11 @@ class RealtimeStatusSection extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 2),
                 child: Text('最近错误：${channel.lastError}', style: hint),
               ),
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
-            ),
+            // 不用开放给用户看到，只有本地排查时再用
+            // Padding(
+            //   padding: const EdgeInsets.only(top: 2),
+            //   child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
+            // ),
           ],
         );
       },

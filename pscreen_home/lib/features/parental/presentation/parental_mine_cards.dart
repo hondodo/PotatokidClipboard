@@ -219,7 +219,7 @@ class _ParentalDisplayNameCardState extends State<ParentalDisplayNameCard> {
               controller: _controller,
               decoration: const InputDecoration(
                 labelText: '显示名',
-                hintText: '例如：小米10s家长端',
+                hintText: '例如：爸爸、妈妈',
                 helperText: '仅用于展示，不影响账号与连接',
                 border: OutlineInputBorder(),
                 isDense: true,

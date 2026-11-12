@@ -90,7 +90,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         final Widget app;
         if (update.forceBlocked) {
           app = MaterialApp(
-            title: parentOnly ? '薯仔家长' : '薯仔的中控台',
+            title: parentOnly ? '薯仔电视家长端' : '薯仔的中控台',
             debugShowCheckedModeBanner: false,
             themeMode: parentOnly ? ThemeMode.light : ThemeMode.dark,
             theme: _buildTheme(Brightness.light),
@@ -103,7 +103,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           final ScreensaverController screensaver = Injection.get<ScreensaverController>();
           final LiveStageController liveStage = Injection.get<LiveStageController>();
           app = MaterialApp.router(
-            title: parentOnly ? '薯仔家长' : '薯仔的中控台',
+            title: parentOnly ? '薯仔电视家长端' : '薯仔的中控台',
             debugShowCheckedModeBanner: false,
             themeMode: parentOnly ? ThemeMode.light : ThemeMode.dark,
             theme: _buildTheme(Brightness.light),
@@ -124,10 +124,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                     router: appRouter,
                     controller: screensaver,
                     live: liveStage,
-                    child: LiveStageHost(
-                      controller: liveStage,
-                      child: child ?? const SizedBox.shrink(),
-                    ),
+                    child: LiveStageHost(controller: liveStage, child: child ?? const SizedBox.shrink()),
                   ),
                 ),
               ),
@@ -136,9 +133,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         }
         // 家长端显式声明浅色系统栏，覆盖 Android 默认黑底状态栏；
         // 中控/手机端保持系统默认行为，不受影响。
-        return parentOnly
-            ? AnnotatedRegion<SystemUiOverlayStyle>(value: App.parentSystemUi, child: app)
-            : app;
+        return parentOnly ? AnnotatedRegion<SystemUiOverlayStyle>(value: App.parentSystemUi, child: app) : app;
       },
     );
   }
@@ -155,9 +150,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     final Color surfaceBg = parentOnly
         ? const Color(0xFFF7F9F8)
         : (dark ? const Color(0xFF0E1116) : const Color(0xFFF5F7FA));
-    final Color appBarBg = parentOnly && !dark
-        ? Colors.white
-        : surfaceBg;
+    final Color appBarBg = parentOnly && !dark ? Colors.white : surfaceBg;
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -167,11 +160,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         surfaceTintColor: appBarBg,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: scheme.onSurface,
-        ),
+        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
         // AppBar 顶部也声明一次浅色系统栏，确保 Tab 页切换时状态栏不被
         // Material 默认样式回写为黑底（AnnotatedRegion 就近优先级更高）。
         systemOverlayStyle: parentOnly && !dark ? App.parentSystemUi : null,
@@ -181,9 +170,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         surfaceTintColor: parentOnly && !dark ? Colors.white : null,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: parentOnly && !dark
-              ? const BorderSide(color: Color(0xFFE6ECE9))
-              : BorderSide.none,
+          side: parentOnly && !dark ? const BorderSide(color: Color(0xFFE6ECE9)) : BorderSide.none,
         ),
       ),
     );

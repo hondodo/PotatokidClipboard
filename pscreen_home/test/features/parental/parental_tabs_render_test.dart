@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 ParentalActions _stubActions() => ParentalActions(
       reload: () async {},
@@ -20,6 +23,11 @@ ParentalActions _stubActions() => ParentalActions(
       unbind: (_) {},
       selectDevice: (_) {},
       renameMachine: (_) {},
+      openShareManagement: (_) {},
+      loadShareView: (_) async => ParentalShareView.empty,
+      setSharedTo: (_, _, _) async => ParentalShareView.empty,
+      addSharedRef: (_, _) async => ParentalShareView.empty,
+      cancelSharedRef: (_, _) async => ParentalShareView.empty,
     );
 
 final ParentalConfig _config = ParentalConfig(
@@ -86,6 +94,11 @@ void main() {
       unbind: (_) {},
       selectDevice: (_) {},
       renameMachine: (_) {},
+      openShareManagement: (_) {},
+      loadShareView: (_) async => ParentalShareView.empty,
+      setSharedTo: (_, _, _) async => ParentalShareView.empty,
+      addSharedRef: (_, _) async => ParentalShareView.empty,
+      cancelSharedRef: (_, _) async => ParentalShareView.empty,
     );
     // children 为空 = 没有任何孩子档案。
     final ParentalConfig noChildren = ParentalConfig(
@@ -134,9 +147,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // 五组结构：账号（家长号+通道号两行）/ 我在电视上的名字 / 我的电视 / 解锁方式 / 连接与更新。
+    // 六组结构：账号 / 我在电视上的名字 / 我的电视 / 档案共享 / 解锁方式 / 连接与更新。
+    // 技术通道号不在「我的」页露出，统一收进「家长号与跨设备」说明页。
     expect(find.text('家长号（跨设备身份）'), findsOneWidget);
-    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsOneWidget);
+    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsNothing);
     expect(find.text('我在电视上的名字'), findsOneWidget);
     expect(find.text('我的电视'), findsOneWidget);
     expect(find.text('解锁方式'), findsOneWidget);
@@ -148,5 +162,121 @@ void main() {
     expect(find.textContaining('ownerAccount'), findsNothing);
     expect(find.textContaining('投递目标'), findsNothing);
     expect(find.text('重新检查权限'), findsNothing);
+  });
+
+  testWidgets('我的页：档案共享入口常驻，失效引用数量直接可见',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 2600);
+    tester.view.devicePixelRatio = 1;
+    final ParentalMachine machine = _machine.copyWith(
+      shareView: ParentalShareView(
+        imported: <ParentalShareImported>[
+          const ParentalShareImported(
+            refId: 'bed:c11',
+            id: 'c11',
+            name: '逗逗',
+            status: 'ok',
+            source: ParentalShareSource(
+              machineId: 'bed',
+              machineName: '卧室电视',
+              owner: 'mama88',
+              childId: 'c11',
+            ),
+          ),
+          const ParentalShareImported(
+            refId: 'bed:c10',
+            id: 'c10',
+            name: '原小宝',
+            status: 'broken',
+            reason: 'child-missing',
+          ),
+        ],
+      ),
+    );
+    int opened = 0;
+    final ParentalActions actions = ParentalActions(
+      reload: () async {},
+      saveConfig: (_) async {},
+      unlock: (_) async {},
+      openDeviceManager: () async {},
+      push: (_) async {},
+      sendRemoteCommand: (_) async {},
+      refreshPermission: () async {},
+      toggleChildLock: (_) {},
+      addChildExtra: (_) {},
+      editChild: (_) {},
+      unbind: (_) {},
+      selectDevice: (_) {},
+      renameMachine: (_) {},
+      openShareManagement: (_) => opened++,
+      loadShareView: (_) async => ParentalShareView.empty,
+      setSharedTo: (_, _, _) async => ParentalShareView.empty,
+      addSharedRef: (_, _) async => ParentalShareView.empty,
+      cancelSharedRef: (_, _) async => ParentalShareView.empty,
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ParentalMineView(
+          machines: <ParentalMachine>[machine],
+          selected: machine,
+          config: _config,
+          myAccount: 'owner1',
+          actions: actions,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('档案共享'), findsOneWidget);
+    expect(find.textContaining('2 份引用，其中 1 份失效'), findsOneWidget);
+    await tester.tap(find.text('档案共享'));
+    await tester.pumpAndSettle();
+    expect(opened, 1);
+  });
+
+  testWidgets('今天页：引用档案只读，不显示暂停/加时/改规则入口',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 2600);
+    tester.view.devicePixelRatio = 1;
+    final ParentalConfig display = ParentalConfig(
+      mode: 'on',
+      children: <ParentalChild>[
+        const ParentalChild(
+          id: 'c11',
+          name: '逗逗',
+          dailyLimitMin: 30,
+          readOnly: true,
+          sourceLabel: 'mama88 · 卧室电视',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ParentalTodayView(
+          machines: <ParentalMachine>[_machine],
+          selected: _machine,
+          config: display,
+          watchEvents: const <RealtimeEvent>[],
+          activeEvents: const <RealtimeEvent>[],
+          unlockEvents: const <RealtimeEvent>[],
+          unlockAckEvents: const <RealtimeEvent>[],
+          sessions: const <ParentalSession>[],
+          myAccount: 'owner1',
+          isAdmin: false,
+          actions: _stubActions(),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('逗逗'), findsWidgets);
+    expect(find.text('引用 · 只读'), findsOneWidget);
+    expect(find.textContaining('来自 mama88 · 卧室电视'), findsOneWidget);
+    expect(find.textContaining('这份档案由主本维护'), findsOneWidget);
+    expect(find.text('暂停'), findsNothing);
+    expect(find.text('加时 15 分钟'), findsNothing);
+    expect(find.text('改规则 ›'), findsNothing);
   });
 }

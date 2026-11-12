@@ -82,10 +82,7 @@ class ParentalTodayView extends StatelessWidget {
       }
       if (event.ts < latestTs) continue;
       latestTs = event.ts;
-      freshIds = raw
-          .map((dynamic item) => '$item')
-          .where((String item) => item.isNotEmpty)
-          .toList(growable: false);
+      freshIds = raw.map((dynamic item) => '$item').where((String item) => item.isNotEmpty).toList(growable: false);
     }
     // 从未收到任何 childIds 上报：冷启动兜底，回落配置预选。
     // 一旦收到过上报（含空列表 / 过期），即以实时为准——空 = 无人在看。
@@ -106,9 +103,8 @@ class ParentalTodayView extends StatelessWidget {
     for (final RealtimeEvent event in unlockEvents) {
       final String code = '${event.data['code'] ?? ''}'.trim();
       if (code.isNotEmpty && acked.contains('${event.from.trim()}|$code')) continue;
-      final bool expired = event.ts <= 0 ||
-          now.difference(DateTime.fromMillisecondsSinceEpoch(event.ts)) >
-              const Duration(seconds: 60);
+      final bool expired =
+          event.ts <= 0 || now.difference(DateTime.fromMillisecondsSinceEpoch(event.ts)) > const Duration(seconds: 60);
       if (!expired) count++;
     }
     return count;
@@ -150,10 +146,7 @@ class ParentalTodayView extends StatelessWidget {
               const SizedBox(height: 12),
               Text('还没有绑定电视', style: theme.textTheme.titleSmall),
               const SizedBox(height: 4),
-              Text(
-                '到下方「我的」页扫码添加电视',
-                style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-              ),
+              Text('到下方「我的」页扫码添加电视', style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline)),
             ],
           ),
         ),
@@ -177,10 +170,7 @@ class ParentalTodayView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      '家庭视图',
-                      style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-                    ),
+                    Text('家庭视图', style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline)),
                     Text(
                       '全部电视 · $onlineCount/${machines.length} 台在线',
                       style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
@@ -193,17 +183,14 @@ class ParentalTodayView extends StatelessWidget {
                 onPressed: () => unawaited(actions.openDeviceManager()),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(Icons.tv_outlined, size: 16),
-                    SizedBox(width: 4),
-                    Text('管理'),
-                  ],
+                  children: <Widget>[Icon(Icons.tv_outlined, size: 16), SizedBox(width: 4), Text('管理')],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          const Text('今天', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+          // const SizedBox(height: 14),
+          // // 跟apptitle重复了
+          // const Text('今天', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
           // 待处理解锁请求
           if (pending > 0)
@@ -214,22 +201,24 @@ class ParentalTodayView extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
                 child: Row(
                   children: <Widget>[
-                    Expanded(
-                      child: Text('$pending 条解锁请求待处理', style: theme.textTheme.bodyMedium),
-                    ),
+                    Expanded(child: Text('$pending 条解锁请求待处理', style: theme.textTheme.bodyMedium)),
                     FilledButton(
                       style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                      onPressed: () => unawaited(actions.push(ParentalUnlockPage(
-                        events: unlockEvents,
-                        onUnlock: actions.unlock,
-                        machine: selected,
-                        acks: unlockAckEvents,
-                        isAdmin: isAdmin,
-                        myAccount: myAccount,
-                        onManageDevices: AccountSession.isParent
-                            ? () => unawaited(actions.openDeviceManager())
-                            : null,
-                      ))),
+                      onPressed: () => unawaited(
+                        actions.push(
+                          ParentalUnlockPage(
+                            events: unlockEvents,
+                            onUnlock: actions.unlock,
+                            machine: selected,
+                            acks: unlockAckEvents,
+                            isAdmin: isAdmin,
+                            myAccount: myAccount,
+                            onManageDevices: AccountSession.isParent
+                                ? () => unawaited(actions.openDeviceManager())
+                                : null,
+                          ),
+                        ),
+                      ),
                       child: const Text('去处理'),
                     ),
                   ],
@@ -240,10 +229,7 @@ class ParentalTodayView extends StatelessWidget {
             Card(
               margin: EdgeInsets.zero,
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('暂时没有待处理的解锁请求。'),
-              ),
+              child: const Padding(padding: EdgeInsets.all(12), child: Text('暂时没有待处理的解锁请求。')),
             ),
           const SizedBox(height: 12),
           // 孩子状态卡
@@ -255,10 +241,7 @@ class ParentalTodayView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      '尚未添加儿童档案，点下方「规则」标签添加孩子并设置限额。',
-                      style: theme.textTheme.bodyMedium,
-                    ),
+                    Text('尚未添加儿童档案，点下方「规则」标签添加孩子并设置限额。', style: theme.textTheme.bodyMedium),
                     const SizedBox(height: 8),
                     Text(
                       '想先遥控电视？到下方「我的」页，每台电视右侧都有遥控按钮。',
@@ -281,20 +264,21 @@ class ParentalTodayView extends StatelessWidget {
           // 今日记录（已按孩子合并，跨设备）
           Row(
             children: <Widget>[
-              Text(
-                '今日记录 · 已按孩子合并',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-              ),
+              Text('今日记录 · 已按孩子合并', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
               const Spacer(),
               if (sessions.isNotEmpty)
                 TextButton(
-                  onPressed: () => unawaited(actions.push(ParentalWatchPage(
-                    config: config,
-                    machine: selected,
-                    watchEvents: watchEvents,
-                    activeEvents: activeEvents,
-                    sessions: sessions,
-                  ))),
+                  onPressed: () => unawaited(
+                    actions.push(
+                      ParentalWatchPage(
+                        config: config,
+                        machine: selected,
+                        watchEvents: watchEvents,
+                        activeEvents: activeEvents,
+                        sessions: sessions,
+                      ),
+                    ),
+                  ),
                   child: const Text('查看全部 ›'),
                 ),
             ],
@@ -309,11 +293,7 @@ class ParentalTodayView extends StatelessWidget {
 
 /// 今日记录（跨设备会话），纯展示。
 class _TodaySessionsCard extends StatelessWidget {
-  const _TodaySessionsCard({
-    required this.sessions,
-    required this.scheme,
-    required this.theme,
-  });
+  const _TodaySessionsCard({required this.sessions, required this.scheme, required this.theme});
 
   final List<ParentalSession> sessions;
   final ColorScheme scheme;
@@ -326,10 +306,7 @@ class _TodaySessionsCard extends StatelessWidget {
         margin: EdgeInsets.zero,
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text(
-            '今日还没有观看会话记录。',
-            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
-          ),
+          child: Text('今日还没有观看会话记录。', style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline)),
         ),
       );
     }
@@ -404,28 +381,35 @@ class ChildStatusCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        child.name,
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                      ),
+                      Text(child.name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 2),
                       Row(
                         children: <Widget>[
                           Chip(
                             visualDensity: VisualDensity.compact,
                             label: Text(child.locked ? '已暂停' : (watching ? '正在看' : '空闲')),
-                            backgroundColor: (watching && !child.locked
-                                    ? scheme.primaryContainer
-                                    : scheme.surfaceContainerHighest)
-                                .withValues(alpha: 0.6),
+                            backgroundColor:
+                                (watching && !child.locked ? scheme.primaryContainer : scheme.surfaceContainerHighest)
+                                    .withValues(alpha: 0.6),
                           ),
                           if (child.locked)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 6),
-                              child: Icon(Icons.lock, size: 15),
+                            const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.lock, size: 15)),
+                          if (child.readOnly)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Chip(
+                                visualDensity: VisualDensity.compact,
+                                label: const Text('引用 · 只读'),
+                                backgroundColor: scheme.secondaryContainer.withValues(alpha: 0.6),
+                              ),
                             ),
                         ],
                       ),
+                      if (child.readOnly && child.sourceLabel != null)
+                        Text(
+                          '来自 ${child.sourceLabel}',
+                          style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+                        ),
                     ],
                   ),
                 ),
@@ -434,10 +418,7 @@ class ChildStatusCard extends StatelessWidget {
             ),
             // 第二行：今日已看 / 限额 + 线性进度条。
             const SizedBox(height: 10),
-            Text(
-              '今日已看 $usedMin / ${limitMin == 0 ? '不限' : '$limitMin 分钟'}',
-              style: theme.textTheme.bodyMedium,
-            ),
+            Text('今日已看 $usedMin / ${limitMin == 0 ? '不限' : '$limitMin 分钟'}', style: theme.textTheme.bodyMedium),
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -449,29 +430,36 @@ class ChildStatusCard extends StatelessWidget {
               ),
             ),
             // 底部：孩子级快捷动作（暂停/加时/改规则，对齐设计稿的 3 按钮）。
+            // 引用档案在主本维护，本台只读：隐藏全部写入口，只给可操作指引。
             // 遥控是设备级操作，统一放在「我的」页每台电视行，不依赖孩子档案。
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                FilledButton.tonal(
-                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                  onPressed: () => actions.toggleChildLock(child),
-                  child: Text(child.locked ? '恢复观看' : '暂停'),
-                ),
-                FilledButton.tonal(
-                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                  onPressed: () => actions.addChildExtra(child),
-                  child: const Text('加时 15 分钟'),
-                ),
-                FilledButton.tonal(
-                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                  onPressed: () => actions.editChild(child),
-                  child: const Text('改规则 ›'),
-                ),
-              ],
-            ),
+            if (child.readOnly)
+              Text(
+                '这份档案由主本维护；暂停、加时、改规则请到 ${child.sourceLabel ?? '主本电视'} 操作。',
+                style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                    onPressed: () => actions.toggleChildLock(child),
+                    child: Text(child.locked ? '恢复观看' : '暂停'),
+                  ),
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                    onPressed: () => actions.addChildExtra(child),
+                    child: const Text('加时 15 分钟'),
+                  ),
+                  FilledButton.tonal(
+                    style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                    onPressed: () => actions.editChild(child),
+                    child: const Text('改规则 ›'),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -495,18 +483,8 @@ class MinutesRing extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: <Widget>[
-          CircularProgressIndicator(
-            value: pct,
-            strokeWidth: 6,
-            backgroundColor: scheme.surfaceContainerHighest,
-          ),
-          Text(
-            label,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
+          CircularProgressIndicator(value: pct, strokeWidth: 6, backgroundColor: scheme.surfaceContainerHighest),
+          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600)),
         ],
       ),
     );

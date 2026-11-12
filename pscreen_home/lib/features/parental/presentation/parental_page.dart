@@ -8,11 +8,13 @@ import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/child_profile_editor.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_device_manager_sheet.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_share_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
 import 'package:pscreen_home/features/update/presentation/update_pill.dart';
@@ -62,11 +64,14 @@ class _ParentalPageState extends State<ParentalPage> {
   List<RealtimeEvent> _watchEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _activeEvents = const <RealtimeEvent>[];
   List<RealtimeEvent> _unlockEvents = const <RealtimeEvent>[];
+
   /// 解锁回执（谁解锁 / 结果码），与请求按短码关联展示。
   List<RealtimeEvent> _unlockAckEvents = const <RealtimeEvent>[];
   List<ParentalSession> _sessions = const <ParentalSession>[];
+
   /// 家长号（管理登录身份，随 claim 变化）。
   String _myAccount = '';
+
   /// 本机实时通道派生号（设备身份，只读，永不改名/禁用）。
   String _channelAccount = '';
   bool _loading = false;
@@ -173,11 +178,34 @@ class _ParentalPageState extends State<ParentalPage> {
   /// 否则传空，由卡片渲染「未设置（使用设备号）」。
   /// 注意 [_myAccount] 本身仍供绑定校验 / 解锁扇出 / 账号不一致横幅使用，不变。
   String get _parentNoForDisplay =>
-      (_myAccount.isNotEmpty &&
-              _channelAccount.isNotEmpty &&
-              _myAccount != _channelAccount)
-          ? _myAccount
-          : '';
+      (_myAccount.isNotEmpty && _channelAccount.isNotEmpty && _myAccount != _channelAccount) ? _myAccount : '';
+
+  /// 「今天 / 观看记录」用的展示配置：在本台主本后面补上已引用的档案。
+  ///
+  /// 引用档案带 `readOnly=true`，ChildStatusCard 会隐藏暂停 / 加时 / 改规则；
+  /// `ParentalConfig.toJson()` 也会过滤掉它们，绝不把引用副本写成本台主本。
+  ParentalConfig get _displayConfig {
+    final ParentalShareView? view = _selected?.shareView;
+    if (view == null || view.imported.isEmpty) return _config;
+    final Set<String> masterIds =
+        _config.children.map((ParentalChild child) => child.id).toSet();
+    final List<ParentalChild> extras = <ParentalChild>[];
+    for (final ParentalShareImported item in view.imported) {
+      if (item.isBroken || item.id.isEmpty || masterIds.contains(item.id)) continue;
+      extras.add(ParentalChild(
+        id: item.id,
+        name: item.name,
+        profileMode: item.profileMode,
+        dailyLimitMin: item.dailyLimitMin,
+        sessionLimitMin: item.sessionLimitMin,
+        locked: item.locked,
+        readOnly: true,
+        sourceLabel: item.sourceLabel,
+      ));
+    }
+    if (extras.isEmpty) return _config;
+    return _config.copyWith(children: <ParentalChild>[..._config.children, ...extras]);
+  }
 
   /// 空态「刷新」：重新登录一次刷新角色；成功后由 roleNotifier 切到正常页面。
   Future<void> _refreshPermission() async {
@@ -333,8 +361,7 @@ class _ParentalPageState extends State<ParentalPage> {
         _hint('保存未生效：服务端返回的解锁方式仍是「${saved.unlockMode}」，请重试', error: true);
         return;
       }
-      final String? warning =
-          next.unlockMode == 'quiz' ? await _quizEmptyWarning(machine, next) : null;
+      final String? warning = next.unlockMode == 'quiz' ? await _quizEmptyWarning(machine, next) : null;
       if (!mounted) return;
       _hint(warning ?? '已保存', error: warning != null);
     } catch (error) {
@@ -393,12 +420,7 @@ class _ParentalPageState extends State<ParentalPage> {
     if (!ok) {
       final ParentalMachine? machine = _selected;
       final bool bound = machine == null || machine.parents.contains(_myAccount);
-      _hint(
-        bound
-            ? '发送失败：服务端未受理（电视可能已离线，请确认电视开机联网）'
-            : '发送失败：当前账号未绑定该电视，服务端按「无权限」拒绝（请先补绑）',
-        error: true,
-      );
+      _hint(bound ? '发送失败：服务端未受理（电视可能已离线，请确认电视开机联网）' : '发送失败：当前账号未绑定该电视，服务端按「无权限」拒绝（请先补绑）', error: true);
       return;
     }
     _hint('已发送解锁命令（短码有效性由电视端校验）');
@@ -447,10 +469,7 @@ class _ParentalPageState extends State<ParentalPage> {
   /// 避免 DropdownButton 因实例不一致找不到匹配项。
   void _applyAlias(String deviceId, String alias) {
     final List<ParentalMachine> next = _machines
-        .map(
-          (ParentalMachine machine) =>
-              machine.id == deviceId ? machine.copyWith(alias: alias) : machine,
-        )
+        .map((ParentalMachine machine) => machine.id == deviceId ? machine.copyWith(alias: alias) : machine)
         .toList(growable: false);
     ParentalMachine? selected;
     for (final ParentalMachine machine in next) {
@@ -465,21 +484,106 @@ class _ParentalPageState extends State<ParentalPage> {
     });
   }
 
+  /// 共享视图原地替换：机器列表、当前选中项、配置里的 shared[] 一起校正。
+  ///
+  /// 不重拉整页，避免正在编辑的表单被刷新；同时把 reference 坐标同步进
+  /// [_config]，后续在规则页保存档案也不会把已引用列表清空。
+  void _applyShareView(String deviceId, ParentalShareView view) {
+    final List<ParentalMachine> next = _machines
+        .map((ParentalMachine machine) =>
+            machine.id == deviceId ? machine.copyWith(shareView: view) : machine)
+        .toList(growable: false);
+    ParentalMachine? selected;
+    for (final ParentalMachine machine in next) {
+      if (machine.id == _selected?.id) {
+        selected = machine;
+        break;
+      }
+    }
+    final List<ParentalSharedRef> refs = view.imported
+        .map(
+          (ParentalShareImported item) => ParentalSharedRef(
+            refId: item.refId,
+            owner: item.source?.owner ?? '',
+            machineId: item.source?.machineId ?? '',
+            childId: item.source?.childId ?? item.id,
+          ),
+        )
+        .toList(growable: false);
+    setState(() {
+      _machines = next;
+      _selected = selected ?? _selected;
+      if (deviceId == _selected?.id) _config = _config.copyWith(shared: refs);
+    });
+  }
+
+  Future<ParentalShareView> _loadShareView(ParentalMachine machine) =>
+      _api.fetchShareView(machine.id);
+
+  Future<ParentalShareView> _setChildSharedTo(
+    ParentalMachine machine,
+    ParentalShareMaster child,
+    List<String> sharedTo,
+  ) async {
+    final ParentalShareView view =
+        await _api.setChildSharedTo(machine.id, child.id, sharedTo);
+    if (!mounted) return view;
+    _applyShareView(machine.id, view);
+    // share-to 接口直接改 children[].sharedTo；同步展示态，避免规则页回显旧值。
+    final List<ParentalChild> children = _config.children
+        .map(
+          (ParentalChild item) =>
+              item.id == child.id ? item.copyWith(sharedTo: sharedTo) : item,
+        )
+        .toList(growable: false);
+    // ignore: use_build_context_synchronously
+    if (mounted) setState(() => _config = _config.copyWith(children: children));
+    return view;
+  }
+
+  Future<ParentalShareView> _addSharedRef(
+    ParentalMachine machine,
+    ParentalShareCandidate candidate,
+  ) async {
+    final ParentalShareView view = await _api.addSharedRef(
+      machine.id,
+      fromMachineId: candidate.machineId,
+      fromChildId: candidate.childId,
+    );
+    if (mounted) _applyShareView(machine.id, view);
+    return view;
+  }
+
+  Future<ParentalShareView> _cancelSharedRef(
+    ParentalMachine machine,
+    ParentalShareImported item,
+  ) async {
+    final ParentalShareView view =
+        await _api.cancelSharedRef(machine.id, item.refId);
+    if (mounted) _applyShareView(machine.id, view);
+    return view;
+  }
+
+  /// 从「我的」页进入档案共享；返回后补拉一次配置，防止后台改动不同步。
+  Future<void> _openShareManagement(ParentalMachine machine) async {
+    await _push(ParentalSharePage(
+      machine: machine,
+      machines: _machines,
+      initialView: machine.shareView,
+      actions: _actions,
+    ));
+    if (mounted) unawaited(_loadConfig());
+  }
+
   /// 重命名某台电视（与设备管理弹层同一套校验与提示）。
   ///
   /// 去掉顶部下拉后由「我的」页设备列表调用，可重命名任意一台，不限于当前目标。
   Future<void> _renameMachine(ParentalMachine machine) async {
-    final String? alias = await showParentalAliasDialog(
-      context,
-      current: machine.alias,
-    );
+    final String? alias = await showParentalAliasDialog(context, current: machine.alias);
     if (!mounted || alias == null || alias == machine.alias.trim()) return;
     final String? error = await _renameDevice(machine.id, alias);
     if (!mounted) return;
-    _hint(
-      error ?? (alias.isEmpty ? '已清除别名' : '已重命名为「$alias」（仅自己可见）'),
-      error: error != null,
-    );
+    _hint(error ?? (alias.isEmpty ? '已清除别名' : '已重命名为「$alias」（仅自己可见）'), error: error != null);
   }
 
   Future<String?> _bindDevice(String deviceId, {required bool bind}) async {
@@ -566,38 +670,61 @@ class _ParentalPageState extends State<ParentalPage> {
     }
   }
 
+  /// 进「家长号与跨设备」页；返回后无条件重读账号 + 重载设备清单。
+  ///
+  /// 该页经 GoRouter 跳转（不走 [_push]），里面会创建 / 跨设备登录 / 改家长号
+  /// 口令，都会改 `DeviceCredentials.account()` 与本地会话。若返回后不刷新，
+  /// 「我的」页仍显示旧家长号与旧绑定（真机表现为登录后仍「未设置 / 0 台」，
+  /// 必须手动点刷新才生效）。这里在 pop 回来后立即重读两层身份并整表重载：
+  /// `_reload()` 内部会用新账号 `ensureAdminSession` 重建会话、按新家长号过滤电视。
+  Future<void> _openIdentityAndRefresh() async {
+    await context.push(RouteNames.claimAccountPath);
+    if (!mounted) return;
+    await _loadMyAccount();
+    if (AccountSession.isParentOrAdmin) {
+      await _reload();
+    } else {
+      // 未取得家长权限（例如刚切到未绑定任何电视的号）：至少刷新账号展示。
+      setState(() {});
+    }
+  }
+
   /// 三个 Tab 视图需要的副作用回调集合（数据加载 / 保存 / 解锁 / 导航等）。
   ParentalActions get _actions => ParentalActions(
-        reload: () => _reload(),
-        saveConfig: _saveConfig,
-        unlock: _sendUnlock,
-        openDeviceManager: () => _openDeviceManager(),
-        push: _push,
-        sendRemoteCommand: (String command) =>
-            _sendRemoteCommand(_selected?.commAccount ?? '', command),
-        refreshPermission: () => _refreshPermission(),
-        toggleChildLock: (ParentalChild child) {
-          unawaited(_toggleChildLock(child));
-        },
-        addChildExtra: (ParentalChild child) {
-          unawaited(_addChildExtra(child));
-        },
-        editChild: (ParentalChild child) {
-          unawaited(_editChild(child));
-        },
-        unbind: (String deviceId) {
-          unawaited(_bindDevice(deviceId, bind: false));
-        },
-        selectDevice: (ParentalMachine machine) {
-          if (_selected?.id == machine.id) return;
-          setState(() {
-            _selected = machine;
-            _config = ParentalConfig.empty;
-          });
-          unawaited(_loadConfig());
-        },
-        renameMachine: (ParentalMachine machine) => unawaited(_renameMachine(machine)),
-      );
+    reload: () => _reload(),
+    saveConfig: _saveConfig,
+    unlock: _sendUnlock,
+    openDeviceManager: () => _openDeviceManager(),
+    push: _push,
+    sendRemoteCommand: (String command) => _sendRemoteCommand(_selected?.commAccount ?? '', command),
+    refreshPermission: () => _refreshPermission(),
+    toggleChildLock: (ParentalChild child) {
+      unawaited(_toggleChildLock(child));
+    },
+    addChildExtra: (ParentalChild child) {
+      unawaited(_addChildExtra(child));
+    },
+    editChild: (ParentalChild child) {
+      unawaited(_editChild(child));
+    },
+    unbind: (String deviceId) {
+      unawaited(_bindDevice(deviceId, bind: false));
+    },
+    selectDevice: (ParentalMachine machine) {
+      if (_selected?.id == machine.id) return;
+      setState(() {
+        _selected = machine;
+        _config = ParentalConfig.empty;
+      });
+      unawaited(_loadConfig());
+    },
+    renameMachine: (ParentalMachine machine) => unawaited(_renameMachine(machine)),
+    openShareManagement: (ParentalMachine machine) => unawaited(_openShareManagement(machine)),
+    loadShareView: _loadShareView,
+    setSharedTo: _setChildSharedTo,
+    addSharedRef: _addSharedRef,
+    cancelSharedRef: _cancelSharedRef,
+  );
 
   Future<void> _toggleChildLock(ParentalChild child) async {
     final List<ParentalChild> next = _config.children
@@ -619,11 +746,7 @@ class _ParentalPageState extends State<ParentalPage> {
   Future<void> _editChild(ParentalChild child) async {
     final ParentalMachine? machine = _selected;
     if (machine == null) return;
-    final ParentalChild? next = await ChildProfileEditorSheet.show(
-      context,
-      initial: child,
-      deviceId: machine.id,
-    );
+    final ParentalChild? next = await ChildProfileEditorSheet.show(context, initial: child, deviceId: machine.id);
     if (next == null || !mounted) return;
     final List<ParentalChild> updated = _config.children
         .map((ParentalChild c) => c.id == child.id ? next : c)
@@ -655,11 +778,7 @@ class _ParentalPageState extends State<ParentalPage> {
                 onPressed: () => unawaited(_refreshPermission()),
               ),
             // 与中控右上角齿轮同一目标，未登录家长角色也能进设置页。
-            IconButton(
-              tooltip: '设置',
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: _openAppSettings,
-            ),
+            IconButton(tooltip: '设置', icon: const Icon(Icons.settings_outlined), onPressed: _openAppSettings),
           ],
         ),
         body: Center(
@@ -679,20 +798,14 @@ class _ParentalPageState extends State<ParentalPage> {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  '当前角色：$roleText',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
+                Text('当前角色：$roleText', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
                 const SizedBox(height: 12),
                 Text(
                   role.isEmpty
                       ? '角色尚未校验成功（登录失败或服务端不可达），点右上角刷新重新检测。'
                       : '该账号在服务端只有 user 角色；可在管理后台「用户与家庭」把角色改为「家长」后，点右上角刷新重新检测。',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
                 ),
               ],
             ),
@@ -711,11 +824,7 @@ class _ParentalPageState extends State<ParentalPage> {
       canPop: !locked,
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop || !locked) return;
-        _hint(
-          AppFlavorConfig.isParentOnly
-              ? '家长视图已锁定'
-              : '家长视图已锁定，无法返回中控台',
-        );
+        _hint(AppFlavorConfig.isParentOnly ? '家长视图已锁定' : '家长视图已锁定，无法返回中控台');
       },
       child: DefaultTabController(
         length: _tabs.length,
@@ -732,44 +841,52 @@ class _ParentalPageState extends State<ParentalPage> {
                   builder: (BuildContext context, Widget? _) {
                     final int index = controller.index;
                     return AppBar(
-                    automaticallyImplyLeading: !locked,
-                    title: _buildTitle(index),
-                    actions: <Widget>[
-                      // 可用更新胶囊：有更新（下载中/已就绪）时显示，无更新自动隐藏。
-                      const AppUpdatePill(compact: true, margin: EdgeInsets.only(right: 8)),
-                      // 今天页：解锁请求入口（原型右上角的 ◎）。
-                      if (index == 0)
-                        IconButton(
-                          tooltip: '解锁请求',
-                          icon: const Icon(Icons.notifications_none_outlined),
-                          onPressed: () => unawaited(_push(ParentalUnlockPage(
-                            events: _unlockEvents,
-                            onUnlock: _actions.unlock,
-                            machine: _selected,
-                            acks: _unlockAckEvents,
-                            isAdmin: AccountSession.isAdmin,
-                            myAccount: _myAccount,
-                            onManageDevices: AccountSession.isParent
-                                ? () => unawaited(_openDeviceManager())
-                                : null,
-                          ))),
-                        ),
-                      if (_loading)
-                        const Padding(
-                          padding: EdgeInsets.all(14),
-                          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                        )
-                      else
-                        IconButton(tooltip: '刷新', icon: const Icon(Icons.refresh), onPressed: () => unawaited(_reload())),
-                      // 右上角设置齿轮已移除：改登录名 / 家长端名称 / 通道状态 /
-                      // 版本更新全部并入「我的」页（对齐交互原型）。
-                      // admin 复用家长视图后的返回口（parent 的默认首页就是本页）。
-                      // parent 变体没有中控台，即使 admin 登录也不提供该入口。
-                      if (AccountSession.isAdmin && !AppFlavorConfig.isParentOnly)
-                        TextButton(onPressed: () => context.go(RouteNames.home), child: const Text('中控台')),
-                    ],
-                  );
-                },
+                      automaticallyImplyLeading: !locked,
+                      title: _buildTitle(index),
+                      actions: <Widget>[
+                        // 可用更新胶囊：有更新（下载中/已就绪）时显示，无更新自动隐藏。
+                        const AppUpdatePill(compact: true, margin: EdgeInsets.only(right: 8)),
+                        // 今天页：解锁请求入口（原型右上角的 ◎）。
+                        if (index == 0)
+                          IconButton(
+                            tooltip: '解锁请求',
+                            icon: const Icon(Icons.notifications_none_outlined),
+                            onPressed: () => unawaited(
+                              _push(
+                                ParentalUnlockPage(
+                                  events: _unlockEvents,
+                                  onUnlock: _actions.unlock,
+                                  machine: _selected,
+                                  acks: _unlockAckEvents,
+                                  isAdmin: AccountSession.isAdmin,
+                                  myAccount: _myAccount,
+                                  onManageDevices: AccountSession.isParent
+                                      ? () => unawaited(_openDeviceManager())
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (_loading)
+                          const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                          )
+                        else
+                          IconButton(
+                            tooltip: '刷新',
+                            icon: const Icon(Icons.refresh),
+                            onPressed: () => unawaited(_reload()),
+                          ),
+                        // 右上角设置齿轮已移除：改登录名 / 家长端名称 / 通道状态 /
+                        // 版本更新全部并入「我的」页（对齐交互原型）。
+                        // admin 复用家长视图后的返回口（parent 的默认首页就是本页）。
+                        // parent 变体没有中控台，即使 admin 登录也不提供该入口。
+                        if (AccountSession.isAdmin && !AppFlavorConfig.isParentOnly)
+                          TextButton(onPressed: () => context.go(RouteNames.home), child: const Text('中控台')),
+                      ],
+                    );
+                  },
                 ),
               ),
               bottomNavigationBar: BottomNavigationBar(
@@ -781,10 +898,7 @@ class _ParentalPageState extends State<ParentalPage> {
                 selectedFontSize: 12,
                 unselectedFontSize: 12,
                 items: _tabs
-                    .map((_TabSpec tab) => BottomNavigationBarItem(
-                          icon: Icon(tab.icon, size: 22),
-                          label: tab.label,
-                        ))
+                    .map((_TabSpec tab) => BottomNavigationBarItem(icon: Icon(tab.icon, size: 22), label: tab.label))
                     .toList(growable: false),
               ),
               body: Column(
@@ -815,7 +929,7 @@ class _ParentalPageState extends State<ParentalPage> {
                         ParentalTodayView(
                           machines: _machines,
                           selected: _selected,
-                          config: _config,
+                          config: _displayConfig,
                           watchEvents: _watchEvents,
                           activeEvents: _activeEvents,
                           unlockEvents: _unlockEvents,
@@ -825,11 +939,7 @@ class _ParentalPageState extends State<ParentalPage> {
                           isAdmin: AccountSession.isAdmin,
                           actions: _actions,
                         ),
-                        ParentalRulesView(
-                          config: _config,
-                          selected: _selected,
-                          actions: _actions,
-                        ),
+                        ParentalRulesView(config: _config, selected: _selected, actions: _actions),
                         ParentalMineView(
                           machines: _machines,
                           selected: _selected,
@@ -839,8 +949,8 @@ class _ParentalPageState extends State<ParentalPage> {
                           myAccount: _parentNoForDisplay,
                           channelAccount: _channelAccount,
                           actions: _actions,
-                          // 家长号设置 / 跨设备说明入口，走 claim 路由。
-                          onEditAccount: () => unawaited(context.push(RouteNames.claimAccountPath)),
+                          // 家长号设置 / 跨设备说明入口，走 claim 路由；返回后自动刷新账号与绑定。
+                          onEditAccount: () => unawaited(_openIdentityAndRefresh()),
                         ),
                       ],
                     ),
@@ -863,10 +973,10 @@ class _ParentalPageState extends State<ParentalPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(_tabs[index].label, style: theme.appBarTheme.titleTextStyle),
-          Text(
-            '薯仔家长',
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-          ),
+          // Text(
+          //   '薯仔家长',
+          //   style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+          // ),
         ],
       );
     }

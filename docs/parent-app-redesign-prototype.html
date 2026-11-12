@@ -108,8 +108,8 @@ label.f{display:block;font-size:12px;color:#52625c;margin:10px 0 4px}
       <button class="navbtn" data-page="quiz">5 · 答题题库<small>独立页面 + 草稿保护</small></button>
       <button class="navbtn" data-page="mine">6 · 我的<small>账号、电视、解锁、连接</small></button>
       <button class="navbtn" data-page="identity">7 · 家长号与跨设备<small>身份跟人走 · 通道跟设备走</small></button>
-      <button class="navbtn" data-page="share">8 · 档案共享<small>引用主本 · 改一处同步</small></button>
-      <div class="sidehint">底部只有「今天 / 规则 / 我的」三个 Tab；第 7、8 页从「我的」进入。核心变化：<b>家长号</b>（跨设备身份）与<b>本机实时通道号</b>（设备身份）彻底分开——通道号永不改名、不禁用；档案挂在电视下，可跨电视「引用共享」、改主本同步。遥控常驻在「我的」页每台电视行，不依赖孩子档案。</div>
+      <button class="navbtn" data-page="share">8 · 档案共享<small>勾选分享 · 引用主本</small></button>
+      <div class="sidehint">底部只有「今天 / 规则 / 我的」三个 Tab；第 7、8 页从「我的」进入。核心变化：<b>家长号</b>（跨设备身份）与<b>本机实时通道号</b>（设备身份）彻底分开——通道号永不改名、不禁用；档案挂在电视下，可跨家长「勾选分享 → 引用主本」，改一处同步、来源删除标失效。遥控常驻在「我的」页每台电视行，不依赖孩子档案。</div>
     </aside>
     <main>
       <div class="phone">
@@ -126,7 +126,7 @@ label.f{display:block;font-size:12px;color:#52625c;margin:10px 0 4px}
     <ol>
       <li><b>家长号与设备派生号解耦：</b>撤销原「设置登录名」把派生号改名迁移 + 旧号禁用成墓碑的流程。家长号作为独立账号可跨设备登录，实时通道恒用各自的派生号，永不改名/禁用。</li>
       <li><b>绑定关系驱动可见性：</b>每台电视的 <code>parents</code> 数组决定"哪个家长号看哪几台"；同一家长号在多台手机登录，看到的电视与档案天然一致。</li>
-      <li><b>档案引用共享：</b>目标电视存对主本档案的引用（来源电视 + 档案 id），而非复制；改主本规则/限额时所有引用方同步，引用方本地只读。</li>
+      <li><b>档案引用共享：</b>目标电视存对主本档案的引用（来源家长号 + 电视 + 档案 id），而非复制；改主本规则/限额时所有引用方同步，引用方本地只读。<b>跨家长可见性由主本档案的 sharedTo 家长号白名单决定</b>（owner opt-in）：档案主本存"分享给哪些家长号"，引用时须校验当前家长号在白名单内，未指定的家长看不到也引用不了。来源档案删除／电视解绑时引用方标 <code>broken</code> 保留占位、不级联清除；观看时长按主本档案跨电视合并、明细分台记录。</li>
       <li>解锁请求持久化并带状态（待处理 / 已批准 / 已拒绝 / 已过期），替代依赖 60 秒短码 + WS 事件的瞬时模型；按孩子跨设备合并「今日时长 / 观看会话」。</li>
       <li>把 <code>normalizeParental()</code> 的校验规则下沉为两端共用、并统一按档位名单语义，杜绝 App / 后台轮流编辑互相清空。</li>
     </ol>
@@ -149,14 +149,30 @@ const S = {
   account:'AA_parent', displayName:'小米10s家长端',
   // 本机实时通道派生号：设备身份证，永不改名、不禁用，与家长号彻底解耦
   channelAccount:'parent.phone.8f3c21',
-  // 档案挂在各自电视下；shared 为从别台电视"引用"来的档案（主本仍在原电视）
+  // 档案挂在各自电视下；shared 为"引用"来的档案（主本仍在原电视 / 原家长名下）。
+  // 爸爸（当前家长 AA_parent）绑客厅；妈妈（家长号 mama88）绑卧室。
+  // sharedTo=我把档案指定分享给的家长号白名单；otherParents=别的家长及其档案(各自带 sharedTo 白名单)。
   tvData:[
     {name:'客厅电视', online:true, channel:'parent.tv_8f3c21a', children:[
-      {id:1,name:'档案1 · 小薯'},{id:2,name:'档案2 · 大薯'},{id:3,name:'档案3 · 奶奶'}]},
+      {id:1,name:'档案1 · 小薯', sharedTo:[]},
+      {id:2,name:'档案2 · 大薯', sharedTo:['mama88']},
+      {id:3,name:'档案3 · 奶奶', sharedTo:[]}],
+      shared:[
+        {key:'mama88/卧室电视', from:'妈妈 · 卧室电视', id:11, name:'逗逗', status:'ok'},
+        {key:'mama88/卧室电视', from:'妈妈 · 卧室电视', id:10, name:'原「小宝」档案', status:'broken'}
+      ]},
     {name:'卧室电视', online:false, channel:'parent.tv_a91d64b', children:[
       {id:4,name:'档案4 · 小宝'},{id:5,name:'档案5 · 逗逗'},{id:6,name:'档案6 · 果果'}], shared:[]}
   ],
-  shareTarget:1,
+  // 其他家长（当前家长=爸爸 S.account=AA_parent；只有被 sharedTo 指定的家长才可见）
+  otherParents:[
+    {account:'mama88', name:'妈妈', tv:'卧室电视', archives:[
+      {id:11,name:'逗逗', sharedTo:['AA_parent']},
+      {id:12,name:'果果', sharedTo:['grandpa88']},
+      {id:13,name:'小宝', sharedTo:[]}
+    ]}
+  ],
+  shareTarget:0, shareEdit:null, shareToDraft:'',
   devices:[
     {name:'A 手机', note:'已登录 AA_parent', bound:['客厅电视']},
     {name:'B 手机', note:'已登录 AA_parent', bound:['客厅电视','卧室电视']}
@@ -317,21 +333,52 @@ const PAGES = {
   share(){
     const target=S.tvData[S.shareTarget];
     const others=S.tvData.filter((_,i)=>i!==S.shareTarget);
-    const isShared=(tvName,id)=>(target.shared||[]).some(s=>s.from===tvName&&s.id===id);
-    return '<div class="sec-title">给哪台电视配置</div><div class="card"><div class="row" style="flex-wrap:wrap;gap:6px">'
+    const isShared=(key,id)=>(target.shared||[]).some(s=>s.key===key&&s.id===id);
+    return '<div class="card flat"><div class="tiny"><b>引用代替复制。</b>主本留在原电视，其它电视／其他家长只存一条引用；改主本规则一次，所有引用方自动同步。<b>跨家长分享由档案所有者指定家长号</b>（sharedTo 白名单）：只有被指定的家长才看得到、引用得了，分享给别人的你看不到。</div></div>'
+
+      +'<div class="sec-title">给哪台电视配置</div><div class="card"><div class="row" style="flex-wrap:wrap;gap:6px">'
       +S.tvData.map((t,i)=>'<button class="btn sm '+(i===S.shareTarget?'primary':'')+'" data-act="shareTarget" data-v="'+i+'">'+esc(t.name)+(t.shared&&t.shared.length?' · 引用'+t.shared.length:'')+'</button>').join('')
       +'</div></div>'
-      +'<div class="card flat"><div class="tiny"><b>'+esc(target.name)+'</b> 名下档案 '+target.children.length+' 个。想让这台电视也能选别台的档案，用「引用」——主本仍留在原电视，规则只改一处。</div></div>'
-      +'<div class="sec-title">本台档案（主本）</div><div class="card">'
-      +target.children.map(c=>'<div class="between" style="padding:6px 0"><div><div style="font-size:13px">'+esc(c.name)+'</div><div class="tiny">温和档 · 每日 '+S.child.limit+' 分钟</div></div><span class="chip green">主本</span></div>').join('')
+
+      +'<div class="sec-title">本台档案 · 主本</div><div class="card">'
+      +'<div class="tiny" style="margin-bottom:6px">自己建的档案。点「分享设置」<b>指定可引用的家长号</b>（多个用逗号分隔），只有名单里的家长才会在他设备上看到并引用；留空＝不分享，任何其他家长都看不到。</div>'
+      +target.children.map(c=>{
+        const tos=(c.sharedTo||[]);
+        const editing=S.shareEdit===S.shareTarget+'|'+c.id;
+        return '<div style="padding:8px 0;border-top:1px solid #eef2f0"><div class="between"><div><div style="font-size:13px">'+esc(c.name)+'</div><div class="tiny">温和档 · 每日 '+S.child.limit+' 分钟'+(tos.length?' · 已分享给 '+tos.map(esc).join('、'):' · 未分享')+'</div></div>'
+          +'<button class="btn sm '+(tos.length?'primary':'')+'" data-act="shareEdit" data-v="'+S.shareTarget+'|'+c.id+'">'+(tos.length?'✎ 分享设置':'＋ 分享设置')+'</button></div>'
+          +(editing?'<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #dbe5e0"><label class="f" style="margin-top:0">可引用的家长号</label>'
+            +'<input type="text" data-bind="shareToDraft" placeholder="例如：mama88, AA_parent" value="'+esc(S.shareToDraft)+'">'
+            +'<div class="tiny" style="margin:5px 0 8px">只填你信任的家长号；留空并保存＝取消分享。别人看不到没被指定的档案。</div>'
+            +'<div class="row" style="gap:6px"><button class="btn sm primary" data-act="shareSave" data-v="'+S.shareTarget+'|'+c.id+'">保存</button><button class="btn sm" data-act="shareEditCancel">取消</button></div></div>':'')
+          +'</div>';
+      }).join('')
       +'</div>'
-      +(target.shared&&target.shared.length?'<div class="sec-title">引用进来的档案（主本在别台）</div><div class="card">'
-        +target.shared.map(s=>'<div class="between" style="padding:6px 0"><div><div style="font-size:13px">'+esc(s.name)+'</div><div class="tiny">引用自 '+esc(s.from)+' · 只读，改规则去主本</div></div><button class="btn sm" data-act="shareCancel" data-v="'+esc(s.from)+'|'+s.id+'">取消引用</button></div>').join('')
-        +'<div class="tiny" style="margin-top:6px;color:#0f6e56">在 '+esc(target.name)+' 改不了这些档案；去主本改一次，这台自动同步。</div></div>':'')
-      +'<div class="sec-title">从其它电视引用档案</div>'
-      +others.map(tv=>'<div class="card"><div class="tiny" style="margin-bottom:6px">来自「'+esc(tv.name)+'」</div>'
-        +tv.children.map(c=>{const on=isShared(tv.name,c.id);return '<div class="between" style="padding:6px 0;border-top:1px solid #eef2f0"><div><div style="font-size:13px">'+esc(c.name)+'</div><div class="tiny">规则由 '+esc(tv.name)+' 维护</div></div><button class="btn sm '+(on?'':'primary')+'" data-act="'+(on?'shareCancel':'shareAdd')+'" data-v="'+esc(tv.name)+'|'+c.id+'|'+esc(c.name)+'">'+(on?'已引用':'＋引用')+'</button></div>';}).join('')
-        +'</div>').join('');
+
+      +(target.shared&&target.shared.length?'<div class="sec-title">引用进来的档案（主本在别处）</div><div class="card">'
+        +target.shared.map(s=>{
+          if(s.status==='broken')return '<div class="between" style="padding:8px 0;border-top:1px solid #eef2f0"><div><div style="font-size:13px;color:#9aa7a2">'+esc(s.name)+'</div><div class="tiny" style="color:#a32d2d">来源已删除／解绑 · 保留占位</div></div><div class="row" style="gap:4px"><span class="chip" style="background:#f7eaea;color:#a32d2d">失效</span><button class="btn sm" data-act="shareCancel" data-v="'+esc(s.key)+'|'+s.id+'">重新选择</button></div></div>';
+          return '<div class="between" style="padding:8px 0;border-top:1px solid #eef2f0"><div><div style="font-size:13px">'+esc(s.name)+'</div><div class="tiny">引用自 '+esc(s.from)+' · 只读，改规则去主本</div></div><button class="btn sm" data-act="shareCancel" data-v="'+esc(s.key)+'|'+s.id+'">取消引用</button></div>';
+        }).join('')
+        +'<div class="tiny" style="margin-top:6px;color:#0f6e56">在 '+esc(target.name)+' 改不了这些档案；去主本改一次，这台自动同步。来源被删不级联清除，只标「失效」等你重新选。</div></div>':'')
+
+      +'<div class="sec-title">其他家长分享的档案（可引用）</div>'
+      +S.otherParents.map(p=>{
+        const shared=p.archives.filter(a=>(a.sharedTo||[]).includes(S.account));
+        const hidden=p.archives.filter(a=>!(a.sharedTo||[]).includes(S.account));
+        return '<div class="card"><div class="tiny" style="margin-bottom:6px">来自「'+esc(p.name)+'」（'+esc(p.account)+' · '+esc(p.tv)+'）· 指定分享给你（'+esc(S.account)+'）的 '+shared.length+' 个</div>'
+          +(shared.length?shared.map(a=>{const key=p.account+'/'+p.tv;const on=isShared(key,a.id);return '<div class="between" style="padding:6px 0;border-top:1px solid #eef2f0"><div><div style="font-size:13px">'+esc(a.name)+'</div><div class="tiny">主本由 '+esc(p.name)+' 维护</div></div><button class="btn sm '+(on?'':'primary')+'" data-act="'+(on?'shareCancel':'shareAdd')+'" data-v="'+esc(key)+'|'+a.id+'|'+esc(a.name)+'|'+esc(p.name+' · '+p.tv)+'">'+(on?'已引用':'＋引用')+'</button></div>';}).join('')
+            :'<div class="tiny" style="padding:8px 0">对方没有把档案指定分享给你。</div>')
+          +(hidden.length?'<div class="tiny" style="margin-top:7px;color:#9aa7a2">另有 '+hidden.length+' 个档案未指定给你（可能分享给别人，或未开启分享），你看不到。</div>':'')
+          +'</div>';
+      }).join('')
+
+      +'<div class="sec-title">同一家长号 · 跨电视引用</div>'
+      +others.map(tv=>'<div class="card"><div class="tiny" style="margin-bottom:6px">来自我的另一台「'+esc(tv.name)+'」（同一家长号 '+esc(S.account)+'，默认可见）</div>'
+        +tv.children.map(c=>{const key='self/'+tv.name;const on=isShared(key,c.id);return '<div class="between" style="padding:6px 0;border-top:1px solid #eef2f0"><div><div style="font-size:13px">'+esc(c.name)+'</div><div class="tiny">规则由 '+esc(tv.name)+' 维护</div></div><button class="btn sm '+(on?'':'primary')+'" data-act="'+(on?'shareCancel':'shareAdd')+'" data-v="'+esc(key)+'|'+c.id+'|'+esc(c.name)+'|'+esc(tv.name)+'">'+(on?'已引用':'＋引用')+'</button></div>';}).join('')
+        +'</div>').join('')
+
+      +'<div class="card flat"><div class="tiny"><b>观看时长合并：</b>同一档案（含引用）在客厅 + 卧室的观看时长按主本档案累加，例如 30 + 20 = 50 分钟，共用同一份每日限额，明细仍分别记录在哪台电视。</div></div>';
   }
 };
 
@@ -344,7 +391,7 @@ const NOTES = {
   quiz:'<h2>答题题库 · 对应改造点</h2><ul><li><span class="flag">旧：</span>题库藏在档案卡片图标里的外层弹层，单题再套内层弹层；关闭时 _dirty 直接丢弃，改动无声消失。</li><li><span class="fix">新：</span>独立页面，题目列表 + 单页表单 + 导入校验预览；未保存退出有二次确认。</li><li><span class="fix">新：</span>导入给出格式示例和逐行校验结果，不再让用户猜 CSV 格式。</li></ul><h3>可以试</h3><p class="kv">添加一道题 → 在「我的」切到答题解锁，看前置条件如何就地补齐。</p>',
   mine:'<h2>我的 · 对应改造点</h2><ul><li><span class="flag">旧：</span>右上角设置弹窗和「我的」页内容重叠又分散；账号卡把"设备派生号"当家长身份显示，跟"实时通道"混成一串看不懂的 ID。</li><li><span class="fix">新：</span>账号卡拆成两行：<b>家长号</b>（跨设备身份，可改）与<b>本机实时通道号</b>（设备身份，只读、不可改）。两者彻底解耦。</li><li><span class="fix">新：</span>删掉右上角设置弹窗，内容并入「我的」；ownerAccount 输入框移除，保存时沿用原值不误清空。</li><li><span class="fix">新：</span>「我在电视上的名字」单列成卡，说明它只影响电视端显示，不是备注名也不是登录号。</li><li><span class="fix">新：</span>遥控放在每台电视行常驻；每台电视增加「管理档案 / 跨电视共享」入口。</li></ul><h3>三种“改名”别混</h3><p class="kv">电视备注名＝这台电视在你手机上的别名；我在电视上的名字＝你在电视端显示的家长名；家长号＝"家长这个人"的身份，跟着人跨设备。</p>',
   identity:'<h2>家长号与跨设备 · 对应改造点</h2><ul><li><span class="flag">旧：</span>"设置登录名"=把设备派生号<b>改名迁移</b>、旧号禁用成墓碑，实时通道也被一起切走，口令只存本机 → 重装即锁死，还多出一个后端账号。</li><li><span class="fix">新：</span>撤销整套改名迁移。家长号是独立账号，可跨手机登录；实时通道恒用各自的设备派生号，永不改动。</li><li><span class="fix">新：</span>"能看到哪些档案"=<b>绑定关系</b>（每台电视的 parents 数组）决定，A/B 手机登同一个家长号、绑同一批电视，看到的数据天然一致。</li><li><span class="fix">新：</span>不再有一次性随机口令困在本机的问题：家长号口令可由用户自设/重置，换设备凭号+口令登录即可。</li></ul><h3>关键取舍</h3><p class="kv">设备派生号不再被"搞掉"——它是设备身份证，实时通道、心跳、遥控都靠它，跟家长号井水不犯河水。</p>',
-  share:'<h2>档案共享 · 对应改造点</h2><ul><li><span class="flag">旧：</span>档案只属于某一台电视，跨台复用只能复制成两份，规则改一处另一处不同步。</li><li><span class="fix">新：</span>用<b>引用</b>代替复制：电视2 引用电视1 的档案，主本仍在电视1；改规则/限额只改主本，电视2 自动同步。</li><li><span class="fix">新：</span>引用来的档案在电视2 标为「只读，去主本改」，杜绝两套冲突配置。</li></ul><h3>可以试</h3><p class="kv">切到「卧室电视」→ 从「客厅电视」引用"档案1 · 小薯"，看它出现在"引用进来"区；再切回客厅电视，档案仍在且标为主本。</p>'
+  share:'<h2>档案共享 · 对应改造点</h2><ul><li><span class="flag">旧：</span>档案只属于某一台电视，跨台复用只能复制成两份，规则改一处另一处不同步。</li><li><span class="fix">新：</span>用<b>引用</b>代替复制：主本仍在原电视，引用方只存一条坐标；改规则/限额只改主本，所有引用方自动同步。</li><li><span class="fix">新：</span><b>跨家长靠"指定家长号白名单"</b>：爸爸绑客厅、妈妈绑卧室，爸爸默认看不到妈妈的档案；妈妈在自己的档案上点「分享设置」<b>填入爸爸的家长号 AA_parent</b>，爸爸才会在"其他家长分享的档案"里看到并可引用。妈妈若只填了 grandpa88 而没填 AA_parent，爸爸依然看不到——隐私由档案所有者按家长号精确把控，不是一开分享就对所有人公开。</li><li><span class="fix">新：</span><b>主本被删不级联</b>：来源档案删除／电视解绑后，引用方保留占位并标「失效」，提示重新选择，不静默清空配置。</li><li><span class="fix">新：</span><b>时长按主本合并</b>：同一档案在客厅 + 卧室的观看时长累加（30 + 20 = 50 分钟），共用一份每日限额，明细分台记录。</li></ul><h3>可以试</h3><p class="kv">在客厅电视给「档案2 · 大薯」点"分享设置"填 mama88（只分享给妈妈）；再看"其他家长分享的档案"——妈妈指定给 AA_parent 的"逗逗"可引用，只填了 grandpa88 的"果果"和未分享的"小宝"都看不到；引用"逗逗"后主本被删会显示"失效"占位；点取消引用不影响主本。</p>'
 };
 
 function render(){
@@ -437,20 +484,35 @@ function A(a,v,el){
     case 'remote': toast('打开「'+S.tvData[Number(v)].name+'」遥控面板（无需孩子档案；通道 '+S.tvData[Number(v)].channel+'）');break;
     case 'renameTv': toast('重命名「'+S.tvData[Number(v)].name+'」（仅自己可见，改的是电视备注名）');break;
     case 'shareOpen': S.shareTarget=Number(v);S.page='share';render();break;
-    case 'shareTarget': S.shareTarget=Number(v);render();break;
+    case 'shareTarget': S.shareTarget=Number(v);S.shareEdit=null;render();break;
+    case 'shareEdit': {
+      const p=v.split('|'),ti=Number(p[0]),id=Number(p[1]);
+      const c=S.tvData[ti].children.find(x=>x.id===id);
+      S.shareToDraft=(c.sharedTo||[]).join(', ');
+      S.shareEdit=v;render();break;
+    }
+    case 'shareEditCancel': S.shareEdit=null;S.shareToDraft='';render();break;
+    case 'shareSave': {
+      const p=v.split('|'),ti=Number(p[0]),id=Number(p[1]);
+      const c=S.tvData[ti].children.find(x=>x.id===id);
+      const names=String(S.shareToDraft).split(/[,，]/).map(s=>s.trim()).filter(Boolean);
+      if(c){c.sharedTo=names;S.shareEdit=null;S.shareToDraft='';render();
+        toast(names.length?'已分享给 '+names.length+' 位家长（'+names.join('、')+'）· 仅名单内可见':'已取消分享，任何其它家长都看不到该档案');}
+      break;
+    }
     case 'shareAdd': {
-      const p=v.split('|'),from=p[0],id=Number(p[1]),name=p[2];
+      const p=v.split('|'),key=p[0],id=Number(p[1]),name=p[2],from=p[3];
       S.tvData[S.shareTarget].shared=S.tvData[S.shareTarget].shared||[];
-      if(!S.tvData[S.shareTarget].shared.some(s=>s.from===from&&s.id===id)){
-        S.tvData[S.shareTarget].shared.push({from:from,id:id,name:name});
+      if(!S.tvData[S.shareTarget].shared.some(s=>s.key===key&&s.id===id)){
+        S.tvData[S.shareTarget].shared.push({key:key,from:from,id:id,name:name,status:'ok'});
       }
-      render();toast('已引用「'+name+'」· 规则在 '+from+' 改一次，本台自动同步');break;
+      render();toast('已引用「'+name+'」· 主本在 '+from+'，改一次本台自动同步');break;
     }
     case 'shareCancel': {
-      const p=v.split('|'),from=p[0],id=Number(p[1]);
+      const p=v.split('|'),key=p[0],id=Number(p[1]);
       const t=S.tvData[S.shareTarget];
-      t.shared=(t.shared||[]).filter(s=>!(s.from===from&&s.id===id));
-      render();toast('已取消引用');break;
+      t.shared=(t.shared||[]).filter(s=>!(s.key===key&&s.id===id));
+      render();toast('已取消引用（不影响主本档案）');break;
     }
     case 'checkUpdate': toast('已是最新版本 1.0.6-parent+10');break;
   }
@@ -482,6 +544,14 @@ document.addEventListener('input',e=>{
   }
 })();
 render();
+// 截图/分享用：?scroll=420 让手机内容区滚到指定像素，便于截长页下半部分（不影响交互）。
+(function(){
+  const q=new URLSearchParams(location.search);
+  if(q.has('scroll')){
+    const el=document.querySelector('.screen');
+    if(el)requestAnimationFrame(()=>{el.scrollTop=Number(q.get('scroll'))||0;});
+  }
+})();
 </script>
 </body>
 </html>

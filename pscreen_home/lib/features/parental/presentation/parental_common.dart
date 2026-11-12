@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/device/device_display_name.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
 /// 家长端跨页面复用的工具与回调集合，避免把大段渲染塞进 `ParentalPage`。
@@ -43,6 +44,11 @@ class ParentalActions {
     required this.unbind,
     required this.selectDevice,
     required this.renameMachine,
+    required this.openShareManagement,
+    required this.loadShareView,
+    required this.setSharedTo,
+    required this.addSharedRef,
+    required this.cancelSharedRef,
   });
 
   /// 重新拉取设备 / 配置 / 事件。
@@ -83,4 +89,29 @@ class ParentalActions {
 
   /// 重命名某台电视（仅自己可见的别名）。
   final void Function(ParentalMachine machine) renameMachine;
+
+  /// 打开某台电视的「档案共享」页（从「我的」进入）。
+  final void Function(ParentalMachine machine) openShareManagement;
+
+  /// 读取某台电视的共享视图（主本 / 引用 / 候选）。
+  final Future<ParentalShareView> Function(ParentalMachine machine) loadShareView;
+
+  /// 设置本台主本档案的分享白名单；返回服务端最新共享视图。
+  final Future<ParentalShareView> Function(
+    ParentalMachine machine,
+    ParentalShareMaster child,
+    List<String> sharedTo,
+  ) setSharedTo;
+
+  /// 引用一个可见主本档案；返回服务端最新共享视图。
+  final Future<ParentalShareView> Function(
+    ParentalMachine machine,
+    ParentalShareCandidate candidate,
+  ) addSharedRef;
+
+  /// 取消一条引用（含 broken 占位）；返回服务端最新共享视图。
+  final Future<ParentalShareView> Function(
+    ParentalMachine machine,
+    ParentalShareImported item,
+  ) cancelSharedRef;
 }

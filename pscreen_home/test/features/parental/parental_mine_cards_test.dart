@@ -6,7 +6,8 @@ import 'package:pscreen_home/features/parental/presentation/parental_mine_cards.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('账号卡：家长号与实时通道号两行分开、可进设置', (WidgetTester tester) async {
+  testWidgets('账号卡：只展示家长号，技术通道号收进说明页、可进设置',
+      (WidgetTester tester) async {
     int tapped = 0;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -19,12 +20,12 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // 两层身份彻底分开：家长号（可改）+ 本机实时通道号（只读）。
+    // 「我的」页只留家长看得懂的身份；设备派生号在「家长号与跨设备」页展开。
     expect(find.text('家长号（跨设备身份）'), findsOneWidget);
     expect(find.text('mama_01'), findsOneWidget);
-    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsOneWidget);
-    expect(find.text('parent.phone.8f3c21'), findsOneWidget);
-    expect(find.textContaining('永不改名、不禁用'), findsOneWidget);
+    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsNothing);
+    expect(find.text('parent.phone.8f3c21'), findsNothing);
+    expect(find.text('家长号怎么跨设备 ›'), findsOneWidget);
     await tester.tap(find.byTooltip('设置家长号'));
     await tester.pumpAndSettle();
     expect(tapped, 1);
@@ -36,15 +37,14 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('未设置（使用设备号）'), findsOneWidget);
-    // 通道号未注入时显示检测中。
-    expect(find.text('检测中…'), findsOneWidget);
+    // 「我的」页不再露出派生号（避免一眼看到两串看不懂的编号）。
+    expect(find.text('检测中…'), findsNothing);
   });
 
-  testWidgets('账号卡：未设独立家长号时，第一行不与通道号重复显示派生值',
+  testWidgets('账号卡：未设独立家长号时显示回落说明，不暴露派生号',
       (WidgetTester tester) async {
-    // 回归真机发现：页面壳的登录账号在未 claim 时会回落到派生号，
-    // 若直接当家长号展示，会和第二行通道号一模一样。页面壳传空值后，
-    // 卡片应显示「未设置（使用设备号）」，只有第二行展示派生号。
+    // 回归真机发现：页面壳的登录账号在未 claim 时会回落到派生号。
+    // 页面壳传空值后卡片显示「未设置（使用设备号）」，派生号不在本页露出。
     const String derived = 'parent.parent.637143eef8c2333f';
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(
@@ -54,9 +54,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('未设置（使用设备号）'), findsOneWidget);
-    expect(find.text(derived), findsOneWidget); // 派生号只出现在通道号一行
+    expect(find.text(derived), findsNothing);
     expect(find.text('家长号（跨设备身份）'), findsOneWidget);
-    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsOneWidget);
+    expect(find.text('本机实时通道号（设备身份 · 只读）'), findsNothing);
   });
 
   testWidgets('家长端名称卡：用人话说明、可回显、不出现 ownerAccount',

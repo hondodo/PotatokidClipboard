@@ -83,5 +83,68 @@ void main() {
     test('mode 缺省视为未启用', () {
       expect(ParentalConfig.fromJson(<String, dynamic>{}).enabled, isFalse);
     });
+
+    test('档案共享：sharedTo 与 shared[] 坐标往返保持', () {
+      const ParentalSharedRef ref = ParentalSharedRef(
+        refId: 'bed:c11',
+        owner: 'mama88',
+        machineId: 'bed',
+        childId: 'c11',
+        createdAtMs: 1700000000000,
+      );
+      final ParentalConfig config = ParentalConfig.fromJson(<String, dynamic>{
+        'mode': 'on',
+        'children': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'c1',
+            'name': '小薯',
+            'sharedTo': <String>['mama88', 'grandpa88'],
+          },
+        ],
+        'shared': <Map<String, dynamic>>[ref.toJson()],
+      });
+
+      final ParentalConfig roundTrip =
+          ParentalConfig.fromJson(config.toJson());
+      expect(roundTrip.children.single.sharedTo,
+          <String>['mama88', 'grandpa88']);
+      expect(roundTrip.shared, hasLength(1));
+      expect(roundTrip.shared.single.refId, 'bed:c11');
+      expect(roundTrip.shared.single.owner, 'mama88');
+      expect(roundTrip.shared.single.machineId, 'bed');
+      expect(roundTrip.shared.single.childId, 'c11');
+      expect(roundTrip.shared.single.createdAtMs, 1700000000000);
+    });
+
+    test('展示层 readOnly 引用档案不会被写回 children[] 主本', () {
+      final ParentalConfig display = ParentalConfig(
+        mode: 'on',
+        children: <ParentalChild>[
+          const ParentalChild(id: 'c1', name: '主本'),
+          const ParentalChild(
+            id: 'c11',
+            name: '引用来的逗逗',
+            readOnly: true,
+            sourceLabel: '妈妈 · 卧室电视',
+          ),
+        ],
+        shared: const <ParentalSharedRef>[
+          ParentalSharedRef(
+            refId: 'bed:c11',
+            owner: 'mama88',
+            machineId: 'bed',
+            childId: 'c11',
+          ),
+        ],
+      );
+
+      final Map<String, dynamic> json = display.toJson();
+      expect(
+        (json['children'] as List).map((dynamic item) => item['id']).toList(),
+        <String>['c1'],
+        reason: '引用档案只是展示展开，不能复制成本台主本',
+      );
+      expect(json['shared'], hasLength(1));
+    });
   });
 }
