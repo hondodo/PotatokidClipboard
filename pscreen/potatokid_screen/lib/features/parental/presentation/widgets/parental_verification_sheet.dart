@@ -371,6 +371,7 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         _quizBanks = cached;
         if (_quizQuestions.isEmpty) _quizQuestions = _selectQuestions();
       });
+      await _applyRotation();
       final Map<String, List<ParentalQuizQuestion>>? remote = await _quizRepo
           .fetchRemote();
       if (!mounted) return;
@@ -385,9 +386,26 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         }
         _quizLoaded = true;
       });
+      await _applyRotation();
     } finally {
       _quizLoading = false;
     }
+  }
+
+  /// 应用「稳定随机顺序 + 上次答到的下一题」；题库增删题后会自动归零重排。
+  Future<void> _applyRotation() async {
+    if (_quizQuestions.isEmpty || _quizTouched) return;
+    final ParentalQuizRotation rotation = await ParentalQuizRotation.prepare(
+      _quizQuestions,
+    );
+    if (!mounted || rotation.questions.isEmpty) return;
+    setState(() {
+      _quizQuestions = rotation.questions;
+      _quizIndex = rotation.start;
+      _quizSelected.clear();
+      _fillCtrl.clear();
+      _quizLoaded = true;
+    });
   }
 
   List<ParentalQuizQuestion> _selectQuestions() {
@@ -638,6 +656,8 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
   Future<void> _onQuizAnswered(bool correct) async {
     _quizTouched = true;
     final ParentalAttemptGate gate = ParentalAttemptGate.instance;
+    // 记下「答过这一题」，下次进来（含重启后）从下一题开始。
+    unawaited(ParentalQuizRotation.markAnswered(_quizQuestions, _quizIndex));
     if (correct) {
       await gate.recordSuccess();
       _close(true);

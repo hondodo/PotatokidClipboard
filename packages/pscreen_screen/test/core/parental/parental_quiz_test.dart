@@ -1,12 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_screen/core/parental/parental_config.dart';
 import 'package:pscreen_screen/core/parental/parental_quiz.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// 答题解锁：题库选择规则与题目解析。
+/// 答题解锁：题库合并规则、随机顺序与跨重启轮换。
 ///
-/// 规则：年龄从大到小分组 → 同岁合并按 id 去重 → 当前组无题看下一组 →
-/// 未填年龄排最后（全部未填视为同组）→ 全部无题返回空（调用方回退算术）。
+/// 规则：所有在看的档案题库合并、按题目 id 去重；出题顺序由
+/// [ParentalQuizRotation] 做「稳定随机打乱 + 游标持久化」。
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   ChildProfile child(String id, {int? age}) =>
       ChildProfile(id: id, name: id, age: age);
 
@@ -14,7 +17,7 @@ void main() {
       ParentalQuizQuestion(id: id, type: 'fill', prompt: id, accept: <String>[id]);
 
   group('ParentalQuizSelector', () {
-    test('取年龄最大的孩子题库', () {
+    test('合并所有在看的儿童题库（不再只取年龄最大的）', () {
       final List<ParentalQuizQuestion> picked = ParentalQuizSelector.select(
         profiles: <ChildProfile>[child('young', age: 5), child('old', age: 9)],
         banks: <String, List<ParentalQuizQuestion>>{
@@ -22,16 +25,15 @@ void main() {
           'old': <ParentalQuizQuestion>[q('q9')],
         },
       );
-      expect(picked.map((ParentalQuizQuestion item) => item.id), <String>['q9']);
+      expect(
+        picked.map((ParentalQuizQuestion item) => item.id).toSet(),
+        <String>{'q5', 'q9'},
+      );
     });
 
-    test('同岁合并并按 id 去重', () {
+    test('同一道题（id 相同）只出现一次', () {
       final List<ParentalQuizQuestion> picked = ParentalQuizSelector.select(
-        profiles: <ChildProfile>[
-          child('a', age: 8),
-          child('b', age: 8),
-          child('c', age: 8),
-        ],
+        profiles: <ChildProfile>[child('a'), child('b'), child('c')],
         banks: <String, List<ParentalQuizQuestion>>{
           'a': <ParentalQuizQuestion>[q('shared'), q('a1')],
           'b': <ParentalQuizQuestion>[q('shared'), q('b1')],
@@ -44,7 +46,7 @@ void main() {
       );
     });
 
-    test('年龄最大的一组无题时继续找下一组', () {
+    test('某个档案没有题库不影响其它档案合并', () {
       final List<ParentalQuizQuestion> picked = ParentalQuizSelector.select(
         profiles: <ChildProfile>[child('old', age: 10), child('mid', age: 7)],
         banks: <String, List<ParentalQuizQuestion>>{
@@ -55,32 +57,66 @@ void main() {
       expect(picked.single.id, 'q7');
     });
 
-    test('未填年龄排最后；全体未填视为同组', () {
-      final List<ParentalQuizQuestion> picked = ParentalQuizSelector.select(
-        profiles: <ChildProfile>[child('noAge'), child('kid', age: 6)],
-        banks: <String, List<ParentalQuizQuestion>>{
-          'kid': <ParentalQuizQuestion>[],
-          'noAge': <ParentalQuizQuestion>[q('n1')],
-        },
-      );
-      expect(picked.single.id, 'n1');
-
-      final List<ParentalQuizQuestion> merged = ParentalQuizSelector.select(
-        profiles: <ChildProfile>[child('x'), child('y')],
-        banks: <String, List<ParentalQuizQuestion>>{
-          'x': <ParentalQuizQuestion>[q('x1')],
-          'y': <ParentalQuizQuestion>[q('y1')],
-        },
-      );
-      expect(merged.map((ParentalQuizQuestion item) => item.id), <String>['x1', 'y1']);
-    });
-
     test('全部无题返回空（调用方回退算术题）', () {
       final List<ParentalQuizQuestion> picked = ParentalQuizSelector.select(
         profiles: <ChildProfile>[child('a', age: 4)],
         banks: const <String, List<ParentalQuizQuestion>>{},
       );
       expect(picked, isEmpty);
+    });
+  });
+
+  group('ParentalQuizRotation', () {
+    setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+    List<ParentalQuizQuestion> bank() => <ParentalQuizQuestion>[
+      q('q1'),
+      q('q2'),
+      q('q3'),
+      q('q4'),
+      q('q5'),
+    ];
+
+    test('同一题库顺序稳定，首次从第 1 题开始', () async {
+      final ParentalQuizRotation first = await ParentalQuizRotation.prepare(bank());
+      final ParentalQuizRotation second = await ParentalQuizRotation.prepare(bank());
+      expect(first.start, 0);
+      expect(
+        first.questions.map((ParentalQuizQuestion item) => item.id).toList(),
+        second.questions.map((ParentalQuizQuestion item) => item.id).toList(),
+      );
+      expect(
+        first.questions.map((ParentalQuizQuestion item) => item.id).toSet(),
+        <String>{'q1', 'q2', 'q3', 'q4', 'q5'},
+      );
+    });
+
+    test('答完一题后（模拟重启）从下一题开始', () async {
+      final ParentalQuizRotation first = await ParentalQuizRotation.prepare(bank());
+      await ParentalQuizRotation.markAnswered(first.questions, 0);
+      final ParentalQuizRotation next = await ParentalQuizRotation.prepare(bank());
+      expect(next.start, 1);
+      expect(next.questions[next.start].id, first.questions[1].id);
+    });
+
+    test('答到最后一题后回到第一题', () async {
+      final ParentalQuizRotation first = await ParentalQuizRotation.prepare(bank());
+      await ParentalQuizRotation.markAnswered(first.questions, first.questions.length - 1);
+      final ParentalQuizRotation next = await ParentalQuizRotation.prepare(bank());
+      expect(next.start, 0);
+      expect(next.questions.first.id, first.questions.first.id);
+    });
+
+    test('题库增删题后重新打乱并归零', () async {
+      final ParentalQuizRotation first = await ParentalQuizRotation.prepare(bank());
+      await ParentalQuizRotation.markAnswered(first.questions, 2);
+      final List<ParentalQuizQuestion> changed = <ParentalQuizQuestion>[
+        ...bank(),
+        q('q6'),
+      ];
+      final ParentalQuizRotation next = await ParentalQuizRotation.prepare(changed);
+      expect(next.start, 0);
+      expect(next.questions.length, 6);
     });
   });
 

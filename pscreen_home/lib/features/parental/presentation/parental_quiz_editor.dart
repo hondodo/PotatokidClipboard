@@ -473,9 +473,16 @@ class _OptionDraft {
       : controller = TextEditingController(text: text);
 
   final TextEditingController controller;
+
+  /// 选项输入框焦点：新增选项后主动聚焦到新框，避免输入落到上一个选项里。
+  final FocusNode focusNode = FocusNode(debugLabel: 'quiz-option');
+
   String image;
 
-  void dispose() => controller.dispose();
+  void dispose() {
+    controller.dispose();
+    focusNode.dispose();
+  }
 }
 
 class _QuizQuestionEditorSheetState extends State<QuizQuestionEditorSheet> {
@@ -742,6 +749,7 @@ class _QuizQuestionEditorSheetState extends State<QuizQuestionEditorSheet> {
                         Expanded(
                           child: TextField(
                             controller: _options[i].controller,
+                            focusNode: _options[i].focusNode,
                             decoration: InputDecoration(
                               hintText: '选项 ${i + 1}',
                               border: const OutlineInputBorder(),
@@ -787,9 +795,15 @@ class _QuizQuestionEditorSheetState extends State<QuizQuestionEditorSheet> {
                   ),
                 if (_options.length < _maxOptions)
                   TextButton.icon(
-                    onPressed: () => setState(
-                      () => _options.add(_OptionDraft()),
-                    ),
+                    onPressed: () {
+                      final _OptionDraft draft = _OptionDraft();
+                      setState(() => _options.add(draft));
+                      // 新选项输入框在下一帧才挂到树上，届时聚焦并滚动到可见区
+                      // （TextField 获得焦点会自动把自身滚进视口）。
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) draft.focusNode.requestFocus();
+                      });
+                    },
                     icon: const Icon(Icons.add),
                     label: const Text('添加选项'),
                   ),

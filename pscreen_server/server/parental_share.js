@@ -225,6 +225,42 @@ function durationAnchorKey(machine, allMachines, childId) {
     return `${machine.id}:${childId}`;
 }
 
+/**
+ * TV 端配置展开：把本台引用（`parental.shared`）解析成完整档案，追加到
+ * `children` 尾部后随设备 config 下发。
+ *
+ * 引用记录里只有坐标（machineId / childId / name），没有档位、时长、黑白名单
+ * 等规则；电视端要执行限时与频道过滤，必须拿到主本内容，故在服务端展开。
+ *
+ * - 只做派生，不落盘，也不修改传入的 machine / parental；
+ * - viewerParent 传空：引用建立时已校验可见性，设备侧只校验主本仍存在；
+ * - 来源失效（电视/档案/绑定关系消失）→ 跳过，不影响本机其它档案；
+ * - id 与本机 children 重复的引用跳过，避免选人页出现重复卡片。
+ *
+ * 返回 null 表示没有可展开的引用（调用方沿用原始 parental）。
+ */
+function expandSharedChildren(machine, allMachines) {
+    const parental = machine && machine.parental;
+    if (!parental || !Array.isArray(parental.shared) || parental.shared.length === 0) return null;
+    const masters = Array.isArray(parental.children) ? parental.children : [];
+    const taken = new Set(masters.map((c) => c.id));
+    const imported = [];
+    for (const ref of parental.shared) {
+        const resolved = resolveRef(machine, allMachines, ref, null);
+        if (resolved.kind !== 'shared' || !resolved.child || taken.has(resolved.child.id)) continue;
+        taken.add(resolved.child.id);
+        imported.push({
+            ...resolved.child,
+            // 只读标记：电视端不编辑共享档案（改动回到主本所在电视）。
+            readOnly: true,
+            sourceMachineId: resolved.source ? resolved.source.id : ref.machineId,
+            sourceMachineName: resolved.source ? resolved.source.name : '',
+        });
+    }
+    if (imported.length === 0) return null;
+    return { ...parental, children: masters.concat(imported) };
+}
+
 module.exports = {
     MAX_SHARED_REFS,
     MAX_SHARED_TO,
@@ -234,6 +270,7 @@ module.exports = {
     resolveChild,
     resolveRef,
     buildShareView,
+    expandSharedChildren,
     resolveQuizTarget,
     durationAnchorKey,
 };

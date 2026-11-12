@@ -897,8 +897,13 @@ function attachAdmin(app, options = {}) {
         return null;
     }
 
-    /** 机器 → 生效配置：机器设置 > 所属用户设置 > 未配置（App 回落 .env）。 */
-    function resolveMachineConfig(machine, usersByName) {
+    /**
+     * 机器 → 生效配置：机器设置 > 所属用户设置 > 未配置（App 回落 .env）。
+     *
+     * `allMachines` 可复用调用方已读出的设备表，避免逐台解析时重复读盘
+     * （只在设备有共享引用时才会用到）。
+     */
+    function resolveMachineConfig(machine, usersByName, allMachines) {
         const owner = machine.owner || '';
         const user = owner ? usersByName.get(owner) : null;
         let homes = null;
@@ -910,6 +915,12 @@ function attachAdmin(app, options = {}) {
             homes = user.homes;
             source = 'user';
         }
+        // 儿童模式配置透传：本机 children + 共享引用展开的只读档案
+        // （电视端选人页/限时/频道过滤需要主本规则，引用本身只有坐标）。
+        let parental = machine.parental || null;
+        if (parental && Array.isArray(parental.shared) && parental.shared.length > 0) {
+            parental = parentalShare.expandSharedChildren(machine, allMachines || readMachines()) || parental;
+        }
         return {
             homes,
             source,
@@ -917,8 +928,7 @@ function attachAdmin(app, options = {}) {
             parents: machine.parents || (owner ? [owner] : []),
             ownerName: user ? user.displayName || user.name : '',
             layoutKey: owner || `device_${machine.id}`,
-            // 儿童模式配置透传（方案 §2.2：parental 挂机器记录，经 config 帧下发）。
-            parental: machine.parental || null,
+            parental,
             // 节目文件版本：保存后时间戳变化，设备据此重新拉取频道（只带版本号，不带文件内容）。
             programsUpdatedAt: programs ? programs.updatedAt() : 0,
             programsRevision: programs ? programs.revision() : 0,
@@ -1285,8 +1295,9 @@ function attachAdmin(app, options = {}) {
         const isParent = admin.role === 'parent';
         const users = listUsers();
         const usersByName = new Map(users.map((user) => [user.name, user]));
-        const allMachines = Object.values(readMachines()).map((machine) => {
-            const config = resolveMachineConfig(machine, usersByName);
+        const machineMap = readMachines();
+        const allMachines = Object.values(machineMap).map((machine) => {
+            const config = resolveMachineConfig(machine, usersByName, machineMap);
             // 别名是家长私有数据：只回传当前操作者自己的那一条，绝不把
             // aliases 整表（含其他家长的别名）下发给前端。
             const alias = (machine.aliases && machine.aliases[admin.name]) || '';
@@ -1298,7 +1309,7 @@ function attachAdmin(app, options = {}) {
             // 档案引用共享：为电视展开家长端共享视图（主本 + 引用 + 可引用候选）。
             // 只做派生，不落盘；viewer 为当前家长号，引用可见性按 source.sharedTo 白名单校验。
             const shareView = machineKind(machine) === 'tv'
-                ? parentalShare.buildShareView(machine, readMachines(), admin.name)
+                ? parentalShare.buildShareView(machine, machineMap, admin.name)
                 : null;
             return {
                 ...machineFields,
@@ -1796,7 +1807,18 @@ function attachAdmin(app, options = {}) {
             // 来源档案必须是主本（children[]），不能是引用（shared[]）。
             const sourceChildren = source.parental && Array.isArray(source.parental.children) ? source.parental.children : [];
             const child = sourceChildren.find((c) => c.id === fromChildId);
-            if (!child) return jsonFail(res, '来源档案不存在或不是主本档案', 404, 404);
+            if (!child) {
+                // 引用失败的现场：多半是客户端缓存的旧 childId（档案被重建/换 id）或选了「引用进来」的档案。
+                console.warn('[parental/share] 引用失败: 来源档案不存在', JSON.stringify({
+                    viewer: req.adminUser.name,
+                    target: id,
+                    fromMachineId,
+                    fromChildId,
+                    sourceChildren: sourceChildren.map((c) => `${c.id}:${c.name}`),
+                    sourceRefs: ((source.parental && source.parental.shared) || []).map((r) => `${r.childId}:${r.name}`),
+                }));
+                return jsonFail(res, '来源档案不存在或不是主本档案', 404, 404);
+            }
             const viewer = req.adminUser.name;
             const sameAccount = Array.isArray(source.parents) && source.parents.includes(viewer);
             const sharedTo = Array.isArray(child.sharedTo) ? child.sharedTo : [];
@@ -2117,12 +2139,31 @@ function attachAdmin(app, options = {}) {
                 }
             }
             const banks = readQuizStore()[id] || {};
+            // 共享档案的题库存在主本电视的目录下：按引用解析后合并进来，
+            // 电视端「多孩题库合并」才能覆盖共享的孩子。来源失效 / 与本机
+            // childId 冲突的引用直接跳过（与 config 展开口径一致）。
+            const merged = { ...banks };
+            const refs = machine.parental && Array.isArray(machine.parental.shared)
+                ? machine.parental.shared : [];
+            if (refs.length > 0) {
+                const allMachines = readMachines();
+                const store = readQuizStore();
+                for (const ref of refs) {
+                    if (!ref || !ref.childId || merged[ref.childId]) continue;
+                    const target = parentalShare.resolveQuizTarget(machine, allMachines, ref.childId, null);
+                    if (!target.ok) continue;
+                    const sourceBank = (store[target.deviceIdForLookup] || {})[target.childIdForLookup];
+                    if (!sourceBank || !Array.isArray(sourceBank.questions) || sourceBank.questions.length === 0) continue;
+                    merged[ref.childId] = { ...sourceBank, shared: true };
+                }
+            }
             return jsonOk(res, {
                 deviceId: id,
-                banks: Object.entries(banks).map(([childId, bank]) => ({
+                banks: Object.entries(merged).map(([childId, bank]) => ({
                     childId,
                     updatedAt: bank.updatedAt,
                     questions: bank.questions,
+                    ...(bank.shared ? { shared: true } : {}),
                 })),
             });
         } catch (error) {

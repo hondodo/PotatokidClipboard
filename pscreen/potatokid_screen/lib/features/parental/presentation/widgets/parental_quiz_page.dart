@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/parental/parental_attempt_gate.dart';
@@ -48,6 +49,8 @@ class ParentalQuizPage extends StatefulWidget {
 enum _QuizFocusArea { grid, confirm, request }
 
 class _ParentalQuizPageState extends State<ParentalQuizPage> {
+  /// 当前渲染的题库顺序（[ParentalQuizRotation] 打乱后；未就绪前先用入参顺序）。
+  List<ParentalQuizQuestion> _questions = const <ParentalQuizQuestion>[];
   int _index = 0;
   final Set<int> _selected = <int>{};
   String _error = '';
@@ -96,9 +99,9 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
   }
 
   ParentalQuizQuestion get _question =>
-      widget.questions[_index % widget.questions.length];
+      _questions[_index % _questions.length];
 
-  int get _rows => (widget.questions.isEmpty
+  int get _rows => (_questions.isEmpty
       ? 1
       : (_question.options.length + _columns(_question.options) - 1) ~/
             _columns(_question.options));
@@ -106,6 +109,8 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
   @override
   void initState() {
     super.initState();
+    _questions = widget.questions;
+    _prepareRotation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
@@ -114,6 +119,33 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
         if (mounted) setState(() {});
       }),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant ParentalQuizPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.questions, widget.questions)) {
+      _questions = widget.questions;
+      _index = 0;
+      _prepareRotation();
+    }
+  }
+
+  /// 读取「稳定随机顺序 + 上次答到的下一题」作为本页起点。
+  Future<void> _prepareRotation() async {
+    if (widget.questions.isEmpty) return;
+    final ParentalQuizRotation rotation = await ParentalQuizRotation.prepare(
+      widget.questions,
+    );
+    if (!mounted || rotation.questions.isEmpty) return;
+    setState(() {
+      _questions = rotation.questions;
+      _index = rotation.start;
+      _selected.clear();
+      _area = _QuizFocusArea.grid;
+      _row = 0;
+      _col = 0;
+    });
   }
 
   @override
@@ -293,11 +325,15 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
     final bool correct =
         _selected.length == q.answers.length &&
         _selected.every(q.answers.contains);
+    final int answered = _index;
     if (correct) {
+      // 答对也算「答过这一题」：下次进来从下一题开始。
+      unawaited(ParentalQuizRotation.markAnswered(_questions, answered));
       await gate.recordSuccess();
       await widget.onSolved();
       return;
     }
+    unawaited(ParentalQuizRotation.markAnswered(_questions, answered));
     await gate.recordFailure();
     if (!mounted) return;
     setState(() {
@@ -306,9 +342,9 @@ class _ParentalQuizPageState extends State<ParentalQuizPage> {
           '__COUNT__': '${ParentalAttemptGate.maxFailures - gate.failCount}',
         },
       );
-      _index = widget.questions.isEmpty
+      _index = _questions.isEmpty
           ? 0
-          : (_index + 1) % widget.questions.length;
+          : (_index + 1) % _questions.length;
       _selected.clear();
       _area = _QuizFocusArea.grid;
       _row = 0;

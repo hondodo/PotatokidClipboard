@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/app_log.dart';
@@ -131,13 +132,10 @@ class ParentalQuizQuestion {
   }
 }
 
-/// 多儿童题库选择（家长选中多个孩子时的生效顺序）。
+/// 多儿童题库合并（家长选中多个孩子时）。
 ///
-/// 规则（与产品需求对齐）：
-/// 1. 按年龄从大到小分组；同岁儿童的题库合并、按题目 id 去重；
-/// 2. 当前年龄组无题 → 继续下一个年龄组；
-/// 3. 未填年龄的孩子排在最后；全部未填年龄时视为同一组（合并）；
-/// 4. 所有组都无题 → 返回空（调用方回退算术题）。
+/// 规则：**所有在看的档案题库全部合并**，按题目 id 去重（同一道题只出现一次）。
+/// 出题次序不在这里决定：由 [ParentalQuizRotation] 做「稳定随机打乱 + 跨重启轮换」。
 class ParentalQuizSelector {
   const ParentalQuizSelector._();
 
@@ -145,26 +143,115 @@ class ParentalQuizSelector {
     required List<ChildProfile> profiles,
     required Map<String, List<ParentalQuizQuestion>> banks,
   }) {
-    final Map<int?, List<ChildProfile>> groups = <int?, List<ChildProfile>>{};
+    final Map<String, ParentalQuizQuestion> merged =
+        <String, ParentalQuizQuestion>{};
     for (final ChildProfile child in profiles) {
-      groups.putIfAbsent(child.age, () => <ChildProfile>[]).add(child);
-    }
-    final List<int> ages = groups.keys.whereType<int>().toList()
-      ..sort((int a, int b) => b.compareTo(a));
-    final List<int?> ordered = <int?>[...ages];
-    if (groups.containsKey(null)) ordered.add(null);
-    for (final int? age in ordered) {
-      final Map<String, ParentalQuizQuestion> merged =
-          <String, ParentalQuizQuestion>{};
-      for (final ChildProfile child in groups[age]!) {
-        for (final ParentalQuizQuestion q
-            in banks[child.id] ?? const <ParentalQuizQuestion>[]) {
-          merged.putIfAbsent(q.id, () => q);
-        }
+      for (final ParentalQuizQuestion q
+          in banks[child.id] ?? const <ParentalQuizQuestion>[]) {
+        merged.putIfAbsent(q.id, () => q);
       }
-      if (merged.isNotEmpty) return merged.values.toList(growable: false);
     }
-    return const <ParentalQuizQuestion>[];
+    return merged.values.toList(growable: false);
+  }
+}
+
+/// 出题次序与游标：稳定随机打乱 + 跨重启轮换。
+///
+/// - **稳定随机**：题库签名（题目 id 排序后拼接）不变时，随机种子与题目顺序
+///   保持不变——否则「轮流」会因每次顺序不同而失去意义；题库增删题后签名变化，
+///   自动换新种子重新打乱、游标归 0。
+/// - **跨重启轮换**：记录「下一题」的题目 id（而不是下标），题库顺序调整也不会错位；
+///   锁屏题库页与验证弹窗共用同一份游标，交替进入时继续往后出题。
+class ParentalQuizRotation {
+  const ParentalQuizRotation({required this.questions, required this.start});
+
+  /// 打乱后的题目列表（消费方应使用这份顺序渲染与翻页）。
+  final List<ParentalQuizQuestion> questions;
+
+  /// 本次起始下标（`0 <= start < questions.length`）。
+  final int start;
+
+  static const String storageKey = 'parental_quiz_rotation_v1';
+
+  /// 读取已保存的种子/游标，返回排好序的题目与起始下标。
+  static Future<ParentalQuizRotation> prepare(
+    List<ParentalQuizQuestion> questions,
+  ) async {
+    if (questions.isEmpty) {
+      return const ParentalQuizRotation(
+        questions: <ParentalQuizQuestion>[],
+        start: 0,
+      );
+    }
+    final String signature = _signatureOf(questions);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final Map<String, dynamic>? saved = _decode(prefs.getString(storageKey));
+    final bool sameBank = saved != null && saved['signature'] == signature;
+    final int seed = sameBank
+        ? ((saved['seed'] as num?)?.toInt() ?? _newSeed())
+        : _newSeed();
+    final String? nextId = sameBank ? saved['nextId'] as String? : null;
+    final List<ParentalQuizQuestion> ordered = List<ParentalQuizQuestion>.of(
+      questions,
+    )..shuffle(math.Random(seed));
+    int start =
+        nextId == null ? 0 : ordered.indexWhere((ParentalQuizQuestion q) => q.id == nextId);
+    if (start < 0) start = 0;
+    await _save(prefs, signature: signature, seed: seed, nextId: nextId);
+    return ParentalQuizRotation(questions: ordered, start: start);
+  }
+
+  /// 答完第 [index] 题后，把下一题记为下次答题的起点。
+  static Future<void> markAnswered(
+    List<ParentalQuizQuestion> ordered,
+    int index,
+  ) async {
+    if (ordered.isEmpty) return;
+    final String signature = _signatureOf(ordered);
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final Map<String, dynamic>? saved = _decode(prefs.getString(storageKey));
+    final int seed = saved != null && saved['signature'] == signature
+        ? ((saved['seed'] as num?)?.toInt() ?? _newSeed())
+        : _newSeed();
+    final int safe = index < 0 ? 0 : (index >= ordered.length ? ordered.length - 1 : index);
+    final String nextId = ordered[(safe + 1) % ordered.length].id;
+    await _save(prefs, signature: signature, seed: seed, nextId: nextId);
+  }
+
+  static String _signatureOf(List<ParentalQuizQuestion> questions) {
+    final List<String> ids = questions
+        .map((ParentalQuizQuestion q) => q.id)
+        .toList()
+      ..sort();
+    return ids.join('|');
+  }
+
+  static int _newSeed() => DateTime.now().millisecondsSinceEpoch & 0x3fffffff;
+
+  static Map<String, dynamic>? _decode(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final Object? decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _save(
+    SharedPreferences prefs, {
+    required String signature,
+    required int seed,
+    required String? nextId,
+  }) async {
+    await prefs.setString(
+      storageKey,
+      jsonEncode(<String, dynamic>{
+        'signature': signature,
+        'seed': seed,
+        'nextId': ?nextId,
+      }),
+    );
   }
 }
 

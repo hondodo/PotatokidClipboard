@@ -262,4 +262,33 @@ ok('broken 引用时长回落本台坐标（不丢数据）', () => {
     assert.strictEqual(share.durationAnchorKey(m.tvBed, m, 'c7'), 'tvBed:c7');
 });
 
+// ---------- 7. expandSharedChildren（设备 config 展开下发电视端） ----------
+ok('设备配置展开：本机 children 在前，引用追加在后并标记只读', () => {
+    const m = machines();
+    const p = share.expandSharedChildren(m.tvBed, m);
+    // c9（本机）+ c1、c2（引用正常）；c7 来源电视不存在 → 跳过
+    assert.strictEqual(p.children.length, 3);
+    assert.strictEqual(p.children[0].id, 'c9');
+    const c1 = p.children.find((c) => c.id === 'c1');
+    assert.strictEqual(c1.dailyLimitMin, 60);
+    assert.strictEqual(c1.readOnly, true);
+    assert.strictEqual(c1.sourceMachineId, 'tvLiving');
+    assert.strictEqual(c1.sourceMachineName, '客厅电视');
+});
+
+ok('设备配置展开：不修改原始 parental（引用仍保留）', () => {
+    const m = machines();
+    share.expandSharedChildren(m.tvBed, m);
+    assert.strictEqual(m.tvBed.parental.children.length, 1);
+    assert.strictEqual(m.tvBed.parental.shared.length, 3);
+});
+
+ok('设备配置展开：无引用返回 null；id 与本机重复时跳过', () => {
+    const m = machines();
+    assert.strictEqual(share.expandSharedChildren(m.tvLiving, m), null);
+    m.tvBed.parental.children.push({ id: 'c1', name: '同 id 占位' });
+    const p = share.expandSharedChildren(m.tvBed, m);
+    assert.strictEqual(p.children.filter((c) => c.id === 'c1').length, 1);
+});
+
 console.log(`[parental-share] 通过 ${passed} 项`);
