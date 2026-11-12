@@ -108,6 +108,17 @@ table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+
+/* 文件管理表格：固定列宽，长名称在格内换行，避免撑破页面 */
+#filesTable { overflow-x: auto; }
+table.files-table { table-layout: fixed; }
+table.files-table th:nth-child(1) { width: 30%; } /* 文件名 */
+table.files-table th:nth-child(2) { width: 22%; } /* 来源 */
+table.files-table th:nth-child(3) { width: 9%; }  /* 大小 */
+table.files-table th:nth-child(4) { width: 15%; } /* 创建时间 */
+table.files-table th:nth-child(5) { width: 14%; } /* sha256 */
+table.files-table th:nth-child(6) { width: 10%; } /* 操作 */
+table.files-table .mono { word-break: break-all; overflow-wrap: anywhere; }
 .badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
   border: 1px solid var(--line); color: var(--muted); font-size: 12px; margin: 2px 4px 2px 0;

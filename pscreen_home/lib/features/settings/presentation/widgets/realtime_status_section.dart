@@ -14,64 +14,47 @@ class RealtimeStatusSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final RealtimeChannel channel =
-        this.channel ?? Injection.get<RealtimeChannel>();
+    final RealtimeChannel channel = this.channel ?? Injection.get<RealtimeChannel>();
     return StreamBuilder<RealtimeConnectionState>(
       stream: channel.connectionState,
       initialData: channel.state,
-      builder:
-          (
-            BuildContext context,
-            AsyncSnapshot<RealtimeConnectionState> snapshot,
-          ) {
-            final RealtimeConnectionState state =
-                snapshot.data ?? RealtimeConnectionState.disconnected;
-            final (String label, Color color) = switch (state) {
-              RealtimeConnectionState.connected => (
-                '已连接（${channel.account}）',
-                Colors.greenAccent,
-              ),
-              RealtimeConnectionState.connecting => (
-                '连接中…',
-                Colors.orangeAccent,
-              ),
-              RealtimeConnectionState.disconnected => ('未连接', Colors.redAccent),
-              RealtimeConnectionState.error => ('连接错误', Colors.redAccent),
-            };
-            final TextStyle? hint = Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: Theme.of(context).colorScheme.outline);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (BuildContext context, AsyncSnapshot<RealtimeConnectionState> snapshot) {
+        final RealtimeConnectionState state = snapshot.data ?? RealtimeConnectionState.disconnected;
+        final (String label, Color color) = switch (state) {
+          RealtimeConnectionState.connected => ('已连接\n${channel.account}', Colors.greenAccent),
+          RealtimeConnectionState.connecting => ('连接中…', Colors.orangeAccent),
+          RealtimeConnectionState.disconnected => ('未连接', Colors.redAccent),
+          RealtimeConnectionState.error => ('连接错误', Colors.redAccent),
+        };
+        final TextStyle? hint = Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
               children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '遥控通道：$label',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 ),
-                if (channel.lastError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text('最近错误：${channel.lastError}', style: hint),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
-                ),
+                const SizedBox(width: 8),
+                Text('遥控通道：$label', style: Theme.of(context).textTheme.bodySmall),
               ],
-            );
-          },
+            ),
+            if (channel.lastError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('最近错误：${channel.lastError}', style: hint),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('网关：${AppConstants.realtimeWsUrl}', style: hint),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -12,7 +12,7 @@ void main() {
 
     expect(find.text('此页面仅家长端可用'), findsOneWidget);
     expect(find.byType(TextField), findsNothing,
-        reason: '中控端不应看到改名表单');
-    expect(find.text('设置登录名'), findsOneWidget, reason: 'AppBar 标题');
+        reason: '中控端不应看到家长号表单');
+    expect(find.text('家长号与跨设备'), findsOneWidget, reason: 'AppBar 标题');
   });
 }

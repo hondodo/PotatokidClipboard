@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:pscreen_home/app/app.dart';
@@ -35,6 +36,14 @@ void main() {
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // 0.0 家长端浅色主题：在 runApp 之前命令式设置系统栏为浅底 + 深色图标。
+      //     MIUI 等 ROM 上 widget 树内的 AnnotatedRegion 覆盖不到启动期状态栏，
+      //     实测纯黑（与浅色 AppBar 割裂）。命令式设置是 TV 端已验证的可靠路径；
+      //     其它 flavor（中控屏深色）保持系统默认，不受影响。
+      if (AppFlavorConfig.isParentOnly) {
+        SystemChrome.setSystemUIOverlayStyle(App.parentSystemUi);
+      }
 
       // 0. 媒体播放库（共享包的 IPTV 能力依赖 media_kit）
       MediaKit.ensureInitialized();
@@ -113,22 +122,32 @@ void main() {
       await serverSync;
 
       // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
-      //     凭据统一走共享包 DeviceCredentials（账号恒为 <flavor>.<kind>.<设备号>，
-      //     口令固定；仅调试包允许自定义）。连接前先 HTTP 登录完成账号建档，
-      //     再发起 ws，避免握手因「账号不存在」被拒。断线由通道自动重连。
+      //     ws 恒用**设备派生号**（channelAccount + 默认口令）——它是设备身份证，
+      //     永不改名/禁用；家长号只作为 principal 附加声明，让服务端把本连接
+      //     也登记到家长号名下，保证按 machine.parents 扇出的事件仍能送达。
+      //     连接前先 HTTP 登录完成账号建档，再发起 ws，避免握手被拒。
       unawaited(() async {
         try {
-          final String account = await DeviceCredentials.account();
-          if (account.isEmpty) {
-            ControlLog.i('[实时通道] 无法确定账号，跳过自动连接');
+          final String channel = await DeviceCredentials.channelAccount();
+          if (channel.isEmpty) {
+            ControlLog.i('[实时通道] 无法确定设备账号，跳过自动连接');
             return;
           }
           // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
           await AccountSession.loginWithSaved();
           final ClientInfo info = await ClientInfo.current();
+          // 家长号身份：仅 parent flavor、且已设置家长号时才随握手上报。
+          final String principal = AppFlavorConfig.isParentOnly
+              ? (await DeviceCredentials.account()).trim()
+              : '';
+          final String principalToken = principal.isNotEmpty
+              ? DeviceCredentials.passwordMd5()
+              : '';
           await Injection.get<RealtimeChannel>().connect(
-            account: account,
-            token: DeviceCredentials.passwordMd5(),
+            account: channel,
+            token: DeviceCredentials.channelPasswordMd5(),
+            principal: principal,
+            principalToken: principalToken,
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
@@ -140,7 +159,7 @@ void main() {
             version: info.version,
             build: info.build,
           );
-          ControlLog.i('[实时通道] 已连接 $account');
+          ControlLog.i('[实时通道] 已连接 $channel${principal.isNotEmpty ? '（家长号 $principal）' : ''}');
         } catch (e) {
           ControlLog.e('[实时通道] 自动连接失败: $e');
         }

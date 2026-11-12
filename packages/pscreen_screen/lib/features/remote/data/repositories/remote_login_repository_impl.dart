@@ -11,6 +11,10 @@ import 'package:pscreen_screen/features/remote/domain/repositories/remote_login_
 /// 服务端按 `datas/register/users/<账号>` 统一校验，故连接前先走一次
 /// HTTP 登录（完成账号自动建档），再发起 ws 连接。
 /// 握手同时携带 app/version/build（见 [ClientInfo]），供服务端区分控制端。
+///
+/// 注：本仓库服务的是「可切换遥控目标账号」场景（[switchAccount]），
+/// 与家长端的双凭据模型不同。家长端 parent flavor 的实时通道恒用设备派生号
+/// + principal 握手，走的是 main.dart / settings_page.dart 的连接路径，不经此处。
 class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
   RemoteLoginRepositoryImpl({
     required RealtimeChannel channel,

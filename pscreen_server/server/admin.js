@@ -1042,17 +1042,21 @@ function attachAdmin(app, options = {}) {
 
     // ------------------------------------------------------------ Admin API
 
-    // 家长自定义登录名（route 2 / claim）：只允许设备自举的 parent 账号领票一次。
+    // 设置家长号（route 2 / claim）：设备派生号与家长号是两层身份，互不替代。
+    // 派生号（设备身份证，实时通道恒用）永不改名/禁用；这里只新建家长号账号，
+    // 并把「家长可见性绑定」从派生号映射到家长号。口令由用户自设、可跨设备登录。
     // 认证来源是已登录的 pk_admin 会话，不碰 /api/login，也不改中控端登录链路。
     app.post('/api/admin/claim/ticket', requireParentOperator, (req, res) => {
         try {
             const name = req.adminUser.name;
             const info = readUserInfo(name);
             if (req.adminUser.role !== 'parent' || !claims.isDerivedAccount(name)) {
-                return jsonFail(res, '只有设备自举的家长账号可以设置登录名', 403, 403);
+                return jsonFail(res, '只有设备自举的家长账号可以设置家长号', 403, 403);
             }
-            if (info.claimedAt || info.claimedTo) {
-                return jsonFail(res, '该账号已设置过登录名', 403, 403);
+            // 已通过家长号登录（req.adminUser.name 非派生号）时无需再领票；
+            // 派生号已关联过家长号时也不允许重复关联，改口令走独立接口。
+            if (info.parentAccount || info.claimedAt || info.claimedTo) {
+                return jsonFail(res, '该设备已关联过家长号，改口令请在设置页操作', 403, 403);
             }
             return jsonOk(res, {
                 claimToken: signClaimTicket(name),
@@ -1075,34 +1079,73 @@ function attachAdmin(app, options = {}) {
                 accountExists: (name) => fs.existsSync(passwordPath(name)),
             });
             if (!verdict.ok) return jsonFail(res, verdict.reason);
+            // 家长号口令由用户自设（不再服务端随机下发只存本机）：换设备凭
+            // 「家长号 + 自设口令」即可登录，不再有「重装即锁死」的问题。
+            const password = String(body.password || '');
+            if (password.length < 6 || password.length > 128) {
+                return jsonFail(res, '家长号口令需为 6-128 位');
+            }
+            if (password === '123456') {
+                return jsonFail(res, '家长号口令不能与设备默认口令相同，请自设一个');
+            }
             const info = readUserInfo(oldName);
             if (req.adminUser.role !== 'parent' || !claims.isDerivedAccount(oldName)
-                || info.role !== 'parent' || info.claimedAt || info.claimedTo) {
-                return jsonFail(res, '该账号不能重复设置登录名', 403, 403);
+                || info.role !== 'parent' || info.parentAccount || info.claimedAt || info.claimedTo) {
+                return jsonFail(res, '该设备不能重复关联家长号', 403, 403);
             }
-            // 先核销 jti 再迁移：并发重复提交只会有一个请求真正改名。
+            // 先核销 jti 再建档：并发重复提交只会有一个请求真正生效。
             if (!claims.consumeTicket(claimTicketsFile, payload.jti, nowMs(), CLAIM_TICKET_TTL_MS)) {
                 return jsonFail(res, '凭证已被使用，请重新获取', 403, 403);
             }
-            // 自定义登录名可猜，必须换掉设备自举的默认口令 123456；新口令
-            // 只在这次响应里下发一次，客户端持久化后仍按原有 MD5 校验登录。
-            const newPassword = crypto.randomBytes(12).toString('base64url');
             const result = claims.applyAccountRename({
                 datasDir,
                 registerUsersDir,
                 oldName,
                 newName: verdict.name,
-                newPasswordMd5: hashPassword(newPassword),
+                newPasswordMd5: hashPassword(password),
             });
+            // 管理会话切到家长号：后续 /api/admin/* 的可见性按 machine.parents
+            // （已映射到家长号）判定。实时通道另用派生号 + principal 握手，不受影响。
             setSessionCookie(res, verdict.name);
-            console.log(`[admin] 家长账号改名: ${oldName} -> ${verdict.name} 备份=${result.backupDir}`);
+            console.log(`[admin] 家长号关联: 派生号 ${oldName} -> ${verdict.name} 备份=${result.backupDir}`);
             return jsonOk(res, {
                 account: verdict.name,
-                password: newPassword,
                 changed: result.changed,
-            }, '登录名已设置');
+            }, '家长号已设置');
         } catch (error) {
-            console.error('[admin] claim 失败:', error);
+            console.error('[admin] 设置家长号失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    // 家长号改口令：已用「家长号 + 旧口令」登录后即可自设新口令。
+    // 派生号账号本身保持默认口令不变（实时通道恒用），这里只动家长号这一层。
+    app.post('/api/admin/parent-account/password', requireParentOperator, (req, res) => {
+        try {
+            const name = req.adminUser.name;
+            const info = readUserInfo(name);
+            if (req.adminUser.role !== 'parent' || !info || info.role !== 'parent'
+                || claims.isDerivedAccount(name)) {
+                return jsonFail(res, '请先使用家长号登录', 403, 403);
+            }
+            const body = req.body || {};
+            const current = String(body.currentPassword || '');
+            const next = String(body.newPassword || '');
+            // 与 /api/login、ws 握手同一校验源：账号文件里存的就是口令 MD5。
+            const stored = fs.existsSync(passwordPath(name))
+                ? fs.readFileSync(passwordPath(name), 'utf8').trim()
+                : '';
+            if (stored !== hashPassword(current)) {
+                return jsonFail(res, '当前口令不正确');
+            }
+            if (next.length < 6 || next.length > 128 || next === '123456') {
+                return jsonFail(res, '新口令需为 6-128 位且不同于默认口令');
+            }
+            fs.writeFileSync(passwordPath(name), hashPassword(next), 'utf8');
+            console.log(`[admin] 家长号改口令: ${name}`);
+            return jsonOk(res, { account: name }, '口令已更新');
+        } catch (error) {
+            console.error('[admin] 家长号改口令失败:', error);
             return jsonFail(res, error.message);
         }
     });

@@ -56,16 +56,16 @@ void main() {
 
   tearDown(() => AccountSession.roleNotifier.value = '');
 
-  testWidgets('parent 身份：无返回按钮、拦截系统返回、显示设置入口', (WidgetTester tester) async {
+  testWidgets('parent 身份：无返回按钮、拦截系统返回、今天页显示解锁+刷新', (WidgetTester tester) async {
     AccountSession.roleNotifier.value = 'parent';
     await _pumpPushedParentalPage(tester);
 
     expect(find.byType(ParentalPage), findsOneWidget);
     // 左上角返回按钮被移除。
     expect(find.byType(BackButton), findsNothing);
-    // 右上角刷新旁新增设置入口，以及家长专用的扫码设备入口。
-    expect(find.byTooltip('设置'), findsOneWidget);
-    expect(find.byTooltip('添加/解绑设备'), findsOneWidget);
+    // 原右上角「设置」齿轮已删除，其内容（家长号/名称/通道/更新）并入「我的」页。
+    // 用 findsNothing 而非具体按钮断言，避免依赖加载时序与当前 Tab 索引。
+    expect(find.byTooltip('设置'), findsNothing);
 
     // 系统返回（Android 返回键/手势）不能退回进来时的页面。
     await tester.binding.handlePopRoute();

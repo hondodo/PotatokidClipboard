@@ -41,7 +41,7 @@ class AppSettings {
   /// 完全不感知这个字段，登录链路保持原样。
   static const String _keyClaimedAccount = 'app_claimed_account_v1';
 
-  /// claim 时服务端生成的一次性随机口令（自定义登录名不能用默认口令）。
+  /// 家长号自设口令（跨设备登录 / 改口令用；自定义登录名不能沿用默认口令）。
   static const String _keyClaimedPassword = 'app_claimed_password_v1';
 
   /// 首次加载的 Future；并发调用共享同一次加载，避免第二个调用提前返回旧值。
@@ -300,10 +300,11 @@ class AppSettings {
     }
   }
 
-  /// 保存 claim 生成的新随机口令（空串表示清除，回落原默认口令）。
+  /// 保存家长号的自设口令（空串表示清除，回落原默认口令）。
   ///
-  /// 自定义登录名是可猜的，不能沿用设备自举的默认口令；该口令由服务端
-  /// 在 claim 响应里一次性下发，之后 HTTP 登录与 ws 握手都提交它的 MD5。
+  /// 家长号是可猜的自定义名，不能沿用设备自举的默认口令；口令由用户自己
+  /// 设置/修改，跨设备凭「家长号 + 口令」登录。此值只用于**管理登录**
+  /// （/api/login、/api/admin/*），实时通道恒用派生号 + 默认口令，不受影响。
   Future<void> setClaimedPassword(String password) async {
     _claimedPassword = password.trim();
     try {
@@ -329,8 +330,9 @@ class AppSettings {
   /// `ParentalStateController` 的显式清除入口（见 `KidWatchTimerController.clearAll`）。
   ///
   /// 注意：重置会清除 [claimedAccount] 与 [claimedPassword]，家长端下次启动
-  /// 回落到设备派生账号。服务端账号不会因此删除，且新口令不会再次下发，
-  /// 所以重置后无法自行登录回原账号，需管理员介入。
+  /// 回落到设备派生账号（派生号永不改名/禁用，默认口令 123456 可自举），
+  /// 管理登录与实时通道都能重新连上，**不会锁死**。只不过重置后旧家长号
+  /// 名下绑定的电视需重新用该家长号登录才能看到（绑定关系在服务端未删除）。
   Future<void> clearAllPersisted() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();

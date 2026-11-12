@@ -98,7 +98,7 @@
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "192.168.70.14:41401",
+            "deviceId": "192.168.70.14:39475",
             "toolArgs": [
                 "--flavor",
                 "parent",

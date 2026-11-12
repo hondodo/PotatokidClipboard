@@ -215,10 +215,17 @@ class _SettingsPageState extends State<SettingsPage> {
       // 先 HTTP 登录完成账号建档（失败返回 false，不阻断：ws 侧独立报错）。
       await AccountSession.loginWithSaved();
       final ClientInfo info = await ClientInfo.current();
+      // ws 恒用设备派生号；家长号只作 principal 附加（仅 parent flavor）。
+      final String principal = AppFlavorConfig.isParentOnly
+          ? (await DeviceCredentials.account()).trim()
+          : '';
       await channel
           .connect(
-            account: await DeviceCredentials.account(),
-            token: DeviceCredentials.passwordMd5(),
+            account: await DeviceCredentials.channelAccount(),
+            token: DeviceCredentials.channelPasswordMd5(),
+            principal: principal,
+            principalToken:
+                principal.isNotEmpty ? DeviceCredentials.passwordMd5() : '',
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',

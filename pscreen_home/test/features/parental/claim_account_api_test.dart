@@ -55,23 +55,27 @@ void main() {
     expect(adapter.last!.method, 'POST');
   });
 
-  test('claimAccount 提交登录名与凭证，并返回服务端确认的新名', () async {
+  test('claimAccount 提交家长号+自设口令+凭证，返回服务端确认的家长号', () async {
+    // 新模型：口令由用户自设，服务端只回账号名，不再回传随机口令。
     final _RecordingAdapter adapter = _RecordingAdapter(
-      '{"code":0,"msg":"ok","data":{"account":"mama_01","password":"r4nd0m-token","changed":["machines.json"]}}',
+      '{"code":0,"msg":"ok","data":{"account":"mama_01","changed":["machines.json"]}}',
     );
     useAdapter(adapter);
 
     final ClaimAccountResult result = await const ParentalAdminApi().claimAccount(
       account: '  mama_01  ',
+      password: 'self-chosen-123',
       claimToken: 'clm.abc',
     );
 
     expect(result.account, 'mama_01');
-    expect(result.password, 'r4nd0m-token');
+    // 结果口令回传请求值，统一持久化入口（不再依赖服务端下发）。
+    expect(result.password, 'self-chosen-123');
     expect(adapter.last!.uri.path, '/api/admin/claim');
     expect(adapter.last!.method, 'POST');
     final String payload = adapter.last!.data.toString();
     expect(payload, contains('mama_01'));
+    expect(payload, contains('self-chosen-123'));
     expect(payload, contains('clm.abc'));
   });
 
@@ -84,6 +88,7 @@ void main() {
     expect(
       () => const ParentalAdminApi().claimAccount(
         account: 'mama_01',
+        password: 'self-chosen-123',
         claimToken: 'expired',
       ),
       throwsA(isA<ServerApiException>().having(
@@ -94,7 +99,7 @@ void main() {
     );
   });
 
-  test('服务端未返回凭证时明确报错', () async {
+  test('服务端未返回账号名时明确报错', () async {
     final _RecordingAdapter adapter =
         _RecordingAdapter('{"code":0,"msg":"ok","data":{}}');
     useAdapter(adapter);
@@ -105,22 +110,39 @@ void main() {
     );
   });
 
-  test('服务端未返回新口令时明确报错', () async {
+  test('changeParentPassword 命中改口令端点并提交新旧口令', () async {
     final _RecordingAdapter adapter = _RecordingAdapter(
       '{"code":0,"msg":"ok","data":{"account":"mama_01"}}',
     );
     useAdapter(adapter);
 
-    expect(
-      () => const ParentalAdminApi().claimAccount(
-        account: 'mama_01',
-        claimToken: 'clm.abc',
-      ),
-      throwsA(isA<ServerApiException>().having(
-        (ServerApiException e) => e.message,
-        'message',
-        contains('口令'),
-      )),
+    await const ParentalAdminApi().changeParentPassword(
+      currentPassword: 'old-pass',
+      newPassword: 'new-pass-123',
     );
+
+    expect(adapter.last!.uri.path, '/api/admin/parent-account/password');
+    expect(adapter.last!.method, 'POST');
+    final String payload = adapter.last!.data.toString();
+    expect(payload, contains('old-pass'));
+    expect(payload, contains('new-pass-123'));
+  });
+
+  test('loginRole 命中 /api/login 并解析角色（跨设备登录）', () async {
+    final _RecordingAdapter adapter = _RecordingAdapter(
+      '{"code":0,"msg":"登录成功","data":{"user":{"name":"mama_01","role":"parent"}}}',
+    );
+    useAdapter(adapter);
+
+    final String role = await const ParentalAdminApi().loginRole(
+      account: 'mama_01',
+      passwordMd5: 'abc123md5',
+    );
+
+    expect(role, 'parent');
+    expect(adapter.last!.uri.path, '/api/login');
+    final String payload = adapter.last!.data.toString();
+    expect(payload, contains('mama_01'));
+    expect(payload, contains('abc123md5'));
   });
 }

@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,12 +18,16 @@ import java.io.File
 import java.util.UUID
 
 /**
- * 中控屏宿主 Activity。
+ * 宿主 Activity（board / phone / parent 三个 flavor 共用）。
  *
- * 除了承载 Flutter 界面，还负责把系统状态栏 / 底部导航栏彻底隐藏：
- * 15 寸壁挂面板上系统栏会压住底部卡片，而且开机或弹窗后系统会把导航栏
- * 重新显示出来，所以除了 onCreate，还要在 onResume 和每次重新获得焦点时
- * 重新进入沉浸式（IMMERSIVE_STICKY：从边缘上滑可临时唤出，随后自动隐藏）。
+ * 系统栏策略按 flavor 区分：
+ * - board（15 寸壁挂中控屏）：彻底隐藏状态栏 / 导航栏，避免压住底部卡片；
+ *   开机或弹窗后系统会重新显示，故 onCreate / onResume / 重新获得焦点时都
+ *   强制进入沉浸式（IMMERSIVE_STICKY）。
+ * - parent（家长端，浅色主题）：**必须显示状态栏**，并且显式设为浅底 + 深色
+ *   图标，与浅色 AppBar 融合。此前共用沉浸逻辑会把状态栏藏成黑条（MIUI 上
+ *   Flutter 的 SystemUIOverlayStyle 又被忽略），真机表现为顶部纯黑一条。
+ * - phone（手机端）：同样不强制沉浸，保持系统默认状态栏。
  *
  * 同时实现共享包 `PlatformChannelService` 使用的
  * `potatokid/volume` 通道：遥控端下发的 volume_up / volume_down / mute
@@ -189,8 +195,28 @@ class MainActivity : FlutterActivity() {
         if (hasFocus) applyImmersiveMode()
     }
 
+    /**
+     * flavor 判定用 [getPackageName]（= 各 flavor 的 applicationId），不依赖
+     * BuildConfig.FLAVOR——AGP 8.x 默认不再生成 BuildConfig，直接引用会编译失败。
+     * 包名：board=potatokid.tools.homecontroller / parent=….parent / phone=….phone。
+     */
+    private val isBoardFlavor: Boolean
+        get() = packageName == "potatokid.tools.homecontroller"
+    private val isParentFlavor: Boolean
+        get() = packageName.endsWith(".parent")
+
     @Suppress("DEPRECATION")
     private fun applyImmersiveMode() {
+        if (!isBoardFlavor) {
+            // 家长端 / 手机端：不隐藏系统栏。家长端显式设置浅色状态栏（浅底 +
+            // 深色图标），与 #F7F9F8 的浅色 UI 融合；用 WindowInsetsControllerCompat
+            // 而非已废弃的 systemUiVisibility，MIUI 等 ROM 兼容性更好。
+            if (isParentFlavor) {
+                applyParentLightStatusBar()
+            }
+            return
+        }
+        // board 壁挂中控屏：维持原沉浸式全屏，隐藏状态栏 / 导航栏。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             window.decorView.systemUiVisibility =
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
@@ -199,6 +225,26 @@ class MainActivity : FlutterActivity() {
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        }
+    }
+
+    /** 家长端浅色状态栏：浅底 #F7F9F8 + 深色图标，导航栏同色系。 */
+    private fun applyParentLightStatusBar() {
+        val lightBg = 0xFFF7F9F8.toInt()
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = lightBg
+        window.navigationBarColor = lightBg
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.navigationBarDividerColor = 0x00000000
+        }
+        // Android 10+ 关闭导航栏强制对比遮罩，避免浅底被系统压暗。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+        // isAppearanceLightStatusBars = true → 浅底配深色图标；导航栏同理。
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
         }
     }
 }

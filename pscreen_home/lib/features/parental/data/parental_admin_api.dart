@@ -6,14 +6,17 @@ import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 import 'package:pscreen_screen/core/network/http_method.dart';
 
-/// 设置登录名成功后服务端返回的新凭据。
+/// 设置家长号成功后服务端返回的账号。
 ///
-/// [password] 是服务端为自定义登录名生成的随机口令，只下发这一次，
-/// 客户端必须立即持久化；之后 HTTP 登录与 ws 握手都提交它的 MD5。
+/// 口令由用户在此前自设（不再由服务端随机下发只存本机），因此响应只回账号名；
+/// 客户端把「家长号 + 自设口令」一起持久化，换设备凭这两项即可登录。
+/// 实时通道仍恒用设备派生号，与这里无关。
 class ClaimAccountResult {
   const ClaimAccountResult({required this.account, required this.password});
 
   final String account;
+
+  /// 用户自设口令，原样回传便于调用方统一持久化（与旧接口签名兼容）。
   final String password;
 }
 
@@ -321,10 +324,10 @@ class ParentalAdminApi {
     _dataOf(data);
   }
 
-  /// 领取「设置登录名」的一次性凭证（服务端签发，短时有效）。
+  /// 领取「设置家长号」的一次性凭证（服务端签发，短时有效）。
   ///
-  /// 需先调 [ensureAdminSession] 拿到 `pk_admin` 会话；服务端只给
-  /// 设备自举的 parent 账号签票，且一个账号只能成功改名一次。
+  /// 需先用设备派生号调 [ensureAdminSession] 拿到 `pk_admin` 会话；服务端只给
+  /// 设备自举的 parent 账号签票，且一台设备只能关联一次家长号。
   Future<String> requestClaimTicket() async {
     final dynamic data = await DioManager().send(
       url: _uri('/api/admin/claim/ticket').toString(),
@@ -339,13 +342,15 @@ class ParentalAdminApi {
     return token;
   }
 
-  /// 把当前设备派生账号改名为自定义登录名。
+  /// 建立家长号与本机派生号的关联（两层身份并存，派生号永不改名/禁用）。
   ///
-  /// 服务端会在同一个请求里迁移 `parents` / `owner` / 别名 / 观看记录等
-  /// 所有账号引用，并重签管理会话；成功后客户端需把返回值写入
-  /// `AppSettings.setClaimedAccount()`，重启后才会继续用新账号登录。
+  /// 服务端只新建家长号账号（口令为用户自设）并把 `parents` / 私有别名 /
+  /// 儿童模式归属从派生号映射到家长号；设备 commAccount、题库、事件历史不动。
+  /// 成功后客户端把「家长号 + 自设口令」一起持久化，此后 HTTP 管理登录用家长号，
+  /// 实时通道仍恒用派生号 + principal 握手，互不影响。
   Future<ClaimAccountResult> claimAccount({
     required String account,
+    required String password,
     required String claimToken,
   }) async {
     final dynamic data = await DioManager().send(
@@ -353,6 +358,7 @@ class ParentalAdminApi {
       method: HttpMethod.POST,
       params: <String, dynamic>{
         'account': account.trim(),
+        'password': password,
         'claimToken': claimToken,
       },
       contentType: 'application/json',
@@ -360,10 +366,48 @@ class ParentalAdminApi {
     );
     final Map<String, dynamic> body = _dataOf(data);
     final String name = '${body['account'] ?? ''}'.trim();
-    final String password = '${body['password'] ?? ''}'.trim();
-    if (name.isEmpty) throw const ServerApiException('服务端未返回新登录名');
-    if (password.isEmpty) throw const ServerApiException('服务端未返回新口令');
+    if (name.isEmpty) throw const ServerApiException('服务端未返回家长号');
+    // 口令是用户自设的，服务端不再回传；用请求值回填结果，统一持久化入口。
     return ClaimAccountResult(account: name, password: password);
+  }
+
+  /// 已用家长号登录后修改口令。派生号账号口令恒为 123456，不受影响。
+  Future<void> changeParentPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parent-account/password').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    _dataOf(data);
+  }
+
+  /// 用「家长号 + 口令」校验能否登录（跨设备登录用）。
+  ///
+  /// 直接打 `/api/login`：账号存在且口令 MD5 一致即成功，返回 `data.user.role`。
+  /// 与实时通道无关——ws 侧另用派生号 + principal 握手。
+  Future<String> loginRole({
+    required String account,
+    required String passwordMd5,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/login').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{'username': account.trim(), 'password': passwordMd5},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic user = body['user'];
+    if (user is Map) return '${user['role'] ?? ''}'.trim();
+    return '';
   }
 
   /// 校验业务 `code`；非 0 抛 [ServerApiException]（带服务端 msg），

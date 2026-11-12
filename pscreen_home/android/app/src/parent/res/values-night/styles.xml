@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 家长端 flavor 专用（系统深色模式开启时）：
+     家长端 UI 恒为浅色（ThemeMode.light），即使系统切深色，window 与状态栏
+     也必须保持浅底 + 深色图标，否则 MIUI 会把状态栏画成纯黑（真机已复现）。
+     覆盖 main 的 values-night（那里 NormalTheme 用 Theme.Black）。 -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:statusBarColor">#F7F9F8</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#F7F9F8</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">#F7F9F8</item>
+        <item name="android:statusBarColor">#F7F9F8</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#F7F9F8</item>
+    </style>
+</resources>

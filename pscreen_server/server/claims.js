@@ -1,27 +1,30 @@
-// 家长自定义登录名（claim）：设备派生账号 → 自定义账号的一次性迁移。
+// 家长号与设备派生号「关联」（新模型：两层身份并存，互不替代）。
 //
-// 设计前提（见 pscreen_home/FLAVORS.md 的「自定义登录名（claim）」一节）：
-// - 不改 /api/login 与 accounts.js 的校验链路，中控端 / 电视端登录行为保持原样；
-// - claim 只在持有短时一次性 ticket 且已登录 pk_admin 会话时发生；
-// - 一次改名必须把散落在各数据文件里的「旧账号名」全部替换，否则家长会丢掉
-//   已绑定的电视、私有别名、观看记录与解锁历史。
+// 旧模型把派生号「改名迁移」+ 旧号禁用成墓碑，导致三个问题：实时通道被一起
+// 切成家长号、重装即锁死、后端多一个登不上的僵尸账号。
 //
-// 本模块只做「名称校验 + 文件级迁移」，ticket 的签发/核销在 admin.js 内复用
-// 现成的 signSession / verifySession（HMAC 密钥不导出到模块外）。
+// 新模型（见 docs/parent-app-redesign-prototype.html 的「家长号与跨设备」页）：
+// - 派生号 `<flavor>.<kind>.<设备号>` = 设备身份证：实时通道、心跳、设备表
+//   commAccount 永远用它，账号文件口令恒为默认 123456、永不改名/禁用；
+// - 家长号（如 mi10s）= 「家长这个人」的账号：仅用于 HTTP 管理登录与
+//   machine.parents 可见性判定，口令由用户自设、可重置、可跨设备登录。
+//
+// 本模块只做「家长号账号建档 + 儿童信息绑定关系映射」；ticket 的签发/核销仍在
+// admin.js 内复用现成的 signSession / verifySession（HMAC 密钥不导出到模块外）。
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// 目标登录名必须同时满足：
+// 家长号必须同时满足：
 // - accounts.js 的 ACCOUNT_PATTERN（仅 ASCII，ws 握手 / 别名 key 依赖）
 // - admin.js 的 safeUsername（2-64 位，不允许冒号与中文）
 // 两者交集即下面这一条。中文名会在 ptools /api/login 被判 invalid_account，故拒绝。
 const CLAIM_NAME_PATTERN = /^[A-Za-z0-9_.-]{2,64}$/;
 
 // `parent.` / `tv.` / `board.` 等前缀属于设备派生账号命名空间：
-// 否则自定义名可能撞上 roleForNewAccount() 的 parent 派生正则，白拿家长角色。
+// 否则家长号可能撞上 roleForNewAccount() 的 parent 派生正则，白拿家长角色。
 const RESERVED_SCOPE_PATTERN = /^(parent|tv|board|phone|home)\./i;
 
 // `<flavor>.<kind>.<设备号16hex>`：所有现网设备自举账号都符合此格式。
@@ -33,8 +36,8 @@ function isDerivedAccount(account) {
 }
 
 /**
- * 校验目标登录名。
- * @param {string} name 用户输入的登录名
+ * 校验家长号。
+ * @param {string} name 用户输入的家长号
  * @param {{adminUsername?: string, accountExists?: (name:string)=>boolean}} ctx
  * @returns {{ok: boolean, name?: string, reason?: string}}
  */
@@ -42,13 +45,13 @@ function validateClaimName(name, ctx) {
     const options = ctx || {};
     const value = String(name == null ? '' : name).trim();
     if (!CLAIM_NAME_PATTERN.test(value)) {
-        return { ok: false, reason: '登录名需为 2-64 位字母、数字、下划线、点或连字符' };
+        return { ok: false, reason: '家长号需为 2-64 位字母、数字、下划线、点或连字符' };
     }
     if (value === '.' || value === '..' || value.startsWith('.')) {
-        return { ok: false, reason: '登录名不能以点开头' };
+        return { ok: false, reason: '家长号不能以点开头' };
     }
     if (RESERVED_SCOPE_PATTERN.test(value)) {
-        return { ok: false, reason: '该前缀为设备账号保留，请换一个登录名' };
+        return { ok: false, reason: '该前缀为设备账号保留，请换一个' };
     }
     if (isDerivedAccount(value)) {
         return { ok: false, reason: '不能使用设备派生账号格式' };
@@ -57,7 +60,7 @@ function validateClaimName(name, ctx) {
         return { ok: false, reason: '该登录名已被管理员占用' };
     }
     if (typeof options.accountExists === 'function' && options.accountExists(value)) {
-        return { ok: false, reason: '该登录名已被占用' };
+        return { ok: false, reason: '该家长号已被占用' };
     }
     return { ok: true, name: value };
 }
@@ -79,6 +82,19 @@ function writeJsonOrThrow(file, value) {
     fs.renameSync(tmp, file);
 }
 
+function renameMapKeys(map, oldName, newName) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return map;
+    const next = {};
+    for (const key of Object.keys(map)) next[key] = map[key];
+    if (Object.prototype.hasOwnProperty.call(next, oldName)) {
+        const value = next[oldName];
+        delete next[oldName];
+        // 新旧 key 同时存在时保留新 key 的既有值，不覆盖已有配置。
+        if (!Object.prototype.hasOwnProperty.call(next, newName)) next[newName] = value;
+    }
+    return next;
+}
+
 /** 递归替换所有「精确等于旧账号名」的字符串值（不动 key，key 单独处理）。 */
 function replaceValues(value, oldName, newName) {
     if (typeof value === 'string') return value === oldName ? newName : value;
@@ -91,19 +107,6 @@ function replaceValues(value, oldName, newName) {
         return next;
     }
     return value;
-}
-
-function renameMapKeys(map, oldName, newName) {
-    if (!map || typeof map !== 'object' || Array.isArray(map)) return map;
-    const next = {};
-    for (const key of Object.keys(map)) next[key] = map[key];
-    if (Object.prototype.hasOwnProperty.call(next, oldName)) {
-        const value = next[oldName];
-        delete next[oldName];
-        // 新旧 key 同时存在时保留新 key 的既有值，不覆盖已有配置。
-        if (!Object.prototype.hasOwnProperty.call(next, newName)) next[newName] = value;
-    }
-    return next;
 }
 
 /** JSONL 逐行替换：坏行原样保留，不因一条脏数据中断整个迁移。 */
@@ -145,20 +148,48 @@ function snapshot(files, backupDir) {
 }
 
 /**
- * 把 oldName 这个家长派生账号整体迁移为 newName。
+ * 把一台机器上的「家长可见性绑定」从派生号视角映射到家长号视角。
  *
- * 覆盖：账号本体 / machines.json / layouts.json / parental_avatars.json /
- * realtime 事件与历史 / outbox / reads / datas/users 目录。
- * 题库（parental_quizzes.json）与图片目录按 deviceId 索引，不含账号名，无需改动。
+ * 只动三处与「哪个家长能看/管这台电视」直接相关的字段：
+ * - parents：绑定关系数组（驱动 overview 可见性与 parental_* 事件扇出）；
+ * - aliases[账号]：该家长对这台电视的私有别名（跟随家长号）；
+ * - parental.ownerAccount：儿童模式配置归属家长（跟随家长号）。
  *
- * 旧账号文件**保留但改为不可登录**（随机口令 + enabled:false）：因为 /api/login
- * 的 verifyOrProvision 在「账号不存在 + 默认口令」时会自动重新建档，直接删除
- * 旧文件会让旧派生名凭空复活成第二个 parent 账号。
+ * 刻意**不动** commAccount / owner / id 等设备身份字段——它们是设备身份证，
+ * 派生号实时通道、心跳、遥控投递都要靠 commAccount 保持派生号不变。
+ */
+function migrateMachineBinding(machine, oldName, newName) {
+    if (!machine || typeof machine !== 'object') return machine;
+    const next = Object.assign({}, machine);
+    if (Array.isArray(next.parents)) {
+        const mapped = next.parents.map((item) => (item === oldName ? newName : item));
+        next.parents = Array.from(new Set(mapped));
+    }
+    if (next.aliases && typeof next.aliases === 'object' && !Array.isArray(next.aliases)) {
+        next.aliases = renameMapKeys(next.aliases, oldName, newName);
+    }
+    if (next.parental && typeof next.parental === 'object'
+        && next.parental.ownerAccount === oldName) {
+        next.parental = Object.assign({}, next.parental, { ownerAccount: newName });
+    }
+    return next;
+}
+
+/**
+ * 建立家长号与设备派生号的关联（两层身份并存，派生号永不受损）。
  *
- * 新账号**必须换一个新随机口令**：自定义登录名是可猜的，若沿用设备自举的
- * 默认口令 123456，任何人都能拿这个名字冒充家长登录。口令 MD5 由调用方
- * 生成并传入，客户端在 claim 响应里拿到一次明文后自行持久化；校验方式仍是
- * 「账号文件里的 MD5 比对」，/api/login 与 ws 握手链路不变。
+ * 覆盖：
+ * 1. 新建家长号账号（role=parent，口令为用户自设摘要）；
+ * 2. machines.json 的 parents / 私有别名 / 儿童模式归属，从派生号映射到家长号；
+ * 3. 按账号名存储的 outbox / reads / users 私有数据迁到家长号名下（使其上线即可读）。
+ *
+ * **不再**做的事（这是与旧模型的关键区别）：
+ * - 不改派生号口令（保持默认 123456，随时可登录）；
+ * - 不把派生号标记为 disabled / 墓碑；
+ * - 不动设备 commAccount / owner、题库、事件历史——这些属于设备身份或按设备索引，
+ *   家长号拉历史由 realtime.js 的 machineAccountsForParent(家长号) 补拉解决。
+ *
+ * 因此家长号口令一旦丢失，客户端回落到「派生号 + 123456」仍可登录，不会重装即锁死。
  *
  * @returns {{backupDir: string, changed: string[]}}
  */
@@ -171,51 +202,49 @@ function applyAccountRename(options) {
     const newPasswordMd5 = String(opts.newPasswordMd5 || '').trim().toLowerCase();
 
     if (!datasDir || !oldName || !newName || oldName === newName) {
-        throw new Error('改名参数不完整');
+        throw new Error('关联参数不完整');
     }
     if (!/^[a-f0-9]{32}$/.test(newPasswordMd5)) {
-        throw new Error('新口令摘要无效');
+        throw new Error('家长号口令摘要无效');
     }
     if (newPasswordMd5 === DEFAULT_PASSWORD_MD5) {
-        throw new Error('不能沿用设备自举的默认口令');
+        throw new Error('家长号不能沿用设备自举的默认口令，请自设一个更安全的口令');
     }
     const oldPasswordFile = path.join(registerUsersDir, oldName);
     const oldInfoFile = path.join(registerUsersDir, `${oldName}_info.txt`);
     const newPasswordFile = path.join(registerUsersDir, newName);
     const newInfoFile = path.join(registerUsersDir, `${newName}_info.txt`);
 
-    if (!fs.existsSync(oldPasswordFile)) throw new Error('原家长账号不存在');
+    if (!fs.existsSync(oldPasswordFile)) throw new Error('原设备派生账号不存在');
     if (fs.existsSync(newPasswordFile) || fs.existsSync(newInfoFile)) {
-        throw new Error('目标登录名已被占用');
+        throw new Error('该家长号已被占用');
     }
     const oldInfo = readJson(oldInfoFile, null);
     if (!oldInfo || oldInfo.role !== 'parent') {
-        throw new Error('只有家长账号可以设置登录名');
+        throw new Error('只有家长端设备账号可以设置家长号');
     }
-    // 旧账号文件会保留（防止默认口令复活），所以必须靠标记保证只能迁移一次。
-    if (oldInfo.claimedTo || oldInfo.claimedAt) {
-        throw new Error('该账号已迁移过登录名');
+    // 一台设备只允许关联一次家长号（防止误操作把绑定关系反复改写）。
+    // 兼容旧数据：claimedAt / claimedTo 是旧模型的迁移标记，parentAccount 是新标记。
+    if (oldInfo.parentAccount || oldInfo.claimedAt || oldInfo.claimedTo) {
+        throw new Error('该设备已关联过家长号，若要改口令请在设置页操作');
     }
 
     const adminDir = path.join(datasDir, 'admin');
     const realtimeDir = path.join(datasDir, 'realtime');
     const usersDir = path.join(datasDir, 'users');
     const machinesFile = path.join(adminDir, 'machines.json');
-    const layoutsFile = path.join(adminDir, 'layouts.json');
-    const avatarsFile = path.join(adminDir, 'parental_avatars.json');
     const eventsFile = path.join(realtimeDir, 'events.jsonl');
     const historyFile = path.join(realtimeDir, 'history.jsonl');
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupDir = path.join(adminDir, 'claim-backups', `${stamp}_${oldName.replace(/[^A-Za-z0-9_.-]/g, '_')}`);
     snapshot([
-        oldPasswordFile, oldInfoFile, machinesFile, layoutsFile, avatarsFile,
-        eventsFile, historyFile,
+        oldPasswordFile, oldInfoFile, machinesFile, eventsFile, historyFile,
     ], backupDir);
 
     const changed = [];
 
-    // 1. 账号本体：先建新文件，再让旧名失效，避免中途出现「两边都登不上」。
+    // 1. 新建家长号账号（自设口令摘要）。派生号账号文件原样保留、口令不变、不禁用。
     const newInfo = Object.assign({}, oldInfo, {
         name: newName,
         role: 'parent', // 显式保留：migrateUsers 在 role 缺失时会降级成 user
@@ -224,60 +253,29 @@ function applyAccountRename(options) {
     });
     delete newInfo.enabled;
     delete newInfo.loginTime;
+    delete newInfo.parentAccount;
     fs.writeFileSync(newInfoFile, JSON.stringify(newInfo, null, 2), 'utf8');
-    fs.writeFileSync(newPasswordFile, newPasswordMd5, 'utf8'); // 换成不可猜的新口令
-    changed.push('register/users');
+    fs.writeFileSync(newPasswordFile, newPasswordMd5, 'utf8');
+    changed.push('register/users（新建家长号）');
 
-    // 2. 旧名改为不可登录（保留文件以阻止默认口令自动建档复活）。
-    fs.writeFileSync(oldPasswordFile, crypto.randomBytes(32).toString('hex'), 'utf8');
-    oldInfo.enabled = false;
-    oldInfo.claimedTo = newName;
+    // 2. 在派生号 info 上记录正向关联标记（仅标记，不改口令、不设 disabled）。
+    oldInfo.parentAccount = newName;
     fs.writeFileSync(oldInfoFile, JSON.stringify(oldInfo, null, 2), 'utf8');
 
-    // 3. machines.json：parents / owner / commAccount / parental.ownerAccount / aliases key。
+    // 3. machines.json：只映射家长可见性绑定，不动设备身份字段。
     const machines = readJson(machinesFile, {});
     let machinesChanged = 0;
     for (const id of Object.keys(machines)) {
-        const machine = machines[id];
-        if (!machine || typeof machine !== 'object') continue;
-        const next = replaceValues(machine, oldName, newName);
-        if (next.aliases && typeof next.aliases === 'object') {
-            next.aliases = renameMapKeys(next.aliases, oldName, newName);
-        }
-        if (JSON.stringify(next) !== JSON.stringify(machine)) machinesChanged++;
+        const next = migrateMachineBinding(machines[id], oldName, newName);
+        if (JSON.stringify(next) !== JSON.stringify(machines[id])) machinesChanged++;
         machines[id] = next;
     }
     if (machinesChanged) {
         writeJsonOrThrow(machinesFile, machines);
-        changed.push(`machines.json (${machinesChanged} 台)`);
+        changed.push(`machines.json（${machinesChanged} 台的家长绑定）`);
     }
 
-    // 4. layouts.json 的 key 可能就是账号名（layoutKey = owner || device_<id>）。
-    const layouts = readJson(layoutsFile, {});
-    const nextLayouts = renameMapKeys(layouts, oldName, newName);
-    if (JSON.stringify(nextLayouts) !== JSON.stringify(layouts)) {
-        writeJsonOrThrow(layoutsFile, nextLayouts);
-        changed.push('layouts.json');
-    }
-
-    // 5. 头像索引里的 uploadedBy 仅作审计展示，但一并保持一致。
-    const avatars = readJson(avatarsFile, null);
-    if (avatars) {
-        const nextAvatars = replaceValues(avatars, oldName, newName);
-        if (JSON.stringify(nextAvatars) !== JSON.stringify(avatars)) {
-            writeJsonOrThrow(avatarsFile, nextAvatars);
-            changed.push('parental_avatars.json');
-        }
-    }
-
-    // 6. 观看记录 / 解锁请求 / 历史会话：可见性靠 to / audience / actor 精确匹配账号名。
-    const eventsChanged = rewriteJsonl(eventsFile, oldName, newName);
-    const historyChanged = rewriteJsonl(historyFile, oldName, newName);
-    if (eventsChanged || historyChanged) {
-        changed.push(`realtime (events ${eventsChanged} / history ${historyChanged})`);
-    }
-
-    // 7. 离线消息队列与已读游标：文件名即账号名。
+    // 4. 离线队列与已读游标：文件名即账号名，迁到家长号使其上线即可收。
     for (const dirName of ['outbox', 'reads']) {
         const dir = path.join(realtimeDir, dirName);
         const source = path.join(dir, `${oldName}.json`);
@@ -289,7 +287,7 @@ function applyAccountRename(options) {
         changed.push(`realtime/${dirName}`);
     }
 
-    // 8. 按 cookie username 分目录的用户私有数据（剪贴板 / 上传 / 笔记 / 遥控会话）。
+    // 5. 按 cookie username 分目录的用户私有数据（剪贴板 / 上传 / 遥控会话）。
     const oldUserDir = path.join(usersDir, oldName);
     const newUserDir = path.join(usersDir, newName);
     if (fs.existsSync(oldUserDir) && !fs.existsSync(newUserDir)) {
@@ -303,9 +301,13 @@ function applyAccountRename(options) {
                 writeJsonOrThrow(sessionsFile, nextSessions);
             }
         }
-        changed.push('users/<account>/');
+        changed.push('users/<家长号>/');
     }
 
+    // 说明：events.jsonl / history.jsonl / layouts.json / parental_avatars.json /
+    // parental_quizzes.json 刻意不动。设备事件按 commAccount 索引，家长号拉历史由
+    // realtime.js 的 machineAccountsForParent(家长号) 补拉；题库按 deviceId 存储；
+    // 布局与头像审计字段与家长可见性无关。
     return { backupDir, changed };
 }
 
@@ -335,8 +337,10 @@ module.exports = {
     isDerivedAccount,
     validateClaimName,
     applyAccountRename,
+    migrateMachineBinding,
     readConsumedTickets,
     consumeTicket,
     replaceValues,
     renameMapKeys,
+    rewriteJsonl,
 };

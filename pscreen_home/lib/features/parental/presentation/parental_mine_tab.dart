@@ -5,10 +5,15 @@ import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_mine_cards.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_sections.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
+import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/app_version.dart';
 
-/// Tab 三：我的（账号权限 / 我的电视 / 解锁设置）。
+/// Tab 三：我的（账号 / 我在电视上的名字 / 我的电视 / 解锁方式 / 连接与更新）。
 ///
+/// 原右上角「设置」弹层的内容已全部并入本页，右上角只留解锁铃铛 + 刷新。
 /// 只保留家长需要的设置，HA 网格、布局、IPTV、频道、场景上报等中控台设置
 /// 不出现在这里。
 class ParentalMineView extends StatelessWidget {
@@ -19,56 +24,51 @@ class ParentalMineView extends StatelessWidget {
     required this.config,
     required this.myAccount,
     required this.actions,
+    this.channelAccount = '',
+    this.onEditAccount,
+    this.channel,
+    this.version,
   });
 
   final List<ParentalMachine> machines;
   final ParentalMachine? selected;
   final ParentalConfig config;
+
+  /// 家长号（管理登录身份，可改、跨设备）。
   final String myAccount;
+
+  /// 本机实时通道派生号（设备身份，只读，永不改名/禁用）。
+  final String channelAccount;
+
   final ParentalActions actions;
+
+  /// 去「设置登录名」页；由页面壳注入路由跳转，便于无 GoRouter 的测试渲染。
+  final VoidCallback? onEditAccount;
+
+  /// 连接与更新卡的依赖注入（测试用；正式运行从全局依赖读取）。
+  final RealtimeChannel? channel;
+  final AppVersion? version;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: <Widget>[
-        // 账号与权限
-        Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '账号与权限',
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: <Widget>[
-                    const Text('当前角色'),
-                    const Spacer(),
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text(AccountSession.role.isEmpty ? '未确定' : AccountSession.role),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                SelectableText('账号：${myAccount.isEmpty ? '检测中…' : myAccount}'),
-                const SizedBox(height: 8),
-                FilledButton.tonal(
-                  onPressed: () => unawaited(actions.refreshPermission()),
-                  child: const Text('重新检查权限'),
-                ),
-              ],
-            ),
-          ),
+        // ① 账号：家长号（可改/跨设备）+ 本机实时通道号（只读/不可改）两层分开。
+        //    权限自愈由顶栏刷新覆盖，不再显示「当前角色 / 账号与权限」。
+        ParentalAccountCard(
+          account: myAccount,
+          channelAccount: channelAccount,
+          onEdit: onEditAccount,
+          onLearnMore: onEditAccount,
         ),
         const SizedBox(height: 12),
-        // 我的电视
+        // ② 我在电视上的名字（原设置弹窗的「更改名称」搬来）。
+        const ParentalDisplayNameCard(),
+        const SizedBox(height: 12),
+        // ③ 我的电视
         Card(
           margin: EdgeInsets.zero,
           child: Padding(
@@ -86,20 +86,63 @@ class ParentalMineView extends StatelessWidget {
                     Text('${machines.length} 台'),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    '点选一台作为当前配置目标；规则、解锁方式作用于选中的电视。',
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+                  ),
+                ),
+                // 顶部下拉去掉后，设备选择 / 重命名 / 解绑统一收敛到这里。
                 for (final ParentalMachine machine in machines)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.tv_outlined),
-                    title: Text(parentalTvName(machine)),
-                    subtitle: Text(machine.online ? '在线' : '离线'),
-                    trailing: AccountSession.isParent
-                        ? IconButton(
+                    leading: Icon(
+                      machine.id == selected?.id
+                          ? Icons.tv
+                          : Icons.tv_outlined,
+                      color: machine.id == selected?.id ? scheme.primary : null,
+                    ),
+                    title: Text(
+                      parentalTvName(machine),
+                      style: machine.id == selected?.id
+                          ? TextStyle(color: scheme.primary, fontWeight: FontWeight.w600)
+                          : null,
+                    ),
+                    subtitle: Text(
+                      '${machine.online ? '在线' : '离线'}'
+                      '${machine.id == selected?.id ? ' · 当前配置目标' : ''}',
+                    ),
+                    onTap: () => actions.selectDevice(machine),
+                    // 遥控是设备级操作，常驻可见（与原孩子卡遥控一致，不受角色限制）；
+                    // 目标就是这一行对应的电视，不再需要从实时事件推断。
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        IconButton(
+                          tooltip: '遥控 ${parentalTvName(machine)}',
+                          icon: const Icon(Icons.control_camera, size: 20),
+                          onPressed: () => unawaited(actions.push(ParentalRemotePage(
+                            account: machine.commAccount.isEmpty ? machine.id : machine.commAccount,
+                            title: parentalTvName(machine),
+                            onCommand: (String command) => actions.sendRemoteCommand(command),
+                          ))),
+                        ),
+                        if (AccountSession.isParent)
+                          IconButton(
+                            tooltip: '重命名（仅自己可见）',
+                            icon: const Icon(Icons.drive_file_rename_outline, size: 20),
+                            onPressed: () => actions.renameMachine(machine),
+                          ),
+                        if (AccountSession.isParent)
+                          IconButton(
                             tooltip: '解绑',
-                            icon: const Icon(Icons.link_off),
+                            icon: const Icon(Icons.link_off, size: 20),
                             onPressed: () => actions.unbind(machine.id),
-                          )
-                        : null,
+                          ),
+                      ],
+                    ),
                   ),
                 FilledButton.tonal(
                   onPressed: () => unawaited(actions.openDeviceManager()),
@@ -117,6 +160,7 @@ class ParentalMineView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        // ④ 解锁方式（ownerAccount 输入框已去除，保存时沿用原值）。
         ParentalSettingsSection(
           // 配置变化（含换设备）时重建编辑态，回显最新解锁方式与 PIN。
           key: ValueKey<String>(
@@ -128,6 +172,9 @@ class ParentalMineView extends StatelessWidget {
           onSave: actions.saveConfig,
           shrinkWrap: true,
         ),
+        const SizedBox(height: 12),
+        // ⑤ 连接与更新（原设置弹窗的通道状态 + 版本更新搬来）。
+        ParentalConnectionCard(channel: channel, version: version),
       ],
     );
   }

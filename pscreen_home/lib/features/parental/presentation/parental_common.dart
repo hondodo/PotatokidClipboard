@@ -41,6 +41,8 @@ class ParentalActions {
     required this.addChildExtra,
     required this.editChild,
     required this.unbind,
+    required this.selectDevice,
+    required this.renameMachine,
   });
 
   /// 重新拉取设备 / 配置 / 事件。
@@ -75,4 +77,10 @@ class ParentalActions {
 
   /// 解绑某台电视（仅家长）。
   final void Function(String deviceId) unbind;
+
+  /// 切换「当前配置目标」电视（去掉顶部下拉后，由「我的」页按设备选择）。
+  final void Function(ParentalMachine machine) selectDevice;
+
+  /// 重命名某台电视（仅自己可见的别名）。
+  final void Function(ParentalMachine machine) renameMachine;
 }

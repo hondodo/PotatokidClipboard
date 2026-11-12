@@ -139,7 +139,7 @@ class ParentalTodayView extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    if (selected == null) {
+    if (machines.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -151,7 +151,7 @@ class ParentalTodayView extends StatelessWidget {
               Text('还没有绑定电视', style: theme.textTheme.titleSmall),
               const SizedBox(height: 4),
               Text(
-                '点右上角齿轮，或下方「我的」标签扫码添加电视',
+                '到下方「我的」页扫码添加电视',
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
               ),
             ],
@@ -170,7 +170,7 @@ class ParentalTodayView extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: <Widget>[
-          // 家庭概览
+          // 家庭概览（对齐交互原型：默认「全部电视」聚合视角，不被单台下拉驱动）
           Row(
             children: <Widget>[
               Expanded(
@@ -178,11 +178,11 @@ class ParentalTodayView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      '全部电视 · $onlineCount/${machines.length} 台在线',
+                      '家庭视图',
                       style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
                     ),
                     Text(
-                      parentalTvName(selected!),
+                      '全部电视 · $onlineCount/${machines.length} 台在线',
                       style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ],
@@ -252,9 +252,19 @@ class ParentalTodayView extends StatelessWidget {
               margin: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  '尚未添加儿童档案，点下方「规则」标签添加孩子并设置限额。',
-                  style: theme.textTheme.bodyMedium,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '尚未添加儿童档案，点下方「规则」标签添加孩子并设置限额。',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '想先遥控电视？到下方「我的」页，每台电视右侧都有遥控按钮。',
+                      style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+                    ),
+                  ],
                 ),
               ),
             )
@@ -265,7 +275,6 @@ class ParentalTodayView extends StatelessWidget {
                 usedMin: (daily[child.id] ?? 0) ~/ 60,
                 limitMin: child.dailyLimitMin ?? 0,
                 watching: activeIds.contains(child.id),
-                selected: selected,
                 actions: actions,
               ),
           const SizedBox(height: 18),
@@ -353,7 +362,11 @@ class _TodaySessionsCard extends StatelessWidget {
   }
 }
 
-/// 单个孩子状态卡：时长环 + 快捷动作（暂停/加时/遥控/改规则）。
+/// 单个孩子状态卡（对齐交互原型）。
+///
+/// 第一行：头像 + 名字 + 状态胶囊，右侧 54px 时长环；
+/// 第二行：今日已看 / 限额 + 线性进度条；
+/// 底部：暂停 / 加时 / 改规则（孩子级操作；遥控属设备级，收在「我的」页）。
 class ChildStatusCard extends StatelessWidget {
   const ChildStatusCard({
     super.key,
@@ -361,7 +374,6 @@ class ChildStatusCard extends StatelessWidget {
     required this.usedMin,
     required this.limitMin,
     required this.watching,
-    required this.selected,
     required this.actions,
   });
 
@@ -369,7 +381,6 @@ class ChildStatusCard extends StatelessWidget {
   final int usedMin;
   final int limitMin;
   final bool watching;
-  final ParentalMachine? selected;
   final ParentalActions actions;
 
   @override
@@ -384,44 +395,61 @@ class ChildStatusCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            // 第一行：头像 + 名字 + 状态胶囊，右侧时长环。
             Row(
               children: <Widget>[
                 CircleAvatar(child: Text(child.name.isNotEmpty ? child.name[0] : '?')),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    child.name,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        child.name,
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: <Widget>[
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(child.locked ? '已暂停' : (watching ? '正在看' : '空闲')),
+                            backgroundColor: (watching && !child.locked
+                                    ? scheme.primaryContainer
+                                    : scheme.surfaceContainerHighest)
+                                .withValues(alpha: 0.6),
+                          ),
+                          if (child.locked)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 6),
+                              child: Icon(Icons.lock, size: 15),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                Chip(
-                  visualDensity: VisualDensity.compact,
-                  label: Text(watching ? '正在看' : '空闲'),
-                  backgroundColor: (watching
-                          ? scheme.primaryContainer
-                          : scheme.surfaceContainerHighest)
-                      .withValues(alpha: 0.6),
-                ),
-                if (child.locked)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 6),
-                    child: Icon(Icons.lock, size: 16),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
                 MinutesRing(pct: pct, label: '${(pct * 100).round()}%'),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '今日已看 $usedMin / ${limitMin == 0 ? '不限' : '$limitMin 分钟'}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
               ],
             ),
+            // 第二行：今日已看 / 限额 + 线性进度条。
+            const SizedBox(height: 10),
+            Text(
+              '今日已看 $usedMin / ${limitMin == 0 ? '不限' : '$limitMin 分钟'}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: pct,
+                minHeight: 6,
+                backgroundColor: scheme.surfaceContainerHighest,
+                color: scheme.primary,
+              ),
+            ),
+            // 底部：孩子级快捷动作（暂停/加时/改规则，对齐设计稿的 3 按钮）。
+            // 遥控是设备级操作，统一放在「我的」页每台电视行，不依赖孩子档案。
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -430,23 +458,13 @@ class ChildStatusCard extends StatelessWidget {
                 FilledButton.tonal(
                   style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
                   onPressed: () => actions.toggleChildLock(child),
-                  child: Text(child.locked ? '解锁' : '暂停'),
+                  child: Text(child.locked ? '恢复观看' : '暂停'),
                 ),
                 FilledButton.tonal(
                   style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
                   onPressed: () => actions.addChildExtra(child),
                   child: const Text('加时 15 分钟'),
                 ),
-                if (selected != null)
-                  FilledButton.tonal(
-                    style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                    onPressed: () => unawaited(actions.push(ParentalRemotePage(
-                      account: selected!.commAccount,
-                      title: parentalTvName(selected!),
-                      onCommand: (String command) => actions.sendRemoteCommand(command),
-                    ))),
-                    child: const Text('遥控'),
-                  ),
                 FilledButton.tonal(
                   style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
                   onPressed: () => actions.editChild(child),

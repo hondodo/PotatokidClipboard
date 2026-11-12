@@ -806,7 +806,10 @@ class UnlockSection extends StatelessWidget {
   }
 }
 
-/// 模块④ 设置：`ownerAccount` / 解锁方式（remote|pin|arith）/ PIN。
+/// 模块④ 解锁设置：解锁方式（remote|pin|arith|quiz）/ PIN。
+///
+/// `ownerAccount`（解锁请求投递目标）不再暴露输入框——单家长场景用不上，
+/// 保存时沿用原值，避免误清空服务端字段。
 class ParentalSettingsSection extends StatefulWidget {
   const ParentalSettingsSection({
     super.key,
@@ -829,7 +832,6 @@ class ParentalSettingsSection extends StatefulWidget {
 }
 
 class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
-  late final TextEditingController _owner;
   late final TextEditingController _pin;
   late String _unlockMode;
 
@@ -843,7 +845,6 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
   @override
   void initState() {
     super.initState();
-    _owner = TextEditingController(text: widget.config.ownerAccount);
     _pin = TextEditingController(text: widget.config.pin);
     _unlockMode = _modeLabels.containsKey(widget.config.unlockMode)
         ? widget.config.unlockMode
@@ -852,7 +853,6 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
 
   @override
   void dispose() {
-    _owner.dispose();
     _pin.dispose();
     super.dispose();
   }
@@ -860,24 +860,11 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String fallbackOwner = widget.machine?.owner ?? '';
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       shrinkWrap: widget.shrinkWrap,
       physics: widget.shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       children: <Widget>[
-        TextField(
-          controller: _owner,
-          decoration: InputDecoration(
-            labelText: '家长账号（ownerAccount）',
-            helperText: fallbackOwner.isEmpty
-                ? '解锁请求的投递目标；空 = 回落设备归属'
-                : '解锁请求的投递目标；空 = 回落设备归属 $fallbackOwner',
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-        const SizedBox(height: 16),
         Text('解锁方式', style: theme.textTheme.bodySmall),
         const SizedBox(height: 6),
         Wrap(
@@ -920,7 +907,8 @@ class _ParentalSettingsSectionState extends State<ParentalSettingsSection> {
         FilledButton(
           onPressed: () => widget.onSave(
             widget.config.copyWith(
-              ownerAccount: _owner.text.trim(),
+              // ownerAccount 不再暴露编辑，沿用原值，避免保存时清空服务端字段。
+              ownerAccount: widget.config.ownerAccount,
               unlockMode: _unlockMode,
               pin: _unlockMode == 'pin' ? _pin.text.trim() : widget.config.pin,
             ),

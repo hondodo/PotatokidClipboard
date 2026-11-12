@@ -205,8 +205,25 @@ function attachRealtime(httpServer, options = {}) {
     fs.mkdirSync(outboxDir, { recursive: true });
     fs.mkdirSync(readsDir, { recursive: true });
 
-    /** account -> Set<WebSocket> */
+    /** account -> Set<WebSocket>（恒为设备派生号，在线名单/广播的唯一来源） */
     const connections = new Map();
+    /**
+     * 家长号 -> Set<WebSocket>：parental_* 事件按 machine.parents（家长号）扇出时，
+     * 据此找到「以该家长号身份声明过」的家长端连接（其 ws.account 仍是派生号）。
+     * 与 connections 分离，避免家长号混进设备在线名单/roster。
+     */
+    const principalSockets = new Map();
+
+    /** 汇总要投递给某账号的连接：设备派生号在线连接 + 以该账号为家长号身份的连接。 */
+    function socketsForAccount(account) {
+        const out = new Set();
+        const direct = connections.get(account);
+        if (direct) for (const ws of direct) out.add(ws);
+        const viaPrincipal = principalSockets.get(account);
+        if (viaPrincipal) for (const ws of viaPrincipal) out.add(ws);
+        return out;
+    }
+
     /** account -> Set<WebSocket>：正在 watch 该设备状态的控制端 */
     const watchersByAccount = new Map();
     /** account -> 最近一次 state（场景 + 频道列表）；只存内存，重连由设备整体重发 */
@@ -462,9 +479,13 @@ function attachRealtime(httpServer, options = {}) {
         return items;
     }
 
-    function eventsFor(account, frame) {
+    function eventsFor(account, frame, principal) {
         const accounts = [account];
-        for (const bound of machineAccountsForParent(account)) accounts.push(bound);
+        // 家长端拉历史：machine.parents 存的是家长号，故除了设备派生号本身，
+        // 还要按家长号身份并入其绑定设备的通信账号，才能补拉到 audience/旧副本。
+        // 未声明 principal 时回落用 account，保持中控端/旧行为不变。
+        const owner = principal || account;
+        for (const bound of machineAccountsForParent(owner)) accounts.push(bound);
         return eventsForAccounts(accounts, frame);
     }
 
@@ -734,6 +755,13 @@ function attachRealtime(httpServer, options = {}) {
         }
         const account = (url.searchParams.get('account') || '').trim();
         const clientToken = url.searchParams.get('token') || '';
+        // 家长号身份（可选）：ws 连接恒用设备派生号（account + token，口令固定），
+        // 家长号以 principal + 其自设口令摘要附加声明。校验通过才把它当作本连接的
+        // 家长身份，使按 machine.parents（家长号）扇出的事件/解锁校验能命中。
+        // 校验失败不拒绝连接——通道凭据与家长号彻底解耦，派生号永不因家长号口令
+        // 错误而被断连，家长可改口令后重连自愈。
+        const principal = (url.searchParams.get('principal') || '').trim();
+        const principalToken = url.searchParams.get('principalToken') || '';
         const deviceId = (url.searchParams.get('deviceId') || '').trim().slice(0, 64);
         const role = url.searchParams.get('role') || 'tv';
         const name = (url.searchParams.get('name') || '').slice(0, 64);
@@ -753,6 +781,7 @@ function attachRealtime(httpServer, options = {}) {
             return;
         }
         // 与 HTTP /api/login 同一校验：账号文件存在且 token（密码 MD5）一致。
+        // account 恒为设备派生号 + 默认口令，派生号账号永不禁用，故这条校验稳定通过。
         const verdict = accountStore ? accountStore.verify(account, clientToken) : { ok: false };
         if (!verdict.ok) {
             const msg = verdict.reason === 'not_exists' ? 'unknown account' : 'invalid token';
@@ -762,9 +791,26 @@ function attachRealtime(httpServer, options = {}) {
             return;
         }
 
+        // 家长号身份校验（可选、独立）：仅当声明的家长号与派生号不同且凭据有效时，
+        // 才登记为家长身份。失败只是不获得按家长号扇出的能力，不影响实时通道本身。
+        let verifiedPrincipal = '';
+        if (principal && principal !== account) {
+            const principalVerdict = accountStore
+                ? accountStore.verify(principal, principalToken)
+                : { ok: false };
+            if (principalVerdict.ok) {
+                verifiedPrincipal = principal;
+            } else {
+                console.warn(`[realtime] principal 校验失败 ${principal}（派生号 ${account} 仍正常连接）`);
+            }
+        }
+
         ws.isAlive = true;
         ws.connectedAt = Date.now();
         ws.account = account;
+        // 已通过凭据校验的家长号身份（空串 = 未声明/校验失败），仅用于事件扇出
+        // 与解锁权限判定，不进入 connections 在线名单，避免污染设备 roster。
+        ws.principal = verifiedPrincipal;
         ws.deviceId = deviceId;
         ws.role = role;
         ws.kind = kind;
@@ -810,8 +856,19 @@ function attachRealtime(httpServer, options = {}) {
             connections.set(account, sockets);
         }
         sockets.add(ws);
+        // 家长号身份单独登记到 principalSockets：用于把按 machine.parents（家长号）
+        // 扇出的 parental_* 事件投递回本连接。与 connections 分开，在线名单/
+        // presence/roster 仍只按设备派生号统计，互不污染。
+        if (verifiedPrincipal) {
+            let pSockets = principalSockets.get(verifiedPrincipal);
+            if (!pSockets) {
+                pSockets = new Set();
+                principalSockets.set(verifiedPrincipal, pSockets);
+            }
+            pSockets.add(ws);
+        }
         console.log(
-            `[realtime] online ${account} device=${deviceId || '-'} role=${role} kind=${kind || '-'} name=${name || '-'} ` +
+            `[realtime] online ${account}${verifiedPrincipal ? ` (principal ${verifiedPrincipal})` : ''} device=${deviceId || '-'} role=${role} kind=${kind || '-'} name=${name || '-'} ` +
             `app=${app || '-'} version=${version || '-'} build=${build || '-'} ` +
             `ip=${request.socket.remoteAddress} sockets=${sockets.size} total=${wss.clients.size}`,
         );
@@ -914,7 +971,11 @@ function attachRealtime(httpServer, options = {}) {
                     // 违者不投递给电视（否则电视端会执行），由服务端代电视回执
                     // `parental_unlock_ack {result:'forbidden'}`，家长端据此展示失败。
                     const unlockArgs = parseParentalUnlock(body);
-                    if (unlockArgs !== null && !parentalUnlockAllowed(account, to)) {
+                    // 权限用家长号身份判定：machine.parents 存的是家长号，而本连接
+                    // 的 ws.account 恒为设备派生号。未声明家长号（旧客户端/中控端）
+                    // 时回落用 account 本身，保持历史行为不变。
+                    const unlockActor = ws.principal || account;
+                    if (unlockArgs !== null && !parentalUnlockAllowed(unlockActor, to)) {
                         const ackRecord = {
                             id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
                             from: to,
@@ -922,7 +983,7 @@ function attachRealtime(httpServer, options = {}) {
                             event: 'parental_unlock_ack',
                             data: {
                                 code: typeof unlockArgs.code === 'string' ? unlockArgs.code : '',
-                                actor: account,
+                                actor: unlockActor,
                                 result: 'forbidden',
                             },
                             ts: Date.now(),
@@ -935,8 +996,7 @@ function attachRealtime(httpServer, options = {}) {
                             const copy = recipient === ADMIN_ACCOUNT
                                 ? ackRecord
                                 : { ...ackRecord, to: recipient };
-                            const targets = connections.get(recipient);
-                            if (!targets) continue;
+                            const targets = socketsForAccount(recipient);
                             for (const target of targets) sendJson(target, { t: 'event', ...copy });
                         }
                         console.warn(
@@ -1067,8 +1127,9 @@ function attachRealtime(httpServer, options = {}) {
                     let delivered = false;
                     for (const recipient of audience) {
                         const copy = recipient === to ? record : { ...record, to: recipient };
-                        const targets = connections.get(recipient);
-                        if (!targets) continue;
+                        // 家长号身份可能登记在 principalSockets（ws 连接本身用派生号），
+                        // 合并两处连接，保证按 machine.parents 扇出的事件能送达家长端。
+                        const targets = socketsForAccount(recipient);
                         for (const target of targets) {
                             sendJson(target, { t: 'event', ...copy });
                             delivered = true;
@@ -1082,7 +1143,7 @@ function attachRealtime(httpServer, options = {}) {
 
                     // 同 msg：把管理员与设备之间的事件同步给线程订阅者。
                     const eventTargets = Array.from(audience)
-                        .flatMap((recipient) => Array.from(connections.get(recipient) || []));
+                        .flatMap((recipient) => Array.from(socketsForAccount(recipient)));
                     forwardThread(
                         { t: 'event', ...record },
                         new Set([ws, ...eventTargets]),
@@ -1100,7 +1161,7 @@ function attachRealtime(httpServer, options = {}) {
                 }
 
                 case 'events': {
-                    const items = eventsFor(account, frame);
+                    const items = eventsFor(account, frame, ws.principal);
                     sendJson(ws, {
                         t: 'events',
                         id: frame.id,
@@ -1314,6 +1375,14 @@ function attachRealtime(httpServer, options = {}) {
         ws.on('close', (code, reason) => {
             clearWatchers(ws);
             ws.threads = null;
+            // 家长号身份登记同步清理（按连接本身移除，空集删 key）。
+            if (ws.principal) {
+                const pSet = principalSockets.get(ws.principal);
+                if (pSet) {
+                    pSet.delete(ws);
+                    if (pSet.size === 0) principalSockets.delete(ws.principal);
+                }
+            }
             const set = connections.get(account);
             if (set) {
                 set.delete(ws);

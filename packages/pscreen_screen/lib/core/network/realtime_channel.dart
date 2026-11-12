@@ -331,6 +331,11 @@ class RealtimeChannel {
 
   String _account = '';
   String _token = '';
+  // 家长号身份：ws 连接恒用设备派生号（_account/_token），家长号以 principal
+  // 附加声明，让服务端把本 socket 也登记到家长号名下——这样按 machine.parents
+  // （家长号）扇出的解锁请求/观看心跳仍能送达，同时派生号永不改名/禁用。
+  String _principal = '';
+  String _principalToken = '';
   String _deviceId = '';
   String _role = 'tv';
   String _kind = '';
@@ -385,8 +390,13 @@ class RealtimeChannel {
 
   /// 连接并完成鉴权握手。失败抛 [RealtimeException]。
   ///
-  /// [token] 为口令 MD5（与 HTTP 登录同一校验）；[deviceId] 供服务端
-  /// 在在线日志/presence 中关联物理设备，可为空。
+  /// [account]/[token] 为**实时通道凭据**：恒为设备派生号 + 默认口令 MD5，
+  /// 与家长号无关，派生号永不改名/禁用。
+  /// [principal]/[principalToken] 为**家长号身份**（可选）：仅 parent flavor
+  /// 在已设置家长号时传入，分别是家长号与其自设口令的 MD5。服务端据此把本
+  /// socket 额外登记到家长号名下，使按 `machine.parents`（存家长号）扇出的
+  /// 解锁请求/观看心跳也能送达；未设置家长号时留空，行为与改动前一致。
+  /// [deviceId] 供服务端在在线日志/presence 中关联物理设备，可为空。
   /// [app] / [version] / [build] 为客户端标识（包名与版本构建号，见
   /// [ClientInfo]），随握手上报，服务端在线日志与 realtime.html 据此
   /// 区分不同控制端；断线重连时自动复用。
@@ -395,6 +405,8 @@ class RealtimeChannel {
   Future<void> connect({
     required String account,
     required String token,
+    String principal = '',
+    String principalToken = '',
     String deviceId = '',
     String role = 'tv',
     String kind = '',
@@ -405,6 +417,8 @@ class RealtimeChannel {
   }) async {
     _account = account.trim();
     _token = token;
+    _principal = principal.trim();
+    _principalToken = principalToken;
     _deviceId = deviceId.trim();
     _role = role;
     _kind = kind.trim();
@@ -450,6 +464,8 @@ class RealtimeChannel {
     // 主动断开意味着退出当前账号；保留账号会让上报模块把“手动退出”
     // 误判成临时断线，继续向旧账号发送心跳。
     _account = '';
+    _principal = '';
+    _principalToken = '';
     await sub?.cancel();
     try {
       await channel?.sink.close();
@@ -695,6 +711,10 @@ class RealtimeChannel {
         'account': _account,
         'token': _token,
         'role': _role,
+        if (_principal.isNotEmpty && _principal != _account) ...<String, String>{
+          'principal': _principal,
+          'principalToken': _principalToken,
+        },
         if (_kind.isNotEmpty) 'kind': _kind,
         if (_deviceId.isNotEmpty) 'deviceId': _deviceId,
         if (_name.isNotEmpty) 'name': _name,

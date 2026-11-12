@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 家长端 flavor 专用：浅色主题，状态栏浅底 + 深色图标。
+     覆盖 main 源集同名 style，仅影响 parent，不动 board（壁挂中控屏）/phone。 -->
+<resources>
+    <!-- 启动期（系统深色模式关）：浅色启动窗，状态栏浅底深图标。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:statusBarColor">#F7F9F8</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#F7F9F8</item>
+    </style>
+
+    <!-- 桌面图标入口（LauncherActivity）：透明无预览，与 main 保持一致。 -->
+    <style name="LauncherEntryTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- 运行期：浅色窗口背景 + 浅色状态栏，避免黑条。 -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">#F7F9F8</item>
+        <item name="android:statusBarColor">#F7F9F8</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#F7F9F8</item>
+    </style>
+</resources>

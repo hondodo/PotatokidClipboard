@@ -33,6 +33,8 @@ class FakeRealtimeChannel implements RealtimeChannel {
   Future<void> connect({
     required String account,
     required String token,
+    String principal = '',
+    String principalToken = '',
     String deviceId = '',
     String role = 'tv',
     String kind = '',
@@ -41,6 +43,7 @@ class FakeRealtimeChannel implements RealtimeChannel {
     String version = '',
     String build = '',
   }) async {
+    lastPrincipal = principal;
     calls.add('connect:$account:$token:$deviceId:$role');
     lastKind = kind;
     lastApp = app;
@@ -49,6 +52,9 @@ class FakeRealtimeChannel implements RealtimeChannel {
     final RealtimeException? error = connectError;
     if (error != null) throw error;
   }
+
+  /// 最近一次 connect 声明的家长号身份（实时通道连接恒用派生号，家长号走 principal）。
+  String lastPrincipal = '';
 
   /// 最近一次 connect 上报的设备类型（home/tv）。
   String lastKind = '';
