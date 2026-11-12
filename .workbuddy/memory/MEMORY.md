@@ -18,6 +18,12 @@
 - 查看线上代码可以 ssh 到目标机，但只用于排查，不作为修改入口。
 - 环境差异：Windows 开发机上 `app_server` 在 yuntu、`pscreen_server` 在 100.83.142.107；Ubuntu 开发机上 `pscreen_server` 就在本机。
 
+## 设备型号采集约定（2026-11-12）
+
+- 型号只在 WS 握手时上报一次，心跳/report 不携带；服务端 `setCommInfo` 非空才覆盖。客户端取不到型号时**必须返回空串**，绝不能兜底成假型号（如 `'Android TV'`）。
+- 桌面型号统一走共享包 `packages/pscreen_screen/core/utils/desktop_device_model.dart`（条件导出隔离 Web）。**禁止用 `Process.run`/`Process.start` 调 powershell / wmic / cmd**——Dart 在 Windows 不带 `CREATE_NO_WINDOW`，打包后双击 exe 会闪控制台黑框（从终端 `flutter run` 时反而看不到），只允许 FFI 读注册表 / `dart:io` 读 sysfs。
+- 依赖固定 `device_info_plus ^13.3.0` + `win32_registry ^3.0.3`：12.x 依赖 `win32 ^5` 与项目 `package_info_plus ^10.2.1`（`win32 ^6`）冲突；3.x 注册表 API 是 `LOCAL_MACHINE.open(path)` + `key.getString(name)`，与 2.x 的 `Registry.openPath` 不兼容。
+
 ## app_server 部署到 yuntu 的实操要点（2026-11-12 踩坑）
 
 - yuntu = `root@143.203.52.132`（SSH 配置里写的是 root，不是 honghao）。`honghao@143.203.52.132` 直连会被对端 reset，**不能直登**；部署必须 root 登录后再切 honghao。
@@ -33,7 +39,9 @@
 - 目标进程 `name=my-server`（fork 模式，cwd `/home/honghao/services/tools/server`，业务端口 `3000`）。fork 模式用 `pm2 restart my-server`（reload 等价 restart）。健康检查 `127.0.0.1:3000/healthz`。
 - datas 真实目录 `/home/honghao/services/tools/datas`（server.js 内 `path.join(__dirname,'../datas')`）。账号文件在 `datas/register/users/<账号>`（存口令 MD5）与 `<账号>_info.txt`。
 - `/tmp/pk_proxy_e2e` 的 node 进程（PPID=1，端口 3999）是 e2e 测试代理，**不在 pm2 管理内**，pm2 restart 不会影响它，勿误判为漏重启。
-- **部署对齐**：本地 Windows 是 CRLF、部署机 Linux 是 LF，直接 `diff -u` 会显示整文件 hunk 假差异；务必用 `diff --strip-trailing-cr` 重算实质差异，避免把"换行符不同"误判成"要整文件覆盖"。
+- **部署对齐**：本地 Windows 是 CRLF、部署机 Linux 是 LF，直接 `diff -u` 会显示整文件 hunk 假差异；务必用 `diff --strip-trailing-cr` 重算实质差异，避免把"换行符不同"误判成"要整文件覆盖"。注意 `ls` 字节数 ≠ JS 字符串长度（中文 UTF-8 3 字节），别用体积差判断代码是否不同。
+- **文件路径映射**：`server/*.js` 落在 `/home/honghao/services/tools/server/`；**后台静态 `web/admin.html` 必须落到 `build/web/admin.html`**（`admin.js:535` webAppPath 默认 `datasDir/../build/web`，`:2487` 从该目录读 admin.html）。`/admin.html` 与 `/admin` 均返回 200，可直接 curl 校验新页面内容。
+- **上传/备份推荐姿势（以 honghao 直登）**：本地 `tr -d '\r' < 源文件 > /tmp/xxx` 生成 LF 版 → scp 到远端 `/tmp/` → 远端 `node --check` → `cp -p` 备份到 `services/tools/backups/deploy-<时间戳>-<主题>/` → `install -m "$(stat -c %a 目标)" 源 目标`（保住原有 644/664 与 honghao 属主）→ `cmp -s` + md5 与本地去 CR 版对齐 → 才重启。
 - **契约同步铁律**：改了客户端 API 契约（如 claim 从"服务端随机口令"改为"用户自设口令"）必须同步部署服务端，否则新旧错配（已两次踩坑：只修数据会被旧服务端代码再次覆盖）。家长号双凭据新服务端涉及 `admin.js`/`claims.js`/`realtime.js` 三文件（`server.js`/`accounts.js` 与线上零差异不用动）。
 - **档案共享服务端已部署并端到端验证（2026-11-12，用户授权后执行，Task #41 完成）**：同步 `admin.js`（md5 765b3aeb）+ 新增 `parental_share.js`（修复后 md5 27b6a5c5）到 `/home/honghao/services/tools/server/`，`pm2 restart my-server`（pid 2746075→2760602）。备份在 `server/.deploy-backup-2026-11-12T07-31-16-51185580Z/`（旧 admin.js md5 a5dd3962 + machines.json md5 60d2f42a）。4 接口上线：`PUT /api/admin/parental/share-to`、`POST/DELETE /api/admin/parental/shared`、`GET /api/admin/parental/shared-view`；overview 每台电视注入 `parentalShareView`（线上 8 台电视命中）；题库 GET 回源主本+readOnly、PUT 护栏 403；时长按 `durationAnchorKey` 归主本。
 - **档案共享 resolveRef 同账号 bug（本轮端到端抓到并修复）**：`parental_share.js` 的 `resolveRef` 展开引用时**只认 `child.sharedTo` 白名单**，漏了「同一家长号名下其它电视默认可见」，而写入(admin.js POST shared)与候选(buildShareView)都用 `source.parents.includes(viewer)` 判 same-account，三处口径不一致 → 同账号引用一落地就被误判 `broken/not-shared-to-viewer`（真机 m10s 引用糖果电视必现）。修复：`resolveRef` 可见性判定对齐——viewer 在 `source.parents`（same-account）**或**在 `child.sharedTo` 白名单，任一即 ok；补回归测试（`parental_share_test.js` 24 项）。**经验：可见性判定这类多入口逻辑，写入/候选/展开三处必须用同一函数或口径，否则端到端才暴露。**

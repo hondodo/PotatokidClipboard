@@ -21,7 +21,7 @@ ParentalActions _stubActions() => ParentalActions(
       unlock: (_) async {},
       openDeviceManager: () async {},
       push: (_) async {},
-      sendRemoteCommand: (_) async {},
+      sendRemoteCommand: (_, _) async {},
       refreshPermission: () async {},
       toggleChildLock: (_) {},
       addChildExtra: (_) {},

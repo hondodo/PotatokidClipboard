@@ -4,6 +4,7 @@ import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_unlock_code_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/channel_name_normalizer.dart';
@@ -91,6 +92,15 @@ class MessageCommandExecutor {
         return _switchSource(args);
       case 'channel':
         return _channel(args);
+      case 'channel_digit':
+        return _channelDigit(args);
+      case 'channel_digit_resolve':
+        return ChannelNumberInputController.instance.resolveNow();
+      // 兼容兜底：家长端 UI 已无「清除」键，但保留该命令以便其它控制端
+      // 或脚本主动清缓冲（与本机遥控的 2 秒自动清空并存，不影响主路径）。
+      case 'channel_digit_clear':
+        ChannelNumberInputController.instance.clear();
+        return true;
       case 'nav':
         return _nav(args);
       case 'sleep_timer':
@@ -180,6 +190,21 @@ class MessageCommandExecutor {
     if (!_navPages.contains(page)) return false;
     // 导航是异步的（路由跳转/切 Tab），命令本身已受理。
     host.open(page);
+    return true;
+  }
+
+  /// 数字键逐位输入：家长端每按一位发一条 `channel_digit {digit}`，
+  /// 直接转给电视本机同一个 [ChannelNumberInputController]，复用「累积 →
+  /// 2 秒结算 → 频道号浮层 → 超范围提示」。门槛按产品口径「家长随时能
+  /// 跳台」——不判断当前 tab / 遮挡层，命令到达即输入。
+  bool _channelDigit(Map<String, dynamic>? args) {
+    if (args == null) return false;
+    final dynamic raw = args['digit'];
+    final int? digit = raw is num ? raw.toInt() : null;
+    if (digit == null || digit < 0 || digit > 9) return false;
+    // 无频道时 input() 内部会直接 return；这里提前返回 false 便于日志区分。
+    if (liveChannel.count <= 0) return false;
+    ChannelNumberInputController.instance.input(digit);
     return true;
   }
 

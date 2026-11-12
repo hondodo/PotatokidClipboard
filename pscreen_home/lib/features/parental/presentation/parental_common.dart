@@ -66,8 +66,11 @@ class ParentalActions {
   /// 下钻到某个全屏子页，返回后自动补拉事件。
   final Future<void> Function(Widget page) push;
 
-  /// 向被控设备发送遥控命令。
-  final Future<void> Function(String command) sendRemoteCommand;
+  /// 向指定设备发送遥控命令。
+  ///
+  /// [to] 必须是「被点击那台」的派生号（家长端可有多台电视，不能写死当前
+  /// 配置目标），命令由面板回调在闭包里固化后传入。
+  final Future<void> Function(String to, String command) sendRemoteCommand;
 
   /// 重新登录并刷新角色（空态权限自愈）。
   final Future<void> Function() refreshPermission;

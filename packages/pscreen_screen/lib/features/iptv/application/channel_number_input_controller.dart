@@ -36,6 +36,32 @@ class ChannelNumberInputController extends ChangeNotifier {
   /// 是否有内容需要回显（数字或超出范围提示）。
   bool get visible => _digits.isNotEmpty || _outOfRange;
 
+  /// 立即按当前缓冲结算（家长端「立即跳台」便利键）。
+  ///
+  /// 与 2 秒到期走同一个 [_resolve]：同一套范围判断 + 切台，只是不等计时器。
+  /// 缓冲为空时返回 false 且不误报「超出范围」（调用方据此提示先输号）。
+  bool resolveNow() {
+    if (_digits.isEmpty) return false;
+    _resolveTimer?.cancel();
+    _resolveTimer = null;
+    _resolve();
+    return true;
+  }
+
+  /// 清空输入缓冲与「超出范围」提示。
+  ///
+  /// 家长端 UI 已去掉「清除」键（与真实遥控一致），本方法作为命令兜底与
+  /// 测试隔离保留；正常路径下缓冲由 2 秒结算 / 超范围逻辑自行清空。
+  void clear() {
+    _resolveTimer?.cancel();
+    _resolveTimer = null;
+    _outOfRangeTimer?.cancel();
+    _outOfRangeTimer = null;
+    _digits = '';
+    _outOfRange = false;
+    notifyListeners();
+  }
+
   /// 输入一位数字（0~9）。
   void input(int digit) {
     final int count = LiveChannelController.instance.count;

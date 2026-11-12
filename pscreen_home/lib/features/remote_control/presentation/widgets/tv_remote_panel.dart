@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/features/remote_control/presentation/widgets/channel_number_pad.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/home_remote_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/live_remote_panel.dart';
 import 'package:pscreen_home/features/remote_control/presentation/widgets/remote_panel_registry.dart';
@@ -71,6 +72,14 @@ class TvRemotePanel extends StatelessWidget {
           channelsLabel: '频道列表',
           showSendMessage: false,
           showSleepTimer: true,
+        ),
+        const Divider(height: 24),
+        // 数字键直选频道：逐位直发电视端，本地只回显、结算收口电视端。
+        // 面板挂在可滚动父级里（ParentalRemotePage 的 body 可滚），不会溢出。
+        ChannelNumberPad(
+          enabled: online,
+          onCommand: panel.onCommand,
+          onHint: panel.onHint,
         ),
       ],
     );

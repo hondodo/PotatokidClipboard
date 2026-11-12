@@ -1,6 +1,9 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart';
+import 'package:pscreen_screen/core/utils/desktop_device_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 设备身份：用于服务端识别「同一台中控屏」。
@@ -43,8 +46,20 @@ class DeviceIdentity {
   }
 
   /// 设备型号（用于 Admin 列表展示，取不到时返回空串）。
+  ///
+  /// Android 走宿主 `potatokid/volume` 通道的 `getDeviceModel`；
+  /// Windows / Ubuntu 等桌面端改由 [desktopDeviceModel] 读 BIOS 注册表 /
+  /// DMI sysfs，全程进程内读取、不启动子进程（不会闪出控制台窗口）。
+  /// Web 无本机硬件型号概念，返回空串。
   static Future<String> model() async {
     if (_model.isNotEmpty) return _model;
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      _model = await desktopDeviceModel();
+      return _model;
+    }
     try {
       final String? value =
           await _channel.invokeMethod<String>('getDeviceModel');

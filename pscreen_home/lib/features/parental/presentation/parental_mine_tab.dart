@@ -125,11 +125,19 @@ class ParentalMineView extends StatelessWidget {
                         IconButton(
                           tooltip: '遥控 ${parentalTvName(machine)}',
                           icon: const Icon(Icons.control_camera, size: 20),
-                          onPressed: () => unawaited(actions.push(ParentalRemotePage(
-                            account: machine.commAccount.isEmpty ? machine.id : machine.commAccount,
-                            title: parentalTvName(machine),
-                            onCommand: (String command) => actions.sendRemoteCommand(command),
-                          ))),
+                          onPressed: () {
+                            // 把「被点击这台」的派生号固化进闭包，遥控命令发到
+                            // 这一台，而不是当前配置目标 _selected（多台时曾发错台）。
+                            final String to = machine.commAccount.isEmpty
+                                ? machine.id
+                                : machine.commAccount;
+                            unawaited(actions.push(ParentalRemotePage(
+                              account: to,
+                              title: parentalTvName(machine),
+                              onCommand: (String command) =>
+                                  actions.sendRemoteCommand(to, command),
+                            )));
+                          },
                         ),
                         if (AccountSession.isParent)
                           IconButton(

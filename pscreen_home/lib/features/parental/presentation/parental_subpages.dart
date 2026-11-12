@@ -115,13 +115,33 @@ class ParentalRemotePage extends StatelessWidget {
   final Future<void> Function(String command) onCommand;
   final String? title;
 
+  /// 面板内轻提示（数字键回显「已发 N」/「请先输入频道号」）在本页用
+  /// SnackBar 就地显示——页面是 push 上来的全屏页，外层 ParentalPage 的
+  /// 提示胶囊被盖住看不到。
+  void _showHint(BuildContext context, String message, {bool error = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1600),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: error ? Theme.of(context).colorScheme.errorContainer : null,
+      ));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(title ?? '遥控')),
-        body: TargetRemotePanel(
-          account: account,
-          title: title,
-          onCommand: onCommand,
+        // 数字键盘 + 原有控件纵向较长，包一层可滚动避免小屏溢出。
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: TargetRemotePanel(
+            account: account,
+            title: title,
+            onCommand: onCommand,
+            onHint: (String message, {bool error = false}) =>
+                _showHint(context, message, error: error),
+          ),
         ),
       );
 }

@@ -29,6 +29,14 @@ dependencies:
   # 实时消息通道（自建 WebSocket 网关）
   web_socket_channel: ^3.0.0
 
+  # 桌面端（Windows / Ubuntu）设备型号采集：
+  # win32_registry 读 BIOS 型号、sysfs 读 DMI 型号，device_info_plus 提供
+  # OS 名称兜底。三者都是进程内 FFI / 文件读取，不启动任何子进程，
+  # 打包后的 GUI 应用不会闪出控制台窗口。
+  # 必须 13.x：12.x 依赖 win32 ^5，与 package_info_plus ^10.2.1 的 win32 ^6 冲突。
+  device_info_plus: ^13.3.0
+  win32_registry: ^3.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

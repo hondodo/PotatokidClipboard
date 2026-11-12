@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/client_info.dart';
+import 'package:pscreen_screen/core/utils/desktop_device_model.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/core/utils/ptools_util.dart';
@@ -40,12 +41,18 @@ class RemoteLoginRepositoryImpl implements RemoteLoginRepository {
   /// 设备型号读取；测试注入假实现。
   final Future<String> Function() _deviceModel;
 
-  /// 只在 Android 上取真实型号：非 Android 宿主没有 `getDeviceModel` 原生通道，
-  /// `PlatformChannelService.deviceModel()` 会兜底成 'Android TV'，上报它会把
-  /// 桌面调试机伪装成电视，所以这里直接留空（服务端保留既有值）。
+  /// Android 走宿主原生通道取真实型号；桌面端（Windows / Ubuntu）读
+  /// BIOS 注册表 / DMI sysfs 取机型（见 [desktopDeviceModel]，不启动子进程）。
+  /// Web 与其余平台留空，服务端判空跳过、保留既有值。
+  ///
+  /// 不能无脑调 `PlatformChannelService.deviceModel()`：它在非 Android 上
+  /// 兜底成 'Android TV'，会把桌面调试机伪装成电视。
   static Future<String> defaultDeviceModel() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return '';
-    return PlatformChannelService.instance.deviceModel();
+    if (kIsWeb) return '';
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return PlatformChannelService.instance.deviceModel();
+    }
+    return desktopDeviceModel();
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 
@@ -15,7 +16,7 @@ ParentalActions _stubActions() => ParentalActions(
       unlock: (_) async {},
       openDeviceManager: () async {},
       push: (_) async {},
-      sendRemoteCommand: (_) async {},
+      sendRemoteCommand: (_, _) async {},
       refreshPermission: () async {},
       toggleChildLock: (_) {},
       addChildExtra: (_) {},
@@ -86,7 +87,7 @@ void main() {
       unlock: (_) async {},
       openDeviceManager: () async {},
       push: (_) async => pushed++,
-      sendRemoteCommand: (_) async {},
+      sendRemoteCommand: (_, _) async {},
       refreshPermission: () async {},
       toggleChildLock: (_) {},
       addChildExtra: (_) {},
@@ -128,6 +129,73 @@ void main() {
     await tester.tap(find.byTooltip('遥控 红米笔记本'));
     await tester.pumpAndSettle();
     expect(pushed, 1);
+  });
+
+  testWidgets('遥控目标修复：点第二台电视的遥控，命令发到第二台而非当前配置的电视',
+      (WidgetTester tester) async {
+    // 回归既存 bug：sendRemoteCommand 曾写死 _selected（当前配置目标），
+    // 导致点 A 台遥控、命令却发到 B 台。现在闭包固化被点击那台的派生号。
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    final ParentalMachine selected = _machine; // 当前配置目标 = 红米笔记本 (mi10s)
+    final ParentalMachine other = ParentalMachine(
+      id: 'm2',
+      name: '客厅电视',
+      nameSet: true,
+      kind: 'tv',
+      owner: 'owner1',
+      parents: const <String>['owner1'],
+      commAccount: 'living0001',
+      online: true,
+    );
+
+    ParentalRemotePage? pushedPage;
+    final List<String> sentTo = <String>[];
+    final ParentalActions actions = ParentalActions(
+      reload: () async {},
+      saveConfig: (_) async {},
+      unlock: (_) async {},
+      openDeviceManager: () async {},
+      push: (Widget page) async {
+        if (page is ParentalRemotePage) pushedPage = page;
+      },
+      sendRemoteCommand: (String to, String command) async => sentTo.add(to),
+      refreshPermission: () async {},
+      toggleChildLock: (_) {},
+      addChildExtra: (_) {},
+      editChild: (_) {},
+      unbind: (_) {},
+      selectDevice: (_) {},
+      renameMachine: (_) {},
+      openShareManagement: (_) {},
+      loadShareView: (_) async => ParentalShareView.empty,
+      setSharedTo: (_, _, _) async => ParentalShareView.empty,
+      addSharedRef: (_, _) async => ParentalShareView.empty,
+      cancelSharedRef: (_, _) async => ParentalShareView.empty,
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ParentalMineView(
+          machines: <ParentalMachine>[selected, other],
+          selected: selected,
+          config: _config,
+          myAccount: 'owner1',
+          actions: actions,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // 点「客厅电视」的遥控（不是当前目标），进入的页面 account 应是它的派生号
+    await tester.tap(find.byTooltip('遥控 客厅电视'));
+    await tester.pumpAndSettle();
+    expect(pushedPage, isNotNull);
+    expect(pushedPage!.account, 'living0001');
+
+    // 触发该页发出的命令，sendRemoteCommand 收到的 to 必须是客厅电视
+    await pushedPage!.onCommand('{"t":"cmd","name":"channel_digit"}');
+    expect(sentTo, <String>['living0001']);
   });
 
   testWidgets('我的页：账号/电视/解锁设置正常渲染（嵌套 ListView 不崩溃）',
@@ -209,7 +277,7 @@ void main() {
       unlock: (_) async {},
       openDeviceManager: () async {},
       push: (_) async {},
-      sendRemoteCommand: (_) async {},
+      sendRemoteCommand: (_, _) async {},
       refreshPermission: () async {},
       toggleChildLock: (_) {},
       addChildExtra: (_) {},

@@ -696,7 +696,7 @@ class _ParentalPageState extends State<ParentalPage> {
     unlock: _sendUnlock,
     openDeviceManager: () => _openDeviceManager(),
     push: _push,
-    sendRemoteCommand: (String command) => _sendRemoteCommand(_selected?.commAccount ?? '', command),
+    sendRemoteCommand: (String to, String command) => _sendRemoteCommand(to, command),
     refreshPermission: () => _refreshPermission(),
     toggleChildLock: (ParentalChild child) {
       unawaited(_toggleChildLock(child));
