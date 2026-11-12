@@ -1,23 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 /// 数字键直选频道（家长端遥控面板，3×4 网格）。
 ///
 /// 方案 A「电视端收口」：每按一位数字**立即**发一条 `channel_digit {digit}`，
-/// 手机端只做本地回显、不在本机计时；2 秒缓冲、超范围判断、跳台结算全部
-/// 交给电视端同一个 `ChannelNumberInputController`。因此手机与电视屏回显的
-/// 是同一份状态，与人在电视上按数字键是同一套逻辑。
+/// 跳台 / 超范围 / 2 秒结算全部由电视端同一个 `ChannelNumberInputController`
+/// 完成——与人在电视上按数字键是同一套逻辑。
 ///
-/// 键位：`1 2 3 / 4 5 6 / 7 8 9 / 0 + 立即跳台（占两格）`。
-/// 没有「清除」键——与真实遥控一致（输错等 2 秒自动结算/超范围提示；
-/// 也可重新进遥控页清空）。「立即跳台」不等 2 秒，下发 `channel_digit_resolve`
-/// 让电视端按当前缓冲立即结算。
+/// 手机端**只回显、不判范围、不下发跳台命令**；本机另起一个 2 秒计时器，
+/// 但只用于**清空本地回显**（纯 UI，不参与跳台）。否则按满 3 位后回显会一直
+/// 卡住、后续按键全被 `length >= 3` 拒绝（真机实测：输 121 后停 2 秒电视已
+/// 跳台，手机却停在 121，之后全失败）。这个计时器只管输入框，结算权始终在
+/// 电视端；两端计时起点差一个网络往返，用户无感。
+///
+/// 键位：`1 2 3 / 4 5 6 / 7 8 9 / 0 + 立即跳台（占两格）`。没有「清除」键。
+/// 提示走键盘内一行小字（Key: `channel-number-hint`），不再用 SnackBar
+/// 抢用户观察焦点。
 class ChannelNumberPad extends StatefulWidget {
   const ChannelNumberPad({
     super.key,
     required this.onCommand,
     required this.enabled,
-    this.onHint,
   });
 
   /// 发送已构造好的命令信封（发到当前这台被控电视）。
@@ -26,39 +31,68 @@ class ChannelNumberPad extends StatefulWidget {
   /// 设备在线才可点；离线时整块置灰。
   final bool enabled;
 
-  /// 轻提示（回显「已发 N」/「请先输入频道号」）。
-  final void Function(String message, {bool error})? onHint;
-
   @override
   State<ChannelNumberPad> createState() => _ChannelNumberPadState();
 }
 
 class _ChannelNumberPadState extends State<ChannelNumberPad> {
-  /// 手机本地回显的频道号串（最多 3 位，与电视端 count 上限同数量级）。
-  /// 只回显不计时——结算权在电视端。
+  static const int _maxDigits = 3;
+  static const Duration _displayTtl = Duration(seconds: 2);
+  static const String _idleHint = '依次按 0–9，停 2 秒电视自动跳台';
+
+  /// 手机本地回显的频道号串（最多 3 位）。
   String _digits = '';
+
+  /// 键盘内的轻提示；null 时显示 [_idleHint]。不弹 SnackBar。
+  String? _hint;
+  bool _hintIsError = false;
+
+  /// 仅用于清空本地回显的计时器——不参与跳台/范围判断（结算权在电视端）。
+  Timer? _displayTimer;
 
   bool get _hasDigits => _digits.isNotEmpty;
 
   void _inputDigit(int digit) {
-    if (_digits.length >= 3) return;
-    setState(() => _digits = '$_digits$digit');
+    if (_digits.length >= _maxDigits) return;
+    setState(() {
+      _digits = '$_digits$digit';
+      _hint = '已发 $digit · 共 $_digits，电视停 2 秒自动结算';
+      _hintIsError = false;
+    });
     widget.onCommand(
       buildCommandEnvelope('channel_digit', <String, dynamic>{'digit': digit}),
     );
-    widget.onHint?.call(
-      '已发 $digit → 电视端输入 $_digits（停 2 秒自动结算，以电视屏为准）',
-    );
+    // 每次有效输入重置「清回显」计时；满 3 位后它仍会到点清空，解除 length 上限锁定。
+    _displayTimer?.cancel();
+    _displayTimer = Timer(_displayTtl, _resetDisplay);
   }
 
   void _resolveNow() {
     if (!_hasDigits) {
-      widget.onHint?.call('请先输入频道号', error: true);
+      setState(() {
+        _hint = '请先输入频道号';
+        _hintIsError = true;
+      });
       return;
     }
     widget.onCommand(buildCommandEnvelope('channel_digit_resolve'));
-    widget.onHint?.call('已让电视端立即结算 $_digits（范围以电视为准）');
-    setState(() => _digits = '');
+    _displayTimer?.cancel();
+    _resetDisplay();
+  }
+
+  void _resetDisplay() {
+    if (!mounted) return;
+    setState(() {
+      _digits = '';
+      _hint = null;
+      _hintIsError = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _displayTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -89,7 +123,17 @@ class _ChannelNumberPadState extends State<ChannelNumberPad> {
                   ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
+        // 轻提示走键盘内一行小字，不再弹 SnackBar 抢焦点。
+        Text(
+          _hint ?? _idleHint,
+          key: const Key('channel-number-hint'),
+          style: TextStyle(
+            color: _hintIsError ? cs.error : (_hint == null ? cs.outline : cs.primary),
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
         // 3×4 网格用 Row + Expanded(flex) 实现，最后一行「立即跳台」占两格。
         _KeyRow(keys: const <int>[1, 2, 3], enabled: widget.enabled, onDigit: _inputDigit),
         _KeyRow(keys: const <int>[4, 5, 6], enabled: widget.enabled, onDigit: _inputDigit),
@@ -118,9 +162,8 @@ class _ChannelNumberPadState extends State<ChannelNumberPad> {
         ),
         const SizedBox(height: 6),
         Text(
-          '每按一位立即发到电视，电视屏同步回显；停 2 秒自动跳台，或点「立即跳台」。'
-          '范围 / 超范围以电视屏为准。',
-          style: TextStyle(color: cs.outline, fontSize: 12),
+          '数字键与电视本机一致；超范围 / 当前频道以电视屏为准。',
+          style: TextStyle(color: cs.outline, fontSize: 11),
           textAlign: TextAlign.center,
         ),
       ],

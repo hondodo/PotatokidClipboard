@@ -115,9 +115,11 @@ class ParentalRemotePage extends StatelessWidget {
   final Future<void> Function(String command) onCommand;
   final String? title;
 
-  /// 面板内轻提示（数字键回显「已发 N」/「请先输入频道号」）在本页用
-  /// SnackBar 就地显示——页面是 push 上来的全屏页，外层 ParentalPage 的
-  /// 提示胶囊被盖住看不到。
+  /// 面板内轻提示在本页用 SnackBar 就地显示——页面是 push 上来的全屏页，
+  /// 外层 ParentalPage 的提示胶囊被盖住看不到。
+  /// 注意：数字键的回显/提示已改为 ChannelNumberPad 键盘内一行小字，不再走
+  /// 这里（连续按数字时 SnackBar 会抢焦点）；这里只服务音量/频道±等离散
+  /// 操作的单次反馈。
   void _showHint(BuildContext context, String message, {bool error = false}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()

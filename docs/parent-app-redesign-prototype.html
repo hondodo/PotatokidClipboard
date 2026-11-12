@@ -192,8 +192,10 @@ const S = {
   ],
   tvTarget:0, // 当前配置目标电视在 tvData 里的下标：解锁方式/题库作用于这台，可与档案共享目标不同
   shareTarget:0, shareEdit:null, shareToDraft:'',
-  // 遥控页状态：remoteDigits=手机本地回显的频道号串（不计时、不判范围，结算全收口电视端）；remoteChIndex=示意当前频道
-  remoteTv:0, remoteDigits:'', remoteChIndex:4, remoteVol:8, remoteMuted:false, remoteScene:'live', remoteSleep:0,
+  // 遥控页状态：remoteDigits=手机本地回显串（不判范围、不下发跳台；结算全收口电视端）。
+  // _displayTimer 仅用于 2 秒后清空本地回显（纯 UI，不参与跳台）——否则按满 3 位后回显卡死、后续全失败。
+  // remoteHintOverride=键盘内小字的临时覆盖文案（如空缓冲点跳台），不再用 toast 抢焦点。
+  remoteTv:0, remoteDigits:'', _displayTimer:null, remoteHintOverride:null, remoteChIndex:4, remoteVol:8, remoteMuted:false, remoteScene:'live', remoteSleep:0,
   devices:[
     {name:'A 手机', note:'已登录 AA_parent', bound:['客厅电视']},
     {name:'B 手机', note:'已登录 AA_parent', bound:['客厅电视','卧室电视']}
@@ -410,8 +412,9 @@ const PAGES = {
     const chName=liveNames[(S.remoteChIndex-1)%liveNames.length];
     const d=S.remoteDigits;
     const sent=d.length;
-    let hintText='依次按 0–9：每按一位立即发到电视，电视屏同步回显；停 2 秒自动结算跳台。输错等 2 秒自动结算，或重新进遥控页清空。';
-    if(sent>0)hintText='已发 '+sent+' 位 → 电视屏正在输入 '+esc(d)+'；停 2 秒自动跳台，或点「立即跳台」。超出范围以电视屏提示为准。';
+    let hintText='依次按 0–9，每按一位立即发到电视；停 2 秒电视自动跳台，本地回显同步清空。';
+    if(sent>0)hintText='已发 '+sent+' 位 → 电视屏正在输入 '+esc(d)+'；停 2 秒自动跳台并清空回显，或点「立即跳台」。范围以电视屏为准。';
+    if(S.remoteHintOverride)hintText=S.remoteHintOverride;
     const keys=['1','2','3','4','5','6','7','8','9','0','jump'];
     const keyHtml=keys.map(k=>{
       if(k==='jump')return '<button class="jump wide" data-act="rJump">立即跳台</button>';
@@ -461,7 +464,7 @@ const NOTES = {
   mine:'<h2>我的 · 对应改造点</h2><ul><li><span class="flag">旧：</span>右上角设置弹窗和「我的」页内容重叠又分散；账号卡把"设备派生号"当家长身份显示，跟"实时通道"混成一串看不懂的 ID。</li><li><span class="fix">新：</span>账号卡拆成两行：<b>家长号</b>（跨设备身份，可改）与<b>本机实时通道号</b>（设备身份，只读、不可改）。两者彻底解耦。</li><li><span class="fix">新：</span>删掉右上角设置弹窗，内容并入「我的」；ownerAccount 输入框移除，保存时沿用原值不误清空。</li><li><span class="fix">新：</span>「我在电视上的名字」单列成卡，说明它只影响电视端显示，不是备注名也不是登录号。</li><li><span class="fix">新：</span>遥控放在每台电视行常驻；每台电视增加「管理档案 / 跨电视共享」入口。</li></ul><h3>三种“改名”别混</h3><p class="kv">电视备注名＝这台电视在你手机上的别名；我在电视上的名字＝你在电视端显示的家长名；家长号＝"家长这个人"的身份，跟着人跨设备。</p>',
   identity:'<h2>家长号与跨设备 · 对应改造点</h2><ul><li><span class="flag">旧：</span>"设置登录名"=把设备派生号<b>改名迁移</b>、旧号禁用成墓碑，实时通道也被一起切走，口令只存本机 → 重装即锁死，还多出一个后端账号。</li><li><span class="fix">新：</span>撤销整套改名迁移。家长号是独立账号，可跨手机登录；实时通道恒用各自的设备派生号，永不改动。</li><li><span class="fix">新：</span>"能看到哪些档案"=<b>绑定关系</b>（每台电视的 parents 数组）决定，A/B 手机登同一个家长号、绑同一批电视，看到的数据天然一致。</li><li><span class="fix">新：</span>不再有一次性随机口令困在本机的问题：家长号口令可由用户自设/重置，换设备凭号+口令登录即可。</li></ul><h3>关键取舍</h3><p class="kv">设备派生号不再被"搞掉"——它是设备身份证，实时通道、心跳、遥控都靠它，跟家长号井水不犯河水。</p>',
   share:'<h2>档案共享 · 对应改造点</h2><ul><li><span class="flag">旧：</span>档案只属于某一台电视，跨台复用只能复制成两份，规则改一处另一处不同步。</li><li><span class="fix">新：</span>用<b>引用</b>代替复制：主本仍在原电视，引用方只存一条坐标；改规则/限额只改主本，所有引用方自动同步。</li><li><span class="fix">新：</span><b>跨家长靠"指定家长号白名单"</b>：爸爸绑客厅、妈妈绑卧室，爸爸默认看不到妈妈的档案；妈妈在自己的档案上点「分享设置」<b>填入爸爸的家长号 AA_parent</b>，爸爸才会在"其他家长分享的档案"里看到并可引用。妈妈若只填了 grandpa88 而没填 AA_parent，爸爸依然看不到——隐私由档案所有者按家长号精确把控，不是一开分享就对所有人公开。</li><li><span class="fix">新：</span><b>主本被删不级联</b>：来源档案删除／电视解绑后，引用方保留占位并标「失效」，提示重新选择，不静默清空配置。</li><li><span class="fix">新：</span><b>时长按主本合并</b>：同一档案在客厅 + 卧室的观看时长累加（30 + 20 = 50 分钟），共用一份每日限额，明细分台记录。</li></ul><h3>可以试</h3><p class="kv">在客厅电视给「档案2 · 大薯」点"分享设置"填 mama88（只分享给妈妈）；再看"其他家长分享的档案"——妈妈指定给 AA_parent 的"逗逗"可引用，只填了 grandpa88 的"果果"和未分享的"小宝"都看不到；引用"逗逗"后主本被删会显示"失效"占位；点取消引用不影响主本。</p>',
-  remote:'<h2>遥控 · 数字键直选频道 · 对应改造点</h2><ul><li><span class="flag">旧：</span>遥控页只有音量、频道±、频道列表，<b>没有数字键</b>；想直接跳某个频道只能翻 988 项的列表。电视本机的数字键直选（按 0→1→6 跳 016）在手机遥控上用不了。</li><li><span class="fix">新：</span>补 0–9 数字键盘 + 回显 + 位数进度，<b>每按一位立即发一条命令，电视屏同步回显；停 2 秒自动跳台，或点「立即跳台」让电视端马上结算</b>，超范围由电视端提示。<b>键位去掉「清除」</b>（与真实遥控一致）：<code>1 2 3 / 4 5 6 / 7 8 9 / 0 + 立即跳台（占两格）</code>；输错等 2 秒自动结算或重进遥控页清空。</li></ul><h3>数字键是怎么"发送"的（全链路）</h3><p class="kv">传输管道本来就通，缺的只是两端各一块拼图：</p><ul><li>① 手机每按一个数字 → <code>buildCommandEnvelope(\'channel_digit\', {digit:n})</code> → 机身 WS 发 <code>{"t":"msg","to":"&lt;电视派生号&gt;","body":"{\\"t\\":\\"cmd\\",\\"name\\":\\"channel_digit\\",\\"args\\":{\\"digit\\":n}}"</code>。</li><li>② 服务端 <code>realtime.js</code> 的 <code>case \'msg\'</code> 只特殊拦 <code>parental_unlock</code>，其它命令<b>原样透传</b>给电视 → <span class="fix">服务端零改动</span>。</li><li>③ 电视端 <code>MessageRouter</code> → <code>MessageCommandExecutor.execute(name,args)</code> 新增 <code>case \'channel_digit\': ChannelNumberInputController.instance.input(digit)</code> → <span class="flag">这是要落地的唯一缺口</span>。</li><li>④ 补一个手机便利键「立即跳台」（真实遥控没有、但走同一套收口逻辑）：<code>channel_digit_resolve</code> → controller 新增公开 <code>resolveNow()</code> 立即按当前缓冲结算（空缓冲返回 false，不误报超范围）。<b>不做「清除」键</b>——真实遥控也没有，输错等 2 秒自动结算或重进遥控页清空即可；<code>clear()</code> 仅作为 controller 的内部兜底，不下发命令。</li></ul><h3>关键原则：缓冲与结算收口在电视端</h3><p class="kv">不在手机复刻一套计时/范围判断。手机<b>逐位立即发 <code>channel_digit</code>，只做本地回显</b>；2 秒缓冲、超范围、命中切台全部交给电视端同一个 <code>ChannelNumberInputController</code>。手机与电视屏回显的是<b>同一份状态</b>，和人在电视上按数字键是同一套逻辑。</p><h3>与真实遥控的三处差异</h3><ul><li><b>计时归属：</b>真实遥控由电视端 controller 计时；方案 A 必须逐位立即发、手机不跑 <code>_digitTimer</code>、不用 <code>channel{index}</code> 补跳，否则两套计时器在网络延迟下会错开，且 <code>channel{index}</code> 是立即 select、不走 2 秒缓冲。</li><li><b>范围口径：</b>电视端用真实 <code>LiveChannelController.count</code> 判超范围；手机不要写死 988，否则频道数不符时两端提示打架——原型里超范围/当前频道一律以电视屏为准。</li><li><b>入口门槛：</b>真实遥控数字键<b>只在首页 tab（<code>cur == 0</code>）生效</b>，且被选人页/锁屏/消息浮层/胶囊 Mask 拦截；方案 A 在 executor 直接调 <code>input()</code> 会绕过这些。要严格一致需先判断当前 tab / 遮挡层；定位成"家长随时能跳台"的增强则保持现状。</li></ul><h3>仍要注意</h3><p class="kv"><b>网络延迟：</b>逐位命令若某条卡超过 2 秒，电视端可能先按前几位结算、再收到后几位 → "跳两次"，真实遥控没有这个变量。<b>门槛已定：</b>采用「家长随时能跳台」——executor 直接调 <code>input()</code>，不判当前 tab / 遮挡层；电视停在意时间 / 设置页，手机发数字照样跳，与真实遥控「仅首页生效」是唯一刻意差别。<b>无清除键：</b>按用户确认去掉，与真实遥控一致，输错等 2 秒自动结算或重进遥控页清空。</p><h3>可以试</h3><p class="kv">依次点 0 → 1 → 6 看回显变 <b>016</b>、位数进度增长，每次都提示"已发"；停 2 秒电视端自动结算，或点「立即跳台」；输入 999 时超范围以电视屏提示为准；没有「清除」键，输错等 2 秒自动结算或重进遥控页清空。当前频道、音量、场景胶囊、频道±、定时关闭沿用真机现有行为。</p>'
+  remote:'<h2>遥控 · 数字键直选频道 · 对应改造点</h2><ul><li><span class="flag">旧：</span>遥控页只有音量、频道±、频道列表，<b>没有数字键</b>；想直接跳某个频道只能翻 988 项的列表。电视本机的数字键直选（按 0→1→6 跳 016）在手机遥控上用不了。</li><li><span class="fix">新：</span>补 0–9 数字键盘 + 回显 + 位数进度，<b>每按一位立即发一条命令，电视屏同步回显；停 2 秒自动跳台，或点「立即跳台」让电视端马上结算</b>，超范围由电视端提示。<b>键位去掉「清除」</b>（与真实遥控一致）：<code>1 2 3 / 4 5 6 / 7 8 9 / 0 + 立即跳台（占两格）</code>；停 2 秒本地回显自动清空（纯 UI、不下发跳台命令），结算仍由电视端完成。</li></ul><h3>数字键是怎么"发送"的（全链路）</h3><p class="kv">传输管道本来就通，缺的只是两端各一块拼图：</p><ul><li>① 手机每按一个数字 → <code>buildCommandEnvelope(\'channel_digit\', {digit:n})</code> → 机身 WS 发 <code>{"t":"msg","to":"&lt;电视派生号&gt;","body":"{\\"t\\":\\"cmd\\",\\"name\\":\\"channel_digit\\",\\"args\\":{\\"digit\\":n}}"</code>。</li><li>② 服务端 <code>realtime.js</code> 的 <code>case \'msg\'</code> 只特殊拦 <code>parental_unlock</code>，其它命令<b>原样透传</b>给电视 → <span class="fix">服务端零改动</span>。</li><li>③ 电视端 <code>MessageRouter</code> → <code>MessageCommandExecutor.execute(name,args)</code> 新增 <code>case \'channel_digit\': ChannelNumberInputController.instance.input(digit)</code> → <span class="flag">这是要落地的唯一缺口</span>。</li><li>④ 补一个手机便利键「立即跳台」（真实遥控没有、但走同一套收口逻辑）：<code>channel_digit_resolve</code> → controller 新增公开 <code>resolveNow()</code> 立即按当前缓冲结算（空缓冲返回 false，不误报超范围）。<b>不做「清除」键</b>——真实遥控也没有，停 2 秒本地回显自动清空、电视端同档结算即可；<code>clear()</code> 仅作为 controller 的内部兜底，不下发命令。</li></ul><h3>关键原则：缓冲与结算收口在电视端</h3><p class="kv">不在手机复刻一套<b>结算/范围</b>判断。手机<b>逐位立即发 <code>channel_digit</code>，只做本地回显</b>；2 秒缓冲、超范围、命中切台全部交给电视端同一个 <code>ChannelNumberInputController</code>。手机另起一个 <b>2 秒「仅清本地回显」计时器</b>（纯 UI、不下发跳台命令）——否则按满 3 位后回显卡死、后续按键全被拒（真机实测 121 后全失败）。提示走<b>键盘内一行小字</b>，不再弹 SnackBar（连续按数字会连弹黑条抢焦点）。</p><h3>与真实遥控的三处差异</h3><ul><li><b>计时归属：</b>真实遥控由电视端 controller 计时；方案 A 必须逐位立即发、手机不跑<b>结算计时器</b>（不跑 <code>_digitTimer</code>、不用 <code>channel{index}</code> 补跳），否则两套结算计时器在网络延迟下会错开，且 <code>channel{index}</code> 是立即 select、不走 2 秒缓冲。手机只跑一个<b>只清回显</b>的 <code>_displayTimer</code>（纯 UI），与电视结算计时起点差一个网络往返、用户无感。</li><li><b>范围口径：</b>电视端用真实 <code>LiveChannelController.count</code> 判超范围；手机不要写死 988，否则频道数不符时两端提示打架——原型里超范围/当前频道一律以电视屏为准。</li><li><b>入口门槛：</b>真实遥控数字键<b>只在首页 tab（<code>cur == 0</code>）生效</b>，且被选人页/锁屏/消息浮层/胶囊 Mask 拦截；方案 A 在 executor 直接调 <code>input()</code> 会绕过这些。要严格一致需先判断当前 tab / 遮挡层；定位成"家长随时能跳台"的增强则保持现状。</li></ul><h3>仍要注意</h3><p class="kv"><b>网络延迟：</b>逐位命令若某条卡超过 2 秒，电视端可能先按前几位结算、再收到后几位 → "跳两次"，真实遥控没有这个变量。<b>门槛已定：</b>采用「家长随时能跳台」——executor 直接调 <code>input()</code>，不判当前 tab / 遮挡层；电视停在意时间 / 设置页，手机发数字照样跳，与真实遥控「仅首页生效」是唯一刻意差别。<b>无清除键：</b>按用户确认去掉，与真实遥控一致；停 2 秒本地回显自动清空（纯 UI，不下发跳台命令），结算仍由电视端完成。<b>提示弱化：</b>数字键提示走键盘内一行小字，不弹 SnackBar——连续按数字时黑条会连弹、抢观察焦点。</p><h3>可以试</h3><p class="kv">依次点 0 → 1 → 6 看回显变 <b>016</b>、位数进度增长；键盘内小字提示"已发 N 位"，不弹黑条；停 2 秒回显自动清空、电视端同步结算（可按 121 后停 2 秒，确认回显清空、再按数字能继续输入）；或点「立即跳台」立即结算；输入 999 时超范围以电视屏提示为准；没有「清除」键。当前频道、音量、场景胶囊、频道±、定时关闭沿用真机现有行为。</p>'
 };
 
 function render(){
@@ -557,7 +560,7 @@ function A(a,v,el){
     case 'recheckAuth': toast('权限检查通过：家长');break;
     case 'claimAccount': S.page='identity';render();toast('家长号可跨设备登录；本机通道号不会被改动');break;
     case 'saveDisplayName': toast('已保存：电视与解锁请求将显示「'+(S.displayName.trim()||S.account)+'」');break;
-    case 'remote': S.remoteTv=Number(v); S.remoteDigits=''; S.page='remote'; render(); break;
+    case 'remote': S.remoteTv=Number(v); S.remoteDigits=''; S.remoteHintOverride=null; clearTimeout(S._displayTimer); S.page='remote'; render(); break;
     case 'rScene': S.remoteScene=v; render(); toast('已切到'+({live:'直播',time:'时间',set:'设置'}[v])+'（仅示意，真机下发 nav 命令）'); break;
     case 'rVol':
       if(v==='up')S.remoteVol=Math.min(100,S.remoteVol+1);
@@ -571,20 +574,23 @@ function A(a,v,el){
     case 'rChList': toast('打开频道列表（988 个）；数字键可直接输入序号跳台'); break;
     case 'rSleep': S.remoteSleep=S.remoteSleep?0:30; render(); toast(S.remoteSleep?'30 分钟后自动关闭':'已取消定时关闭'); break;
     case 'rDigit': {
-      // 方案A：每按一位立即下发一条 channel_digit，手机只回显；2 秒缓冲与结算全在电视端 controller。
+      // 方案A：每按一位立即下发一条 channel_digit；2 秒缓冲/范围/结算全在电视端 controller。
+      // 手机只回显（键盘内小字，不 toast）；本机另起「仅清本地回显」的 2 秒计时器（纯 UI，
+      // 不下发跳台命令），否则按满 3 位后回显卡死、后续按键全被 length>=3 拒绝。
       // 真机：channel.sendText(to:派生号, body: buildCommandEnvelope('channel_digit', {digit:Number(v)}))
       if(S.remoteDigits.length>=3)break;
-      S.remoteDigits+=v; render();
-      toast('已发 '+v+' → 电视端输入 '+S.remoteDigits+'（电视停 2 秒自动结算，以电视屏为准）');
+      S.remoteDigits+=v; S.remoteHintOverride=null; render();
+      clearTimeout(S._displayTimer);
+      S._displayTimer=setTimeout(()=>{S.remoteDigits='';S.remoteHintOverride=null;render();},2000);
       break;
     }
     case 'rJump': {
       // 真机：下发 buildCommandEnvelope('channel_digit_resolve') → 电视端立即按当前缓冲结算（同一套范围判断）
+      clearTimeout(S._displayTimer);
       const d=S.remoteDigits;
-      if(d===''){toast('请先输入频道号');break;}
+      if(d===''){S.remoteHintOverride='请先输入频道号';render();break;} // 空缓冲只给内联提示，不发命令、不弹 toast
       // 原型无真实电视回执，仅乐观演示；真机当前频道由电视端 select 后同步，范围也以电视为准
-      S.remoteChIndex=Math.max(1,Number(d)); S.remoteDigits=''; render();
-      toast('已让电视端立即结算 '+d+'（下发 channel_digit_resolve，范围以电视为准）');
+      S.remoteChIndex=Math.max(1,Number(d)); S.remoteDigits=''; S.remoteHintOverride=null; render();
       break;
     }
     case 'renameTv': toast('重命名「'+S.tvData[Number(v)].name+'」（仅自己可见，改的是电视备注名）');break;

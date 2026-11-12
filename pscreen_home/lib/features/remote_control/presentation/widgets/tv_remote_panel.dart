@@ -79,7 +79,6 @@ class TvRemotePanel extends StatelessWidget {
         ChannelNumberPad(
           enabled: online,
           onCommand: panel.onCommand,
-          onHint: panel.onHint,
         ),
       ],
     );
