@@ -33,10 +33,39 @@ class ParentalTvView extends StatelessWidget {
   Future<void> _openQuiz(BuildContext context) async {
     final ParentalMachine? tv = selected;
     if (tv == null || config.children.isEmpty) return;
+    // 多档案时必须先选孩子，不能固定取第一个（否则第 2/3 个档案题库不可达）。
+    ParentalChild target = config.children.first;
+    if (config.children.length > 1) {
+      final ParentalChild? picked = await showModalBottomSheet<ParentalChild>(
+        context: context,
+        showDragHandle: true,
+        builder: (BuildContext sheet) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text('选择要编辑题库的孩子'),
+              ),
+              for (final ParentalChild child in config.children)
+                ListTile(
+                  leading: const Icon(Icons.face_outlined),
+                  title: Text(child.name),
+                  subtitle: child.readOnly ? const Text('共享档案（只读）') : null,
+                  enabled: !child.readOnly,
+                  onTap: () => Navigator.of(sheet).pop(child),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null || !context.mounted) return;
+      target = picked;
+    }
     await ParentalQuizEditorSheet.show(
       context,
       deviceId: tv.id,
-      child: config.children.first,
+      child: target,
     );
   }
 
@@ -210,8 +239,50 @@ class ParentalTvView extends StatelessWidget {
               onChanged: _readOnly
                   ? null
                   : (bool value) => unawaited(
-                        actions.saveConfig(config.copyWith(mode: value ? 'on' : 'off')),
+                        // 只写 DeviceLocal，绝不带 children（否则会清空本台分配）。
+                        actions.saveDeviceSettings(config.copyWith(mode: value ? 'on' : 'off')),
                       ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('本台档案',
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  if (config.children.isEmpty)
+                    Text(
+                      '还没有分配孩子档案；开启儿童模式时会自动把家庭档案分配到本台。',
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: scheme.outline),
+                    )
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: config.children
+                          .map((ParentalChild child) => Chip(
+                                visualDensity: VisualDensity.compact,
+                                label: Text(child.readOnly
+                                    ? '${child.name}（共享）'
+                                    : child.name),
+                              ))
+                          .toList(growable: false),
+                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '规则在「孩子」页统一维护，分配在孩子的「分配电视」里调整。',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.outline),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -222,7 +293,7 @@ class ParentalTvView extends StatelessWidget {
             ),
             config: config,
             machine: selected,
-            onSave: actions.saveConfig,
+            onSave: actions.saveDeviceSettings,
             onOpenQuiz: () => unawaited(_openQuiz(context)),
             readOnly: _readOnly,
           ),

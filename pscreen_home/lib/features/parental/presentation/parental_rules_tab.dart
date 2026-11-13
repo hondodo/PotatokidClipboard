@@ -138,15 +138,22 @@ class ParentalRulesView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  '全局设置',
+                  '这台电视的设置',
                   style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  hasDevice
+                      ? '仅对「${parentalTvName(selected!)}」生效，不影响其它电视。'
+                      : '先选择一台电视，再设置本台的解锁方式。',
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
                 ),
                 const SizedBox(height: 4),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('解锁方式'),
                   subtitle: hasDevice
-                      ? Text(unlockModeLabel(config.unlockMode))
+                      ? Text('${unlockModeLabel(config.unlockMode)} · 仅本台生效')
                       : const Text('需先选择电视'),
                   trailing: const Icon(Icons.chevron_right),
                   enabled: hasDevice,

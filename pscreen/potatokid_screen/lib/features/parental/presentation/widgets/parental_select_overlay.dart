@@ -72,6 +72,9 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
     super.initState();
     ParentalSelectOverlay._instance = this;
     _visible = _computeVisible();
+    // 选人页可见即冻结观看计时与锁屏阈值判定：还没确认「谁在看」之前，
+    // 不能按默认预选把时间计到限额、直接跳到答题解锁。
+    _parental.timer.setSelectionPending(_visible);
     if (_visible) _syncSelection();
     _parental.addListener(_revalidate);
   }
@@ -81,6 +84,7 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
     if (identical(ParentalSelectOverlay._instance, this)) {
       ParentalSelectOverlay._instance = null;
     }
+    _parental.timer.setSelectionPending(false);
     _parental.removeListener(_revalidate);
     _cardScrollController.dispose();
     super.dispose();
@@ -94,6 +98,8 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
 
   void _revalidate() {
     final bool show = _computeVisible();
+    // 与展示状态同步冻结/恢复计时（确认后收起即恢复）。
+    _parental.timer.setSelectionPending(show);
     if (show) {
       if (!_synced) _syncSelection();
     } else {

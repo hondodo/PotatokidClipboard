@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/features/parental/application/parental_telemetry.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 
@@ -51,6 +53,9 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
   bool _loading = true;
   bool _saving = false;
   bool _dirty = false;
+
+  /// D-01：题库实体版本号（保存时作为 baseRevision 回传）。
+  int _revision = 0;
   String? _loadError;
 
   @override
@@ -65,7 +70,7 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
       _loadError = null;
     });
     try {
-      final List<Map<String, dynamic>> list = await widget.api.fetchQuiz(
+      final ParentalQuizState state = await widget.api.fetchQuizState(
         widget.deviceId,
         widget.child.id,
       );
@@ -73,7 +78,8 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
       setState(() {
         _questions
           ..clear()
-          ..addAll(list);
+          ..addAll(state.questions);
+        _revision = state.revision;
         _loading = false;
         _dirty = false;
       });
@@ -136,20 +142,66 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
+    final List<Map<String, dynamic>> mine =
+        List<Map<String, dynamic>>.from(_questions);
     try {
       await widget.api.saveQuiz(
         widget.deviceId,
         widget.child.id,
-        _questions,
+        mine,
+        baseRevision: _revision,
       );
       if (!mounted) return;
+      ParentalTelemetry.saveResult('quiz', ok: true, revision: _revision + 1);
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已保存 ${_questions.length} 道题')),
+        SnackBar(content: Text('已保存 ${mine.length} 道题')),
       );
+    } on ParentalConflictException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final ParentalConflictChoice choice = await showParentalConflictDialog(
+        context,
+        title: '题库已被其他设备修改',
+        message: '${e.message}\n\n可以查看差异，或用你当前的题目覆盖服务端最新题库。',
+        mine: <String, dynamic>{'questions': mine},
+        theirs: e.current,
+      );
+      ParentalTelemetry.conflict('quiz', choice.name);
+      if (!mounted) return;
+      if (choice == ParentalConflictChoice.overwrite) {
+        final int serverRevision = (e.current?['revision'] as num?)?.toInt() ?? 0;
+        setState(() => _saving = true);
+        try {
+          await widget.api.saveQuiz(
+            widget.deviceId,
+            widget.child.id,
+            mine,
+            baseRevision: serverRevision,
+          );
+          if (!mounted) return;
+          ParentalTelemetry.saveResult('quiz', ok: true, revision: serverRevision + 1);
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已保存 ${mine.length} 道题')),
+          );
+        } catch (error) {
+          if (!mounted) return;
+          ParentalTelemetry.saveResult('quiz', ok: false, reason: '$error');
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('覆盖失败：$error')));
+        }
+        return;
+      }
+      // 放弃：回读服务端最新题库，不残留本地改动。
+      await _load();
     } catch (e) {
       if (!mounted) return;
+      ParentalTelemetry.saveResult('quiz', ok: false, reason: '$e');
       setState(() => _saving = false);
       ScaffoldMessenger.of(
         context,

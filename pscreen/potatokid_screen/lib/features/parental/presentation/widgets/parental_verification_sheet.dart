@@ -387,6 +387,10 @@ class _ParentalVerificationSheetState extends State<ParentalVerificationSheet> {
         _quizLoaded = true;
       });
       await _applyRotation();
+      if (mounted && _quizQuestions.isEmpty) {
+        // 3.7 埋点：答题解锁在电视端无可答题库 → 已降级短码页。
+        debugPrint('[parental-metric] quiz_empty_fallback');
+      }
     } finally {
       _quizLoading = false;
     }

@@ -372,6 +372,7 @@ class FamilyChild {
     this.whitelist = const <String>[],
     this.locked = false,
     this.sharedTo = const <String>[],
+    this.quizRevision = 0,
     this.assignedTo = const <FamilyTvRef>[],
     this.revision = 0,
   });
@@ -408,6 +409,9 @@ class FamilyChild {
   /// 题库分享白名单（CR-01：只授权家长号，不传 childId）。
   final List<String> sharedTo;
 
+  /// D-01：题库实体版本号（与档案版本分开），题库分享保存时作为 `baseRevision`。
+  final int quizRevision;
+
   /// 只读展示：哪些电视启用了本档案（来自 assignment 反向索引）。
   final List<FamilyTvRef> assignedTo;
 
@@ -442,6 +446,7 @@ class FamilyChild {
       whitelist: _stringList(json['whitelist']),
       locked: json['locked'] == true,
       sharedTo: _stringList(json['sharedTo']),
+      quizRevision: _int(json['quizRevision']) ?? 0,
       assignedTo: assigned,
       revision: _int(json['revision']) ?? 0,
     );
@@ -491,6 +496,7 @@ class FamilyChild {
         whitelist: whitelist ?? this.whitelist,
         locked: locked ?? this.locked,
         sharedTo: sharedTo ?? this.sharedTo,
+        quizRevision: quizRevision,
         assignedTo: assignedTo ?? this.assignedTo,
         revision: revision,
       );

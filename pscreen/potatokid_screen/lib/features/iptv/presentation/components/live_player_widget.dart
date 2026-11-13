@@ -157,7 +157,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 儿童模式锁屏暂停：锁屏出现即暂停直播，解锁后恢复；锁屏期间即使开启
   /// 「后台播放」也在退到后台时暂停（[KidWatchTimerController.locked] 为准）。
   bool _lockedPaused = false;
-  bool _lastKidLocked = false;
+
+  /// 上一次的「应暂停」闸门状态：儿童模式锁屏 **或** 选人页等待确认。
+  /// 两者都要求画面停住，避免选人时背景仍在出声。
+  bool _lastPauseGate = false;
   bool _appInBackground = false;
 
   /// 退出清理开始后禁止所有延迟任务、失败回退和生命周期回调重新开流。
@@ -358,21 +361,27 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     HomeNowPlayingController.instance.onShowChannelPanel = _showChannelPanel;
     HomeNowPlayingController.instance.onHideChannelPanel = _hideChannelPanel;
     AppExitController.instance.attachPlaybackCleanup(_stopForAppExit);
-    // 锁屏/解锁边沿：锁屏即暂停、解锁即恢复（儿童模式）。
-    _lastKidLocked = KidWatchTimerController.instance.locked;
+    // 暂停闸门边沿：儿童模式锁屏 / 选人页等待确认 → 暂停，闸门解除 → 恢复。
+    _lastPauseGate = _pauseGateActive();
     KidWatchTimerController.instance.addListener(_onKidLockChanged);
-    if (_lastKidLocked) _pauseForLock();
+    if (_lastPauseGate) _pauseForLock();
     _restoreLastChannel();
   }
 
-  /// 儿童模式锁屏状态变化：锁定 → 暂停；解除 → 恢复（后台时先不恢复，
+  /// 是否需要暂停画面：儿童模式锁屏，或选人页尚未确认「谁在看」。
+  static bool _pauseGateActive() {
+    final KidWatchTimerController timer = KidWatchTimerController.instance;
+    return timer.locked || timer.selectionPending;
+  }
+
+  /// 暂停闸门状态变化：进入 → 暂停；解除 → 恢复（后台时先不恢复，
   /// 回前台再恢复，避免后台出声）。
   void _onKidLockChanged() {
     if (_appExiting) return;
-    final bool locked = KidWatchTimerController.instance.locked;
-    if (locked == _lastKidLocked) return;
-    _lastKidLocked = locked;
-    if (locked) {
+    final bool gate = _pauseGateActive();
+    if (gate == _lastPauseGate) return;
+    _lastPauseGate = gate;
+    if (gate) {
       _pauseForLock();
     } else {
       _resumeFromLock();
@@ -391,8 +400,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   void _resumeFromLock() {
     if (_appExiting) return;
     if (!_lockedPaused) return;
-    // 仍锁定或仍在后台：保持暂停，等回前台/解锁后再恢复（不能先清标记）。
-    if (KidWatchTimerController.instance.locked || _appInBackground) return;
+    // 闸门仍成立或仍在后台：保持暂停，等回前台/闸门解除后再恢复（不能先清标记）。
+    if (_pauseGateActive() || _appInBackground) return;
     _lockedPaused = false;
     unawaited(_player?.play());
   }
@@ -459,8 +468,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (_appExiting) return;
     if (state == AppLifecycleState.resumed) {
       _appInBackground = false;
-      // 锁屏仍然成立：保持暂停，不做恢复健康检测（否则会主动重开流）。
-      if (KidWatchTimerController.instance.locked) {
+      // 暂停闸门仍然成立：保持暂停，不做恢复健康检测（否则会主动重开流）。
+      if (_pauseGateActive()) {
         _pauseForLock();
         return;
       }
@@ -474,8 +483,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       return;
     }
     _appInBackground = true;
-    // 儿童模式锁屏期间：即使开了「后台播放」也不允许后台继续出声。
-    if (KidWatchTimerController.instance.locked) _pauseForLock();
+    // 儿童模式锁屏 / 选人页等待期间：即使开了「后台播放」也不允许后台继续出声。
+    if (_pauseGateActive()) _pauseForLock();
   }
 
   /// 恢复前台后的播放健康检测（解决 RN/媒体 Surface 被销毁的固有风险）。
@@ -841,8 +850,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       );
       await _player?.open(Media(source));
       _reportPlayback('play_start');
-      // 锁屏期间打开新流（启动恢复频道/切源）：开完立即暂停，避免出声。
-      if (KidWatchTimerController.instance.locked) {
+      // 暂停闸门成立时打开新流（启动恢复频道/切源）：开完立即暂停，避免出声。
+      if (_pauseGateActive()) {
         _lockedPaused = true;
         await _player?.pause();
       }

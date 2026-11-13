@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import 'package:pscreen_home/features/parental/application/parental_telemetry.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
@@ -95,40 +96,60 @@ class _ParentalFamilyPageState extends State<ParentalFamilyPage> {
       managedTvs: _managedTvs,
     );
     if (saved == null || !mounted) return;
+    // in-flight 锁：加载 / 保存期间不接受第二次提交。
+    if (_loading) return;
     setState(() => _loading = true);
     final int? baseRevision = child?.revision;
     try {
       await _api.saveFamilyChild(saved.toJson(), baseRevision: baseRevision);
       if (!mounted) return;
+      ParentalTelemetry.saveResult('familyChild', ok: true);
       await _load();
       await _notifyChanged();
     } on ParentalConflictException catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      await _showConflictAndReload(e);
+      await _showConflictAndReload(e, mine: saved.toJson());
     } catch (e) {
       if (!mounted) return;
+      ParentalTelemetry.saveResult('familyChild', ok: false, reason: '$e');
       setState(() => _loading = false);
       _toast('保存失败：$e', error: true);
     }
   }
 
-  /// D-01：冲突时提示「已被其他设备修改」，并回读最新数据，避免静默覆盖。
-  Future<void> _showConflictAndReload(ParentalConflictException e) async {
-    await showDialog<void>(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: const Text('档案已被其他设备修改'),
-        content: Text('${e.message}\n\n已为你刷新为服务端最新内容，请确认后再修改。'),
-        actions: <Widget>[
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('好，看最新内容'),
-          ),
-        ],
-      ),
+  /// D-01：冲突三选一（查看差异 / 覆盖 / 放弃）；覆盖后版本递增，放弃则回读。
+  Future<void> _showConflictAndReload(
+    ParentalConflictException e, {
+    Map<String, dynamic>? mine,
+  }) async {
+    final ParentalConflictChoice choice = await showParentalConflictDialog(
+      context,
+      title: '档案已被其他设备修改',
+      message: '${e.message}\n\n可以查看差异，或用你的版本覆盖服务端最新内容。',
+      mine: mine,
+      theirs: e.current,
     );
+    ParentalTelemetry.conflict('familyChild', choice.name);
     if (!mounted) return;
+    if (choice == ParentalConflictChoice.overwrite && mine != null) {
+      final int? serverRevision = (e.current?['revision'] as num?)?.toInt();
+      setState(() => _loading = true);
+      try {
+        await _api.saveFamilyChild(mine, baseRevision: serverRevision);
+        if (!mounted) return;
+        ParentalTelemetry.saveResult('familyChild', ok: true, revision: serverRevision);
+        await _load();
+        await _notifyChanged();
+      } catch (error) {
+        if (!mounted) return;
+        ParentalTelemetry.saveResult('familyChild', ok: false, reason: '$error');
+        setState(() => _loading = false);
+        _toast('覆盖失败：$error', error: true);
+        await _load();
+      }
+      return;
+    }
     await _load();
     await _notifyChanged();
   }
@@ -1189,44 +1210,78 @@ class _AssignmentSheetState extends State<_AssignmentSheet> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
-    try {
-      for (final ParentalMachine tv in widget.tvs) {
-        final List<String> base = _current[tv.id] ?? const <String>[];
-        final bool want = _checked[tv.id] ?? false;
-        final bool has = base.contains(widget.child.id);
-        if (want == has) continue;
-        final List<String> next = <String>[...base];
-        if (want) {
-          next.add(widget.child.id);
-        } else {
-          next.remove(widget.child.id);
-        }
-        await widget.api.saveAssignment(
-          tv.id,
-          next,
-          baseRevision: _revision[tv.id],
-        );
-        // 保存成功后该电视版本递增，后续若同一批次再写（不会）也保持一致。
-        _revision[tv.id] = (_revision[tv.id] ?? 0) + 1;
+    final List<ParentalMachine> tvs = widget.tvs;
+    for (int i = 0; i < tvs.length; i++) {
+      final ParentalMachine tv = tvs[i];
+      final List<String> base = _current[tv.id] ?? const <String>[];
+      final bool want = _checked[tv.id] ?? false;
+      if (want == base.contains(widget.child.id)) continue;
+      final List<String> next = <String>[...base];
+      if (want) {
+        next.add(widget.child.id);
+      } else {
+        next.remove(widget.child.id);
       }
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } on ParentalConflictException catch (e) {
-      // D-01：他人已改动该电视的分配 → 提示并回读最新，避免静默覆盖。
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = '${e.message}（已为你刷新为最新分配，请重新勾选后再保存）';
-      });
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-        _error = '保存失败：$e';
-      });
+      int attemptRevision = _revision[tv.id] ?? 0;
+      try {
+        await widget.api.saveAssignment(tv.id, next, baseRevision: attemptRevision);
+        ParentalTelemetry.saveResult('assignment', ok: true, revision: attemptRevision + 1);
+        _current[tv.id] = next;
+        _revision[tv.id] = attemptRevision + 1;
+      } on ParentalConflictException catch (e) {
+        // D-01：他人已改动该电视的分配 → 三选一处理。
+        if (!mounted) return;
+        setState(() => _saving = false);
+        final ParentalConflictChoice choice = await showParentalConflictDialog(
+          context,
+          title: '「${parentalTvName(tv)}」的分配已被其他设备修改',
+          message: '${e.message}\n\n可以查看差异，或用你的勾选结果覆盖服务端最新分配。',
+          mine: <String, dynamic>{'childIds': next},
+          theirs: e.current,
+        );
+        ParentalTelemetry.conflict('assignment', choice.name);
+        if (!mounted) return;
+        if (choice == ParentalConflictChoice.overwrite) {
+          final int serverRevision = (e.current?['revision'] as num?)?.toInt() ?? 0;
+          setState(() => _saving = true);
+          try {
+            await widget.api.saveAssignment(tv.id, next, baseRevision: serverRevision);
+            ParentalTelemetry.saveResult('assignment', ok: true, revision: serverRevision + 1);
+            _current[tv.id] = next;
+            _revision[tv.id] = serverRevision + 1;
+          } catch (error) {
+            if (!mounted) return;
+            ParentalTelemetry.saveResult('assignment', ok: false, reason: '$error');
+            setState(() {
+              _saving = false;
+              _error = '覆盖失败：$error（已刷新为最新分配）';
+            });
+            await _load();
+            return;
+          }
+        } else {
+          setState(() {
+            _saving = false;
+            _error = '${e.message}（已为你刷新为最新分配，请重新勾选后再保存）';
+          });
+          await _load();
+          return;
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ParentalTelemetry.saveResult('assignment', ok: false, reason: '$e');
+        setState(() {
+          _saving = false;
+          _error = '保存失败：$e';
+        });
+        return;
+      }
     }
+    if (!mounted) return;
+    setState(() => _saving = false);
+    Navigator.of(context).pop(true);
   }
 
   @override

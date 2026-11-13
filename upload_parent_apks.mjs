@@ -34,18 +34,26 @@ const YUNTU_IP = '143.203.52.132';
 const ADMIN_BASE = `http://${YUNTU_IP}:47293`;
 const API_BASE = `http://${YUNTU_IP}:47292`;
 
-const APP_ID = 'potatokid-home-parent';
+const APP_ID = process.env.YUNTU_APP_ID || 'potatokid-home-parent';
 const PLATFORM = 'apk';
-const VERSION = '1.0.6';
-const BUILD = 10;
+const VERSION = process.env.YUNTU_VERSION || '1.0.6';
+const BUILD = Number(process.env.YUNTU_BUILD || 10);
 const CHUNK = 8 * 1024 * 1024;
 
-const APK_DIR = 'E:/Code/potatokid_clipboard/pscreen_home/build/app/outputs/flutter-apk';
+// 支持发布家长端（parent flavor）与电视端（tv flavor）；按 appId 推导产物名。
+const IS_TV = APP_ID.includes('screen-tv');
+const FLAVOR = IS_TV ? 'tv' : 'parent';
+const APK_DIR = process.env.YUNTU_APK_DIR
+  || `/home/honghao/codes/PotatokidClipboard/${IS_TV ? 'pscreen/potatokid_screen' : 'pscreen_home'}/build/app/outputs/flutter-apk`;
 const ARTIFACTS = [
-  { file: 'app-parent-release.apk', abi: 'universal' },
-  { file: 'app-arm64-v8a-parent-release.apk', abi: 'arm64-v8a' },
-  { file: 'app-armeabi-v7a-parent-release.apk', abi: 'armeabi-v7a' },
+  { file: `app-${FLAVOR}-release.apk`, abi: 'universal' },
+  { file: `app-arm64-v8a-${FLAVOR}-release.apk`, abi: 'arm64-v8a' },
+  { file: `app-armeabi-v7a-${FLAVOR}-release.apk`, abi: 'armeabi-v7a' },
 ];
+const NOTES = process.env.YUNTU_NOTES
+  || (IS_TV
+    ? '电视端：选人页暂停播放与计时；题库变更即时刷新；D-01 冲突保护。'
+    : '家长端：D-01 冲突三选一与埋点；解绑/切号确认；解锁中心拒绝重试；导航灰度开关。');
 
 const cookieJar = path.join(os.tmpdir(), `yuntu_cookies_${Date.now()}.txt`);
 
@@ -131,8 +139,8 @@ async function main() {
     const created = await curl('POST', `${ADMIN_BASE}/api/admin/apps`, {
       json: {
         appId: APP_ID,
-        name: '薯仔 Home 家长端',
-        description: '家长端 App（parent flavor）',
+        name: IS_TV ? '薯仔 Screen 电视端' : '薯仔 Home 家长端',
+        description: IS_TV ? '电视端 App（tv flavor）' : '家长端 App（parent flavor）',
         platforms: ['apk'],
         enabled: true,
       },
@@ -176,7 +184,7 @@ async function main() {
         version: VERSION,
         build: BUILD,
         pubspecBuildConfirmed: true,
-        notes: '家长端：新增「设置登录名」（自定义登录名 + 设备绑定），服务端 claim 流程。',
+        notes: NOTES,
       },
     });
     requireOk(init, `${art.abi} init`);

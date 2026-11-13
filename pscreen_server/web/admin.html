@@ -1800,7 +1800,11 @@
               throw new Error(`档案「${name}」：禁看时段起止时间不能相同：${entry}`);
             }
           });
+          // 表单只覆盖自己展示的字段；其余（sharedTo / 头像 / 档位外名单等）
+          // 原样保留，避免整份覆盖把授权名单或属性清空。
+          const origin = children.find((item) => item && item.id === card.dataset.childId) || {};
           const child = {
+            ...origin,
             id: card.dataset.childId,
             name,
             profileMode,
@@ -1817,9 +1821,13 @@
             }
             child.allowGroups = allowGroups;
             child.allowChannels = splitList(card.querySelector('[data-field="allowChannels"]').value);
+            delete child.hideGroups;
+            delete child.hideChannels;
           } else {
             child.hideGroups = splitList(card.querySelector('[data-field="hideGroups"]').value);
             child.hideChannels = splitList(card.querySelector('[data-field="hideChannels"]').value);
+            delete child.allowGroups;
+            delete child.allowChannels;
           }
           if (ids.has(child.id)) throw new Error('档案 id 冲突，请删除后重新添加');
           ids.add(child.id);
@@ -1837,6 +1845,10 @@
           pin,
           ownerAccount: wrap.querySelector('[data-field="ownerAccount"]').value.trim(),
         };
+        // 家庭级模型迁移前，旧模型的跨电视引用数组必须原样保留，不能被整份表单覆盖清空。
+        if (current && Array.isArray(current.shared) && current.shared.length) {
+          parental.shared = current.shared;
+        }
         return api(`/api/admin/machines/${encodeURIComponent(machine.id)}`, {
           method: 'PUT',
           body: JSON.stringify({ parental }),

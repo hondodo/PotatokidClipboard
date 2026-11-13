@@ -140,6 +140,34 @@ class _ParentalDeviceManagerSheetState
   }
 
   Future<void> _unbind(ParentalMachine machine) async {
+    if (_busy) return;
+    // S4 解绑二次确认：取消本台分配 + 关闭儿童模式，家庭数据全部保留。
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: Text('解绑「${_nameOf(machine)}」？'),
+        content: const Text(
+          '解绑后将取消这台电视的儿童档案分配，并关闭本台儿童模式。\n\n'
+          '家庭档案、题库授权、已导入副本和当日观看累计全部保留，'
+          '其它电视不受影响；之后可随时重新绑定。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('解绑'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() {
       _busy = true;
       _message = null;

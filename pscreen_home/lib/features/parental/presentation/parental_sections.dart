@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
@@ -615,7 +617,7 @@ class WatchSection extends StatelessWidget {
 
 /// 模块③ 解锁请求记录：历史 `parental_unlock_request`，短码未过期的可点
 /// 「解锁」补发 `parental_unlock`（60s 过期语义由电视端校验）。
-class UnlockSection extends StatelessWidget {
+class UnlockSection extends StatefulWidget {
   const UnlockSection({
     super.key,
     required this.events,
@@ -647,7 +649,18 @@ class UnlockSection extends StatelessWidget {
   /// 未绑定该电视时的补绑入口（家长端打开绑定管理）。
   final VoidCallback? onManageDevices;
 
+  @override
+  State<UnlockSection> createState() => _UnlockSectionState();
+}
+
+class _UnlockSectionState extends State<UnlockSection> {
+  /// 本页内已拒绝的请求（来源 + 短码）：不落盘，仅用于四态展示与重新发起。
+  final Set<String> _rejected = <String>{};
+
   static const Duration _codeTtl = Duration(seconds: 60);
+
+  static String _keyOf(RealtimeEvent event) =>
+      '${event.from.trim()}|${'${event.data['code'] ?? ''}'.trim()}';
 
   /// 事件来源是否属于当前选中的电视（`from` 可能是设备 id 或通信账号）。
   static bool _belongsTo(RealtimeEvent event, ParentalMachine? machine) {
@@ -660,7 +673,7 @@ class UnlockSection extends StatelessWidget {
   /// 按「来源 + 短码」取最新回执。
   Map<String, Map<String, dynamic>> _ackByCode() {
     final Map<String, Map<String, dynamic>> latest = <String, Map<String, dynamic>>{};
-    for (final RealtimeEvent ack in acks) {
+    for (final RealtimeEvent ack in widget.acks) {
       final String code = '${ack.data['code'] ?? ''}'.trim();
       if (code.isEmpty) continue;
       final String key = '${ack.from.trim()}|$code';
@@ -691,18 +704,18 @@ class UnlockSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
-    final List<RealtimeEvent> visible = machine == null
-        ? events
-        : events
-              .where((RealtimeEvent event) => _belongsTo(event, machine))
+    final List<RealtimeEvent> visible = widget.machine == null
+        ? widget.events
+        : widget.events
+              .where((RealtimeEvent event) => _belongsTo(event, widget.machine))
               .toList(growable: false);
     final Map<String, Map<String, dynamic>> ackByCode = _ackByCode();
     // 家长未绑定选中电视时，服务端会按「无权限」拒绝 parental_unlock；
     // 这里提前说明并给出补绑入口（admin 未绑定时仍可代管，不提示）。
-    final bool unbound = !isAdmin &&
-        machine != null &&
-        myAccount.isNotEmpty &&
-        !machine!.parents.contains(myAccount);
+    final bool unbound = !widget.isAdmin &&
+        widget.machine != null &&
+        widget.myAccount.isNotEmpty &&
+        !widget.machine!.parents.contains(widget.myAccount);
     final Widget? unboundCard = unbound
         ? Card(
             margin: const EdgeInsets.only(bottom: 8),
@@ -715,13 +728,16 @@ class UnlockSection extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '当前账号 $myAccount 未绑定这台电视，服务端会把解锁命令按'
+                      '当前账号 ${widget.myAccount} 未绑定这台电视，服务端会把解锁命令按'
                       '「无权限」拒绝。请先补绑后再解锁。',
                       style: theme.textTheme.bodySmall,
                     ),
                   ),
-                  if (onManageDevices != null)
-                    TextButton(onPressed: onManageDevices, child: const Text('去绑定')),
+                  if (widget.onManageDevices != null)
+                    TextButton(
+                      onPressed: widget.onManageDevices,
+                      child: const Text('去绑定'),
+                    ),
                 ],
               ),
             ),
@@ -739,10 +755,13 @@ class UnlockSection extends StatelessWidget {
           '答题解锁需先在「档案」里给儿童维护题库，电视端会跳过填空题，'
           '题库为空或只有填空题时回退短码页。',
         ),
-        trailing: TextButton(
-          onPressed: () => DefaultTabController.of(context).animateTo(4),
-          child: const Text('去设置'),
-        ),
+        // 下钻页没有 TabController，只有内嵌在五 Tab 壳里时才提供跳转。
+        trailing: DefaultTabController.maybeOf(context) == null
+            ? null
+            : TextButton(
+                onPressed: () => DefaultTabController.of(context).animateTo(4),
+                child: const Text('去设置'),
+              ),
       ),
     );
     if (visible.isEmpty) {
@@ -779,8 +798,9 @@ class UnlockSection extends StatelessWidget {
             code.isEmpty ? null : ackByCode['${event.from.trim()}|$code'];
         final String result = '${ack?['result'] ?? ''}'.trim();
         final String actor = '${ack?['actor'] ?? ''}'.trim();
-        final bool actingAsAdmin = isAdmin &&
-            (machine != null && !machine!.parents.contains(myAccount));
+        final bool actingAsAdmin = widget.isAdmin &&
+            (widget.machine != null &&
+                !widget.machine!.parents.contains(widget.myAccount));
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: Padding(
@@ -809,8 +829,9 @@ class UnlockSection extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         [
-                          if (machine != null && machine!.name.isNotEmpty)
-                            '电视 ${machine!.name}'
+                          if (widget.machine != null &&
+                              widget.machine!.name.isNotEmpty)
+                            '电视 ${widget.machine!.name}'
                           else if (event.from.isNotEmpty)
                             '来源 ${event.from}',
                           if (reason.isNotEmpty) reason,
@@ -846,10 +867,43 @@ class UnlockSection extends StatelessWidget {
                       ),
                     ),
                   )
+                else if (ack == null && _rejected.contains(_keyOf(event)))
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Text(
+                          '已拒绝',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.outline,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setState(() => _rejected.remove(_keyOf(event)));
+                          unawaited(widget.onUnlock(event));
+                        },
+                        child: const Text('重新发起'),
+                      ),
+                    ],
+                  )
                 else if (ack == null)
-                  FilledButton.tonal(
-                    onPressed: () => onUnlock(event),
-                    child: const Text('解锁'),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      TextButton(
+                        onPressed: () =>
+                            setState(() => _rejected.add(_keyOf(event))),
+                        child: const Text('拒绝'),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton.tonal(
+                        onPressed: () => widget.onUnlock(event),
+                        child: const Text('解锁'),
+                      ),
+                    ],
                   )
                 else
                   Padding(

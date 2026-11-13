@@ -6,6 +6,7 @@ import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
+import 'package:pscreen_home/features/parental/application/parental_telemetry.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/domain/parental_share.dart';
@@ -15,6 +16,7 @@ import 'package:pscreen_home/features/parental/presentation/parental_common.dart
 import 'package:pscreen_home/features/parental/presentation/parental_device_manager_sheet.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_family_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_share_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
@@ -23,6 +25,7 @@ import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
 /// 家长视图（方案 4.2 模块①-⑥ 的承载页）。
@@ -50,11 +53,22 @@ class ParentalPage extends StatefulWidget {
 }
 
 class _ParentalPageState extends State<ParentalPage> {
-  static const List<_TabSpec> _tabs = <_TabSpec>[
-    _TabSpec('今天', Icons.today_outlined),
-    _TabSpec('孩子', Icons.family_restroom_outlined),
-    _TabSpec('电视', Icons.tv_outlined),
-  ];
+  /// 导航灰度开关：默认新导航（今天 / 孩子 / 电视），可一键切回旧三 Tab
+  /// （今天 / 规则 / 我的），用于线上回滚。
+  static const String _legacyNavKey = 'parental_legacy_nav_v1';
+  bool _legacyNav = false;
+
+  List<_TabSpec> get _tabs => _legacyNav
+      ? const <_TabSpec>[
+          _TabSpec('今天', Icons.today_outlined),
+          _TabSpec('规则', Icons.tune_outlined),
+          _TabSpec('我的', Icons.person_outline),
+        ]
+      : const <_TabSpec>[
+          _TabSpec('今天', Icons.today_outlined),
+          _TabSpec('孩子', Icons.family_restroom_outlined),
+          _TabSpec('电视', Icons.tv_outlined),
+        ];
 
   ParentalAdminApi get _api => widget.api ?? const ParentalAdminApi();
 
@@ -80,6 +94,9 @@ class _ParentalPageState extends State<ParentalPage> {
   bool _loading = false;
   /// 正在切换配置目标电视（Phase 2）：期间禁用保存，避免把旧配置误写进新电视。
   bool _switching = false;
+
+  /// D-01 in-flight 锁：本台设置 / 整份配置保存期间禁止重复提交与切换电视。
+  bool _saving = false;
   String? _error;
 
   /// 实时通道连接状态：页面常在通道未连上时构建，连上后要补拉一次事件，
@@ -105,6 +122,7 @@ class _ParentalPageState extends State<ParentalPage> {
       unawaited(_loadParentalSessions());
     });
     _eventSub = _channel?.events.listen(_onRealtimeEvent);
+    unawaited(_loadLegacyNav());
     // 空态也要能显示「当前登录账号」，不依赖角色校验是否通过。
     unawaited(_loadMyAccount());
     if (AccountSession.isParentOrAdmin) unawaited(_reload());
@@ -161,6 +179,31 @@ class _ParentalPageState extends State<ParentalPage> {
     final bool allowed = AccountSession.isParentOrAdmin;
     setState(() {});
     if (allowed && _machines.isEmpty) unawaited(_reload());
+  }
+
+  /// 读取导航灰度开关（默认新导航）。
+  Future<void> _loadLegacyNav() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final bool legacy = prefs.getBool(_legacyNavKey) ?? false;
+      if (!mounted || legacy == _legacyNav) return;
+      setState(() => _legacyNav = legacy);
+    } catch (_) {
+      // 读取失败按默认新导航继续，不影响页面。
+    }
+  }
+
+  /// 切换导航模式（灰度回滚用）。
+  Future<void> _setLegacyNav(bool legacy) async {
+    if (legacy == _legacyNav) return;
+    setState(() => _legacyNav = legacy);
+    _hint(legacy ? '已切回旧版导航（今天 / 规则 / 我的）' : '已切回新版导航（今天 / 孩子 / 电视）');
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_legacyNavKey, legacy);
+    } catch (_) {
+      // 落盘失败只影响下次启动，不阻塞本次切换。
+    }
   }
 
   /// 读取两层身份：家长号（管理登录）+ 本机实时通道派生号（设备身份）。
@@ -356,16 +399,31 @@ class _ParentalPageState extends State<ParentalPage> {
       _hint('正在切换电视，请稍候', error: true);
       return;
     }
+    if (_saving) {
+      _hint('正在保存，请稍候', error: true);
+      return;
+    }
     final ParentalMachine? machine = _selected;
     if (machine == null) {
       _hint('未选择设备，无法保存', error: true);
       return;
     }
-    setState(() => _config = next);
+    setState(() {
+      _saving = true;
+      _config = next;
+    });
     try {
       final ParentalConfig saved = await _api.saveParental(machine.id, next.toJson());
-      if (!mounted || _selected?.id != machine.id) return;
-      setState(() => _config = saved);
+      if (!mounted) return;
+      if (_selected?.id != machine.id) {
+        setState(() => _saving = false);
+        return;
+      }
+      setState(() {
+        _config = saved;
+        _saving = false;
+      });
+      ParentalTelemetry.saveResult('parental', ok: true);
       if (next.unlockMode == 'quiz' && saved.unlockMode != 'quiz') {
         _hint('保存未生效：服务端返回的解锁方式仍是「${saved.unlockMode}」，请重试', error: true);
         return;
@@ -374,8 +432,165 @@ class _ParentalPageState extends State<ParentalPage> {
       if (!mounted) return;
       _hint(warning ?? '已保存', error: warning != null);
     } catch (error) {
+      ParentalTelemetry.saveResult('parental', ok: false, reason: '$error');
+      if (!mounted) return;
+      setState(() => _saving = false);
       _hint('保存失败：$error', error: true);
       unawaited(_loadConfig());
+    }
+  }
+
+  /// 本台设置保存（CR-02）：只写 `mode / unlockMode / pin / activeChildIds`。
+  ///
+  /// 不能复用 [_saveConfig]：家庭模型下整份 parental 写入会把 `children` 一并
+  /// 覆盖，导致该电视的档案分配被清空——开启儿童模式后电视端 children 为空，
+  /// 模式随即被自动关闭（线上已复现）。
+  Future<void> _saveDeviceSettings(ParentalConfig next) async {
+    if (_switching) {
+      _hint('正在切换电视，请稍候', error: true);
+      return;
+    }
+    if (_saving) {
+      _hint('正在保存，请稍候', error: true);
+      return;
+    }
+    final ParentalMachine? machine = _selected;
+    if (machine == null) {
+      _hint('未选择设备，无法保存', error: true);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      // 电视端生效判定是「mode=on 且 children 非空」。本台一个档案都没分配时，
+      // 只写 mode=on 电视不会有反应（会立刻回到普通模式），先自动补齐分配。
+      bool assignedAll = false;
+      if (next.mode == 'on' && next.children.isEmpty) {
+        final bool ok = await _ensureChildrenAssigned(machine);
+        if (!ok || !mounted) return;
+        assignedAll = true;
+      }
+      setState(() => _config = next);
+      final ParentalDeviceLocal current = await _api.fetchDeviceLocal(machine.id);
+      final ParentalDeviceLocal saved = await _api.saveDeviceLocal(
+        machine.id,
+        mode: next.mode,
+        unlockMode: next.unlockMode,
+        pin: next.pin,
+        activeChildIds: next.activeChildIds,
+        baseRevision: current.revision,
+      );
+      await _applyDeviceLocal(machine, saved);
+      ParentalTelemetry.saveResult('deviceLocal', ok: true, revision: saved.revision);
+      final String? warning = next.unlockMode == 'quiz' ? await _quizEmptyWarning(machine, next) : null;
+      if (!mounted) return;
+      if (assignedAll) {
+        // 分配变了，回读一次让「本台档案」立即显示。
+        unawaited(_loadConfig());
+        _hint('已开启儿童模式，并把家庭档案分配到本台', error: warning != null);
+        return;
+      }
+      if (next.unlockMode == 'quiz' && saved.unlockMode != 'quiz') {
+        _hint('保存未生效：服务端返回的解锁方式仍是「${saved.unlockMode}」，请重试', error: true);
+        return;
+      }
+      _hint(warning ?? '已保存', error: warning != null);
+    } on ParentalConflictException catch (error) {
+      ParentalTelemetry.conflict('deviceLocal', 'prompt');
+      if (!mounted) return;
+      final ParentalConflictChoice choice = await showParentalConflictDialog(
+        context,
+        title: '本台设置已被其他设备修改',
+        message: '${error.message}\n\n可以查看差异，或用你的设置覆盖服务端最新值。',
+        mine: <String, dynamic>{
+          'mode': next.mode,
+          'unlockMode': next.unlockMode,
+          'pin': next.pin,
+          'activeChildIds': next.activeChildIds,
+        },
+        theirs: error.current,
+      );
+      ParentalTelemetry.conflict('deviceLocal', choice.name);
+      if (!mounted) return;
+      if (choice == ParentalConflictChoice.overwrite) {
+        final int serverRevision = (error.current?['revision'] as num?)?.toInt() ?? 0;
+        try {
+          final ParentalDeviceLocal saved = await _api.saveDeviceLocal(
+            machine.id,
+            mode: next.mode,
+            unlockMode: next.unlockMode,
+            pin: next.pin,
+            activeChildIds: next.activeChildIds,
+            baseRevision: serverRevision,
+          );
+          await _applyDeviceLocal(machine, saved);
+          ParentalTelemetry.saveResult('deviceLocal', ok: true, revision: saved.revision);
+          _hint('已用你的设置覆盖并保存', error: false);
+        } catch (retryError) {
+          ParentalTelemetry.saveResult('deviceLocal', ok: false, reason: '$retryError');
+          if (!mounted) return;
+          _hint('覆盖失败：$retryError', error: true);
+          unawaited(_loadConfig());
+        }
+      } else {
+        _hint('已放弃本次修改，并刷新为服务端最新值');
+        unawaited(_loadConfig());
+      }
+    } catch (error) {
+      ParentalTelemetry.saveResult('deviceLocal', ok: false, reason: '$error');
+      if (!mounted) return;
+      _hint('保存失败：$error', error: true);
+      unawaited(_loadConfig());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// 用服务端回读值校正本台设置（仅当前目标电视）。
+  Future<void> _applyDeviceLocal(
+    ParentalMachine machine,
+    ParentalDeviceLocal saved,
+  ) async {
+    if (!mounted || _selected?.id != machine.id) return;
+    setState(
+      () => _config = _config.copyWith(
+        mode: saved.mode,
+        unlockMode: saved.unlockMode,
+        pin: saved.pin,
+        activeChildIds: saved.activeChildIds,
+      ),
+    );
+  }
+
+  /// 开启儿童模式前补齐本台分配：家庭档案全部分配到该电视。
+  ///
+  /// 返回 false 表示用户前置条件不满足（家庭还没有档案）或分配写入失败，
+  /// 调用方应中止本次开关保存，避免出现「开关显示已开、电视却没进入儿童模式」。
+  Future<bool> _ensureChildrenAssigned(ParentalMachine machine) async {
+    try {
+      final List<FamilyChild> family = await _api.fetchFamilyChildren();
+      if (family.isEmpty) {
+        _hint('本台还没有儿童档案：请先在「孩子」页添加档案，再开启儿童模式', error: true);
+        return false;
+      }
+      final ParentalAssignment state = await _api.fetchAssignmentState(machine.id);
+      final Set<String> assigned = state.childIds.toSet();
+      final List<String> missing = family
+          .map((FamilyChild child) => child.id)
+          .where((String id) => !assigned.contains(id))
+          .toList(growable: false);
+      if (missing.isEmpty) return true;
+      await _api.saveAssignment(
+        machine.id,
+        <String>[...state.childIds, ...missing],
+        baseRevision: state.revision,
+      );
+      return true;
+    } on ParentalConflictException catch (error) {
+      _hint('本台分配已被其他设备修改（${error.message}），请重试', error: true);
+      return false;
+    } catch (error) {
+      _hint('自动分配本台档案失败：$error', error: true);
+      return false;
     }
   }
 
@@ -595,8 +810,66 @@ class _ParentalPageState extends State<ParentalPage> {
     _hint(error ?? (alias.isEmpty ? '已清除别名' : '已重命名为「$alias」（仅自己可见）'), error: error != null);
   }
 
+  /// TV 页直接点「解绑」时的二次确认（设备管理弹层已有自己的确认）。
+  Future<void> _confirmUnbind(String deviceId) async {
+    final String name = _machines
+        .where((ParentalMachine machine) => machine.id == deviceId)
+        .map(parentalTvName)
+        .firstOrNull ??
+        deviceId;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: Text('解绑「$name」？'),
+        content: const Text(
+          '解绑后将取消这台电视的儿童档案分配，并关闭本台儿童模式。\n\n'
+          '家庭档案、题库授权、已导入副本和当日观看累计全部保留，'
+          '其它电视不受影响；之后可随时重新绑定。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('解绑'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final String? error = await _bindDevice(deviceId, bind: false);
+    if (!mounted) return;
+    _hint(error ?? '已解绑「$name」', error: error != null);
+  }
+
   Future<String?> _bindDevice(String deviceId, {required bool bind}) async {
     try {
+      if (!bind) {
+        // S4：解绑 = 取消本台分配 + 关闭本台儿童模式，家庭数据全部保留。
+        final ParentalAssignment assignment =
+            await _api.fetchAssignmentState(deviceId);
+        if (assignment.childIds.isNotEmpty) {
+          await _api.saveAssignment(
+            deviceId,
+            const <String>[],
+            baseRevision: assignment.revision,
+          );
+        }
+        final ParentalDeviceLocal local = await _api.fetchDeviceLocal(deviceId);
+        if (local.mode == 'on') {
+          await _api.saveDeviceLocal(
+            deviceId,
+            mode: 'off',
+            baseRevision: local.revision,
+          );
+        }
+      }
       await _api.bindDevice(deviceId, bind: bind);
       unawaited(_reload());
       return null;
@@ -734,6 +1007,7 @@ class _ParentalPageState extends State<ParentalPage> {
   ParentalActions get _actions => ParentalActions(
     reload: () => _reload(),
     saveConfig: _saveConfig,
+    saveDeviceSettings: _saveDeviceSettings,
     unlock: _sendUnlock,
     openDeviceManager: () => _openDeviceManager(),
     openLoginExisting: _openLoginExisting,
@@ -752,10 +1026,14 @@ class _ParentalPageState extends State<ParentalPage> {
       unawaited(_editChild(child));
     },
     unbind: (String deviceId) {
-      unawaited(_bindDevice(deviceId, bind: false));
+      unawaited(_confirmUnbind(deviceId));
     },
     selectDevice: (ParentalMachine machine) {
       if (_selected?.id == machine.id) return;
+      if (_saving) {
+        _hint('正在保存，请稍候再切换电视', error: true);
+        return;
+      }
       setState(() {
         _switching = true;
         _selected = machine;
@@ -1017,18 +1295,42 @@ class _ParentalPageState extends State<ParentalPage> {
                           hasClaimedAccount: _actions.hasClaimedAccount,
                           isServerError: _error != null,
                         ),
-                        ParentalFamilyPage(
-                          machines: _machines,
-                          myAccount: _myAccount,
-                          onChanged: () => unawaited(_reload()),
-                          embedded: true,
-                        ),
-                        ParentalTvView(
-                          machines: _machines,
-                          selected: _selected,
-                          config: _config,
-                          actions: _actions,
-                        ),
+                        if (_legacyNav)
+                          ParentalRulesView(
+                            config: _config,
+                            selected: _selected,
+                            actions: _actions,
+                            machines: _machines,
+                            onSwitch: _actions.selectDevice,
+                            isSwitching: _switching,
+                            onAddDevice: () => unawaited(_openDeviceManager()),
+                            onLogin: _openLoginExisting,
+                          )
+                        else
+                          ParentalFamilyPage(
+                            machines: _machines,
+                            myAccount: _myAccount,
+                            onChanged: () => unawaited(_reload()),
+                            embedded: true,
+                          ),
+                        if (_legacyNav)
+                          ParentalMineView(
+                            machines: _machines,
+                            selected: _selected,
+                            config: _config,
+                            myAccount: _parentNoForDisplay,
+                            channelAccount: _channelAccount,
+                            actions: _actions,
+                            hasClaimedAccount: _actions.hasClaimedAccount,
+                            onEditAccount: () => unawaited(_openIdentityAndRefresh()),
+                          )
+                        else
+                          ParentalTvView(
+                            machines: _machines,
+                            selected: _selected,
+                            config: _config,
+                            actions: _actions,
+                          ),
                       ],
                     ),
                   ),
@@ -1045,7 +1347,30 @@ class _ParentalPageState extends State<ParentalPage> {
   Future<void> _openAccountSettings() async {
     await _push(
       Scaffold(
-        appBar: AppBar(title: const Text('账号与设置')),
+        appBar: AppBar(
+          title: const Text('账号与设置'),
+          actions: <Widget>[
+            // 导航灰度回滚：新版（今天/孩子/电视）⇄ 旧版（今天/规则/我的）。
+            PopupMenuButton<bool>(
+              tooltip: '导航模式',
+              icon: const Icon(Icons.swap_horiz),
+              initialValue: _legacyNav,
+              onSelected: (bool legacy) => unawaited(_setLegacyNav(legacy)),
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
+                CheckedPopupMenuItem<bool>(
+                  value: false,
+                  checked: !_legacyNav,
+                  child: const Text('新版：今天 / 孩子 / 电视'),
+                ),
+                CheckedPopupMenuItem<bool>(
+                  value: true,
+                  checked: _legacyNav,
+                  child: const Text('旧版：今天 / 规则 / 我的'),
+                ),
+              ],
+            ),
+          ],
+        ),
         body: ParentalMineView(
           machines: _machines,
           selected: _selected,

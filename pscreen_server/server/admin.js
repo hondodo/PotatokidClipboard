@@ -948,7 +948,15 @@ function attachAdmin(app, options = {}) {
             );
             childIds.push(id);
         }
-        familyStore.setAssignment(deviceId, childIds, operator);
+        const existingAssignment = familyStore.data.assignments[deviceId];
+        const existingIds = existingAssignment && Array.isArray(existingAssignment.childIds)
+            ? existingAssignment.childIds : [];
+        // 防御：整份 parental 里 children 为空，多半是客户端只改了本台设置（旧缓存/
+        // 旧版 TV 页开关），不能据此清空该电视的档案分配——否则电视端 children 为空，
+        // 儿童模式会立即被自动关闭（线上已复现）。清空分配走 assignment 接口。
+        if (childIds.length > 0 || existingIds.length === 0) {
+            familyStore.setAssignment(deviceId, childIds, operator);
+        }
         familyStore.setDeviceLocal(
             deviceId,
             {
@@ -2067,6 +2075,9 @@ function attachAdmin(app, options = {}) {
                 familyStore.setQuiz(childId, questions, req.adminUser.name);
                 const saved = familyStore.data.quizzes[childId];
                 console.log(`[quiz] 保存 ${id}/${childId}: ${questions.length} 题 (family)`);
+                // 题库变更后立即把 config 推给所有分配了该档案的电视，
+                // 让电视端无需等下一次重启 / 锁屏才重新拉题库。
+                pushToAssignedTvs(childId, 'family-quiz');
                 return jsonOk(res, { deviceId: id, childId, updatedAt: saved.updatedAt, revision: saved.revision || 0, questions }, '题库已保存');
             }
             const state = childWriteState(machine, childId, req.adminUser.name);
@@ -2156,6 +2167,8 @@ function attachAdmin(app, options = {}) {
                 updatedBy: fc.updatedBy || '',
                 updatedAt: fc.updatedAt || 0,
                 sharedTo: (familyStore.data.quizzes[fc.childId] && familyStore.data.quizzes[fc.childId].sharedTo) || [],
+                // D-01：题库实体版本号（与档案版本分开），供题库分享保存携带 baseRevision。
+                quizRevision: (familyStore.data.quizzes[fc.childId] && familyStore.data.quizzes[fc.childId].revision) || 0,
                 assignedTo: (assignmentsByChild[fc.childId] || []).map((id) => ({ id, name: tvNames[id] || id })),
             }));
             return jsonOk(res, { children });
@@ -2326,6 +2339,7 @@ function attachAdmin(app, options = {}) {
             familyStore.load();
             if (guardRevision(res, body.baseRevision, familyStore.data.quizzes[childId], '该题库分享设置')) return;
             familyStore.setQuizSharedTo(childId, sharedTo, req.adminUser.name);
+            pushToAssignedTvs(childId, 'family-quiz-share');
             return jsonOk(res, { childId, sharedTo: familyStore.data.quizzes[childId].sharedTo, revision: familyStore.data.quizzes[childId].revision || 0 }, '分享范围已保存');
         } catch (error) {
             console.error('[family] 设置题库分享失败:', error);
@@ -2349,6 +2363,7 @@ function attachAdmin(app, options = {}) {
             const allowed = (src.sharedTo || []).includes(viewer) || src.sourceAccount === viewer;
             if (!allowed) return jsonFail(res, '该题库未分享给你', 403, 403);
             const copy = familyStore.importQuizCopy(targetChildId, src, sourceAccount, req.adminUser.name);
+            pushToAssignedTvs(targetChildId, 'family-quiz-import');
             return jsonOk(res, { targetChildId, isCopy: copy.isCopy, questionCount: copy.questions.length }, '已复制题库副本');
         } catch (error) {
             console.error('[family] 导入题库副本失败:', error);

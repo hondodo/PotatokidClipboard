@@ -298,6 +298,15 @@ class ParentalAdminApi {
     String deviceId,
     String childId,
   ) async {
+    final ParentalQuizState state = await fetchQuizState(deviceId, childId);
+    return state.questions;
+  }
+
+  /// 读取题库 + 当前版本号（D-01：保存时作为 `baseRevision` 回传）。
+  Future<ParentalQuizState> fetchQuizState(
+    String deviceId,
+    String childId,
+  ) async {
     final dynamic data = await DioManager().send(
       url: _uri(
         '/api/admin/parental/quiz',
@@ -311,30 +320,38 @@ class ParentalAdminApi {
     );
     final Map<String, dynamic> body = _dataOf(data);
     final dynamic raw = body['questions'];
-    if (raw is! List) return <Map<String, dynamic>>[];
-    return raw
-        .whereType<Map>()
-        .map((Map item) => Map<String, dynamic>.from(item))
-        .toList(growable: false);
+    return ParentalQuizState(
+      questions: raw is! List
+          ? const <Map<String, dynamic>>[]
+          : raw
+              .whereType<Map>()
+              .map((Map item) => Map<String, dynamic>.from(item))
+              .toList(growable: false),
+      revision: (body['revision'] as num?)?.toInt() ?? 0,
+    );
   }
 
   /// 整库替换保存（空列表 = 清空该档案题库）。
+  ///
+  /// D-01：携带 `baseRevision` 时服务端做版本守卫，冲突抛 [ParentalConflictException]。
   Future<void> saveQuiz(
     String deviceId,
     String childId,
-    List<Map<String, dynamic>> questions,
-  ) async {
-    final dynamic data = await DioManager().send(
-      url: _uri('/api/admin/parental/quiz').toString(),
-      method: HttpMethod.PUT,
-      params: <String, dynamic>{
-        'deviceId': deviceId,
-        'childId': childId,
-        'questions': questions,
-      },
-      contentType: 'application/json',
-      notTipNetError: true,
-    );
+    List<Map<String, dynamic>> questions, {
+    int? baseRevision,
+  }) async {
+    final dynamic data = await _guardConflict(() => DioManager().send(
+          url: _uri('/api/admin/parental/quiz').toString(),
+          method: HttpMethod.PUT,
+          params: <String, dynamic>{
+            'deviceId': deviceId,
+            'childId': childId,
+            'questions': questions,
+            'baseRevision': ?baseRevision,
+          },
+          contentType: 'application/json',
+          notTipNetError: true,
+        ));
     _dataOf(data);
   }
 
@@ -926,6 +943,14 @@ class AvatarItem {
         uploadedBy: '${json['uploadedBy'] ?? ''}',
         createdAt: '${json['createdAt'] ?? ''}',
       );
+}
+
+/// D-01：某个儿童题库的读取结果（题目 + 版本号）。
+class ParentalQuizState {
+  const ParentalQuizState({required this.questions, required this.revision});
+
+  final List<Map<String, dynamic>> questions;
+  final int revision;
 }
 
 /// D-01：某台电视的分配状态（childIds + 版本号）。

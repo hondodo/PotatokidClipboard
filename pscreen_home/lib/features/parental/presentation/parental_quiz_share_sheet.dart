@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/features/parental/application/parental_telemetry.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 
 /// 题库分享（CR-01）：替代旧的「档案共享」三态。
 ///
@@ -49,12 +51,16 @@ class _ParentalQuizShareSheetState extends State<ParentalQuizShareSheet> {
   List<SharedQuizInfo> _sharedToMe = const <SharedQuizInfo>[];
   bool _loading = true;
   bool _savingShare = false;
+
+  /// D-01：题库实体版本号（来自家庭档案列表的 `quizRevision`）。
+  int _quizRevision = 0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _sharedTo = List<String>.from(widget.child.sharedTo);
+    _quizRevision = widget.child.quizRevision;
     unawaited(_load());
   }
 
@@ -76,9 +82,21 @@ class _ParentalQuizShareSheetState extends State<ParentalQuizShareSheet> {
         // 服务端若尚未部署 shared-to-me 端点，导入区留空，不影响「分享出」功能。
       }
       if (!mounted) return;
+      // 冲突放弃 / 重新进入时，用服务端最新值校正本档案的分享名单与版本。
+      FamilyChild? latest;
+      for (final FamilyChild c in children) {
+        if (c.id == widget.child.id) {
+          latest = c;
+          break;
+        }
+      }
       setState(() {
         _myChildren = children;
         _sharedToMe = sharedToMe;
+        if (latest != null) {
+          _sharedTo = List<String>.from(latest.sharedTo);
+          _quizRevision = latest.quizRevision;
+        }
         _loading = false;
       });
     } catch (e) {
@@ -91,18 +109,65 @@ class _ParentalQuizShareSheetState extends State<ParentalQuizShareSheet> {
   }
 
   Future<void> _saveShare() async {
+    if (_savingShare) return;
     setState(() => _savingShare = true);
+    final List<String> mine = List<String>.from(_sharedTo);
     try {
-      final List<String> saved =
-          await widget.api.setQuizShare(widget.child.id, _sharedTo);
+      final List<String> saved = await widget.api.setQuizShare(
+        widget.child.id,
+        mine,
+        baseRevision: _quizRevision,
+      );
       if (!mounted) return;
+      ParentalTelemetry.quizShare(ok: true);
       setState(() {
         _sharedTo = saved;
+        _quizRevision += 1;
         _savingShare = false;
       });
       _toast('已保存分享范围（${saved.length} 个家长号）');
+    } on ParentalConflictException catch (e) {
+      if (!mounted) return;
+      setState(() => _savingShare = false);
+      final ParentalConflictChoice choice = await showParentalConflictDialog(
+        context,
+        title: '题库分享设置已被其他设备修改',
+        message: '${e.message}\n\n可以查看差异，或用你当前的名单覆盖服务端最新设置。',
+        mine: <String, dynamic>{'sharedTo': mine},
+        theirs: e.current,
+      );
+      ParentalTelemetry.conflict('quizShare', choice.name);
+      if (!mounted) return;
+      if (choice == ParentalConflictChoice.overwrite) {
+        final int serverRevision = (e.current?['revision'] as num?)?.toInt() ?? 0;
+        setState(() => _savingShare = true);
+        try {
+          final List<String> saved = await widget.api.setQuizShare(
+            widget.child.id,
+            mine,
+            baseRevision: serverRevision,
+          );
+          if (!mounted) return;
+          ParentalTelemetry.quizShare(ok: true);
+          setState(() {
+            _sharedTo = saved;
+            _quizRevision = serverRevision + 1;
+            _savingShare = false;
+          });
+          _toast('已保存分享范围（${saved.length} 个家长号）');
+        } catch (error) {
+          if (!mounted) return;
+          ParentalTelemetry.quizShare(ok: false);
+          setState(() => _savingShare = false);
+          _toast('覆盖失败：$error', error: true);
+        }
+        return;
+      }
+      // 放弃：回读家庭档案以恢复服务端最新名单。
+      await _load();
     } catch (e) {
       if (!mounted) return;
+      ParentalTelemetry.quizShare(ok: false);
       setState(() => _savingShare = false);
       _toast('保存失败：$e', error: true);
     }
@@ -131,10 +196,12 @@ class _ParentalQuizShareSheetState extends State<ParentalQuizShareSheet> {
         sourceChildId: info.sourceChildId,
         sourceAccount: info.sourceAccount,
       );
+      ParentalTelemetry.quizShare(ok: true, action: 'import');
       if (!mounted) return;
       _toast('已复制「${info.childName}」的题库到本档案');
       await _load();
     } catch (e) {
+      ParentalTelemetry.quizShare(ok: false, action: 'import');
       if (!mounted) return;
       _toast('导入失败：$e', error: true);
     }

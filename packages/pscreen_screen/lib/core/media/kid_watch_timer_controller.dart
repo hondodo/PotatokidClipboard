@@ -63,6 +63,11 @@ class KidWatchTimerController extends ChangeNotifier {
   bool _enabled = false;
   bool _viewingScene = false;
   bool _appForeground = true;
+
+  /// 选人页可见且尚未确认「谁在看」时为 true：
+  /// 此时既不累计观看时长，也不做阈值判定——否则用户还停在选人页，
+  /// 计时就会按默认预选跑到限额并直接弹出答题解锁。
+  bool _selectionPending = false;
   int? _pausedAtMs;
   Timer? _ticker;
   int _lastSaveMs = 0;
@@ -94,8 +99,12 @@ class KidWatchTimerController extends ChangeNotifier {
   String _lockReason = '';
   String get lockReason => _lockReason;
 
+  /// 选人页是否正在等待「谁在看」确认（可见即 true）。
+  bool get selectionPending => _selectionPending;
+
   /// 当前是否在「计入」的观看场景。
-  bool get counting => _enabled && _viewingScene && _appForeground && !_locked;
+  bool get counting =>
+      _enabled && _viewingScene && _appForeground && !_locked && !_selectionPending;
 
   String get dateKey => _dateKey;
 
@@ -166,6 +175,15 @@ class KidWatchTimerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 选人页显隐（宿主注入）：可见期间冻结计时与阈值判定。
+  void setSelectionPending(bool pending) {
+    if (_selectionPending == pending) return;
+    _selectionPending = pending;
+    // 选人页收起后，重新检查一次阈值（选人前可能已接近限额）。
+    if (!pending && _enabled && !_locked) _checkThreshold();
+    notifyListeners();
+  }
+
   /// 场景切换（宿主注入：live/clock/screensaver 计入，settings/锁屏不计入）。
   void setViewingScene(bool viewing) {
     if (_viewingScene == viewing) return;
@@ -216,7 +234,7 @@ class KidWatchTimerController extends ChangeNotifier {
 
   /// 到阈值判定（逐人比较各自档案限额 + quietHours）。
   void _checkThreshold() {
-    if (!_enabled || _locked) return;
+    if (!_enabled || _locked || _selectionPending) return;
     final DateTime now = _now();
     final int nowMs = now.millisecondsSinceEpoch;
 

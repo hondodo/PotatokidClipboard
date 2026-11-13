@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/app/config/app_flavor.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/server_api.dart';
+import 'package:pscreen_home/features/parental/application/parental_telemetry.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
@@ -219,10 +220,37 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       setState(() => _error = nameErr ?? pwdErr);
       return;
     }
+    // 账号切换确认：本地已有其它家长号时，明确提示可见电视会整体变化。
+    final String current = AppSettings.instance.claimedAccount.trim();
+    if (current.isNotEmpty && current != name) {
+      final bool? confirmed = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) => AlertDialog(
+          title: const Text('切换家长号？'),
+          content: Text(
+            '当前登录：$current\n即将切换为：$name\n\n'
+            '切换后可见的电视、儿童档案和解锁记录都会以新家长号为准；'
+            '本机实时通道号（设备身份）保持不变。',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('确认切换'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
+    ParentalTelemetry.accountRestore('submit');
     try {
       final String role = await _api.loginRole(account: name, passwordMd5: DeviceCredentials.md5Of(pwd));
       if (role != 'parent' && role != 'admin') {
@@ -231,6 +259,7 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       await AppSettings.instance.setClaimedPassword(pwd);
       await AppSettings.instance.setClaimedAccount(name);
       await AccountSession.loginWithSaved();
+      ParentalTelemetry.accountRestore('success');
       if (!mounted) return;
       if (widget.popAfterSuccess) {
         _saving = false;
@@ -244,6 +273,7 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
         _passwordCtrl.clear();
       });
     } catch (error) {
+      ParentalTelemetry.accountRestore('failure', reason: '$error');
       if (!mounted) return;
       setState(() {
         _saving = false;
