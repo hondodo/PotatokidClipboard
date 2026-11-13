@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
@@ -34,6 +35,9 @@ class ParentalSharePage extends StatefulWidget {
   @override
   State<ParentalSharePage> createState() => _ParentalSharePageState();
 }
+
+/// admin 只读代管：所有写入口禁用（D-03，与服务端 requireParentWriter 对应）。
+bool _isReadOnly() => !AccountSession.isParent;
 
 class _ParentalSharePageState extends State<ParentalSharePage> {
   late ParentalMachine _machine;
@@ -151,6 +155,8 @@ class _ParentalSharePageState extends State<ParentalSharePage> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
               physics: const AlwaysScrollableScrollPhysics(),
               children: <Widget>[
+                if (_isReadOnly())
+                  _ReadOnlyBanner(),
                 const ParentalShareIntroCard(),
                 const SizedBox(height: 14),
                 if (widget.machines.length > 1)
@@ -176,14 +182,16 @@ class _ParentalSharePageState extends State<ParentalSharePage> {
                     ParentalShareMasterCard(
                       key: ValueKey<String>('master:${master.id}:${master.sharedTo.join(',')}'),
                       master: master,
-                      onSave: (List<String> sharedTo) => _mutate(
-                        () => widget.actions.setSharedTo(
-                          _latestMachine,
-                          master,
-                          sharedTo,
-                        ),
-                        success: sharedTo.isEmpty ? '已取消分享' : '已分享给 ${sharedTo.join('、')}',
-                      ),
+                      onSave: _isReadOnly()
+                          ? null
+                          : (List<String> sharedTo) => _mutate(
+                            () => widget.actions.setSharedTo(
+                              _latestMachine,
+                              master,
+                              sharedTo,
+                            ),
+                            success: sharedTo.isEmpty ? '已取消分享' : '已分享给 ${sharedTo.join('、')}',
+                          ),
                     ),
                 const SizedBox(height: 6),
                 _SectionHeader(
@@ -197,10 +205,12 @@ class _ParentalSharePageState extends State<ParentalSharePage> {
                     ParentalShareImportedCard(
                       key: ValueKey<String>('imported:${item.refId}'),
                       item: item,
-                      onCancel: () => _mutate(
-                        () => widget.actions.cancelSharedRef(_latestMachine, item),
-                        success: '已取消引用（不影响主本）',
-                      ),
+                      onCancel: _isReadOnly()
+                          ? null
+                          : () => _mutate(
+                            () => widget.actions.cancelSharedRef(_latestMachine, item),
+                            success: '已取消引用（不影响主本）',
+                          ),
                     ),
                 const SizedBox(height: 6),
                 _SectionHeader(
@@ -214,10 +224,12 @@ class _ParentalSharePageState extends State<ParentalSharePage> {
                     ParentalShareCandidateCard(
                       key: ValueKey<String>('candidate:${item.machineId}:${item.childId}'),
                       candidate: item,
-                      onAdd: () => _mutate(
-                        () => widget.actions.addSharedRef(_latestMachine, item),
-                        success: '已引用「${item.name}」，主本在 ${item.machineName}',
-                      ),
+                      onAdd: _isReadOnly()
+                          ? null
+                          : () => _mutate(
+                            () => widget.actions.addSharedRef(_latestMachine, item),
+                            success: '已引用「${item.name}」，主本在 ${item.machineName}',
+                          ),
                     ),
                 const SizedBox(height: 6),
                 _SectionHeader(
@@ -231,10 +243,12 @@ class _ParentalSharePageState extends State<ParentalSharePage> {
                     ParentalShareCandidateCard(
                       key: ValueKey<String>('candidate:${item.machineId}:${item.childId}'),
                       candidate: item,
-                      onAdd: () => _mutate(
-                        () => widget.actions.addSharedRef(_latestMachine, item),
-                        success: '已引用「${item.name}」，主本在 ${item.machineName}',
-                      ),
+                      onAdd: _isReadOnly()
+                          ? null
+                          : () => _mutate(
+                            () => widget.actions.addSharedRef(_latestMachine, item),
+                            success: '已引用「${item.name}」，主本在 ${item.machineName}',
+                          ),
                     ),
               ],
             ),
@@ -318,4 +332,33 @@ class _EmptyHint extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// admin 只读代管提示条：明确本页所有写入口被禁用、需由家长号操作。
+class _ReadOnlyBanner extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.visibility_outlined, size: 18, color: scheme.outline),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '只读代管：分享设置、引用与取消均不可在此修改，请使用家长号操作。',
+              style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

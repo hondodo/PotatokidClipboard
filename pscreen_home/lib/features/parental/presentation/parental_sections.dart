@@ -13,6 +13,8 @@ class ChildrenSection extends StatelessWidget {
     required this.onSave,
     this.deviceId,
     this.shrinkWrap = false,
+    this.onAddDevice,
+    this.onLogin,
   });
 
   final ParentalConfig config;
@@ -20,21 +22,86 @@ class ChildrenSection extends StatelessWidget {
   /// 保存整份 parental 配置（页面负责调用服务端并给出结果提示）。
   final Future<void> Function(ParentalConfig next) onSave;
 
-  /// 当前选中的电视；为空时不显示「题库」入口（题库按设备 + 档案存储）。
+  /// 当前选中的电视；为空时不显示「题库」入口，且禁用一切写操作（防止
+  /// `deviceId!` 在「添加 / 编辑」时抛空（Task 0.3 无设备保护））。
   final String? deviceId;
 
   /// 是否作为子列表嵌入到另一个滚动容器（如 Tab 页的 ListView）。
   /// 嵌入时必须 shrinkWrap + 禁用自身滚动，否则因无限高度崩溃。
   final bool shrinkWrap;
 
+  /// 无选中电视时提供的「添加电视」入口（可选；页面未传则只显示提示文案）。
+  final VoidCallback? onAddDevice;
+
+  /// 无选中电视时提供的「登录已有家长号」入口（可选）。
+  final VoidCallback? onLogin;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final bool canEdit = deviceId != null;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       children: <Widget>[
+        if (!canEdit)
+          Card(
+            margin: EdgeInsets.zero,
+            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Icon(Icons.tv_off_outlined,
+                          size: 18, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '未选中电视，暂无法新增或编辑儿童档案',
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '请先在「电视」页添加电视或登录家长号，再返回本页管理规则。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (onAddDevice != null || onLogin != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <Widget>[
+                          if (onAddDevice != null)
+                            FilledButton.tonalIcon(
+                              onPressed: onAddDevice,
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('添加电视'),
+                            ),
+                          if (onLogin != null)
+                            OutlinedButton.icon(
+                              onPressed: onLogin,
+                              icon: const Icon(Icons.login, size: 18),
+                              label: const Text('登录家长号'),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (!canEdit) const SizedBox(height: 12),
         Card(
           margin: EdgeInsets.zero,
           child: SwitchListTile(
@@ -45,8 +112,10 @@ class ChildrenSection extends StatelessWidget {
                   : '关闭（off）或没有档案时，电视端不启用任何管控',
             ),
             value: config.mode == 'on',
-            onChanged: (bool value) =>
-                onSave(config.copyWith(mode: value ? 'on' : 'off')),
+            onChanged: canEdit
+                ? (bool value) =>
+                    onSave(config.copyWith(mode: value ? 'on' : 'off'))
+                : null,
           ),
         ),
         const SizedBox(height: 12),
@@ -60,18 +129,21 @@ class ChildrenSection extends StatelessWidget {
             ),
             const Spacer(),
             FilledButton.tonalIcon(
-              onPressed: () async {
-                final ParentalChild? child = await ChildProfileEditorSheet.show(
-                  context,
-                  deviceId: deviceId!,
-                );
-                if (child == null) return;
-                await onSave(
-                  config.copyWith(
-                    children: <ParentalChild>[...config.children, child],
-                  ),
-                );
-              },
+              onPressed: canEdit
+                  ? () async {
+                      final ParentalChild? child =
+                          await ChildProfileEditorSheet.show(
+                        context,
+                        deviceId: deviceId!,
+                      );
+                      if (child == null) return;
+                      await onSave(
+                        config.copyWith(
+                          children: <ParentalChild>[...config.children, child],
+                        ),
+                      );
+                    }
+                  : null,
               icon: const Icon(Icons.add, size: 18),
               label: const Text('添加'),
             ),
@@ -93,27 +165,31 @@ class ChildrenSection extends StatelessWidget {
         for (int i = 0; i < config.children.length; i++)
           _ChildCard(
             child: config.children[i],
-            onQuiz: deviceId == null
-                ? null
-                : () => ParentalQuizEditorSheet.show(
+            onQuiz: canEdit
+                ? () => ParentalQuizEditorSheet.show(
                     context,
                     deviceId: deviceId!,
                     child: config.children[i],
-                  ),
-            onEdit: () async {
-              final ParentalChild? next = await ChildProfileEditorSheet.show(
-                context,
-                initial: config.children[i],
-                deviceId: deviceId!,
-              );
-              if (next == null) return;
-              final List<ParentalChild> children = List<ParentalChild>.of(
-                config.children,
-              );
-              children[i] = next;
-              await onSave(config.copyWith(children: children));
-            },
-            onDelete: () async {
+                  )
+                : null,
+            onEdit: canEdit
+                ? () async {
+                    final ParentalChild? next =
+                        await ChildProfileEditorSheet.show(
+                      context,
+                      initial: config.children[i],
+                      deviceId: deviceId!,
+                    );
+                    if (next == null) return;
+                    final List<ParentalChild> children = List<ParentalChild>.of(
+                      config.children,
+                    );
+                    children[i] = next;
+                    await onSave(config.copyWith(children: children));
+                  }
+                : null,
+            onDelete: canEdit
+                ? () async {
               final bool? ok = await showDialog<bool>(
                 context: context,
                 builder: (BuildContext context) => AlertDialog(
@@ -137,7 +213,8 @@ class ChildrenSection extends StatelessWidget {
               );
               children.removeAt(i);
               await onSave(config.copyWith(children: children));
-            },
+            }
+                : null,
           ),
       ],
     );
@@ -147,14 +224,18 @@ class ChildrenSection extends StatelessWidget {
 class _ChildCard extends StatelessWidget {
   const _ChildCard({
     required this.child,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
     this.onQuiz,
   });
 
   final ParentalChild child;
-  final Future<void> Function() onEdit;
-  final Future<void> Function() onDelete;
+
+  /// 编辑入口；未选中设备（无 deviceId）时为 null，按钮自动置灰（Task 0.3）。
+  final Future<void> Function()? onEdit;
+
+  /// 删除入口；同上，未选中设备时禁用。
+  final Future<void> Function()? onDelete;
 
   /// 答题解锁题库入口；未选中设备时不显示。
   final Future<void> Function()? onQuiz;

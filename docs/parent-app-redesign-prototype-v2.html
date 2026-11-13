@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>薯仔家长 V2 · 交互原型</title>
+<style>
+:root{--ink:#17231f;--muted:#6c7b76;--line:#dfe7e3;--bg:#f3f6f4;--surface:#fff;--green:#0f6e56;--green-soft:#e7f4ef;--amber:#9a610c;--amber-soft:#fff4df;--red:#a63737;--red-soft:#fdecec;--blue:#316c8f;--blue-soft:#e9f3f8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}button,input{font:inherit}button{color:inherit}.workspace{max-width:1240px;margin:auto;padding:24px}.intro{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:18px}.intro h1{font-size:21px;margin:0}.intro p{margin:3px 0 0;color:var(--muted);font-size:12px}.version{font:12px ui-monospace,monospace;color:var(--muted)}.layout{display:grid;grid-template-columns:210px 370px minmax(300px,1fr);gap:22px;align-items:start}.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px}.panel-title{font-size:11px;text-transform:uppercase;color:var(--muted);margin:0 0 10px}.scenario,.mapbtn{width:100%;border:1px solid transparent;background:transparent;border-radius:6px;text-align:left;padding:9px 10px;cursor:pointer;margin-bottom:3px}.scenario:hover,.mapbtn:hover{background:#f3f7f5}.scenario.on,.mapbtn.on{background:var(--green-soft);border-color:#acd9c9;color:var(--green);font-weight:650}.scenario small,.mapbtn small{display:block;color:var(--muted);font-weight:400;margin-top:1px}.rule{height:1px;background:var(--line);margin:14px 0}.side-note{font-size:11px;color:var(--muted);line-height:1.7}.phone{position:relative;width:360px;height:740px;margin:auto;border:9px solid #24312c;border-radius:32px;background:#fff;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 16px 40px rgba(26,48,39,.13)}.status{height:25px;padding:0 17px;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:#52605b}.appbar{height:51px;padding:0 13px;border-bottom:1px solid #edf1ef;display:flex;align-items:center;gap:9px;flex:0 0 auto}.brandmark{width:28px;height:28px;border-radius:7px;object-fit:cover}.app-title{font-size:17px;font-weight:700;flex:1;min-width:0}.app-sub{font-size:10px;color:var(--muted);font-weight:400;display:block}.iconbtn{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:16px}.avatarbtn{border:0;background:var(--green-soft);color:var(--green);font-weight:700}.content{flex:1;overflow-y:auto;background:#f7f9f8;padding:13px 14px 22px;scrollbar-width:thin}.tabs{height:59px;border-top:1px solid var(--line);background:#fff;display:flex;flex:0 0 auto}.tab{flex:1;border:0;background:transparent;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px}.tab b{font-size:18px;line-height:20px;font-weight:500}.tab.on{color:var(--green);font-weight:700}.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:13px;margin-bottom:10px}.card.click{cursor:pointer}.card.click:hover{border-color:#9bcfbd}.card.tint{background:var(--green-soft);border-color:#c5e5d9}.card.warn{background:var(--amber-soft);border-color:#efd5a3}.card.danger{background:var(--red-soft);border-color:#efcaca}.eyebrow{font-size:11px;color:var(--muted);margin-bottom:3px}.title{font-size:15px;font-weight:700}.muted{font-size:12px;color:var(--muted)}.tiny{font-size:10px;color:var(--muted)}.row{display:flex;align-items:center;gap:9px}.between{display:flex;align-items:center;justify-content:space-between;gap:10px}.grow{flex:1;min-width:0}.section{font-size:12px;color:var(--muted);margin:15px 2px 7px}.chip{display:inline-flex;align-items:center;border-radius:999px;padding:2px 7px;font-size:10px;background:#eef2f0;color:#53635d;white-space:nowrap}.chip.green{background:var(--green-soft);color:var(--green)}.chip.amber{background:var(--amber-soft);color:var(--amber)}.chip.red{background:var(--red-soft);color:var(--red)}.chip.blue{background:var(--blue-soft);color:var(--blue)}.btn{border:1px solid #cfdad5;background:#fff;border-radius:7px;padding:7px 10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}.btn.primary{background:var(--green);border-color:var(--green);color:#fff}.btn.tonal{background:var(--green-soft);border-color:#c5e5d9;color:var(--green)}.btn.danger{border-color:#ecc4c4;color:var(--red)}.btn.block{width:100%}.btn.sm{padding:5px 8px;font-size:11px}.btn:disabled{opacity:.45;cursor:not-allowed}.actions{display:flex;gap:8px;flex-wrap:wrap}.field{margin-bottom:11px}.field label{display:block;font-size:11px;color:#53635d;margin-bottom:4px}.field input{width:100%;border:1px solid #d7e1dc;border-radius:7px;padding:9px 10px;outline:none;background:#fff}.field input:focus{border-color:var(--green);box-shadow:0 0 0 2px #dff1ea}.progress{height:6px;background:#e8eeeb;border-radius:5px;overflow:hidden;margin:8px 0}.progress i{display:block;height:100%;background:var(--green)}.kidavatar{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--green-soft);color:var(--green);font-weight:800}.kidavatar.blue{background:var(--blue-soft);color:var(--blue)}.tvicon{width:43px;height:34px;border:3px solid #53635d;border-radius:5px;display:grid;place-items:center;font-size:10px;color:var(--muted)}.radio{width:17px;height:17px;border:2px solid #a6b7b0;border-radius:50%;display:grid;place-items:center}.radio.on:after{content:"";width:8px;height:8px;border-radius:50%;background:var(--green)}.divider{height:1px;background:var(--line);margin:11px 0}.listrow{padding:9px 0;border-bottom:1px solid #edf1ef}.listrow:last-child{border-bottom:0}.switch{width:38px;height:22px;border-radius:12px;background:#cbd6d1;padding:3px;cursor:pointer}.switch:after{content:"";display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s}.switch.on{background:var(--green)}.switch.on:after{transform:translateX(16px)}.scope{position:sticky;top:-13px;z-index:3;margin:-13px -14px 12px;padding:10px 14px;background:rgba(247,249,248,.96);border-bottom:1px solid var(--line)}.scope button{width:100%;border:1px solid #bdd8ce;background:#fff;border-radius:7px;padding:8px 10px;text-align:left;cursor:pointer}.scope-menu{position:absolute;left:14px;right:14px;top:52px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;box-shadow:0 10px 28px rgba(30,52,44,.16)}.scope-option{width:100%;border:0;background:#fff;padding:9px;border-radius:6px;text-align:left;cursor:pointer}.scope-option:hover,.scope-option.on{background:var(--green-soft);color:var(--green)}.modal{position:absolute;inset:0;background:rgba(20,31,27,.48);z-index:20;display:flex;align-items:flex-end}.sheet{width:100%;max-height:86%;overflow:auto;background:#fff;border-radius:14px 14px 0 0;padding:17px 16px 24px}.sheet h2{font-size:17px;margin:0 0 3px}.toast{position:absolute;left:18px;right:18px;bottom:72px;z-index:30;background:#26332e;color:#fff;padding:9px 12px;border-radius:7px;font-size:12px;text-align:center}.empty{text-align:center;padding:44px 12px}.empty .symbol{font-size:38px;color:#8ba097}.notes h2{font-size:16px;margin:0 0 8px}.notes h3{font-size:12px;margin:17px 0 6px;color:var(--green)}.notes p,.notes li{font-size:12px;color:#52615c}.notes ul{padding-left:18px;margin:6px 0}.flow{display:grid;grid-template-columns:1fr;gap:7px}.flow div{border-left:3px solid #b6d9cc;background:#f7faf8;padding:7px 9px;font-size:12px}.changed{color:var(--green);font-weight:700}.risk{color:var(--red);font-weight:700}@media(max-width:1040px){.layout{grid-template-columns:200px 370px}.notes{grid-column:1/-1}}@media(max-width:680px){.workspace{padding:12px}.intro{display:block}.version{margin-top:5px}.layout{grid-template-columns:1fr}.controls,.notes{display:none}.phone{width:min(360px,100%);height:calc(100vh - 90px);min-height:620px}}
+</style>
+</head>
+<body>
+<div class="workspace">
+  <header class="intro"><div><h1>薯仔家长 V2 · 信息架构原型</h1><p>账号恢复前置，孩子与电视职责分离，任何规则修改都有明确作用范围。</p></div><div class="version">interactive prototype · 2026-11-13</div></header>
+  <div class="layout">
+    <aside class="panel controls">
+      <div class="panel-title">体验场景</div>
+      <button class="scenario on" data-scenario="returning">重装后的老用户<small>本机凭据丢失，服务端已有家长号</small></button>
+      <button class="scenario" data-scenario="active">已登录的多电视家庭<small>2 台电视、主档案与共享引用</small></button>
+      <button class="scenario" data-scenario="empty">新用户，无电视<small>空态直接提供下一步</small></button>
+      <div class="rule"></div>
+      <div class="panel-title">页面地图</div>
+      <button class="mapbtn" data-page="restore">账号恢复<small>重装不再误导用户重新绑电视</small></button>
+      <button class="mapbtn" data-page="today">今天<small>只展示家庭聚合状态</small></button>
+      <button class="mapbtn" data-page="children">孩子<small>主档案、引用、分享与规则</small></button>
+      <button class="mapbtn" data-page="devices">电视<small>绑定、遥控、设备级设置</small></button>
+      <button class="mapbtn" data-page="account">账号与设置<small>从右上头像进入</small></button>
+      <p class="side-note">点击手机内按钮可完整走通：登录已有家长号、切换规则目标电视、编辑档案并保留分享、查看引用来源、进入电视设置。</p>
+    </aside>
+    <main>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>薯仔家长</span><span>5G&nbsp; 92%</span></div>
+        <div class="appbar" id="appbar"></div>
+        <div class="content" id="content"></div>
+        <div class="tabs" id="tabs"></div>
+        <div id="overlay"></div>
+        <div id="toast"></div>
+      </div>
+    </main>
+    <aside class="panel notes" id="notes"></aside>
+  </div>
+</div>
+<script>
+const state={page:'restore',tab:'today',scenario:'returning',loggedIn:false,loginMode:false,scopeOpen:false,tv:0,modal:null,toast:'',parentNo:'AA_parent',shareKept:true,
+  tvs:[{name:'客厅电视',online:true,children:['小薯','大薯'],mode:true},{name:'卧室电视',online:false,children:['小薯'],mode:true}],
+  kids:[
+    {id:1,name:'小薯',kind:'master',source:'家庭主档案',used:52,limit:90,tvs:[0,1],sharedTo:['mama88'],locked:false},
+    {id:2,name:'大薯',kind:'master',source:'客厅电视',used:18,limit:45,tvs:[0],sharedTo:[],locked:false},
+    {id:3,name:'逗逗',kind:'shared',source:'妈妈 · 卧室电视',used:26,limit:60,tvs:[0],sharedTo:[],locked:false},
+    {id:4,name:'原“小宝”档案',kind:'broken',source:'妈妈 · 卧室电视',used:0,limit:0,tvs:[0],sharedTo:[],locked:false}
+  ]};
+const pages=['today','children','devices'];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){state.toast=msg;render();clearTimeout(state.tt);state.tt=setTimeout(()=>{state.toast='';render()},2200)}
+function setPage(p){state.page=p;if(pages.includes(p))state.tab=p;state.scopeOpen=false;state.modal=null;render()}
+function appbar(){
+  if(state.page==='restore')return '<img class="brandmark" src="../pscreen_home/assets/icon/icon.png" alt=""><div class="app-title">欢迎回来<span class="app-sub">恢复你的电视与儿童档案</span></div>';
+  const titles={today:'今天',children:'孩子',devices:'电视',account:'账号与设置',child:'儿童档案',tv:'电视设置'};
+  const back=pages.includes(state.page)?'':'<button class="iconbtn" data-act="back" title="返回">‹</button>';
+  const avatar=pages.includes(state.page)?'<button class="iconbtn avatarbtn" data-page="account" title="账号与设置">爸</button>':'';
+  return back+'<div class="app-title">'+titles[state.page]+'</div>'+avatar;
+}
+function tabs(){return pages.includes(state.page)?[['today','⌂','今天'],['children','♙','孩子'],['devices','▣','电视']].map(x=>'<button class="tab '+(state.tab===x[0]?'on':'')+'" data-page="'+x[0]+'"><b>'+x[1]+'</b>'+x[2]+'</button>').join(''):''}
+function restore(){
+  if(state.loginMode)return '<div class="section">登录已有家长号</div><div class="card"><div class="field"><label>家长号</label><input id="loginName" value="AA_parent"></div><div class="field"><label>口令</label><input id="loginPwd" type="password" value="12345678"></div><button class="btn primary block" data-act="login">登录并恢复</button></div><button class="btn block" data-act="cancelLogin">返回</button>';
+  return '<div class="card warn"><div class="row"><div style="font-size:24px">↻</div><div><div class="title">检测到这是重新安装</div><div class="muted">本机没有保存过家长号，但你以前可能已经绑定过电视。</div></div></div></div><div class="section">你想怎么继续？</div><button class="card click" style="width:100%;text-align:left" data-act="showLogin"><div class="between"><div><div class="title">登录已有家长号</div><div class="muted">恢复原来的电视、档案和共享关系</div></div><span style="font-size:22px">›</span></div></button><button class="card click" style="width:100%;text-align:left" data-act="newAccount"><div class="between"><div><div class="title">创建新家长号</div><div class="muted">第一次使用，稍后扫码添加电视</div></div><span style="font-size:22px">›</span></div></button><div class="divider"></div><button class="btn block" data-act="deviceOnly">暂时使用本机账号</button><p class="tiny" style="text-align:center">使用本机账号不会自动看到原家长号绑定的电视。</p>';
+}
+function today(){
+  if(!state.loggedIn||state.scenario==='empty')return '<div class="empty"><div class="symbol">▣</div><div class="title">还没有电视</div><p class="muted">第一次使用可以扫码添加；以前绑定过电视，请先登录原来的家长号。</p><button class="btn primary block" data-act="showLogin">登录已有家长号</button><div style="height:8px"></div><button class="btn block" data-page="devices">添加电视</button></div>';
+  return '<div class="between"><div><div class="eyebrow">家庭视图</div><div class="title">2 台电视 · 1 台在线</div></div><span class="chip green">实时同步</span></div><div class="section">待处理</div><div class="card warn"><div class="between"><div><b>1 条解锁请求</b><div class="muted">小薯 · 客厅电视 · 还剩 42 秒</div></div><button class="btn sm primary" data-act="unlock">处理</button></div></div><div class="section">孩子状态</div>'+state.kids.filter(k=>k.kind!=='broken').slice(0,3).map(k=>kidStatus(k)).join('')+'<div class="section">最近观看</div><div class="card"><div class="listrow between"><span>小薯 · 客厅电视</span><span class="muted">32 分钟</span></div><div class="listrow between"><span>逗逗 · 客厅电视</span><span class="muted">18 分钟</span></div></div>';
+}
+function kidStatus(k){const p=Math.min(100,Math.round(k.used/(k.limit||1)*100));return '<div class="card click" data-kid="'+k.id+'"><div class="row"><div class="kidavatar '+(k.kind==='shared'?'blue':'')+'">'+esc(k.name[0])+'</div><div class="grow"><div class="between"><b>'+esc(k.name)+'</b>'+(k.kind==='shared'?'<span class="chip blue">共享引用</span>':'<span class="chip green">空闲</span>')+'</div><div class="muted">今日 '+k.used+' / '+k.limit+' 分钟</div></div></div><div class="progress"><i style="width:'+p+'%"></i></div></div>'}
+function scope(){return '<div class="scope"><button data-act="scope"><span class="eyebrow">正在配置</span><b>'+esc(state.tvs[state.tv].name)+'</b><span style="float:right">切换⌄</span></button>'+(state.scopeOpen?'<div class="scope-menu">'+state.tvs.map((t,i)=>'<button class="scope-option '+(state.tv===i?'on':'')+'" data-tv="'+i+'">'+esc(t.name)+' · '+(t.online?'在线':'离线')+'</button>').join('')+'</div>':'')+'</div>'}
+function children(){
+  if(!state.loggedIn||state.scenario==='empty')return scope()+'<div class="empty"><div class="symbol">♙</div><div class="title">先添加电视</div><p class="muted">儿童档案需要应用到至少一台电视。</p><button class="btn primary" data-page="devices">去添加电视</button></div>';
+  const visible=state.kids.filter(k=>k.tvs.includes(state.tv));
+  return scope()+'<div class="between"><div><div class="title">儿童档案</div><div class="muted">'+visible.length+' 份应用于这台电视</div></div><button class="btn sm primary" data-act="addKid">＋ 添加</button></div><div style="height:10px"></div>'+visible.map(k=>kidCard(k)).join('')+'<div class="card tint"><b>档案归属清晰可见</b><div class="muted">主档案可编辑和分享；别人分享的引用只读，来源失效时保留占位。</div></div>';
+}
+function kidCard(k){let chip=k.kind==='master'?'<span class="chip green">主档案</span>':k.kind==='shared'?'<span class="chip blue">只读引用</span>':'<span class="chip red">引用失效</span>';return '<div class="card '+(k.kind==='broken'?'danger':'click')+'" '+(k.kind!=='broken'?'data-kid="'+k.id+'"':'')+'><div class="row"><div class="kidavatar '+(k.kind==='shared'?'blue':'')+'">'+(k.kind==='broken'?'!':esc(k.name[0]))+'</div><div class="grow"><div class="between"><b>'+esc(k.name)+'</b>'+chip+'</div><div class="muted">'+esc(k.source)+'</div></div><span style="font-size:20px">'+(k.kind==='broken'?'':'›')+'</span></div>'+(k.kind==='broken'?'<div class="actions" style="margin-top:10px"><button class="btn sm" data-act="replaceRef">重新选择</button><button class="btn sm danger" data-act="removeBroken">移除占位</button></div>':'')+'</div>'}
+function child(){const k=state.kids.find(x=>x.id===state.editKid);if(!k)return '';
+  if(k.kind==='shared')return '<div class="card tint"><div class="between"><span class="chip blue">只读引用</span><span class="muted">自动同步</span></div><h2 style="margin:8px 0 2px">'+esc(k.name)+'</h2><div class="muted">主档案来自 '+esc(k.source)+'</div></div><div class="card"><div class="listrow between"><span>每日限额</span><b>'+k.limit+' 分钟</b></div><div class="listrow between"><span>应用于</span><b>客厅电视</b></div></div><div class="card warn"><b>需要修改？</b><div class="muted">请联系档案所有者在主档案中修改；本机不会复制或覆盖别人的规则。</div></div>';
+  return '<div class="card"><div class="between"><div><span class="chip green">主档案</span><h2 style="margin:6px 0 0">'+esc(k.name)+'</h2></div><button class="btn sm" data-act="share">分享设置</button></div></div><div class="field"><label>每日观看限额（分钟）</label><input id="limit" type="number" value="'+k.limit+'"></div><div class="section">应用到电视</div><div class="card">'+state.tvs.map((t,i)=>'<div class="listrow between"><span>'+esc(t.name)+'</span><div class="switch '+(k.tvs.includes(i)?'on':'')+'" data-apply="'+i+'"></div></div>').join('')+'</div><div class="section">分享给家长号</div><div class="card"><div class="between"><div><b>'+(k.sharedTo.length?k.sharedTo.join('、'):'未分享')+'</b><div class="muted">编辑规则不会清空此名单</div></div><span class="chip '+(state.shareKept?'green':'red')+'">'+(state.shareKept?'已保留':'已丢失')+'</span></div></div><button class="btn primary block" data-act="saveKid">保存并同步</button>';
+}
+function devices(){
+  if(!state.loggedIn||state.scenario==='empty')return '<div class="empty"><div class="symbol">▣</div><div class="title">添加第一台电视</div><p class="muted">打开电视上的家长绑定二维码，然后用手机扫码。</p><button class="btn primary block" data-act="scan">扫码添加电视</button><div style="height:8px"></div><button class="btn block" data-act="showLogin">登录已有家长号</button></div>';
+  return '<div class="between"><div><div class="title">我的电视</div><div class="muted">设备操作不再依赖隐藏的当前选择</div></div><button class="btn sm primary" data-act="scan">＋ 添加</button></div><div style="height:10px"></div>'+state.tvs.map((t,i)=>'<div class="card"><div class="row"><div class="tvicon">TV</div><div class="grow"><b>'+esc(t.name)+'</b><div class="muted">'+(t.online?'在线 · 正在同步':'离线 · 上次在线 2 小时前')+'</div></div><span class="chip '+(t.online?'green':'')+'">'+(t.online?'在线':'离线')+'</span></div><div class="divider"></div><div class="actions"><button class="btn sm tonal" data-act="remote" data-v="'+i+'">遥控</button><button class="btn sm" data-tvdetail="'+i+'">设备设置</button></div></div>').join('')
+}
+function tv(){const t=state.tvs[state.tv];return '<div class="card"><div class="row"><div class="tvicon">TV</div><div><div class="title">'+esc(t.name)+'</div><div class="muted">'+(t.online?'在线':'离线')+' · 当前设备</div></div></div></div><div class="card"><div class="listrow between"><div><b>儿童模式</b><div class="muted">仅作用于 '+esc(t.name)+'</div></div><div class="switch '+(t.mode?'on':'')+'" data-act="tvMode"></div></div><div class="listrow between"><div><b>解锁方式</b><div class="muted">远程确认</div></div><span>›</span></div><div class="listrow between"><div><b>已应用档案</b><div class="muted">'+t.children.join('、')+'</div></div><button class="btn sm" data-page="children">管理</button></div></div><div class="actions"><button class="btn tonal" data-act="remote" data-v="'+state.tv+'">打开遥控</button><button class="btn danger" data-act="unbind">解绑电视</button></div>'}
+function account(){return '<div class="card"><div class="row"><div class="kidavatar">爸</div><div class="grow"><div class="eyebrow">当前家长号</div><div class="title">'+(state.loggedIn?esc(state.parentNo):'使用本机账号')+'</div></div><span class="chip '+(state.loggedIn?'green':'amber')+'">'+(state.loggedIn?'已登录':'未恢复')+'</span></div></div><div class="card"><div class="listrow between"><span>切换家长号</span><button class="btn sm" data-act="showLogin">登录</button></div><div class="listrow between"><span>我在电视上的名字</span><b>爸爸</b></div><div class="listrow between"><span>实时通道</span><span class="chip green">已连接</span></div><div class="listrow between"><span>版本</span><span class="muted">1.0.7-parent</span></div></div><div class="card warn"><b>换手机或重装时</b><div class="muted">使用同一个家长号登录即可恢复电视、档案和共享关系，无需重新绑定。</div></div>'}
+function page(){return ({restore,today,children,child,devices,tv,account})[state.page]()}
+const NOTES={
+ restore:['账号恢复成为启动状态','没有本地凭据时不直接展示“无设备”。','老用户和新用户的路径在第一屏分开。','登录后自动重载角色、电视、档案与共享。'],
+ today:['首页只回答家庭状态','今天页不持有“当前配置电视”。','观看时长、在线状态、解锁请求均为家庭聚合。','所有修改动作下钻到孩子或电视页面。'],
+ children:['规则作用域始终可见','顶部固定显示正在配置的电视，并能就地切换。','主档案、只读引用、失效引用使用不同状态。','无电视时禁用编辑，直接引导添加电视。'],
+ child:['保存不再破坏共享','编辑器必须保留 sharedTo 和引用坐标。','共享引用只读，不进入普通编辑流程。','保存成功后刷新配置与共享视图。'],
+ devices:['设备操作集中','绑定、遥控、设备级开关和解锁方式归到电视。','点击哪台电视就操作哪台，不依赖跨页面隐藏选择。'],
+ tv:['设备范围明确','页面标题和卡片持续显示目标电视。','儿童模式与解锁方式明确标注仅作用于当前设备。'],
+ account:['低频设置退出主导航','账号、显示名称、连接与版本放在头像入口。','提供切换家长号和重装恢复说明。']};
+function notes(){const n=NOTES[state.page]||NOTES.today;return '<h2>'+n[0]+'</h2><div class="flow">'+n.slice(1).map((x,i)=>'<div><span class="changed">0'+(i+1)+'</span> '+x+'</div>').join('')+'</div><h3>本版解决的已知问题</h3><ul><li>重装后不再把老用户引向“重新绑定电视”。</li><li>编辑主档案时保留共享名单，保存后主动刷新共享视图。</li><li>规则页直接显示并切换目标电视。</li></ul>'}
+function overlay(){if(state.modal==='login')return '<div class="modal"><div class="sheet"><div class="between"><h2>登录已有家长号</h2><button class="iconbtn" data-act="close">×</button></div><p class="muted">登录后将恢复这个家长号绑定的电视和档案。</p><div class="field"><label>家长号</label><input id="sheetName" value="AA_parent"></div><div class="field"><label>口令</label><input type="password" value="12345678"></div><button class="btn primary block" data-act="login">登录并恢复</button></div></div>';if(state.modal==='share'){const k=state.kids.find(x=>x.id===state.editKid);return '<div class="modal"><div class="sheet"><div class="between"><h2>分享 '+esc(k.name)+'</h2><button class="iconbtn" data-act="close">×</button></div><p class="muted">只有指定家长号能查看并引用这份主档案。</p><div class="field"><label>家长号，多个用逗号分隔</label><input id="shareNames" value="'+esc(k.sharedTo.join(', '))+'"></div><button class="btn primary block" data-act="saveShare">保存分享范围</button></div></div>';}return ''}
+function render(){document.getElementById('appbar').innerHTML=appbar();document.getElementById('content').innerHTML=page();document.getElementById('tabs').innerHTML=tabs();document.getElementById('tabs').style.display=pages.includes(state.page)?'flex':'none';document.getElementById('overlay').innerHTML=overlay();document.getElementById('toast').innerHTML=state.toast?'<div class="toast">'+esc(state.toast)+'</div>':'';document.getElementById('notes').innerHTML=notes();document.querySelectorAll('.mapbtn').forEach(b=>b.classList.toggle('on',b.dataset.page===state.page));document.querySelectorAll('.scenario').forEach(b=>b.classList.toggle('on',b.dataset.scenario===state.scenario))}
+document.addEventListener('click',e=>{
+ const scenario=e.target.closest('[data-scenario]');if(scenario){state.scenario=scenario.dataset.scenario;state.loggedIn=state.scenario==='active';state.page=state.scenario==='returning'?'restore':'today';state.tab='today';state.loginMode=false;render();return}
+ const p=e.target.closest('[data-page]');if(p){setPage(p.dataset.page);return}
+ const kid=e.target.closest('[data-kid]');if(kid){state.editKid=Number(kid.dataset.kid);setPage('child');return}
+ const tv=e.target.closest('[data-tv]');if(tv){state.tv=Number(tv.dataset.tv);state.scopeOpen=false;render();toast('已切换为 '+state.tvs[state.tv].name);return}
+ const td=e.target.closest('[data-tvdetail]');if(td){state.tv=Number(td.dataset.tvdetail);setPage('tv');return}
+ const apply=e.target.closest('[data-apply]');if(apply){const k=state.kids.find(x=>x.id===state.editKid),i=Number(apply.dataset.apply);k.tvs=k.tvs.includes(i)?k.tvs.filter(x=>x!==i):[...k.tvs,i];render();return}
+ const a=e.target.closest('[data-act]');if(!a)return;const act=a.dataset.act;
+ if(act==='back'){setPage(state.page==='child'?'children':state.page==='tv'?'devices':'today')}
+ if(act==='showLogin'){if(state.page==='restore'){state.loginMode=true;render()}else{state.modal='login';render()}}
+ if(act==='cancelLogin'){state.loginMode=false;render()}
+ if(act==='login'){state.loggedIn=true;state.scenario='active';state.modal=null;state.loginMode=false;setPage('today');toast('已恢复 2 台电视和 4 份档案')}
+ if(act==='newAccount'){state.scenario='empty';state.loggedIn=true;setPage('today');toast('新家长号已创建')}
+ if(act==='deviceOnly'){state.scenario='empty';state.loggedIn=false;setPage('today')}
+ if(act==='scope'){state.scopeOpen=!state.scopeOpen;render()}
+ if(act==='saveKid'){const k=state.kids.find(x=>x.id===state.editKid),v=Number(document.getElementById('limit').value);if(v>0)k.limit=v;state.shareKept=true;render();toast('规则与分享范围均已保存 · 共享视图已刷新')}
+ if(act==='share'){state.modal='share';render()}
+ if(act==='saveShare'){const k=state.kids.find(x=>x.id===state.editKid);k.sharedTo=document.getElementById('shareNames').value.split(/[,，]/).map(x=>x.trim()).filter(Boolean);state.modal=null;render();toast('分享范围已保存')}
+ if(act==='close'){state.modal=null;render()}
+ if(act==='tvMode'){state.tvs[state.tv].mode=!state.tvs[state.tv].mode;render();toast('儿童模式已'+(state.tvs[state.tv].mode?'开启':'关闭'))}
+ if(act==='unlock')toast('已批准，客厅电视恢复播放')
+ if(act==='scan')toast('打开扫码器 · 示例不调用摄像头')
+ if(act==='remote')toast('打开 '+state.tvs[Number(a.dataset.v||0)].name+' 遥控器')
+ if(act==='unbind')toast('解绑前将显示影响范围与二次确认')
+ if(act==='replaceRef')toast('打开可引用档案列表')
+ if(act==='removeBroken'){state.kids=state.kids.filter(k=>k.kind!=='broken');render();toast('已移除失效占位')}
+ if(act==='addKid')toast('打开新增儿童档案表单')
+});
+const q=new URLSearchParams(location.search);if(q.get('scenario')){state.scenario=q.get('scenario');state.loggedIn=state.scenario==='active'}if(q.get('page'))state.page=q.get('page');render();
+</script>
+</body>
+</html>

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
-import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_family_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_cards.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_quiz_editor.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
@@ -30,6 +30,7 @@ class ParentalMineView extends StatelessWidget {
     this.onEditAccount,
     this.channel,
     this.version,
+    this.hasClaimedAccount = false,
   });
 
   final List<ParentalMachine> machines;
@@ -43,6 +44,9 @@ class ParentalMineView extends StatelessWidget {
   final String channelAccount;
 
   final ParentalActions actions;
+
+  /// 本地是否已设置独立家长号；未设置时在页首给出账号恢复入口。
+  final bool hasClaimedAccount;
 
   /// 去「设置登录名」页；由页面壳注入路由跳转，便于无 GoRouter 的测试渲染。
   final VoidCallback? onEditAccount;
@@ -58,6 +62,13 @@ class ParentalMineView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: <Widget>[
+        if (!hasClaimedAccount)
+          _RecoveryBanner(
+            onLogin: actions.openLoginExisting,
+            onCreate: actions.openCreateAccount,
+          ),
+        if (AccountSession.isAdmin)
+          _readOnlyBanner(theme, scheme),
         // ① 账号：家长号（可改/跨设备）+ 本机实时通道号（只读/不可改）两层分开。
         //    权限自愈由顶栏刷新覆盖，不再显示「当前角色 / 账号与权限」。
         ParentalAccountCard(
@@ -154,17 +165,23 @@ class ParentalMineView extends StatelessWidget {
                       ],
                     ),
                   ),
-                FilledButton.tonal(
-                  onPressed: () => unawaited(actions.openDeviceManager()),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(Icons.qr_code_scanner, size: 16),
-                      SizedBox(width: 4),
-                      Text('添加 / 解绑电视'),
-                    ],
+                if (AccountSession.isParent)
+                  FilledButton.tonal(
+                    onPressed: () => unawaited(actions.openDeviceManager()),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.qr_code_scanner, size: 16),
+                        SizedBox(width: 4),
+                        Text('添加 / 解绑电视'),
+                      ],
+                    ),
+                  )
+                else
+                  Text(
+                    '绑定 / 解绑电视由家长操作',
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
                   ),
-                ),
               ],
             ),
           ),
@@ -186,6 +203,7 @@ class ParentalMineView extends StatelessWidget {
           machine: selected,
           onSave: actions.saveConfig,
           onOpenQuiz: () => unawaited(_openQuiz(context)),
+          readOnly: AccountSession.isAdmin,
         ),
         const SizedBox(height: 12),
         // ⑥ 连接与更新（原设置弹窗的通道状态 + 版本更新搬来）。
@@ -207,30 +225,105 @@ class ParentalMineView extends StatelessWidget {
 
   Widget _buildShareCard(BuildContext context, ThemeData theme) {
     final ColorScheme scheme = theme.colorScheme;
-    final ParentalMachine? target =
-        selected ?? (machines.isEmpty ? null : machines.first);
-    final int importedCount = target?.shareView?.imported.length ?? 0;
-    final int brokenCount = target?.shareView?.imported
-            .where((ParentalShareImported item) => item.isBroken)
-            .length ??
-        0;
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
         leading: Icon(Icons.family_restroom_outlined, color: scheme.primary),
-        title: const Text('档案共享'),
-        subtitle: Text(
-          target == null
-              ? '先绑定一台电视后，可跨电视 / 跨家长引用档案'
-              : brokenCount > 0
-                  ? '当前电视：$importedCount 份引用，其中 $brokenCount 份失效待重新选择'
-                  : '当前电视：$importedCount 份引用 · 主本在别处，本台只读',
+        title: const Text('家庭档案'),
+        subtitle: const Text(
+          '儿童档案归家庭、全局唯一；在这里增删改，并分配到各台电视。'
+          '题库可单独分享给其他家长号。',
         ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: target == null
-            ? null
-            : () => actions.openShareManagement(target),
+        onTap: () => unawaited(
+          actions.push(
+            ParentalFamilyPage(
+              machines: machines,
+              myAccount: myAccount,
+              onChanged: actions.reload,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 管理员只读代管的统一标识（D-03：只读态有统一「只读代管」标识）。
+  static Widget _readOnlyBanner(ThemeData theme, ColorScheme scheme) {
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.visibility_outlined, size: 18, color: scheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '只读代管：你以管理员身份查看全部电视与档案，但不能修改配置、'
+                '绑定/解绑或重命名（批准解锁请求除外）。',
+                style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 未设置独立家长号时的账号恢复横幅（Phase 1）：重装 / 换手机可凭家长号 + 口令找回。
+class _RecoveryBanner extends StatelessWidget {
+  const _RecoveryBanner({required this.onLogin, required this.onCreate});
+
+  final VoidCallback onLogin;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.primaryContainer.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(Icons.account_circle_outlined, size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '还没登录家长号？重装或换手机后凭「家长号 + 口令」即可找回原电视与档案。',
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                FilledButton.tonalIcon(
+                  onPressed: onLogin,
+                  icon: const Icon(Icons.login, size: 18),
+                  label: const Text('登录已有家长号'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onCreate,
+                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                  label: const Text('创建新家长号'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

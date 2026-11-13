@@ -23,13 +23,52 @@ import 'package:pscreen_screen/core/utils/device_credentials.dart';
 ///
 /// 只 parent flavor 可用；路由表不分 flavor，故这里再做一次自检。
 class ClaimAccountPage extends StatefulWidget {
-  const ClaimAccountPage({super.key});
+  const ClaimAccountPage({
+    super.key,
+    this.initialMode = ClaimAccountOpenMode.auto,
+    this.popAfterSuccess = false,
+  });
+
+  /// 打开时直接进入的形态；[auto] 时按本地是否已设置家长号推断
+  /// （已设置 → 概览、未设置 → 新建）。账号恢复入口用它直达「登录」或「创建」。
+  final ClaimAccountOpenMode initialMode;
+
+  /// 成功后是否直接 pop 回上一页（账号恢复场景：登录成功后由父页监听
+  /// [AccountSession.roleNotifier] 自动重载设备与档案）。默认 false（留在概览）。
+  final bool popAfterSuccess;
 
   @override
   State<ClaimAccountPage> createState() => _ClaimAccountPageState();
 }
 
+/// 家长号页的进入形态（详见 [ClaimAccountPage.initialMode]）。
+enum ClaimAccountOpenMode {
+  /// 按本地是否已设置家长号推断（默认）。
+  auto,
+
+  /// 直接进入「在另一台手机登录」形态（账号恢复主入口）。
+  join,
+
+  /// 直接进入「新建家长号」形态。
+  create,
+}
+
 enum _ClaimMode { overview, create, join }
+
+/// 把异常转成用户可读文案：服务端业务错误直接取 msg；网络/超时给通用提示。
+String _friendlyError(Object error) {
+  if (error is ServerApiException) return error.message;
+  final String s = '$error';
+  if (s.contains('DioException') ||
+      s.contains('SocketException') ||
+      s.contains('TimeoutException') ||
+      s.contains('连接失败') ||
+      s.contains('超时') ||
+      s.contains('timeout')) {
+    return '网络连接失败，请检查网络后重试';
+  }
+  return '操作失败：$s';
+}
 
 class _ClaimAccountPageState extends State<ClaimAccountPage> {
   // 与服务端 claims.js 的 CLAIM_NAME_PATTERN 保持一致（两套校验的交集）。
@@ -72,10 +111,19 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
     final String channel = await DeviceCredentials.channelAccount();
     final String claimed = AppSettings.instance.claimedAccount.trim();
     if (!mounted) return;
+    _ClaimMode mode;
+    switch (widget.initialMode) {
+      case ClaimAccountOpenMode.join:
+        mode = _ClaimMode.join;
+      case ClaimAccountOpenMode.create:
+        mode = _ClaimMode.create;
+      case ClaimAccountOpenMode.auto:
+        mode = claimed.isEmpty ? _ClaimMode.create : _ClaimMode.overview;
+    }
     setState(() {
       _derivedAccount = channel;
       _claimedAccount = claimed;
-      _mode = claimed.isEmpty ? _ClaimMode.create : _ClaimMode.overview;
+      _mode = mode;
       _loading = false;
     });
   }
@@ -140,6 +188,11 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       await AppSettings.instance.setClaimedAccount(result.account);
       await AccountSession.loginWithSaved();
       if (!mounted) return;
+      if (widget.popAfterSuccess) {
+        _saving = false;
+        Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _claimedAccount = result.account;
         _mode = _ClaimMode.overview;
@@ -151,7 +204,7 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = '$error';
+        _error = _friendlyError(error);
       });
     }
   }
@@ -179,6 +232,11 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       await AppSettings.instance.setClaimedAccount(name);
       await AccountSession.loginWithSaved();
       if (!mounted) return;
+      if (widget.popAfterSuccess) {
+        _saving = false;
+        Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _claimedAccount = name;
         _mode = _ClaimMode.overview;
@@ -189,7 +247,7 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = '$error';
+        _error = _friendlyError(error);
       });
     }
   }
@@ -226,7 +284,7 @@ class _ClaimAccountPageState extends State<ClaimAccountPage> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = '$error';
+        _error = _friendlyError(error);
       });
     }
   }

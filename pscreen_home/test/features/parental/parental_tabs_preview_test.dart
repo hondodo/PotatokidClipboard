@@ -20,6 +20,9 @@ ParentalActions _stubActions() => ParentalActions(
       saveConfig: (_) async {},
       unlock: (_) async {},
       openDeviceManager: () async {},
+      openLoginExisting: () async {},
+      openCreateAccount: () async {},
+      hasClaimedAccount: true,
       push: (_) async {},
       sendRemoteCommand: (_, _) async {},
       refreshPermission: () async {},
@@ -93,7 +96,12 @@ void main() {
     tester.view.devicePixelRatio = 2;
     await _renderToFile(
       tester,
-      ParentalRulesView(config: _config, selected: _machine, actions: _stubActions()),
+      ParentalRulesView(
+          config: _config,
+          selected: _machine,
+          actions: _stubActions(),
+          machines: const <ParentalMachine>[],
+          onSwitch: (_) {}),
       r'E:\Code\potatokid_clipboard\.workbuddy\screenshots\rules_preview.png',
     );
   });

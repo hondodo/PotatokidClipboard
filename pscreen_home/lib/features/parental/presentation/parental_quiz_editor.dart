@@ -197,11 +197,42 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
     }
   }
 
+  /// 未保存改动离开前的二次确认（A7：草稿/未保存内容不再静默丢弃）。
+  Future<void> _confirmDiscard() async {
+    if (_saving) return;
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('放弃未保存的改动？'),
+        content: const Text('你修改了题库但还没有保存，离开后这些改动会丢失。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('放弃并返回'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final int maxQuestions = 200;
-    return Padding(
+    return PopScope(
+      canPop: !_dirty && !_saving,
+      onPopInvokedWithResult: (bool didPop, Object? _) {
+        if (didPop || _saving) return;
+        if (_dirty) _confirmDiscard();
+      },
+      child: Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         top: false,
@@ -355,6 +386,7 @@ class _ParentalQuizEditorSheetState extends State<ParentalQuizEditorSheet> {
           ),
         ),
       ),
+    ),
     );
   }
 

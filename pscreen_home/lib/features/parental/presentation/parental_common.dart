@@ -35,6 +35,9 @@ class ParentalActions {
     required this.saveConfig,
     required this.unlock,
     required this.openDeviceManager,
+    required this.openLoginExisting,
+    required this.openCreateAccount,
+    required this.hasClaimedAccount,
     required this.push,
     required this.sendRemoteCommand,
     required this.refreshPermission,
@@ -62,6 +65,16 @@ class ParentalActions {
 
   /// 打开电视绑定管理底部弹层。
   final Future<void> Function() openDeviceManager;
+
+  /// 打开「登录已有家长号」页（账号恢复主入口；重装/换手机凭家长号+口令找回）。
+  final Future<void> Function() openLoginExisting;
+
+  /// 打开「创建新家长号」页（首次使用 / 重装后无本地账号时）。
+  final Future<void> Function() openCreateAccount;
+
+  /// 本地是否已设置独立家长号（区别于设备派生号）。
+  /// 未设置时各空态应优先引导「登录已有」或「创建新」家长号，而不是直接要求绑电视。
+  final bool hasClaimedAccount;
 
   /// 下钻到某个全屏子页，返回后自动补拉事件。
   final Future<void> Function(Widget page) push;

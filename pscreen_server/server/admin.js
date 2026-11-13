@@ -20,6 +20,12 @@ const { attachPrograms } = require('./programs');
 const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
 const claims = require('./claims');
 const parentalShare = require('./parental_share');
+const { FamilyStore } = require('./parental_family');
+
+// D-02 硬阻塞地基：家庭级主档案模型。默认关闭，开标志位才启用读路径切换
+// （连同客户端/电视端同批次部署，见实施计划第 12 节第 8 条铁律）。
+const USE_FAMILY_MODEL = process.env.PARENTAL_FAMILY_MODEL === '1';
+
 
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'honghao').trim();
 const SESSION_COOKIE = 'pk_admin';
@@ -104,11 +110,14 @@ function jsonOk(res, data, msg = '成功') {
     });
 }
 
-function jsonFail(res, msg, code = definds.code.FAILED, status = 200) {
-    return res.status(status).json({
+function jsonFail(res, msg, code = definds.code.FAILED, status = 200, data) {
+    const body = {
         [definds.txt.CODE]: code,
         [definds.txt.MSG]: msg,
-    });
+    };
+    // D-01：冲突响应需要把服务端当前实体一并回带，供客户端展示/覆盖。
+    if (data !== undefined) body[definds.txt.DATA] = data;
+    return res.status(status).json(body);
 }
 
 function readJson(file, fallback) {
@@ -562,6 +571,10 @@ function attachAdmin(app, options = {}) {
     const avatarImageDir = path.join(adminDir, 'parental-avatars');
     const MAX_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024; // 客户端已压到 ≤300KB，留余量
 
+    // D-02 家庭级主档案存储：按 childId 全局唯一，分配/本台设置按 deviceId。
+    // 仅 USE_FAMILY_MODEL 开启时参与读路径；首次启用会从旧 machine.parental 迁移。
+    const familyStore = new FamilyStore(path.join(adminDir, 'parental_family.json'));
+
     // 会话签名密钥：首次启动生成，之后保持不变（重启不会踢掉已登录会话）。
     let secret;
     try {
@@ -903,6 +916,53 @@ function attachAdmin(app, options = {}) {
      * `allMachines` 可复用调用方已读出的设备表，避免逐台解析时重复读盘
      * （只在设备有共享引用时才会用到）。
      */
+    /**
+     * D-02 写路径（仅 USE_FAMILY_MODEL 开启时调用）：把进来的整份 parental 配置
+     * 拆分写入家庭级存储——children → FamilyChild、分配 → Assignment、本台设置 →
+     * DeviceLocal。映射关系严格对应 projectDevice 的投影，保证「写后读」一致。
+     * 操作者为家长号；admin 已在调用方被 requireParentWriter 拒绝。
+     */
+    function applyParentalToFamily(machine, parentalBlob, operator) {
+        const normalized = normalizeParental(parentalBlob || {});
+        const deviceId = machine.id;
+        const childIds = [];
+        for (const child of normalized.children) {
+            const id = typeof child.id === 'string' ? child.id.trim() : '';
+            if (!id) continue;
+            familyStore.upsertChild(
+                {
+                    childId: id,
+                    name: child.name,
+                    age: child.age,
+                    avatarId: child.avatarId,
+                    profileMode: child.profileMode,
+                    dailyLimitMin: child.dailyLimitMin,
+                    sessionLimitMin: child.sessionLimitMin,
+                    bedtimeStart: child.bedtimeStart,
+                    bedtimeEnd: child.bedtimeEnd,
+                    blacklist: child.blacklist,
+                    whitelist: child.whitelist,
+                    locked: child.locked,
+                },
+                operator,
+            );
+            childIds.push(id);
+        }
+        familyStore.setAssignment(deviceId, childIds, operator);
+        familyStore.setDeviceLocal(
+            deviceId,
+            {
+                mode: normalized.mode,
+                unlockMode: normalized.unlockMode,
+                pin: normalized.pin,
+                activeChildIds: normalized.activeChildIds && normalized.activeChildIds.length > 0
+                    ? normalized.activeChildIds
+                    : childIds,
+            },
+            operator,
+        );
+    }
+
     function resolveMachineConfig(machine, usersByName, allMachines) {
         const owner = machine.owner || '';
         const user = owner ? usersByName.get(owner) : null;
@@ -915,11 +975,20 @@ function attachAdmin(app, options = {}) {
             homes = user.homes;
             source = 'user';
         }
-        // 儿童模式配置透传：本机 children + 共享引用展开的只读档案
-        // （电视端选人页/限时/频道过滤需要主本规则，引用本身只有坐标）。
-        let parental = machine.parental || null;
-        if (parental && Array.isArray(parental.shared) && parental.shared.length > 0) {
-            parental = parentalShare.expandSharedChildren(machine, allMachines || readMachines()) || parental;
+        // 儿童模式配置：默认沿用旧透传（本机 children + 共享引用展开）。
+        // D-02 开启后改走家庭级投影：按 deviceId 取已分配的家庭主档案，
+        // 旧 machine.parental 不再作为生效来源（首次启用会原地迁移一次）。
+        let parental;
+        if (USE_FAMILY_MODEL) {
+            if (Object.keys(familyStore.data.children).length === 0) {
+                familyStore.migrateFromLegacy(allMachines || readMachines());
+            }
+            parental = familyStore.projectDevice(machine.id);
+        } else {
+            parental = machine.parental || null;
+            if (parental && Array.isArray(parental.shared) && parental.shared.length > 0) {
+                parental = parentalShare.expandSharedChildren(machine, allMachines || readMachines()) || parental;
+            }
         }
         return {
             homes,
@@ -997,6 +1066,21 @@ function attachAdmin(app, options = {}) {
         const operator = currentParentOperator(req);
         if (!operator) {
             return jsonFail(res, '未登录或无家长操作权限', 401, 401);
+        }
+        req.adminUser = operator;
+        next();
+    }
+
+    // 家长配置写门禁（D-03 只读代管）：仅 parent 角色可写；admin 放行读但禁止写。
+    // 只覆盖「家长域配置写接口」（儿童模式 / 档案共享 / 题库 / 头像 / 解锁方式），
+    // 不用于用户管理、布局、删机器等管理员后台自有接口（避免误伤）。
+    function requireParentWriter(req, res, next) {
+        const operator = currentParentOperator(req);
+        if (!operator) {
+            return jsonFail(res, '未登录或无家长操作权限', 401, 401);
+        }
+        if (operator.role !== 'parent') {
+            return jsonFail(res, '只读代管不支持修改家长配置，请使用家长号操作', 403, 403);
         }
         req.adminUser = operator;
         next();
@@ -1693,7 +1777,21 @@ function attachAdmin(app, options = {}) {
             // 整体替换（整对象替换语义，后台表单先读后改再全量回传）；给 null 清除；
             // 不给该键则保持原值。校验失败 throw → 走下方 catch 整体拒绝，不落盘。
             if (Object.prototype.hasOwnProperty.call(req.body || {}, 'parental')) {
-                machine.parental = normalizeParental(req.body.parental);
+                // D-03 只读代管：admin 可看全量但禁止写家长配置。
+                if (req.adminUser.role === 'admin') {
+                    return jsonFail(res, '只读代管不支持修改儿童模式配置，请使用家长号操作', 403, 403);
+                }
+                if (USE_FAMILY_MODEL) {
+                    // D-02 写路径：把整份 parental 拆分写入家庭级存储
+                    // （children→FamilyChild / 分配→Assignment / 本台设置→DeviceLocal），
+                    // 不再以 machine.parental 为生效来源。读路径由 resolveMachineConfig
+                    // 改走 projectDevice 投影。这里把投影写回 machine.parental，使响应
+                    // 回声与 GET /config 一致（客户端 saveParental 据此回读校验）。
+                    applyParentalToFamily(machine, req.body.parental, req.adminUser.name);
+                    machine.parental = familyStore.projectDevice(machine.id);
+                } else {
+                    machine.parental = normalizeParental(req.body.parental);
+                }
             }
             machines[id] = normalizeMachine(id, machine);
             saveMachines(machines);
@@ -1757,7 +1855,7 @@ function attachAdmin(app, options = {}) {
      * 设置本台某个主本档案的「对外分享」家长号白名单（owner opt-in）。
      * 只能改本台 children[] 里的主本档案；引用来的档案无权设置。
      */
-    app.put('/api/admin/parental/share-to', requireParentOperator, (req, res) => {
+    app.put('/api/admin/parental/share-to', requireParentWriter, (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -1789,7 +1887,7 @@ function attachAdmin(app, options = {}) {
      * 可见性：来源档案是同一家长号名下其它电视（默认可见），或来源档案 sharedTo 含当前家长号。
      * 只引用主本（来源 children[]），不允许引用别人「引用进来」的档案（杜绝多级链与环）。
      */
-    app.post('/api/admin/parental/shared', requireParentOperator, (req, res) => {
+    app.post('/api/admin/parental/shared', requireParentWriter, (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -1857,7 +1955,7 @@ function attachAdmin(app, options = {}) {
     });
 
     /** 取消一条引用：只删本台 shared[] 里的坐标，绝不触碰主本档案。 */
-    app.delete('/api/admin/parental/shared', requireParentOperator, (req, res) => {
+    app.delete('/api/admin/parental/shared', requireParentWriter, (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -1912,6 +2010,21 @@ function attachAdmin(app, options = {}) {
             if (!machine) return jsonFail(res, '设备不存在', 404, 404);
             if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
             if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            if (USE_FAMILY_MODEL) {
+                // D-02：题库按家庭 childId 分库（S5 / CR-01），直接读家庭题库实体，
+                // 不再有「引用重定向 / 只读」三态（CR-01 取消跨电视档案引用）。
+                familyStore.load();
+                const bank = familyStore.data.quizzes[childId] || { questions: [], updatedAt: 0 };
+                return jsonOk(res, {
+                    deviceId: id, childId,
+                    sourceDeviceId: id,
+                    sourceChildId: childId,
+                    readOnly: false,
+                    updatedAt: bank.updatedAt || 0,
+                    revision: bank.revision || 0,
+                    questions: Array.isArray(bank.questions) ? bank.questions : [],
+                });
+            }
             const lookup = quizLookup(machine, childId, req.adminUser.name);
             if (!lookup.ok) return jsonFail(res, lookup.reason, 404, 404);
             // 引用档案的题库读主本：落点重定向到来源电视 / 主本档案 id。
@@ -1931,7 +2044,7 @@ function attachAdmin(app, options = {}) {
     });
 
     /** 整库替换保存（先读后改再全量回传；空数组 = 清空该档案题库）。 */
-    app.put('/api/admin/parental/quiz', requireParentOperator, (req, res) => {
+    app.put('/api/admin/parental/quiz', requireParentWriter, (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -1942,6 +2055,20 @@ function attachAdmin(app, options = {}) {
             if (!machine) return jsonFail(res, '设备不存在', 404, 404);
             if (machineKind(machine) !== 'tv') return jsonFail(res, '只有电视设备支持答题解锁');
             if (!canEditMachineQuizzes(req, machine)) return jsonFail(res, '家长只能编辑已绑定到自己名下的设备', 403, 403);
+            if (USE_FAMILY_MODEL) {
+                // D-02：题库按家庭 childId 分库；childId 必须是已存在的家庭主档案。
+                familyStore.load();
+                if (!familyStore.data.children[childId]) {
+                    return jsonFail(res, '儿童档案不存在', 404, 404);
+                }
+                const questions = normalizeQuizQuestions(body.questions);
+                // D-01：题库实体版本守卫。
+                if (guardRevision(res, body.baseRevision, familyStore.data.quizzes[childId], '该题库')) return;
+                familyStore.setQuiz(childId, questions, req.adminUser.name);
+                const saved = familyStore.data.quizzes[childId];
+                console.log(`[quiz] 保存 ${id}/${childId}: ${questions.length} 题 (family)`);
+                return jsonOk(res, { deviceId: id, childId, updatedAt: saved.updatedAt, revision: saved.revision || 0, questions }, '题库已保存');
+            }
             const state = childWriteState(machine, childId, req.adminUser.name);
             if (state.kind === 'missing') return jsonFail(res, '儿童档案不存在', 404, 404);
             if (state.kind === 'broken') return jsonFail(res, '该档案的引用来源已失效，请在「档案共享」页重新选择');
@@ -1962,8 +2089,300 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    // ------------------------------------------------------------ 家庭级档案（D-02 全局儿童主档案 + CR-01 题库分享）
+    // 以下接口仅在 USE_FAMILY_MODEL 开启时提供完整语义；关闭时返回 409 提示先开标志。
+
+    /**
+     * D-01 并发写入保护：请求带 `baseRevision` 且与当前实体版本不一致时，
+     * 不落盘并返回 409（同时回带服务端当前实体，供客户端展示差异 / 覆盖）。
+     * 返回 true 表示已响应、调用方应直接 return；不带 baseRevision 维持旧行为。
+     */
+    function guardRevision(res, baseRevision, current, label) {
+        if (baseRevision === undefined || baseRevision === null || baseRevision === '') return false;
+        const want = Number(baseRevision);
+        const cur = current && Number.isFinite(Number(current.revision)) ? Number(current.revision) : 0;
+        if (Number.isFinite(want) && want === cur) return false;
+        jsonFail(res, `${label}已被其他设备修改，请刷新后再试`, 409, 409, { current: current || null });
+        return true;
+    }
+
+    /** 把某儿童档案的变更推送到所有分配了该档案的电视（家庭内改一次、各电视同步）。 */
+    function pushToAssignedTvs(childId, reason) {
+        try {
+            const machines = readMachines();
+            const assignments = familyStore.data.assignments;
+            for (const m of Object.values(machines)) {
+                if ((m.kind || '') !== 'tv') continue;
+                const ass = assignments[m.id];
+                if (ass && Array.isArray(ass.childIds) && ass.childIds.includes(childId)) {
+                    pushConfigToMachine(m, { reason });
+                }
+            }
+        } catch (error) {
+            console.warn('[family] 推送失败:', error.message);
+        }
+    }
+
+    /** 列出全部家庭儿童主档案（全局），并附每台电视的分配情况。 */
+    app.get('/api/admin/parental/children', requireParentOperator, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            familyStore.load();
+            const machines = readMachines();
+            const assignmentsByChild = {};
+            for (const [deviceId, a] of Object.entries(familyStore.data.assignments)) {
+                for (const cid of (a.childIds || [])) {
+                    (assignmentsByChild[cid] = assignmentsByChild[cid] || []).push(deviceId);
+                }
+            }
+            const tvNames = {};
+            for (const m of Object.values(machines)) {
+                if ((m.kind || '') === 'tv') tvNames[m.id] = m.name || m.id;
+            }
+            const children = Object.values(familyStore.data.children).map((fc) => ({
+                id: fc.childId,
+                name: fc.name,
+                age: fc.age,
+                avatarId: fc.avatarId,
+                profileMode: fc.profileMode,
+                dailyLimitMin: fc.dailyLimitMin,
+                sessionLimitMin: fc.sessionLimitMin,
+                bedtimeStart: fc.bedtimeStart,
+                bedtimeEnd: fc.bedtimeEnd,
+                blacklist: fc.blacklist,
+                whitelist: fc.whitelist,
+                locked: fc.locked === true,
+                revision: fc.revision || 0,
+                updatedBy: fc.updatedBy || '',
+                updatedAt: fc.updatedAt || 0,
+                sharedTo: (familyStore.data.quizzes[fc.childId] && familyStore.data.quizzes[fc.childId].sharedTo) || [],
+                assignedTo: (assignmentsByChild[fc.childId] || []).map((id) => ({ id, name: tvNames[id] || id })),
+            }));
+            return jsonOk(res, { children });
+        } catch (error) {
+            console.error('[family] 列出儿童失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 新增 / 更新一个全局儿童主档案（按 childId 全局唯一）。 */
+    app.post('/api/admin/parental/child', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const body = req.body || {};
+            const child = {
+                childId: String(body.id || body.childId || '').trim(),
+                name: String(body.name || '').trim(),
+                age: Number(body.age) || 0,
+                avatarId: String(body.avatarId || body.avatar || '').trim(),
+                profileMode: body.profileMode === 'strict' ? 'strict' : 'mild',
+                dailyLimitMin: Number(body.dailyLimitMin) || 0,
+                sessionLimitMin: Number(body.sessionLimitMin) || 0,
+                bedtimeStart: String(body.bedtimeStart || '').trim(),
+                bedtimeEnd: String(body.bedtimeEnd || '').trim(),
+                blacklist: Array.isArray(body.blacklist) ? body.blacklist.map(String) : [],
+                whitelist: Array.isArray(body.whitelist) ? body.whitelist.map(String) : [],
+                locked: body.locked === true,
+            };
+            if (!child.childId) return jsonFail(res, 'childId 不能为空');
+            if (!child.name) return jsonFail(res, '姓名不能为空');
+            // D-01：更新已有档案时校验版本号，避免多端并发静默覆盖。
+            familyStore.load();
+            if (guardRevision(res, body.baseRevision, familyStore.data.children[child.childId], '该儿童档案')) return;
+            const saved = familyStore.upsertChild(child, req.adminUser.name);
+            pushToAssignedTvs(saved.childId, 'family-child');
+            return jsonOk(res, { child: saved }, '已保存');
+        } catch (error) {
+            console.error('[family] 保存儿童失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 删除一个全局儿童主档案（级联清空各电视分配）。 */
+    app.delete('/api/admin/parental/child', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const childId = String((req.body && req.body.childId) || req.query.childId || '').trim();
+            if (!childId) return jsonFail(res, 'childId 不能为空');
+            const ok = familyStore.removeChild(childId, req.adminUser.name);
+            if (!ok) return jsonFail(res, '档案不存在', 404, 404);
+            return jsonOk(res, { childId }, '已删除');
+        } catch (error) {
+            console.error('[family] 删除儿童失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 读取某台电视的分配（启用了哪些家庭儿童档案）。 */
+    app.get('/api/admin/parental/assignment', requireParentOperator, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const id = safeDeviceId(req.query.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const a = familyStore.data.assignments[id];
+            return jsonOk(res, { deviceId: id, childIds: a ? a.childIds.slice() : [], revision: a ? (a.revision || 0) : 0 });
+        } catch (error) {
+            console.error('[family] 读取分配失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 设置某台电视的分配（启用了哪些家庭儿童档案）。 */
+    app.put('/api/admin/parental/assignment', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if ((machine.kind || '') !== 'tv') return jsonFail(res, '只有电视设备支持分配');
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            const childIds = Array.isArray(body.childIds) ? body.childIds.map(String).filter(Boolean) : [];
+            for (const cid of childIds) {
+                if (!familyStore.data.children[cid]) return jsonFail(res, `儿童档案不存在：${cid}`, 404, 404);
+            }
+            // D-01：分配实体版本守卫。
+            if (guardRevision(res, body.baseRevision, familyStore.data.assignments[id], '该电视的档案分配')) return;
+            familyStore.setAssignment(id, childIds, req.adminUser.name);
+            pushConfigToMachine(machine, { reason: 'family-assign' });
+            return jsonOk(res, { deviceId: id, childIds: familyStore.data.assignments[id].childIds.slice(), revision: familyStore.data.assignments[id].revision || 0 }, '分配已保存');
+        } catch (error) {
+            console.error('[family] 保存分配失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 读取某台电视的本台设置（儿童模式开关 / 解锁方式 / PIN / 已应用档案，CR-02 U1）。 */
+    app.get('/api/admin/parental/device-local', requireParentOperator, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const id = safeDeviceId(req.query.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            familyStore.load();
+            const dl = familyStore.data.deviceLocal[id] || { deviceId: id, mode: 'off', unlockMode: 'remote', pin: '', activeChildIds: [], revision: 0 };
+            return jsonOk(res, {
+                deviceId: id,
+                mode: dl.mode === 'on' ? 'on' : 'off',
+                unlockMode: dl.unlockMode || 'remote',
+                pin: dl.pin || '',
+                activeChildIds: Array.isArray(dl.activeChildIds) ? dl.activeChildIds.slice() : [],
+                revision: dl.revision || 0,
+                updatedBy: dl.updatedBy || '',
+                updatedAt: dl.updatedAt || 0,
+            });
+        } catch (error) {
+            console.error('[family] 读取本台设置失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 写入某台电视的本台设置（CR-02：解锁方式 / PIN / 儿童模式开关，按 deviceId 独立保存）。 */
+    app.put('/api/admin/parental/device-local', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const body = req.body || {};
+            const id = safeDeviceId(body.deviceId);
+            if (!id) return jsonFail(res, 'deviceId 无效');
+            const machine = readMachines()[id];
+            if (!machine) return jsonFail(res, '设备不存在', 404, 404);
+            if ((machine.kind || '') !== 'tv') return jsonFail(res, '只有电视设备支持本台设置');
+            if (!canManageTv(req, machine)) return jsonFail(res, '只能管理绑定到自己名下的电视', 403, 403);
+            familyStore.load();
+            if (guardRevision(res, body.baseRevision, familyStore.data.deviceLocal[id], '该电视的本台设置')) return;
+            const patch = {};
+            if (body.mode === 'on' || body.mode === 'off') patch.mode = body.mode;
+            if (body.unlockMode !== undefined) patch.unlockMode = body.unlockMode;
+            if (body.pin !== undefined) patch.pin = String(body.pin || '');
+            if (Array.isArray(body.activeChildIds)) patch.activeChildIds = body.activeChildIds.map(String).filter(Boolean);
+            const saved = familyStore.setDeviceLocal(id, patch, req.adminUser.name);
+            pushConfigToMachine(machine, { reason: 'device-local' });
+            return jsonOk(res, {
+                deviceId: id,
+                mode: saved.mode === 'on' ? 'on' : 'off',
+                unlockMode: saved.unlockMode || 'remote',
+                pin: saved.pin || '',
+                activeChildIds: Array.isArray(saved.activeChildIds) ? saved.activeChildIds.slice() : [],
+                revision: saved.revision || 0,
+                updatedBy: saved.updatedBy || '',
+                updatedAt: saved.updatedAt || 0,
+            }, '本台设置已保存');
+        } catch (error) {
+            console.error('[family] 保存本台设置失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 设置某儿童题库的跨家长分享白名单（CR-01：sharedTo 挂 Quiz 实体）。 */
+    app.put('/api/admin/parental/quiz/share', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const body = req.body || {};
+            const childId = String(body.childId || '').trim();
+            if (!childId) return jsonFail(res, 'childId 无效');
+            if (!familyStore.data.children[childId]) return jsonFail(res, '儿童档案不存在', 404, 404);
+            const sharedTo = Array.isArray(body.sharedTo) ? body.sharedTo.map(String).filter(Boolean) : [];
+            // D-01：题库实体版本守卫（授权写只改 sharedTo，不触碰家庭档案）。
+            familyStore.load();
+            if (guardRevision(res, body.baseRevision, familyStore.data.quizzes[childId], '该题库分享设置')) return;
+            familyStore.setQuizSharedTo(childId, sharedTo, req.adminUser.name);
+            return jsonOk(res, { childId, sharedTo: familyStore.data.quizzes[childId].sharedTo, revision: familyStore.data.quizzes[childId].revision || 0 }, '分享范围已保存');
+        } catch (error) {
+            console.error('[family] 设置题库分享失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 从他人分享的题库复制一份到自己的儿童档案（CR-01 Q1 复制副本）。 */
+    app.post('/api/admin/parental/quiz/import', requireParentWriter, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            const body = req.body || {};
+            const targetChildId = String(body.targetChildId || '').trim();
+            const sourceChildId = String(body.sourceChildId || '').trim();
+            const sourceAccount = String(body.sourceAccount || req.adminUser.name).trim();
+            if (!targetChildId || !sourceChildId) return jsonFail(res, 'targetChildId / sourceChildId 不能为空');
+            if (!familyStore.data.children[targetChildId]) return jsonFail(res, '目标儿童档案不存在', 404, 404);
+            const src = familyStore.data.quizzes[sourceChildId];
+            if (!src) return jsonFail(res, '来源题库不存在', 404, 404);
+            const viewer = req.adminUser.name;
+            const allowed = (src.sharedTo || []).includes(viewer) || src.sourceAccount === viewer;
+            if (!allowed) return jsonFail(res, '该题库未分享给你', 403, 403);
+            const copy = familyStore.importQuizCopy(targetChildId, src, sourceAccount, req.adminUser.name);
+            return jsonOk(res, { targetChildId, isCopy: copy.isCopy, questionCount: copy.questions.length }, '已复制题库副本');
+        } catch (error) {
+            console.error('[family] 导入题库副本失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 列出分享给我的题库（CR-01 Q3：仅显示哪些家长号分享给了我，不含任何使用统计）。 */
+    app.get('/api/admin/parental/quiz/shared-to-me', requireParentOperator, (req, res) => {
+        try {
+            if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+            familyStore.load();
+            const viewer = req.adminUser.name;
+            const list = [];
+            for (const [childId, q] of Object.entries(familyStore.data.quizzes || {})) {
+                if (!q || !Array.isArray(q.sharedTo) || !q.sharedTo.includes(viewer)) continue;
+                if (q.sourceAccount === viewer) continue; // 自己的题库不算「分享给我」
+                const ownerChild = familyStore.data.children[childId];
+                list.push({
+                    sourceAccount: q.sourceAccount || '',
+                    sourceChildId: childId,
+                    childName: ownerChild ? ownerChild.name : childId,
+                    questionCount: Array.isArray(q.questions) ? q.questions.length : 0,
+                });
+            }
+            return jsonOk(res, { quizzes: list });
+        } catch (error) {
+            console.error('[family] 列出分享题库失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
     /** 题干 / 选项配图上传：base64 落盘，题目里只存 URL。 */
-    app.post('/api/admin/parental/quiz/image', requireParentOperator, (req, res) => {
+    app.post('/api/admin/parental/quiz/image', requireParentWriter, (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -2003,7 +2422,7 @@ function attachAdmin(app, options = {}) {
     /** 儿童档案头像上传：base64 → magic bytes 校验 → sha256 去重 → 同步转发 app_server。
      *  同一个 sha256 第二次上传会直接返回已有的 URL（不重复转发）。
      *  必须走 mirrorAndWait（同步等待公网 URL 回来再存索引），这样客户端拿到的一定是可直连地址。 */
-    app.post('/api/admin/parental/avatar', requireParentOperator, async (req, res) => {
+    app.post('/api/admin/parental/avatar', requireParentWriter, async (req, res) => {
         try {
             const body = req.body || {};
             const id = safeDeviceId(body.deviceId);
@@ -2088,7 +2507,7 @@ function attachAdmin(app, options = {}) {
     });
 
     /** 从索引移除头像素材（app_server 那边的物理文件不动，避免其他电视/档案还在引用）。 */
-    app.delete('/api/admin/parental/avatar/:avatarId', requireParentOperator, (req, res) => {
+    app.delete('/api/admin/parental/avatar/:avatarId', requireParentWriter, (req, res) => {
         try {
             const avatarId = String(req.params.avatarId || '').trim();
             if (!avatarId) return jsonFail(res, 'avatarId 无效');
@@ -2137,6 +2556,18 @@ function attachAdmin(app, options = {}) {
                 if (!listUsers().some((user) => user.name === username)) {
                     return jsonFail(res, '账号不存在', definds.code.UNLOGIN);
                 }
+            }
+            if (USE_FAMILY_MODEL) {
+                // D-02：电视按本台分配的家庭 childId 取各自家庭题库（S5 / CR-01）。
+                // 题库缺失也返回空 bank，电视端据此把答题解锁降级为远程确认（U2）。
+                familyStore.load();
+                const assignment = familyStore.data.assignments[id];
+                const childIds = assignment ? assignment.childIds.slice() : [];
+                const banks = childIds.map((cid) => {
+                    const q = familyStore.data.quizzes[cid] || { questions: [], updatedAt: 0 };
+                    return { childId: cid, updatedAt: q.updatedAt || 0, questions: Array.isArray(q.questions) ? q.questions : [] };
+                });
+                return jsonOk(res, { deviceId: id, banks });
             }
             const banks = readQuizStore()[id] || {};
             // 共享档案的题库存在主本电视的目录下：按引用解析后合并进来，
@@ -2675,9 +3106,11 @@ function attachAdmin(app, options = {}) {
 module.exports = {
     attachAdmin,
     ADMIN_USERNAME,
+    USE_FAMILY_MODEL,
     normalizeMachineName,
     normalizeMachineAliases,
     normalizeParental,
     normalizeQuizQuestions,
     parentalShare,
+    FamilyStore,
 };

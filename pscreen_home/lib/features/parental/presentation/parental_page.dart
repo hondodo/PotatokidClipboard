@@ -10,15 +10,18 @@ import 'package:pscreen_home/features/parental/data/parental_admin_api.dart';
 import 'package:pscreen_home/features/parental/domain/parental_config.dart';
 import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_home/features/parental/presentation/child_profile_editor.dart';
+import 'package:pscreen_home/features/parental/presentation/claim_account_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_common.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_device_manager_sheet.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_family_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_mine_tab.dart';
-import 'package:pscreen_home/features/parental/presentation/parental_rules_tab.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_share_page.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_subpages.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_today_page.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_tv_tab.dart';
 import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
+import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
@@ -49,8 +52,8 @@ class ParentalPage extends StatefulWidget {
 class _ParentalPageState extends State<ParentalPage> {
   static const List<_TabSpec> _tabs = <_TabSpec>[
     _TabSpec('今天', Icons.today_outlined),
-    _TabSpec('规则', Icons.rule_outlined),
-    _TabSpec('我的', Icons.person_outline),
+    _TabSpec('孩子', Icons.family_restroom_outlined),
+    _TabSpec('电视', Icons.tv_outlined),
   ];
 
   ParentalAdminApi get _api => widget.api ?? const ParentalAdminApi();
@@ -75,6 +78,8 @@ class _ParentalPageState extends State<ParentalPage> {
   /// 本机实时通道派生号（设备身份，只读，永不改名/禁用）。
   String _channelAccount = '';
   bool _loading = false;
+  /// 正在切换配置目标电视（Phase 2）：期间禁用保存，避免把旧配置误写进新电视。
+  bool _switching = false;
   String? _error;
 
   /// 实时通道连接状态：页面常在通道未连上时构建，连上后要补拉一次事件，
@@ -347,6 +352,10 @@ class _ParentalPageState extends State<ParentalPage> {
   /// 告警，避免界面假装已保存。答题模式还会提前检查题库，题库为空/只有
   /// 填空题时电视会回退短码页，保存时就要说明。
   Future<void> _saveConfig(ParentalConfig next) async {
+    if (_switching) {
+      _hint('正在切换电视，请稍候', error: true);
+      return;
+    }
     final ParentalMachine? machine = _selected;
     if (machine == null) {
       _hint('未选择设备，无法保存', error: true);
@@ -689,12 +698,47 @@ class _ParentalPageState extends State<ParentalPage> {
     }
   }
 
+  /// 账号恢复入口：直达「登录已有家长号」；成功后页内自动 pop，
+  /// 由 [AccountSession.roleNotifier] 触发的 [_onRoleChanged] 自动重载设备与档案，
+  /// 无需用户手动刷新（Phase 1 要求）。
+  Future<void> _openLoginExisting() async {
+    await _push(const ClaimAccountPage(
+      initialMode: ClaimAccountOpenMode.join,
+      popAfterSuccess: true,
+    ));
+    if (!mounted) return;
+    await _loadMyAccount();
+    if (AccountSession.isParentOrAdmin) {
+      await _reload();
+    } else {
+      setState(() {});
+    }
+  }
+
+  /// 账号恢复入口：直达「创建新家长号」。
+  Future<void> _openCreateAccount() async {
+    await _push(const ClaimAccountPage(
+      initialMode: ClaimAccountOpenMode.create,
+      popAfterSuccess: true,
+    ));
+    if (!mounted) return;
+    await _loadMyAccount();
+    if (AccountSession.isParentOrAdmin) {
+      await _reload();
+    } else {
+      setState(() {});
+    }
+  }
+
   /// 三个 Tab 视图需要的副作用回调集合（数据加载 / 保存 / 解锁 / 导航等）。
   ParentalActions get _actions => ParentalActions(
     reload: () => _reload(),
     saveConfig: _saveConfig,
     unlock: _sendUnlock,
     openDeviceManager: () => _openDeviceManager(),
+    openLoginExisting: _openLoginExisting,
+    openCreateAccount: _openCreateAccount,
+    hasClaimedAccount: AppSettings.instance.claimedAccount.trim().isNotEmpty,
     push: _push,
     sendRemoteCommand: (String to, String command) => _sendRemoteCommand(to, command),
     refreshPermission: () => _refreshPermission(),
@@ -713,10 +757,13 @@ class _ParentalPageState extends State<ParentalPage> {
     selectDevice: (ParentalMachine machine) {
       if (_selected?.id == machine.id) return;
       setState(() {
+        _switching = true;
         _selected = machine;
         _config = ParentalConfig.empty;
       });
-      unawaited(_loadConfig());
+      unawaited(_loadConfig().whenComplete(() {
+        if (mounted) setState(() => _switching = false);
+      }));
     },
     renameMachine: (ParentalMachine machine) => unawaited(_renameMachine(machine)),
     openShareManagement: (ParentalMachine machine) => unawaited(_openShareManagement(machine)),
@@ -760,6 +807,9 @@ class _ParentalPageState extends State<ParentalPage> {
     if (!AccountSession.isParentOrAdmin) {
       final String role = AccountSession.role;
       final String roleText = role.isEmpty ? '未确定（按 user 处理）' : role;
+      // 重装/忘记口令：无本地家长号或口令已失效时，给出明确的找回入口，
+      // 不再只显示「无权限」让人无从下手（Phase 1 账号恢复）。
+      final bool showRecovery = !_actions.hasClaimedAccount || role.isEmpty;
       return Scaffold(
         appBar: AppBar(
           title: const Text('家长视图'),
@@ -807,6 +857,26 @@ class _ParentalPageState extends State<ParentalPage> {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
                 ),
+                if (showRecovery) ...<Widget>[
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.login),
+                    label: const Text('登录已有家长号'),
+                    onPressed: () => unawaited(_openLoginExisting()),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('创建新家长号'),
+                    onPressed: () => unawaited(_openCreateAccount()),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '重装或换手机后，凭「家长号 + 口令」登录即可找回原电视与档案。',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+                  ),
+                ],
               ],
             ),
           ),
@@ -878,6 +948,12 @@ class _ParentalPageState extends State<ParentalPage> {
                             icon: const Icon(Icons.refresh),
                             onPressed: () => unawaited(_reload()),
                           ),
+                        // Phase 3：右上头像进入「账号与设置」（家长号 / 显示名 / 通道 / 版本）。
+                        IconButton(
+                          tooltip: '账号与设置',
+                          icon: const Icon(Icons.account_circle_outlined),
+                          onPressed: () => unawaited(_openAccountSettings()),
+                        ),
                         // 右上角设置齿轮已移除：改登录名 / 家长端名称 / 通道状态 /
                         // 版本更新全部并入「我的」页（对齐交互原型）。
                         // admin 复用家长视图后的返回口（parent 的默认首页就是本页）。
@@ -938,19 +1014,20 @@ class _ParentalPageState extends State<ParentalPage> {
                           myAccount: _myAccount,
                           isAdmin: AccountSession.isAdmin,
                           actions: _actions,
+                          hasClaimedAccount: _actions.hasClaimedAccount,
+                          isServerError: _error != null,
                         ),
-                        ParentalRulesView(config: _config, selected: _selected, actions: _actions),
-                        ParentalMineView(
+                        ParentalFamilyPage(
+                          machines: _machines,
+                          myAccount: _myAccount,
+                          onChanged: () => unawaited(_reload()),
+                          embedded: true,
+                        ),
+                        ParentalTvView(
                           machines: _machines,
                           selected: _selected,
                           config: _config,
-                          // 第一行只显示「独立家长号」；未设置时传空由卡片提示回落设备号，
-                          // 避免与下面第二行的通道号显示成同一个值。
-                          myAccount: _parentNoForDisplay,
-                          channelAccount: _channelAccount,
                           actions: _actions,
-                          // 家长号设置 / 跨设备说明入口，走 claim 路由；返回后自动刷新账号与绑定。
-                          onEditAccount: () => unawaited(_openIdentityAndRefresh()),
                         ),
                       ],
                     ),
@@ -959,6 +1036,25 @@ class _ParentalPageState extends State<ParentalPage> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  /// Phase 3：右上头像 → 「账号与设置」下钻页（家长号 / 显示名 / 通道状态 / 版本）。
+  Future<void> _openAccountSettings() async {
+    await _push(
+      Scaffold(
+        appBar: AppBar(title: const Text('账号与设置')),
+        body: ParentalMineView(
+          machines: _machines,
+          selected: _selected,
+          config: _config,
+          myAccount: _parentNoForDisplay,
+          channelAccount: _channelAccount,
+          actions: _actions,
+          hasClaimedAccount: _actions.hasClaimedAccount,
+          onEditAccount: () => unawaited(_openIdentityAndRefresh()),
         ),
       ),
     );

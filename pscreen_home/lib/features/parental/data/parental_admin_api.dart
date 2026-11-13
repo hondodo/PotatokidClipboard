@@ -6,6 +6,7 @@ import 'package:pscreen_home/features/parental/domain/parental_share.dart';
 import 'package:pscreen_screen/app/config/app_constants.dart';
 import 'package:pscreen_screen/core/network/dio_manager.dart';
 import 'package:pscreen_screen/core/network/http_method.dart';
+import 'package:pscreen_screen/core/network/net_exceptions.dart';
 
 /// 设置家长号成功后服务端返回的账号。
 ///
@@ -31,6 +32,42 @@ class ClaimAccountResult {
 /// - `GET  /api/device/config?deviceId=` 读生效配置里的 `parental` 字段；
 /// - `PUT  /api/admin/machines/:id` 携带 `parental` 字段写入（方案 4.3
 ///   指定落点；服务端 parental 存储落地前该字段可能不持久）。
+/// D-01：并发写入冲突（服务端返回 HTTP 409 + 当前实体版本/内容）。
+///
+/// 调用方捕获后应提示用户并回读最新值，避免静默覆盖他人修改。
+class ParentalConflictException implements Exception {
+  const ParentalConflictException(this.message, {this.current});
+
+  final String message;
+
+  /// 服务端当前的实体快照（含 `revision` 与业务字段），供展示差异 / 覆盖使用。
+  final Map<String, dynamic>? current;
+
+  @override
+  String toString() => message;
+}
+
+/// 把 409 冲突响应转成 [ParentalConflictException]，其余错误原样抛出。
+Future<dynamic> _guardConflict(Future<dynamic> Function() action) async {
+  try {
+    return await action();
+  } on HttpCodeException catch (e) {
+    final dynamic body = e.body;
+    if (e.httpCode == 409 && body is Map) {
+      final Map<String, dynamic> map = Map<String, dynamic>.from(body);
+      final dynamic data = map['data'];
+      final Map<String, dynamic>? current = data is Map && data['current'] is Map
+          ? Map<String, dynamic>.from(data['current'] as Map)
+          : null;
+      throw ParentalConflictException(
+        '${map['msg'] ?? '数据已被其他设备修改，请刷新后再试'}',
+        current: current,
+      );
+    }
+    rethrow;
+  }
+}
+
 class ParentalAdminApi {
   const ParentalAdminApi();
 
@@ -352,6 +389,219 @@ class ParentalAdminApi {
       throw const ServerApiException('头像上传失败：未返回地址');
     }
     return url;
+  }
+
+  // -------------------------------------------------- 家庭级主档案（D-02 / Task 32）
+
+  /// 列出全部家庭儿童主档案（全局），并附每台电视的分配情况与题库分享白名单。
+  ///
+  /// 全局唯一、不含 deviceId；规则（限额 / 禁看时段 / 黑白名单 / 档位）全部归这里。
+  Future<List<FamilyChild>> fetchFamilyChildren() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/children').toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic raw = body['children'];
+    if (raw is! List) return const <FamilyChild>[];
+    return raw
+        .whereType<Map>()
+        .map((Map item) => FamilyChild.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  /// 新增 / 更新一个全局儿童主档案（按 childId 全局唯一，覆盖写）。
+  ///
+  /// [child] 须包含 `id` / `name`；服务端按 childId upsert 并推送已分配电视。
+  Future<FamilyChild> saveFamilyChild(Map<String, dynamic> child, {int? baseRevision}) async {
+    final dynamic data = await _guardConflict(() => DioManager().send(
+          url: _uri('/api/admin/parental/child').toString(),
+          method: HttpMethod.POST,
+          params: <String, dynamic>{
+            ...child,
+            'baseRevision': ?baseRevision,
+          },
+          contentType: 'application/json',
+          notTipNetError: true,
+        ));
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic saved = body['child'];
+    if (saved is Map) {
+      return FamilyChild.fromJson(Map<String, dynamic>.from(saved));
+    }
+    // 响应缺失时退回请求值（兼容旧服务端），由调用方按需告警。
+    return FamilyChild.fromJson(child);
+  }
+
+  /// 删除一个全局儿童主档案（级联清空各电视分配），需二次确认后调用。
+  Future<void> deleteFamilyChild(String childId) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/child').toString(),
+      method: HttpMethod.DELETE,
+      params: <String, dynamic>{'childId': childId},
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    _dataOf(data);
+  }
+
+  /// 读取某台电视当前启用的家庭档案分配（childIds 列表）。
+  Future<List<String>> fetchAssignment(String deviceId) async {
+    final dynamic data = await DioManager().send(
+      url: _uri(
+        '/api/admin/parental/assignment',
+        queryParameters: <String, dynamic>{'deviceId': deviceId},
+      ).toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    return _stringList(body['childIds']);
+  }
+
+  /// 设置某台电视启用的家庭档案分配（勾选哪些档案在本台生效）。
+  Future<List<String>> saveAssignment(
+    String deviceId,
+    List<String> childIds, {
+    int? baseRevision,
+  }) async {
+    final dynamic data = await _guardConflict(() => DioManager().send(
+          url: _uri('/api/admin/parental/assignment').toString(),
+          method: HttpMethod.PUT,
+          params: <String, dynamic>{
+            'deviceId': deviceId,
+            'childIds': childIds,
+            'baseRevision': ?baseRevision,
+          },
+          contentType: 'application/json',
+          notTipNetError: true,
+        ));
+    final Map<String, dynamic> body = _dataOf(data);
+    return _stringList(body['childIds']);
+  }
+
+  /// 读取某台电视的分配 + 当前版本号（D-01：保存时回传 baseRevision）。
+  Future<ParentalAssignment> fetchAssignmentState(String deviceId) async {
+    final dynamic data = await DioManager().send(
+      url: _uri(
+        '/api/admin/parental/assignment',
+        queryParameters: <String, dynamic>{'deviceId': deviceId},
+      ).toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    return ParentalAssignment(
+      deviceId: deviceId,
+      childIds: _stringList(body['childIds']),
+      revision: (body['revision'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// 读取某台电视的本台设置（CR-02：解锁方式 / PIN / 儿童模式开关 / 已应用档案）。
+  Future<ParentalDeviceLocal> fetchDeviceLocal(String deviceId) async {
+    final dynamic data = await DioManager().send(
+      url: _uri(
+        '/api/admin/parental/device-local',
+        queryParameters: <String, dynamic>{'deviceId': deviceId},
+      ).toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    return ParentalDeviceLocal.fromJson(_dataOf(data));
+  }
+
+  /// 写入某台电视的本台设置（CR-02 + D-01：带 baseRevision 时冲突返回 409）。
+  Future<ParentalDeviceLocal> saveDeviceLocal(
+    String deviceId, {
+    String? mode,
+    String? unlockMode,
+    String? pin,
+    List<String>? activeChildIds,
+    int? baseRevision,
+  }) async {
+    final dynamic data = await _guardConflict(() => DioManager().send(
+          url: _uri('/api/admin/parental/device-local').toString(),
+          method: HttpMethod.PUT,
+          params: <String, dynamic>{
+            'deviceId': deviceId,
+            'mode': ?mode,
+            'unlockMode': ?unlockMode,
+            'pin': ?pin,
+            'activeChildIds': ?activeChildIds,
+            'baseRevision': ?baseRevision,
+          },
+          contentType: 'application/json',
+          notTipNetError: true,
+        ));
+    return ParentalDeviceLocal.fromJson(_dataOf(data));
+  }
+
+  // -------------------------------------------------- 题库分享（CR-01）
+
+  /// CR-01：设置某儿童题库的跨家长分享白名单（只授权账号，不传 childId）。
+  ///
+  /// 返回服务端落盘后的白名单；调用方据此更新本地列表，失败时保持旧值并提示。
+  Future<List<String>> setQuizShare(String childId, List<String> sharedTo, {int? baseRevision}) async {
+    final dynamic data = await _guardConflict(() => DioManager().send(
+          url: _uri('/api/admin/parental/quiz/share').toString(),
+          method: HttpMethod.PUT,
+          params: <String, dynamic>{
+            'childId': childId,
+            'sharedTo': sharedTo,
+            'baseRevision': ?baseRevision,
+          },
+          contentType: 'application/json',
+          notTipNetError: true,
+        ));
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic st = body['sharedTo'];
+    if (st is List) {
+      return st
+          .map((dynamic e) => '$e')
+          .where((String e) => e.isNotEmpty)
+          .toList(growable: false);
+    }
+    return sharedTo;
+  }
+
+  /// CR-01 Q1：从他人分享的题库复制一份到自己的儿童档案（不引用、不共账）。
+  Future<Map<String, dynamic>> importQuizCopy({
+    required String targetChildId,
+    required String sourceChildId,
+    required String sourceAccount,
+  }) async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/quiz/import').toString(),
+      method: HttpMethod.POST,
+      params: <String, dynamic>{
+        'targetChildId': targetChildId,
+        'sourceChildId': sourceChildId,
+        'sourceAccount': sourceAccount,
+      },
+      contentType: 'application/json',
+      notTipNetError: true,
+    );
+    return _dataOf(data);
+  }
+
+  /// CR-01：列出分享给我的题库（他人 `sharedTo` 含我），用于一键复制副本。
+  ///
+  /// 仅含匿名聚合信息（来源账号 / 来源 childId / 题目数），不含使用统计（Q3）。
+  Future<List<SharedQuizInfo>> fetchSharedToMeQuizzes() async {
+    final dynamic data = await DioManager().send(
+      url: _uri('/api/admin/parental/quiz/shared-to-me').toString(),
+      method: HttpMethod.GET,
+      notTipNetError: true,
+    );
+    final Map<String, dynamic> body = _dataOf(data);
+    final dynamic raw = body['quizzes'];
+    if (raw is! List) return const <SharedQuizInfo>[];
+    return raw
+        .whereType<Map>()
+        .map((Map item) => SharedQuizInfo.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
   /// 列出当前家长可用的头像素材（所有能管理的 TV 的头像合并、按 sha256 去重）。
@@ -676,4 +926,57 @@ class AvatarItem {
         uploadedBy: '${json['uploadedBy'] ?? ''}',
         createdAt: '${json['createdAt'] ?? ''}',
       );
+}
+
+/// D-01：某台电视的分配状态（childIds + 版本号）。
+class ParentalAssignment {
+  const ParentalAssignment({
+    required this.deviceId,
+    required this.childIds,
+    required this.revision,
+  });
+
+  final String deviceId;
+  final List<String> childIds;
+  final int revision;
+}
+
+/// CR-02：某台电视的本台设置（儿童模式开关 / 解锁方式 / PIN / 已应用档案）。
+class ParentalDeviceLocal {
+  const ParentalDeviceLocal({
+    required this.deviceId,
+    this.mode = 'off',
+    this.unlockMode = 'remote',
+    this.pin = '',
+    this.activeChildIds = const <String>[],
+    this.revision = 0,
+  });
+
+  final String deviceId;
+  final String mode;
+  final String unlockMode;
+  final String pin;
+  final List<String> activeChildIds;
+  final int revision;
+
+  bool get enabled => mode == 'on';
+
+  factory ParentalDeviceLocal.fromJson(Map<String, dynamic> json) =>
+      ParentalDeviceLocal(
+        deviceId: '${json['deviceId'] ?? ''}',
+        mode: '${json['mode'] ?? 'off'}' == 'on' ? 'on' : 'off',
+        unlockMode: '${json['unlockMode'] ?? 'remote'}',
+        pin: '${json['pin'] ?? ''}',
+        activeChildIds: _stringList(json['activeChildIds']),
+        revision: (json['revision'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// 安全解析字符串列表（服务端返回可能为 null / 非数组）。
+List<String> _stringList(dynamic value) {
+  if (value is! List) return const <String>[];
+  return value
+      .map((dynamic item) => '${item ?? ''}'.trim())
+      .where((String item) => item.isNotEmpty)
+      .toList(growable: false);
 }

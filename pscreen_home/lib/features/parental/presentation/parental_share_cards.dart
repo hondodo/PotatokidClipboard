@@ -90,13 +90,14 @@ class ParentalShareMasterCard extends StatefulWidget {
   const ParentalShareMasterCard({
     super.key,
     required this.master,
-    required this.onSave,
+    this.onSave,
   });
 
   final ParentalShareMaster master;
 
   /// 保存白名单（空列表＝取消分享）。异常由页面壳统一提示。
-  final Future<void> Function(List<String> sharedTo) onSave;
+  /// 只读代管（admin）时为 null，按钮禁用并展示「只读代管」。
+  final Future<void> Function(List<String> sharedTo)? onSave;
 
   @override
   State<ParentalShareMasterCard> createState() => _ParentalShareMasterCardState();
@@ -138,10 +139,10 @@ class _ParentalShareMasterCardState extends State<ParentalShareMasterCard> {
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || widget.onSave == null) return;
     setState(() => _saving = true);
     try {
-      await widget.onSave(_parseAccounts(_controller.text));
+      await widget.onSave!(_parseAccounts(_controller.text));
       if (!mounted) return;
       setState(() => _editing = false);
     } finally {
@@ -178,16 +179,23 @@ class _ParentalShareMasterCardState extends State<ParentalShareMasterCard> {
                     ],
                   ),
                 ),
-                TextButton.icon(
-                  onPressed: _saving
-                      ? null
-                      : () => setState(() {
-                          _editing = !_editing;
-                          if (_editing) _controller.text = m.sharedTo.join(', ');
-                        }),
-                  icon: const Icon(Icons.share_outlined, size: 16),
-                  label: const Text('分享设置'),
-                ),
+                if (widget.onSave == null)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    label: const Text('只读代管'),
+                    backgroundColor: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => setState(() {
+                            _editing = !_editing;
+                            if (_editing) _controller.text = m.sharedTo.join(', ');
+                          }),
+                    icon: const Icon(Icons.share_outlined, size: 16),
+                    label: const Text('分享设置'),
+                  ),
               ],
             ),
             if (_editing) ...<Widget>[
@@ -236,11 +244,13 @@ class ParentalShareImportedCard extends StatelessWidget {
   const ParentalShareImportedCard({
     super.key,
     required this.item,
-    required this.onCancel,
+    this.onCancel,
   });
 
   final ParentalShareImported item;
-  final Future<void> Function() onCancel;
+
+  /// 取消引用（不影响主本）。只读代管（admin）时为 null，按钮禁用。
+  final Future<void> Function()? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -286,7 +296,7 @@ class ParentalShareImportedCard extends StatelessWidget {
             IconButton(
               tooltip: broken ? '重新选择（移除失效占位）' : '取消引用（不影响主本）',
               icon: const Icon(Icons.link_off, size: 20),
-              onPressed: () => unawaited(onCancel()),
+              onPressed: onCancel == null ? null : () => unawaited(onCancel!()),
             ),
           ],
         ),
@@ -300,11 +310,13 @@ class ParentalShareCandidateCard extends StatelessWidget {
   const ParentalShareCandidateCard({
     super.key,
     required this.candidate,
-    required this.onAdd,
+    this.onAdd,
   });
 
   final ParentalShareCandidate candidate;
-  final Future<void> Function() onAdd;
+
+  /// 引用该候选到本台。只读代管（admin）时为 null，按钮禁用。
+  final Future<void> Function()? onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -335,7 +347,7 @@ class ParentalShareCandidateCard extends StatelessWidget {
             ),
             FilledButton.tonal(
               style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-              onPressed: () => unawaited(onAdd()),
+              onPressed: onAdd == null ? null : () => unawaited(onAdd!()),
               child: const Text('＋ 引用'),
             ),
           ],

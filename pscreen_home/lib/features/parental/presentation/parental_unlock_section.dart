@@ -23,6 +23,7 @@ class ParentalUnlockSection extends StatefulWidget {
     required this.machine,
     required this.onSave,
     required this.onOpenQuiz,
+    this.readOnly = false,
   });
 
   final ParentalConfig config;
@@ -35,6 +36,9 @@ class ParentalUnlockSection extends StatefulWidget {
 
   /// 就地打开当前目标电视的答题题库编辑器。
   final VoidCallback onOpenQuiz;
+
+  /// 只读代管（admin）：仅查看，禁用一切写操作（D-03 客户端口径）。
+  final bool readOnly;
 
   @override
   State<ParentalUnlockSection> createState() => _ParentalUnlockSectionState();
@@ -154,13 +158,32 @@ class _ParentalUnlockSectionState extends State<ParentalUnlockSection> {
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const Spacer(),
+            if (widget.readOnly) _chip(text: '只读代管', bg: _chipBg, fg: _green),
             if (machine != null) _chip(text: targetName, bg: _chipBg, fg: _green),
           ],
         ),
         const SizedBox(height: 6),
         machine == null ? _noTargetCard() : _targetCard(targetName),
         const SizedBox(height: 8),
-        for (final _Mode m in _modes) _modeCard(theme, m, machine != null),
+        for (final _Mode m in _modes)
+          _modeCard(theme, m, machine != null && !widget.readOnly),
+        if (widget.readOnly)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F3),
+                border: Border.all(color: _border),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                '只读代管：解锁方式仅供查看，修改需由绑定该电视的家长操作。',
+                style: TextStyle(fontSize: 11, color: _muted, height: 1.4),
+              ),
+            ),
+          ),
         _footnote(),
       ],
     );
@@ -278,7 +301,7 @@ class _ParentalUnlockSectionState extends State<ParentalUnlockSection> {
           controller: _pin,
           keyboardType: TextInputType.number,
           maxLength: 4,
-          enabled: !_saving,
+          enabled: !_saving && !widget.readOnly,
           onEditingComplete: () => unawaited(_savePin()),
           decoration: const InputDecoration(
             labelText: '设定 PIN（4 位数字）',
@@ -325,7 +348,7 @@ class _ParentalUnlockSectionState extends State<ParentalUnlockSection> {
           ),
           const SizedBox(width: 6),
           TextButton(
-            onPressed: _saving ? null : widget.onOpenQuiz,
+            onPressed: (_saving || widget.readOnly) ? null : widget.onOpenQuiz,
             child: const Text('管理题库 ›'),
           ),
         ],

@@ -72,3 +72,94 @@ class ChildAvatarWidget extends StatelessWidget {
     return fallback;
   }
 }
+
+/// 头像选择条目：圆形图 + 选中描边 + 右下角 ✓ + 右上角 X（可选删除）。
+///
+/// 家庭档案编辑器与设备级档案编辑器共用，避免两套头像 UI 各写一份。
+class AvatarTile extends StatelessWidget {
+  const AvatarTile({
+    required this.size,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+    this.deleteAction,
+  });
+
+  final double size;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  /// 非空时右上角显示 X 按钮；预设头像不传入这个。
+  final VoidCallback? deleteAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary : Colors.transparent,
+            width: selected ? 3 : 0,
+          ),
+        ),
+        child: Stack(
+          children: <Widget>[
+            Padding(
+              padding: EdgeInsets.all(selected ? 1 : 0),
+              child: child,
+            ),
+            if (selected)
+              Positioned(
+                right: 2,
+                bottom: 2,
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.check,
+                    size: 14,
+                    color: theme.colorScheme.onPrimary,
+                  ),
+                ),
+              ),
+            if (deleteAction != null)
+              Positioned(
+                top: -2,
+                right: -2,
+                child: GestureDetector(
+                  onTap: deleteAction,
+                  // 独立点击区：不触发外层 onTap。
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

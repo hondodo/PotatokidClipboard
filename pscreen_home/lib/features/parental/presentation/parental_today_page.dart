@@ -27,6 +27,8 @@ class ParentalTodayView extends StatelessWidget {
     required this.myAccount,
     required this.isAdmin,
     required this.actions,
+    this.hasClaimedAccount = false,
+    this.isServerError = false,
   });
 
   final List<ParentalMachine> machines;
@@ -40,6 +42,13 @@ class ParentalTodayView extends StatelessWidget {
   final String myAccount;
   final bool isAdmin;
   final ParentalActions actions;
+
+  /// 本地是否已设置独立家长号（区别于设备派生号）；未设置时空态优先引导账号恢复。
+  final bool hasClaimedAccount;
+
+  /// 最近一次加载是否服务端报错；为 true 时不要直接显示「没有电视」，
+  /// 而应先提示网络/服务异常（Phase 1：服务端不可达 ≠ 无设备）。
+  final bool isServerError;
 
   /// 跨全部电视合并「今日」按档案分账的时长（秒）。
   Map<String, int> _mergedDailyByChild() {
@@ -136,20 +145,87 @@ class ParentalTodayView extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     if (machines.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(Icons.tv_off_outlined, size: 40),
-              const SizedBox(height: 12),
-              Text('还没有绑定电视', style: theme.textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text('到下方「我的」页扫码添加电视', style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline)),
-            ],
+      // 服务端不可达：先提示异常，绝不把「连不上」误报成「没有电视」（Phase 1）。
+      if (isServerError) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.cloud_off_outlined, size: 40),
+                const SizedBox(height: 12),
+                Text('暂时无法连接服务', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(
+                  '不是没有电视，而是家长端连不上服务端。请检查网络后点右上角刷新。',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+                ),
+              ],
+            ),
           ),
-        ),
+        );
+      }
+      // 无设备空态：同时提供「登录已有家长号」与「添加电视」两条路；
+      // 重装/换手机的用户优先走账号恢复，而不是被引导去重新绑电视。
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+        children: <Widget>[
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Icon(Icons.tv_off_outlined, size: 20, color: scheme.primary),
+                      const SizedBox(width: 8),
+                      Text('还没有绑定电视', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    hasClaimedAccount
+                        ? '这台手机已登录家长号。去「电视」页扫码添加电视，或登录另一个家长号查看其电视。'
+                        : '如果是重装或换了手机，先用「家长号 + 口令」登录找回原电视与档案；'
+                            '新用户可直接添加电视或创建家长号。',
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.login),
+                    label: const Text('登录已有家长号'),
+                    onPressed: () => unawaited(actions.openLoginExisting()),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonalIcon(
+                    icon: const Icon(Icons.qr_code_scanner, size: 18),
+                    label: const Text('扫码添加电视'),
+                    onPressed: () => unawaited(actions.openDeviceManager()),
+                  ),
+                  if (!hasClaimedAccount) ...<Widget>[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('创建新家长号'),
+                      onPressed: () => unawaited(actions.openCreateAccount()),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '账号恢复：凭家长号 + 自设口令即可在任意设备找回同一批电视与儿童档案，'
+            '无需重新绑定。',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+          ),
+        ],
       );
     }
     final Map<String, int> daily = _mergedDailyByChild();
@@ -163,6 +239,28 @@ class ParentalTodayView extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: <Widget>[
+          if (isAdmin)
+            Card(
+              margin: EdgeInsets.zero,
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.visibility_outlined, size: 18, color: scheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '只读代管：你以管理员身份查看全部电视与档案，但不能修改配置'
+                        '（批准解锁请求除外）。',
+                        style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (isAdmin) const SizedBox(height: 12),
           // 家庭概览（对齐交互原型：默认「全部电视」聚合视角，不被单台下拉驱动）
           Row(
             children: <Widget>[
@@ -178,14 +276,15 @@ class ParentalTodayView extends StatelessWidget {
                   ],
                 ),
               ),
-              FilledButton.tonal(
-                style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                onPressed: () => unawaited(actions.openDeviceManager()),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[Icon(Icons.tv_outlined, size: 16), SizedBox(width: 4), Text('管理')],
+              if (AccountSession.isParent)
+                FilledButton.tonal(
+                  style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                  onPressed: () => unawaited(actions.openDeviceManager()),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[Icon(Icons.tv_outlined, size: 16), SizedBox(width: 4), Text('管理')],
+                  ),
                 ),
-              ),
             ],
           ),
           // const SizedBox(height: 14),
@@ -241,10 +340,10 @@ class ParentalTodayView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('尚未添加儿童档案，点下方「规则」标签添加孩子并设置限额。', style: theme.textTheme.bodyMedium),
+                    Text('尚未添加儿童档案，点下方「孩子」标签添加孩子并设置限额。', style: theme.textTheme.bodyMedium),
                     const SizedBox(height: 8),
                     Text(
-                      '想先遥控电视？到下方「我的」页，每台电视右侧都有遥控按钮。',
+                      '想先遥控电视？到下方「电视」页，每台电视右侧都有遥控按钮。',
                       style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
                     ),
                   ],
@@ -252,13 +351,14 @@ class ParentalTodayView extends StatelessWidget {
               ),
             )
           else
-            for (final ParentalChild child in children)
+              for (final ParentalChild child in children)
               ChildStatusCard(
                 child: child,
                 usedMin: (daily[child.id] ?? 0) ~/ 60,
                 limitMin: child.dailyLimitMin ?? 0,
                 watching: activeIds.contains(child.id),
                 actions: actions,
+                readOnly: isAdmin,
               ),
           const SizedBox(height: 18),
           // 今日记录（已按孩子合并，跨设备）
@@ -343,7 +443,7 @@ class _TodaySessionsCard extends StatelessWidget {
 ///
 /// 第一行：头像 + 名字 + 状态胶囊，右侧 54px 时长环；
 /// 第二行：今日已看 / 限额 + 线性进度条；
-/// 底部：暂停 / 加时 / 改规则（孩子级操作；遥控属设备级，收在「我的」页）。
+/// 底部：暂停 / 加时 / 改规则（孩子级操作；遥控属设备级，收在「电视」页）。
 class ChildStatusCard extends StatelessWidget {
   const ChildStatusCard({
     super.key,
@@ -352,6 +452,7 @@ class ChildStatusCard extends StatelessWidget {
     required this.limitMin,
     required this.watching,
     required this.actions,
+    this.readOnly = false,
   });
 
   final ParentalChild child;
@@ -359,6 +460,9 @@ class ChildStatusCard extends StatelessWidget {
   final int limitMin;
   final bool watching;
   final ParentalActions actions;
+
+  /// 只读代管（admin）：禁用暂停/加时/改规则等写操作（D-03 客户端口径）。
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -431,11 +535,17 @@ class ChildStatusCard extends StatelessWidget {
             ),
             // 底部：孩子级快捷动作（暂停/加时/改规则，对齐设计稿的 3 按钮）。
             // 引用档案在主本维护，本台只读：隐藏全部写入口，只给可操作指引。
-            // 遥控是设备级操作，统一放在「我的」页每台电视行，不依赖孩子档案。
+            // admin 只读代管：同样禁用这些写操作，只给指引（D-03 客户端口径）。
+            // 遥控是设备级操作，统一放在「电视」页每台电视行，不依赖孩子档案。
             const SizedBox(height: 12),
             if (child.readOnly)
               Text(
                 '这份档案由主本维护；暂停、加时、改规则请到 ${child.sourceLabel ?? '主本电视'} 操作。',
+                style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
+              )
+            else if (readOnly)
+              Text(
+                '只读代管：暂停、加时、改规则需由绑定该电视的家长操作。',
                 style: theme.textTheme.bodySmall?.copyWith(color: scheme.outline),
               )
             else

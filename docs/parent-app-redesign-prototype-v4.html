@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>薯仔家长 V4 · 全新界面设计方案</title>
+<style>
+/* ============ 1. Design Tokens ============ */
+:root{
+  --bg:#F5F8F6;--surface:#FFFFFF;--surface-2:#EDF3EF;
+  --ink:#16211D;--ink-2:#4A5A53;--ink-3:#5B6B63;
+  --line:#DCE5E0;--line-strong:#B9C9C0;
+  --brand:#0F7A5F;--brand-strong:#0B6249;--brand-soft:#E8F5EF;--brand-on:#FFFFFF;--hero-sub:rgba(255,255,255,.86);
+  --warn:#8A5200;--warn-soft:#FFF3DC;--warn-line:#E8C880;
+  --danger:#B3261E;--danger-soft:#FDEDEC;--danger-line:#F0BDB8;
+  --info:#1B5E8A;--info-soft:#E7F1F8;--info-line:#B9D8EC;
+  --e1:0 1px 2px rgba(16,40,30,.06);--e2:0 4px 12px rgba(16,40,30,.08);--e3:0 12px 32px rgba(16,40,30,.14);
+  --r-sm:8px;--r-md:12px;--r-lg:16px;--r-xl:20px;--r-pill:999px;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;--s8:32px;--s10:40px;--s12:48px;
+  --m-fast:150ms;--m-base:240ms;--m-slow:400ms;--ease:cubic-bezier(.2,.8,.2,1);
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+[data-theme="dark"]{
+  --bg:#0F1714;--surface:#17231E;--surface-2:#1E2E27;
+  --ink:#EAF2EE;--ink-2:#A9BDB4;--ink-3:#8EA39A;
+  --line:#2C3B34;--line-strong:#40564B;
+  --brand:#5FD3A6;--brand-strong:#7FE0BA;--brand-soft:#17382C;--brand-on:#06251B;--hero-sub:rgba(6,37,27,.82);
+  --warn:#F0B866;--warn-soft:#3A2A12;--warn-line:#6B4A18;
+  --danger:#FF9E94;--danger-soft:#3A1E1B;--danger-line:#6B3630;
+  --info:#8CC7EC;--info-soft:#142C3C;--info-line:#26506B;
+  --e1:0 1px 2px rgba(0,0,0,.3);--e2:0 4px 12px rgba(0,0,0,.38);--e3:0 12px 32px rgba(0,0,0,.55);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.55 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.ic{width:20px;height:20px;flex:0 0 auto;display:inline-block;vertical-align:middle}
+code{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+
+/* ============ 2. Shell / Views ============ */
+.topbar{position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:16px;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:10px;margin-right:auto}
+.logo-mark{width:34px;height:34px;border-radius:10px;background:var(--brand);color:var(--brand-on);display:grid;place-items:center;font-weight:800;font-size:15px}
+.logo b{font-size:15px;letter-spacing:.01em}
+.logo small{display:block;font-size:12px;color:var(--ink-3);font-weight:400}
+.segmented{display:flex;background:var(--surface-2);border-radius:var(--r-pill);padding:3px;gap:2px}
+.segmented button{border:0;background:transparent;border-radius:var(--r-pill);padding:7px 15px;font-size:13px;font-weight:500;color:var(--ink-2);min-height:36px}
+.segmented button.on{background:var(--surface);color:var(--brand-strong);font-weight:650;box-shadow:var(--e1)}
+.ghost{border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--r-sm);min-height:36px;padding:6px 12px;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.ghost .ic{width:16px;height:16px}
+.view{display:none}
+.view.on{display:block}
+.wrap{max-width:1360px;margin:auto;padding:24px}
+.pagehead{margin-bottom:20px}
+.pagehead h1{font-size:26px;line-height:34px;margin:0 0 4px}
+.pagehead p{margin:0;color:var(--ink-2);font-size:14px}
+
+/* ============ 3. Preview layout ============ */
+.layout{display:grid;grid-template-columns:224px 392px minmax(280px,1fr);gap:24px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:16px;box-shadow:var(--e1)}
+.panel-title{font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px}
+.navbtn{width:100%;border:1px solid transparent;background:transparent;border-radius:var(--r-sm);text-align:left;padding:9px 10px;margin-bottom:3px;min-height:44px;display:block}
+.navbtn:hover{background:var(--surface-2)}
+.navbtn.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-strong);font-weight:650}
+.navbtn small{display:block;color:var(--ink-3);font-weight:400;font-size:12px;margin-top:1px}
+.rule{height:1px;background:var(--line);margin:18px 0}
+.hint{font-size:12px;color:var(--ink-3);line-height:1.7;margin:0}
+.stage{display:flex;justify-content:center}
+.device{position:relative;width:376px;height:760px;border:10px solid #223029;border-radius:40px;background:var(--surface);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--e3)}
+.statusbar{height:30px;flex:0 0 auto;padding:0 22px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--ink-2);background:var(--surface)}
+.appbar{height:58px;flex:0 0 auto;padding:0 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);background:var(--surface)}
+.app-title{font-size:18px;font-weight:700;flex:1;min-width:0;letter-spacing:-.01em}
+.app-title small{display:block;font-size:12px;font-weight:400;color:var(--ink-3)}
+.iconbtn{width:44px;height:44px;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--r-sm);display:grid;place-items:center;flex:0 0 auto}
+.iconbtn.avatar{border:0;background:var(--brand-soft);color:var(--brand-strong);font-weight:700;font-size:14px}
+.scroll{flex:1;overflow-y:auto;background:var(--bg);padding:20px 18px 28px;scrollbar-width:thin}
+.actionbar{flex:0 0 auto;display:none;background:var(--surface);border-top:1px solid var(--line);padding:12px 18px calc(12px + env(safe-area-inset-bottom));box-shadow:0 -4px 12px rgba(16,40,30,.05)}
+.actionbar.on{display:block}
+.tabbar{height:64px;flex:0 0 auto;display:flex;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tab{flex:1;border:0;background:transparent;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:500;position:relative;min-height:44px}
+.tab .ic{width:22px;height:22px}
+.tab.on{color:var(--brand-strong);font-weight:700}
+.tab.on:before{content:"";position:absolute;top:0;left:26%;right:26%;height:3px;border-radius:0 0 3px 3px;background:var(--brand)}
+.spec h2{font-size:18px;margin:0 0 12px}
+.spec h3{font-size:13px;margin:20px 0 8px;color:var(--brand-strong)}
+.spec p,.spec li{font-size:13px;color:var(--ink-2);line-height:1.7}
+.spec ul{padding-left:18px;margin:6px 0}
+.flow div{border-left:3px solid var(--brand);background:var(--surface-2);padding:9px 12px;font-size:13px;margin-bottom:8px;border-radius:0 var(--r-sm) var(--r-sm) 0}
+.flow b{color:var(--brand-strong)}
+
+/* ============ 4. Components ============ */
+.eyebrow{font-size:12px;font-weight:500;color:var(--ink-3);margin:0 0 4px}
+.h-hello{font-size:26px;line-height:34px;font-weight:700;margin:0 0 2px;letter-spacing:-.02em}
+.h-sec{font-size:13px;font-weight:650;color:var(--ink-2);margin:24px 2px 10px;display:flex;align-items:center;justify-content:space-between}
+.h-sec:first-child{margin-top:0}
+.data-num{font-size:32px;line-height:38px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.unit{font-size:13px;font-weight:500;color:var(--ink-3);margin-left:3px}
+.sub{font-size:13px;color:var(--ink-3);margin:0}
+.body{font-size:14px;color:var(--ink-2);margin:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:16px;margin-bottom:12px;box-shadow:var(--e1);text-align:left;width:100%;display:block}
+button.card{cursor:pointer;transition:border-color var(--m-fast) var(--ease),transform var(--m-fast) var(--ease)}
+button.card:hover{border-color:var(--brand);transform:translateY(-1px)}
+.card.hero{background:var(--brand);border-color:var(--brand);color:var(--brand-on)}
+.card.hero .sub,.card.hero .eyebrow{color:var(--hero-sub)}
+.card.info{background:var(--info-soft);border-color:var(--info-line)}
+.card.warn{background:var(--warn-soft);border-color:var(--warn-line)}
+.card.danger{background:var(--danger-soft);border-color:var(--danger-line)}
+.card.outlined{background:transparent;border-style:dashed;border-color:var(--line-strong);box-shadow:none;text-align:center}
+.card h3{font-size:18px;line-height:26px;font-weight:650;margin:0}
+.row{display:flex;align-items:center;gap:12px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.grow{flex:1;min-width:0}
+.stack>*+*{margin-top:8px}
+.divider{height:1px;background:var(--line);margin:14px 0}
+.avatar{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand-strong);font-weight:700;font-size:18px;flex:0 0 auto}
+.avatar.b{background:var(--info-soft);color:var(--info)}
+.avatar.c{background:var(--warn-soft);color:var(--warn)}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:var(--r-pill);padding:3px 10px;font-size:12px;font-weight:500;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}
+.chip.brand{background:var(--brand-soft);color:var(--brand-strong)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.danger{background:var(--danger-soft);color:var(--danger)}
+.chip.info{background:var(--info-soft);color:var(--info)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ink-3);display:inline-block;flex:0 0 auto}
+.dot.on{background:var(--brand)}
+.btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:var(--r-sm);min-height:44px;padding:10px 16px;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:600;transition:background var(--m-fast),border-color var(--m-fast),transform var(--m-fast)}
+.btn:hover{border-color:var(--brand);background:var(--brand-soft)}
+.btn:active{transform:scale(.98)}
+.btn .ic{width:18px;height:18px}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-on)}
+.btn.primary:hover{background:var(--brand-strong);border-color:var(--brand-strong);color:var(--brand-on)}
+.btn.tonal{background:var(--brand-soft);border-color:var(--brand-soft);color:var(--brand-strong)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#FFFFFF}
+.btn.danger:hover{background:var(--danger);border-color:var(--danger);filter:brightness(.92)}
+.btn.text{border:0;background:transparent;color:var(--brand-strong);min-height:40px;padding:8px 10px}
+.btn.text:hover{background:var(--brand-soft)}
+.btn.block{width:100%}
+.btn.lg{min-height:48px;font-size:15px}
+.btn:disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions.stack{display:grid;grid-template-columns:1fr}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin-bottom:6px}
+.field input,.field select{width:100%;min-height:44px;border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:10px 12px;background:var(--surface);outline:none}
+.field input:focus,.field select:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.field .help{font-size:12px;color:var(--ink-3);margin-top:5px}
+.field.error input{border-color:var(--danger)}
+.field .err{font-size:12px;color:var(--danger);margin-top:5px}
+.switch{width:44px;height:26px;border:0;border-radius:var(--r-pill);background:var(--line-strong);padding:3px;display:inline-flex;align-items:center;flex:0 0 auto;position:relative}
+.switch:after{content:"";width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:var(--e1);transition:transform var(--m-base) var(--ease)}
+.switch.on{background:var(--brand)}
+.switch.on:after{transform:translateX(18px)}
+.switch:disabled{opacity:.5;cursor:not-allowed}
+.hit{position:relative}
+.hit:before{content:"";position:absolute;inset:-9px}
+.prog{height:8px;border-radius:var(--r-pill);background:var(--surface-2);overflow:hidden;margin-top:10px}
+.prog i{display:block;height:100%;background:var(--brand);border-radius:var(--r-pill)}
+.prog.warn i{background:var(--warn)}
+.listrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);min-height:56px}
+.listrow:last-child{border-bottom:0}
+.listrow .lbl{font-size:14px}
+.listrow .val{font-size:14px;font-weight:600}
+.banner{display:flex;gap:9px;align-items:flex-start;background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);border-radius:var(--r-sm);padding:10px 12px;font-size:13px;margin-bottom:14px}
+.banner .ic{width:18px;height:18px}
+.empty{text-align:center;padding:40px 16px}
+.empty .emicon{width:64px;height:64px;border-radius:var(--r-lg);background:var(--surface-2);color:var(--ink-3);display:grid;place-items:center;margin:0 auto 16px}
+.empty .emicon .ic{width:32px;height:32px}
+.empty h3{margin:0 0 6px}
+.empty p{margin:0 0 18px;font-size:13px;color:var(--ink-3)}
+.skeleton{height:14px;border-radius:var(--r-sm);background:var(--surface-2);margin:10px 0;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+.checklist{list-style:none;padding:0;margin:14px 0}
+.checklist li{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2);margin-bottom:12px;line-height:1.6}
+.checklist .ic{width:18px;height:18px;color:var(--brand);margin-top:2px}
+.checklist li.risk .ic{color:var(--danger)}
+.checklist li.risk{color:var(--danger);font-weight:600}
+/* Sheet & toast */
+.scrim{position:absolute;inset:0;background:rgba(10,22,17,.55);z-index:30}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:40;max-height:88%;overflow-y:auto;background:var(--surface);border-radius:var(--r-xl) var(--r-xl) 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom));box-shadow:var(--e3);animation:rise var(--m-slow) var(--ease)}
+@keyframes rise{from{transform:translateY(24px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.grabber{width:36px;height:4px;border-radius:var(--r-pill);background:var(--line-strong);margin:0 auto 14px}
+.sheet h2{font-size:22px;line-height:30px;margin:0 0 4px}
+.sheet .lead{font-size:13px;color:var(--ink-3);margin:0 0 16px}
+.sheet .sticky{position:sticky;bottom:-24px;background:linear-gradient(to top,var(--surface) 80%,transparent);padding:12px 0 4px}
+.toast{position:absolute;left:18px;right:18px;bottom:80px;z-index:50;background:var(--ink);color:var(--bg);padding:12px 14px;border-radius:var(--r-sm);font-size:13px;text-align:center;box-shadow:var(--e2);display:flex;align-items:center;justify-content:center;gap:8px}
+.toast .ic{width:16px;height:16px}
+/* Design system view */
+.ds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.ds-block{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:20px;box-shadow:var(--e1)}
+.ds-block h3{font-size:16px;margin:0 0 4px}
+.ds-block>p{font-size:12px;color:var(--ink-3);margin:0 0 16px}
+.swatch{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.swatch:last-child{border-bottom:0}
+.swatch i{width:38px;height:38px;border-radius:var(--r-sm);border:1px solid var(--line);flex:0 0 auto}
+.swatch div{flex:1;min-width:0}
+.swatch b{font-size:13px;display:block}
+.swatch span{font-size:12px;color:var(--ink-3)}
+.type-row{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 0;border-bottom:1px solid var(--line)}
+.type-row:last-child{border-bottom:0}
+.type-row>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.type-row code{background:transparent;padding:0;color:var(--ink-3)}
+.space-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12px;color:var(--ink-3)}
+.space-bar{height:12px;border-radius:3px;background:var(--brand);min-width:4px}
+.comp-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--ink-3);font-weight:650;text-transform:uppercase;letter-spacing:.04em}
+.pass{color:var(--brand-strong);font-weight:700}
+.fail{color:var(--danger);font-weight:700}
+.a11y-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:20px;margin-bottom:16px;box-shadow:var(--e1)}
+.a11y-card h3{font-size:16px;margin:0 0 12px}
+@media(max-width:1180px){.layout{grid-template-columns:210px 392px}.spec{grid-column:1/-1}}
+@media(max-width:760px){.wrap{padding:14px}.topbar{padding:10px 14px;flex-wrap:wrap}.logo small{display:none}.layout{grid-template-columns:1fr}.rail,.spec{display:none}.device{width:min(376px,100%);height:calc(100vh - 120px);min-height:620px;border-width:7px;border-radius:30px}.segmented button{padding:6px 10px;font-size:12px}}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo"><div class="logo-mark">薯</div><div><b>薯仔家长 · V4</b><small>Design System &amp; Interface Redesign</small></div></div>
+  <div class="segmented" role="tablist" aria-label="视图切换">
+    <button type="button" class="on" data-view="preview" role="tab" aria-selected="true">界面预览</button>
+    <button type="button" data-view="ds" role="tab" aria-selected="false">设计系统</button>
+    <button type="button" data-view="a11y" role="tab" aria-selected="false">无障碍校验</button>
+  </div>
+  <button type="button" class="ghost" data-theme-toggle aria-label="切换深浅主题"><span class="ic" id="themeIcon"></span><span id="themeLabel">深色</span></button>
+</header>
+
+<section class="view on" id="view-preview"><div class="wrap"><div class="layout">
+  <aside class="panel rail">
+    <p class="panel-title">体验场景</p>
+    <button type="button" class="navbtn on" data-scenario="active">已登录的多电视家庭<small>2 台电视 · 2 份家庭档案</small></button>
+    <button type="button" class="navbtn" data-scenario="returning">重装后的老用户<small>先走账号恢复</small></button>
+    <button type="button" class="navbtn" data-scenario="empty">新用户，无电视<small>空态直接给下一步</small></button>
+    <button type="button" class="navbtn" data-scenario="admin">admin 只读代管<small>写操作禁用</small></button>
+    <div class="rule"></div>
+    <p class="panel-title">页面地图</p>
+    <div id="pageNav"></div>
+    <div class="rule"></div>
+    <p class="panel-title">弹层演示</p>
+    <div id="modalNav"></div>
+    <div class="rule"></div>
+    <p class="hint">URL 支持 <code>?page=child&amp;scenario=active</code> 直接定位；<code>?theme=dark</code> 切深色；<code>?selftest=1</code> 跑浏览器自测。功能语义沿用 V3，本稿只重做视觉与交互。</p>
+  </aside>
+  <main class="stage"><div class="device">
+    <div class="statusbar"><span>9:41</span><span>薯仔家长</span><span>5G · 92%</span></div>
+    <header class="appbar" id="appbar"></header>
+    <div class="scroll" id="content" role="tabpanel" aria-live="off"></div>
+    <div class="actionbar" id="actionbar"></div>
+    <nav class="tabbar" id="tabs" role="tablist" aria-label="主导航"></nav>
+    <div id="overlay"></div><div id="toast" role="status" aria-live="polite"></div>
+  </div></main>
+  <aside class="panel spec" id="notes"></aside>
+</div></div></section>
+
+<section class="view" id="view-ds"><div class="wrap">
+  <div class="pagehead"><h1>设计系统</h1><p>Design tokens · 组件库 · 状态规范。所有色值、字阶与间距均由 token 驱动，切换主题可实时校验。</p></div>
+  <div class="ds-grid" id="dsGrid"></div>
+</div></section>
+
+<section class="view" id="view-a11y"><div class="wrap">
+  <div class="pagehead"><h1>无障碍校验 · WCAG 2.1 AA</h1><p>对比度由脚本实时计算，非人工估算。V3 的两处失败项已在新调色板中修复。</p></div>
+  <div id="a11yBody"></div>
+</div></section>
+
+<script>
+/* ============ Utilities ============ */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ICONS={
+ home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.5 20v-6h5v6"/>',
+ kids:'<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.2 2.5-5.4 5.5-5.4s5.5 2.2 5.5 5.4"/><circle cx="17.3" cy="9" r="2.2"/><path d="M16.2 14.7c2.5.2 4.3 2.1 4.3 4.8"/>',
+ tv:'<rect x="2.5" y="4.5" width="19" height="13" rx="2"/><path d="M8 21h8M12 17.5V21"/>',
+ back:'<path d="M15 5 8 12l7 7"/>',close:'<path d="M6 6l12 12M18 6 6 18"/>',plus:'<path d="M12 5v14M5 12h14"/>',
+ chev:'<path d="M9 5l7 7-7 7"/>',check:'<path d="M4.5 12.5 9.5 17.5 20 7"/>',
+ bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+ shield:'<path d="M12 3 4.5 6v5.5c0 4.8 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.7 7.5-9.5V6z"/><path d="M9 12l2 2 4-4"/>',
+ book:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 20.5z"/>',
+ share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8 15.8 6.4M8.2 13.2l7.6 4.4"/>',
+ trash:'<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
+ unlink:'<path d="M9 15 5 19a3.5 3.5 0 0 1-5-5l4-4"/><path d="M15 9l4-4a3.5 3.5 0 0 1 5 5l-4 4"/><path d="M3 3l18 18"/>',
+ remote:'<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><circle cx="12" cy="7" r="1.6"/><path d="M10 12h4M10 16h4"/>',
+ wifi:'<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/>',
+ alert:'<path d="M12 3 2.5 20h19z"/><path d="M12 9v5M12 17.5v.5"/>',
+ info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+ user:'<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>',
+ sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+ moon:'<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>',
+ refresh:'<path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/>',
+ lock:'<rect x="4.5" y="10" width="15" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+ edit:'<path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5 17.5 10.5"/>',
+ copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+ eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+ calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+ list:'<path d="M9 6h12M9 12h12M9 18h12M4 6h.5M4 12h.5M4 18h.5"/>',
+ pause:'<path d="M8 5v14M16 5v14"/>',
+ dot:'<circle cx="12" cy="12" r="4"/>'
+};
+const icon=(n,cls='')=>`<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+const lum=h=>{const c=h.replace('#','').match(/../g).map(x=>parseInt(x,16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);return .2126*c[0]+.7152*c[1]+.0722*c[2]};
+const ratio=(a,b)=>{const l=[lum(a),lum(b)].sort((x,y)=>y-x);return (l[0]+.05)/(l[1]+.05)};
+const CONTRAST=[
+ ['主文字 / 卡片','#16211D','#FFFFFF',''],['次要文字 / 卡片','#4A5A53','#FFFFFF',''],
+ ['辅助文字 / 卡片','#5B6B63','#FFFFFF','V3 --muted 4.44:1'],
+ ['辅助文字 / 画布','#5B6B63','#F5F8F6','V3 --muted 4.20:1'],
+ ['主按钮白字 / 品牌绿','#FFFFFF','#0F7A5F',''],['品牌强调字 / 浅绿底','#0B6249','#E8F5EF',''],
+ ['警示文字 / 警示底','#8A5200','#FFF3DC',''],['危险文字 / 危险底','#B3261E','#FDEDEC',''],
+ ['信息文字 / 信息底','#1B5E8A','#E7F1F8',''],['深色主文字 / 深画布','#EAF2EE','#0F1714',''],
+ ['深色品牌 / 深卡片','#5FD3A6','#17231E','']];
+
+/* ============ State ============ */
+const state={view:'preview',theme:'light',page:'today',scenario:'active',loggedIn:true,loginMode:false,parentNo:'m10s',tv:0,editKid:1,editQuiz:11,modal:null,toast:'',dirty:false,saving:false,limitDraft:90,pickIncoming:0,pickUnlock:0,
+ tvs:[{name:'客厅电视',online:true,active:[1,2],mode:true,unlock:'远程确认',pin:''},{name:'卧室电视',online:false,active:[1],mode:true,unlock:'算术题',pin:''}],
+ kids:[{id:1,name:'糖果',age:7,limit:90,used:52},{id:2,name:'测试1',age:9,limit:45,used:18}],
+ quizzes:[{id:11,kidId:1,title:'识字卡 · 一年级',count:24,local:true,source:'本地创建',sharedTo:['grandpa99','mama88']},{id:22,kidId:2,title:'算术进阶',count:12,local:false,source:'来自 grandpa99 的题库副本',sharedTo:[]}],
+ incoming:[{title:'成语接龙',count:30,from:'grandpa99'},{title:'古诗填空',count:18,from:'mama88'}]};
+const TABS=['today','children','devices'];
+const ro=()=>state.scenario==='admin';
+const dis=()=>ro()?' disabled':'';
+const kid=id=>state.kids.find(k=>k.id===id);
+const kidQuizzes=id=>state.quizzes.filter(q=>q.kidId===id);
+const UNLOCKS=['远程确认','PIN 码','算术题','答题解锁'];
+const UNLOCK_DESC=['家长手机点批准后，电视才继续播放','孩子在电视上输入本台 4–6 位数字','答对随机算术题后解锁，离线也可用','从当前选中孩子的家庭题库抽题作答'];
+const PAGES=[['restore','账号恢复','重装不误导重新绑机'],['today','今天','家庭聚合 · 时长全局累计'],['children','孩子','家庭档案不按电视切分'],['child','孩子详情','规则唯一 + 分配 + 题库'],['quiz','题库与分享','本地题库 / 引用副本'],['devices','电视','设备列表与绑定'],['tv','电视设置','本台解锁方式 · 分配 · 解绑'],['account','账号与设置','低频设置退出主导航']];
+const MODALS=[['login','登录已有家长号'],['share','题库分享设置'],['import','引用他人题库'],['unlock','本台解锁方式'],['unbind','解绑确认'],['delete','删除档案确认'],['conflict','保存冲突三选一'],['diff','差异详情'],['draft','草稿退出确认']];
+const WRITE_ACTS=['saveKid','addKid','doUnbind','doDelete','doImport','saveShare','saveUnlock','tvMode','scan','newAccount','deviceOnly','resolveOverwrite','resolveDrop','login'];
+const B=(label,attrs='',cls='',ic='')=>{const m=String(attrs).match(/data-act="([^"]+)"/);const d=ro()&&m&&WRITE_ACTS.includes(m[1])?' disabled':'';return `<button type="button" class="btn ${cls}" ${attrs}${d}>${ic?icon(ic):''}<span>${label}</span></button>`};
+const C=(inner,cls='',attrs='')=>`<div class="card ${cls}" ${attrs}>${inner}</div>`;
+const CB=(inner,attrs='',cls='')=>`<button type="button" class="card ${cls}" ${attrs}>${inner}</button>`;
+const SEC=(t,extra='')=>`<div class="h-sec"><span>${t}</span>${extra}</div>`;
+const chip=(t,v='')=>`<span class="chip ${v}">${t}</span>`;
+const sw=(on,attrs,label)=>`<button type="button" class="switch hit ${on?'on':''}" role="switch" aria-checked="${on}" aria-label="${esc(label)}" ${attrs}${dis()}></button>`;
+const prog=(v,label,warn=false)=>`<div class="prog ${warn?'warn':''}" role="progressbar" aria-valuenow="${v}" aria-valuemin="0" aria-valuemax="100" aria-label="${esc(label)}"><i style="width:${v}%"></i></div>`;
+const avatar=(name,i=0)=>`<div class="avatar ${['','b','c'][i%3]}" aria-hidden="true">${esc(name[0]||'孩')}</div>`;
+function toast(msg){state.toast=msg;render();clearTimeout(state.tt);state.tt=setTimeout(()=>{state.toast='';render()},3600)}
+function setPage(p){state.page=p;state.modal=null;state.dirty=false;render()}
+
+/* ============ App shell ============ */
+function appbar(){
+ if(state.page==='restore')return `<div class="logo-mark" aria-hidden="true">薯</div><div class="app-title">欢迎回来<small>恢复你的家庭档案与电视</small></div>`;
+ const t={today:'',children:'孩子',child:'孩子详情',quiz:'题库与分享',devices:'电视',tv:'电视设置',account:'账号与设置'}[state.page];
+ const back=TABS.includes(state.page)?'':`<button type="button" class="iconbtn" data-act="back" aria-label="返回上一页">${icon('back')}</button>`;
+ const av=TABS.includes(state.page)?`<button type="button" class="iconbtn avatar" data-page="account" aria-label="账号与设置">爸</button>`:'';
+ const tag=ro()?chip('只读代管','warn'):'';
+ if(state.page==='today')return `<div class="logo-mark" aria-hidden="true">薯</div><div class="app-title">薯仔家长<small id="greet">家庭 · ${esc(state.parentNo)}</small></div>${tag}${av}`;
+ return `${back}<div class="app-title">${t}</div>${tag}${av}`;
+}
+function tabs(){return TABS.includes(state.page)?[['today','home','今天'],['children','kids','孩子'],['devices','tv','电视']].map(x=>`<button type="button" class="tab ${state.page===x[0]?'on':''}" role="tab" aria-selected="${state.page===x[0]}" aria-controls="content" data-page="${x[0]}">${icon(x[1])}<span>${x[2]}</span></button>`).join(''):''}
+function banner(){return ro()?`<div class="banner" role="status">${icon('eye')}<span><b>只读代管</b>：可查看全部电视、档案、题库与记录，不能修改配置；批准解锁请求是唯一例外。</span></div>`:''}
+function familyBar(){return C(`<div class="between"><div><p class="eyebrow">当前家庭</p><div style="font-size:18px;font-weight:700">${esc(state.parentNo)} ${chip('档案全局唯一','brand')}</div></div>${chip(state.kids.length+' 份档案','brand')}</div>`,'')}
+
+/* ============ Pages ============ */
+function restore(){
+ if(state.loginMode)return `<h1 class="h-hello">登录家长号</h1><p class="sub" style="margin-bottom:20px">登录后恢复这个家庭的档案、电视分配与题库。</p>`+C(`<div class="field"><label for="loginName">家长号</label><input id="loginName" value="m10s"><div class="help">忘记家长号？可在电视端「我的」页查看。</div></div><div class="field"><label for="loginPwd">口令</label><input id="loginPwd" type="password" value="12345678"></div>`+B('登录并恢复','data-act="login"','primary block lg','refresh')+`<div style="height:8px"></div>`+B('返回','data-act="cancelLogin"','text block'));
+ return `<div style="padding:14px 0 8px">${icon('refresh','')}<h1 class="h-hello" style="margin-top:12px">欢迎回来</h1><p class="sub">检测到这是重新安装。本机没有保存过家长号，但你以前可能已建立过家庭档案。</p></div>
+ ${C(`<div class="row">${icon('info')}<div><b>别急着重新绑电视</b><div class="sub">用原家长号登录，档案、分配与题库会一起回来。</div></div></div>`,'info')}
+ ${SEC('你想怎么继续？')}
+ ${CB(`<div class="row"><div class="emicon" style="width:44px;height:44px;border-radius:12px;background:var(--brand-soft);color:var(--brand-strong);display:grid;place-items:center">${icon('lock')}</div><div class="grow"><h3 style="font-size:16px">登录已有家长号</h3><p class="sub">恢复家庭档案、电视分配与题库</p></div>${icon('chev')}</div>`,'data-act="showLogin"')}
+ ${CB(`<div class="row"><div class="emicon" style="width:44px;height:44px;border-radius:12px;background:var(--surface-2);color:var(--ink-2);display:grid;place-items:center">${icon('plus')}</div><div class="grow"><h3 style="font-size:16px">创建新家长号</h3><p class="sub">第一次使用，稍后扫码添加电视</p></div>${icon('chev')}</div>`,'data-act="newAccount"')}
+ <div style="text-align:center;margin-top:18px">${B('暂时使用本机账号','data-act="deviceOnly"','text')}<p class="sub" style="font-size:12px">本机账号不会自动看到原家长号的家庭档案</p></div>`;
+}
+function empty(){return `<div class="empty"><div class="emicon">${icon('tv')}</div><h3>还没有电视</h3><p>家庭档案可以先建，但要应用到电视才生效。<br>以前绑定过电视，请先登录原家长号。</p>${B('登录已有家长号','data-act="showLogin"','primary block lg','refresh')}<div style="height:8px"></div>${B('扫码添加电视','data-page="devices"','block')}</div>`}
+function today(){
+ if(!state.loggedIn||state.scenario==='empty')return empty();
+ const pending=C(`<div class="between" style="margin-bottom:12px"><div class="row">${icon('bell')}<div><b>1 条解锁请求</b><div class="sub">糖果 · 客厅电视</div></div></div>${chip('还剩 42 秒','warn')}</div>`+B('批准解锁','data-act="unlock"','primary block lg','check'),'warn');
+ return `<h1 class="h-hello">早上好，爸爸</h1><p class="sub" style="margin-bottom:18px">11 月 13 日 · 星期五 · 全家庭状态</p>
+ ${C(`<p class="eyebrow">家庭概览</p><div class="row" style="gap:24px;margin-top:6px"><div><div class="data-num">${state.tvs.length}</div><p class="sub">台电视</p></div><div><div class="data-num">1</div><p class="sub">台在线</p></div><div><div class="data-num">${state.kids.length}</div><p class="sub">份档案</p></div></div>`,'hero')}
+ ${SEC('待处理')}${pending}
+ ${SEC('孩子状态',chip('全家庭累计','brand'))}
+ ${state.kids.map((k,i)=>{const left=Math.max(0,k.limit-k.used),p=Math.min(100,Math.round(k.used/(k.limit||1)*100));return CB(`<div class="row">${avatar(k.name,i)}<div class="grow"><div class="between"><h3>${esc(k.name)}</h3>${chip(k.age+' 岁')}</div><p class="sub">客厅 + 卧室已合并计算</p></div></div><div class="between" style="margin-top:14px;align-items:baseline"><div><span class="data-num">${left}</span><span class="unit">分钟可用</span></div><span class="sub">已用 ${k.used} / ${k.limit}</span></div>${prog(p,esc(k.name)+' 今日已用时长',p>=80)}`,`data-kid="${k.id}"`)}).join('')}
+ ${SEC('最近观看')}${C(`<div class="listrow"><span class="lbl">糖果 · 客厅电视</span><span class="val">32 分钟</span></div><div class="listrow"><span class="lbl">糖果 · 卧室电视</span><span class="val">20 分钟</span></div><div class="listrow"><span class="lbl">测试1 · 客厅电视</span><span class="val">18 分钟</span></div>`)}`;
+}
+function children(){
+ if(!state.loggedIn||state.scenario==='empty')return familyBar()+empty();
+ return `<h1 class="h-hello">孩子</h1><p class="sub" style="margin-bottom:18px">档案属于家庭，不属于任何一台电视</p>
+ ${SEC('家庭儿童档案',B('添加','data-act="addKid"','primary','plus'))}
+ ${state.kids.map((k,i)=>{const n=state.tvs.filter(t=>t.active.includes(k.id)).length,q=kidQuizzes(k.id).length;return CB(`<div class="row">${avatar(k.name,i)}<div class="grow"><div class="between"><h3>${esc(k.name)}</h3>${icon('chev')}</div><p class="sub">${k.age} 岁 · 今日 ${k.used} / ${k.limit} 分钟</p></div></div><div class="chips" style="margin-top:12px">${chip('家庭主档案','brand')}${chip('已分配 '+n+' 台电视','info')}${chip('题库 '+q+' 套')}</div>`,`data-kid="${k.id}"`)}).join('')}
+ ${C(`<div class="row">${icon('shield')}<div><b>配额规则只有一份</b><p class="sub">限额、禁看时段与频道白名单全家庭一致；解锁方式属于电视，在「电视设置」里按台设置。</p></div></div>`,'info')}`;
+}
+function child(){
+ const k=kid(state.editKid);if(!k)return '';
+ const qs=kidQuizzes(k.id);
+ return C(`<div class="between"><div class="row">${avatar(k.name,0)}<div><h3>${esc(k.name)}</h3><p class="sub">${k.age} 岁 · 全家庭唯一一份</p></div></div>${chip('家庭主档案','brand')}</div>`)
+ +SEC('规则',chip('适用于所有电视','brand'))
+ +C(`<div class="field"><label for="limit">每日观看限额（分钟）</label><input id="limit" type="number" min="1" value="${state.limitDraft}" data-draft="limit"${dis()} aria-describedby="limitHelp"><div class="help" id="limitHelp">家里所有电视合并计算，换台不清零。</div></div><div class="listrow"><span class="lbl">禁看时段</span><span class="val">21:30 – 07:00</span></div><div class="help" style="margin-top:10px">解锁方式不属于规则，在「电视设置」里按台设置。</div><div style="margin-top:6px">${B('去电视设置','data-page="devices"','text','chev')}</div>`)
+ +SEC('分配到电视',chip('每台独立勾选'))
+ +C(state.tvs.map((t,i)=>`<div class="listrow"><span class="lbl">${esc(t.name)}</span>${sw(t.active.includes(k.id),`data-assign="${i}"`,`将 ${esc(k.name)} 分配到 ${esc(t.name)}`)}</div>`).join(''))
+ +SEC('题库',B('查看全部','data-page="quiz"','text'))
+ +(qs.length?qs.map(q=>CB(`<div class="between"><div><b>${esc(q.title)}</b><p class="sub">${q.count} 题 · ${esc(q.source)}</p></div>${icon('chev')}</div>`,'data-page="quiz"')).join(''):C(`<p class="sub">还没有题库，可在「题库与分享」中添加。</p>`,'outlined'))
+ +`<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--line)">${B('删除这份家庭档案','data-act="openDelete"','text','trash')}</div>`;
+}
+function quiz(){
+ const k=kid(state.editKid),qs=kidQuizzes(k.id),local=qs.filter(q=>q.local),copies=qs.filter(q=>!q.local);
+ return `<h1 class="h-hello">题库与分享</h1><p class="sub" style="margin-bottom:18px">${esc(k.name)} 的题库 · 按家庭 childId 分库</p>
+ ${SEC('本地题库',chip('可分享','brand'))}
+ ${local.map(q=>C(`<div class="between"><div><b style="font-size:16px">${esc(q.title)}</b><p class="sub">${q.count} 题 · 本地创建</p></div>${chip('可编辑','brand')}</div><div class="divider"></div><p class="eyebrow">已授权家长号</p><div class="chips">${q.sharedTo.length?q.sharedTo.map(x=>chip(esc(x),'info')).join(''):chip('未分享')}</div><div style="margin-top:14px">${B('分享设置',`data-act="openShare" data-q="${q.id}"`,'tonal','share')}</div>`)).join('')}
+ ${SEC('引用进来的题库',chip('复制副本','info'))}
+ ${copies.length?copies.map(q=>C(`<div class="between"><div><b style="font-size:16px">${esc(q.title)}</b><p class="sub">${q.count} 题 · ${esc(q.source)}</p></div>${chip('副本','info')}</div><div class="help" style="margin-top:10px;font-size:12px;color:var(--ink-3)">已复制到「${esc(k.name)}」名下，可自行编辑；来源后续更新不同步。</div>`)).join(''):C(`<p class="sub">还没有引用题库。别的家长授权后，可以复制一份到自己孩子名下。</p>`,'outlined')}
+ <div style="margin-top:12px">${B('引用别人分享给我的题库','data-act="openImport"','block','copy')}</div>`;
+}
+function devices(){
+ if(!state.loggedIn||state.scenario==='empty')return `<div class="empty"><div class="emicon">${icon('tv')}</div><h3>添加第一台电视</h3><p>打开电视上的家长绑定二维码，然后用手机扫码。</p>${B('扫码添加电视','data-act="scan"','primary block lg','plus')}<div style="height:8px"></div>${B('登录已有家长号','data-act="showLogin"','block')}</div>`;
+ return `<h1 class="h-hello">电视</h1><p class="sub" style="margin-bottom:18px">点击哪台就操作哪台，作用域明确</p>
+ ${SEC('我的电视',B('添加','data-act="scan"','primary','plus'))}
+ ${state.tvs.map((t,i)=>C(`<div class="row"><div class="avatar b" aria-hidden="true">${icon('tv')}</div><div class="grow"><h3 style="font-size:16px">${esc(t.name)}</h3><p class="sub"><span class="dot ${t.online?'on':''}"></span> ${t.online?'在线 · 正在同步':'离线 · 上次在线 2 小时前'}</p></div>${chip(t.online?'在线':'离线',t.online?'brand':'')}</div><div class="divider"></div><div class="between"><span class="sub">已分配 ${t.active.length} 份家庭档案</span><span class="sub">${t.active.map(id=>esc(kid(id)?kid(id).name:'')).join('、')}</span></div><div class="actions" style="margin-top:14px">${B('遥控',`data-act="remote" data-v="${i}"`,'','remote')}${B('设备设置',`data-tvdetail="${i}"`,'','chev')}</div>`)).join('')}`;
+}
+function tv(){
+ const t=state.tvs[state.tv];if(!t)return '';
+ return C(`<div class="row"><div class="avatar b" aria-hidden="true">${icon('tv')}</div><div><h3>${esc(t.name)}</h3><p class="sub"><span class="dot ${t.online?'on':''}"></span> ${t.online?'在线':'离线'} · 当前设备</p></div></div>`)
+ +SEC('本台设置',chip('按台独立','info'))+C(`<div class="listrow"><div><span class="lbl">儿童模式</span><div class="sub" style="font-size:12px">仅作用于 ${esc(t.name)}</div></div>${sw(t.mode,'data-act="tvMode"',esc(t.name)+' 儿童模式')}</div><div class="listrow"><div><span class="lbl">解锁方式</span><div class="sub" style="font-size:12px">${esc(t.unlock)} · 仅本台生效</div></div>${B('设置','data-act="openUnlock"','tonal','chev')}</div>`)
+ +SEC('分配到这台电视',chip('只勾选，不改规则'))
+ +C(state.kids.map(k=>`<div class="listrow"><div><span class="lbl">${esc(k.name)}</span><div class="sub" style="font-size:12px">限额 ${k.limit} 分钟 · 家庭统一</div></div>${sw(t.active.includes(k.id),`data-tvassign="${k.id}"`,`在 ${esc(t.name)} 启用 ${esc(k.name)}`)}</div>`).join(''))
+ +`<div class="actions stack" style="margin-top:16px">${B('打开遥控','data-act="remote"','block','remote')}</div>
+ <div style="margin-top:24px;padding-top:18px;border-top:1px solid var(--line)"><p class="eyebrow" style="color:var(--danger)">危险操作</p><p class="sub" style="margin-bottom:12px">解绑只切断这台电视的分配，不会删除家庭档案。</p>${B('解绑这台电视','data-act="openUnbind"','danger block','unlink')}</div>`;
+}
+function account(){return `<h1 class="h-hello">账号与设置</h1><p class="sub" style="margin-bottom:18px">低频设置，收在头像入口</p>
+ ${C(`<div class="row">${avatar('爸',1)}<div class="grow"><p class="eyebrow">当前家长号</p><h3>${state.loggedIn?esc(state.parentNo):'使用本机账号'}</h3></div>${chip(state.loggedIn?'已登录':'未恢复',state.loggedIn?'brand':'warn')}</div>`)}
+ ${SEC('账号')}${C(`<div class="listrow"><span class="lbl">切换家长号</span>${B('登录','data-act="showLogin"','','refresh')}</div><div class="listrow"><span class="lbl">我在电视上的名字</span><span class="val">爸爸</span></div><div class="listrow"><span class="lbl">实时通道</span>${chip('已连接','brand')}</div><div class="listrow"><span class="lbl">身份</span>${chip(ro()?'admin · 只读代管':'parent · 可写',ro()?'warn':'brand')}</div><div class="listrow"><span class="lbl">版本</span><span class="val">1.0.7-parent</span></div>`)}
+ ${C(`<div class="row">${icon('refresh')}<div><b>换手机或重装时</b><p class="sub">用同一个家长号登录即可恢复家庭档案、电视分配与题库，无需重新绑定。</p></div></div>`,'info')}`}
+function page(){return ({restore,today,children,child,quiz,devices,tv,account})[state.page]()}
+
+/* ============ Notes (spec panel) ============ */
+const NOTES={
+ restore:['恢复页先分流老用户','主推「登录已有家长号」，符合重装用户预期','三条路径用带图标的选择卡，不用同权重按钮','12px 辅助文字用 --ink-3（5.63:1），不再是 V3 的 10px'],
+ today:['今天页只回答家庭状态','26px 问候标题建立视觉锚点','Hero 卡承载家庭概览，32px 数字承载剩余时长','解锁请求独立高优先级卡，主按钮 48px','说明性文案移入本栏，不再污染产品界面'],
+ children:['档案属于家庭，不属于电视','48px 头像 + 18px 姓名构成清晰层级','列表不按电视筛选，展示全部家庭主档案','每张卡显示已分配到几台电视、有几套题库'],
+ child:['规则与分配是两件事','规则区只放家庭级配额规则；CR-02 把解锁方式移到电视设置','分组 Section + 44px 输入框','底部固定操作栏（内容区与 Tab bar 之间），不遮挡滚动内容','删除档案是独立 danger 区，与解绑明确区分','保存带 in-flight 锁与草稿退出确认'],
+ quiz:['跨家庭只分享内容，不分享身份','本地题库可授权其它家长号（Quiz.sharedTo）','引用时复制副本并挂到选定 childId','两态卡片（本地 / 副本），取消三态与失效占位'],
+ devices:['设备操作集中且作用域明确','在线状态 = 圆点 + 文字，不靠颜色单独表意','点击哪台就操作哪台','已分配档案数按分配表展示'],
+ tv:['解绑只切断分配','儿童模式与解锁方式都是本台设置，按 deviceId 独立保存','CR-02：解锁方式从家庭规则区移入电视设置，可编辑而非只读','分配勾选写 Assignment，不改家庭规则','解绑放页面底部独立 danger 区','解绑确认明确四条影响，当日累计不清零'],
+ account:['低频设置退出主导航','账号、显示名、连接状态与身份放头像入口','admin 只读代管有统一标识']};
+function notes(){const n=NOTES[state.page]||NOTES.today;return `<h2>${n[0]}</h2><div class="flow">${n.slice(1).map((x,i)=>`<div><b>0${i+1}</b> · ${x}</div>`).join('')}</div><h3>V4 相对 V3 的改动</h3><ul><li>新增完整 design token（色彩对比度全部 ≥4.5:1、1.25 字阶、8pt 间距、统一圆角/阴影/动效）。</li><li>Unicode 字符图标全部换成内联 SVG；Tab 加选中指示条。</li><li>交互元素改为原生 button，补 role / aria / 44px 命中区 / focus-visible。</li><li>弹层补 role="dialog"、Esc、焦点管理；Toast 补 aria-live。</li><li>解释性文案从界面移到本栏；关键信息改为大号数字与 Hero 卡。</li><li>破坏性操作分级、冲突三选一改为「查看差异」为默认安全项。</li><li>新增深色主题、reduced-motion、safe-area、骨架与加载态。</li></ul><h3>保持不变</h3><ul><li>信息架构、页面归属与 S1–S6 / CR-01 全部产品语义沿用 V3；CR-02 同步把解锁方式归属由「家庭规则区」改到「电视本台设置」，v3 / v4 已一致。</li><li>服务端、家长端、电视端契约切换仍按实施计划执行。</li></ul>`}
+
+/* ============ Overlays ============ */
+function sheet(title,lead,inner,actions='',danger=false){return `<div class="scrim" data-act="close"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div class="grabber" aria-hidden="true"></div><div class="between"><h2 id="sheetTitle">${title}</h2><button type="button" class="iconbtn" data-act="close" aria-label="关闭弹层" style="border:0">${icon('close')}</button></div><p class="lead">${lead}</p>${inner}${actions?`<div class="sticky"><div class="actions stack">${actions}</div></div>`:''}</div>`}
+function overlay(){
+ if(state.modal==='login')return sheet('登录已有家长号','登录后将恢复这个家庭的档案、电视分配与题库。',`<div class="field"><label for="sheetName">家长号</label><input id="sheetName" value="m10s"></div><div class="field"><label for="sheetPwd">口令</label><input id="sheetPwd" type="password" value="12345678"></div>`,B('登录并恢复','data-act="login" data-autofocus','primary block lg','refresh'));
+ if(state.modal==='share'){const q=state.quizzes.find(x=>x.id===state.editQuiz)||state.quizzes[0];return sheet('分享题库',esc(q.title)+' · 只有被授权的家长号能引用这套题。',`<div class="field"><label for="shareNames">家长号，多个用逗号分隔</label><input id="shareNames" value="${esc(q.sharedTo.join(', '))}"><div class="help">授权后对方得到一份可自行编辑的副本。</div></div>`+C(`<div class="row">${icon('shield')}<div><b>分享的是题目内容</b><p class="sub">不传 childId、规则、观看时长、观看记录或头像。</p></div></div>`,'info'),B('保存授权名单','data-act="saveShare" data-autofocus','primary block lg','check'));}
+ if(state.modal==='import')return sheet('引用别人分享的题库','选择一套题，并指定复制到本家庭哪个孩子名下。',state.incoming.map((x,i)=>CB(`<div class="between"><div><b>${esc(x.title)}</b><p class="sub">${x.count} 题 · 来自 ${esc(x.from)}</p></div>${chip(state.pickIncoming===i?'已选择':'选择',state.pickIncoming===i?'brand':'')}</div>`,`data-incoming="${i}"`)).join('')+`<div class="field" style="margin-top:14px"><label for="importKid">复制到</label><select id="importKid">${state.kids.map(k=>`<option value="${k.id}">${esc(k.name)}</option>`).join('')}</select></div>`+C(`<div class="row">${icon('copy')}<div><b>复制副本</b><p class="sub">导入后可自行编辑，来源更新不同步，也不会出现引用失效占位。</p></div></div>`,'info'),B('复制并导入','data-act="doImport" data-autofocus','primary block lg','copy'));
+ if(state.modal==='unbind'){const t=state.tvs[state.tv]||state.tvs[0];return sheet('解绑 '+esc(t.name)+'？','解绑只取消这台电视的分配，不会删除家庭档案。',`<ul class="checklist"><li>${icon('check')}<span>家庭档案、规则、题库、头像与历史观看时长<b>全部保留</b>，其他电视不受影响。</span></li><li class="risk">${icon('alert')}<span>这台电视会变为「未管控」、儿童模式关闭，孩子在这台电视上将<b>不再受规则约束</b>。</span></li><li>${icon('check')}<span><b>今日已用时长不清零</b>，重新绑定后继续累计，不能靠解绑绕过每日限额。</span></li><li>${icon('check')}<span>题库授权属于家庭题库，<b>不会因解绑电视而改变</b>；已导入的题库副本也不受影响。</span></li></ul>`+C(`<div class="row">${icon('info')}<div><b>与「删除档案」不同</b><p class="sub">删除档案在孩子详情页，是家庭级不可恢复操作。</p></div></div>`,'info'),B('取消，保留绑定','data-act="close" data-autofocus','block lg')+B('确认解绑','data-act="doUnbind"','danger block','unlink'));}
+ if(state.modal==='delete'){const k=kid(state.editKid)||state.kids[0];return sheet('删除「'+esc(k.name)+'」的档案？','这是家庭级操作，会影响家里所有电视。',`<ul class="checklist"><li class="risk">${icon('alert')}<span>删除规则、题库、头像与历史观看时长，<b>不可恢复</b>。</span></li><li>${icon('check')}<span>所有电视上关于这份档案的分配会一并移除。</span></li><li>${icon('check')}<span>与「解绑电视」无关：解绑保留档案。</span></li></ul>`,B('取消','data-act="close" data-autofocus','block lg')+B('确认删除档案','data-act="doDelete"','danger block','trash'));}
+ if(state.modal==='conflict')return sheet('保存冲突','这份档案在你编辑期间被另一台设备更新，服务端未落盘你的改动。',C(`<div class="listrow"><span class="lbl">你读取时版本</span><span class="val">v17</span></div><div class="listrow"><span class="lbl">服务端当前版本</span><span class="val">v18</span></div><div class="listrow"><span class="lbl">最后写入者</span><span class="val">爸爸 · 另一台手机</span></div>`)+C(`<div class="row">${icon('alert')}<div><b>每日限额有分歧</b><p class="sub">对方改成 60 分钟，你的草稿是 75 分钟。</p></div></div>`,'warn'),B('查看差异（推荐）','data-act="openDiff" data-autofocus','primary block lg','eye')+B('放弃本次修改','data-act="resolveDrop"','block')+B('以我的版本覆盖','data-act="resolveOverwrite"','text','alert'));
+ if(state.modal==='diff')return sheet('差异详情','以下是你的草稿与服务端当前值的字段对比。',C(`<div class="listrow"><span class="lbl">每日限额</span><span class="val">我 75 / 服务端 60</span></div><div class="listrow"><span class="lbl">分配到电视</span><span class="val">一致</span></div><div class="listrow"><span class="lbl">题库授权名单</span><span class="val">一致，未被清空</span></div>`),B('返回选择处理方式','data-act="backConflict" data-autofocus','primary block lg','back'));
+ if(state.modal==='draft')return sheet('放弃未保存的改动？','你修改了「'+esc((kid(state.editKid)||{}).name||'')+'」的每日限额，还没有保存。','',B('继续编辑','data-act="close" data-autofocus','block lg')+B('放弃并返回','data-act="dropDraft"','text','trash'));
+ if(state.modal==='unlock'){const t=state.tvs[state.tv]||state.tvs[0];
+  return sheet('本台解锁方式 · '+esc(t.name),'只对 '+esc(t.name)+' 生效，家里其它电视保持各自的设置。',
+   UNLOCKS.map((n,i)=>CB(`<div class="row"><div class="grow"><b>${n}</b><p class="sub">${UNLOCK_DESC[i]}</p></div>${chip(state.pickUnlock===i?'已选择':'选择',state.pickUnlock===i?'brand':'')}</div>`,`data-unlock="${i}"`)).join('')
+   +(state.pickUnlock===1?`<div class="field" style="margin-top:14px"><label for="unlockPin">本台 PIN（4–6 位数字）</label><input id="unlockPin" inputmode="numeric" maxlength="6" value="${esc(t.pin||'')}" aria-describedby="pinHelp"><div class="help" id="pinHelp">PIN 属于这台电视，其它电视可以有不同 PIN。</div></div>`:'')
+   +C(`<div class="row">${icon('info')}<div><b>答题解锁用的题库</b><p class="sub">按电视上当前选中的孩子取其家庭题库；题库为空时自动降级为「远程确认」，不阻断解锁。</p></div></div>`,'info'),
+   B('保存本台设置','data-act="saveUnlock" data-autofocus','primary block lg','check'));}
+ return '';
+}
+
+/* ============ Design system view ============ */
+function dsView(){
+ const swatches=[['--bg','#F5F8F6','页面画布'],['--surface','#FFFFFF','卡片 / 弹层'],['--ink','#16211D','主文字 16.54:1'],['--ink-2','#4A5A53','次要文字 7.30:1'],['--ink-3','#5B6B63','辅助文字 5.63:1'],['--brand','#0F7A5F','品牌 / 主按钮 5.29:1'],['--brand-strong','#0B6249','强调文字 7.35:1'],['--brand-soft','#E8F5EF','浅色填充'],['--warn','#8A5200','警示文字 5.81:1'],['--danger','#B3261E','危险文字 5.76:1'],['--info','#1B5E8A','信息文字 6.08:1']];
+ const types=[['display','32 / 40','700','剩余 38 分钟'],['h1','26 / 34','700','早上好，爸爸'],['h2','22 / 30','650','解绑这台电视？'],['h3','18 / 26','650','糖果'],['body-lg','16 / 24','400','正文重点'],['body','14 / 22','400','正文内容 · 最小正文'],['label','13 / 18','500','每日观看限额'],['caption','12 / 16','500','仅辅助，不承载关键信息']];
+ const spaces=[4,8,12,16,20,24,32,40,48];
+ const block=(title,desc,inner)=>`<div class="ds-block"><h3>${title}</h3><p>${desc}</p>${inner}</div>`;
+ return block('色彩 Token','WCAG AA：所有文字组合 ≥ 4.5:1；切换右上角主题可看深色映射。',swatches.map(([n,v,d])=>`<div class="swatch"><i style="background:var(${n})"></i><div><b>${n}</b><span>${v} · ${d}</span></div></div>`).join(''))
+ +block('排版字阶','1.25 比例，基于 16px。删除 V3 的 10px 文本；数字启用 tabular-nums。',types.map(([n,s,w,sample])=>`<div class="type-row"><span style="font-size:${parseInt(s)}px;font-weight:${w};line-height:${parseInt(s.split('/')[1])||1.4}px">${sample}</span><code>${n} · ${s} · ${w}</code></div>`).join(''))
+ +block('间距系统','4pt base / 8pt rhythm。页面边距 20、卡片内边距 16、卡片间距 12、Section 上间距 24。',spaces.map(v=>`<div class="space-row"><span style="width:26px">${v}</span><div class="space-bar" style="width:${v*3}px"></div><span>${v}px</span></div>`).join(''))
+ +block('按钮 · 变体','最小命中区 44×44；主按钮 48；状态含 hover / focus-visible / active / disabled / loading。',`<div class="comp-row">${B('主要操作','','primary','check')}${B('次要操作','')}${B('浅色操作','','tonal')}${B('危险操作','','danger','trash')}${B('文字操作','','text')}</div><div class="comp-row">${B('禁用','disabled','primary')}${B('加载中','disabled','','refresh')}</div><p class="sub" style="font-size:12px">深色模式下品牌按钮文字自动切为深墨色，对比度维持 ≥8:1。</p>`)
+ +block('表单 · 状态','44px 高，label[for]、help 用 aria-describedby，错误态有文案而非仅红边。',`<div class="field"><label for="dsIn">家长号</label><input id="dsIn" value="m10s" aria-describedby="dsHelp"><div class="help" id="dsHelp">用于跨设备恢复家庭档案。</div></div><div class="field error"><label for="dsErr">每日限额</label><input id="dsErr" value="0" aria-invalid="true" aria-describedby="dsErrMsg"><div class="err" id="dsErrMsg">限额必须大于 0 分钟。</div></div><div class="field"><label for="dsSel">复制到</label><select id="dsSel"><option>糖果</option><option>测试1</option></select></div>`)
+ +block('卡片 · 变体','圆角 12、padding 16、e1。语义底只用于真正需要区分的状态。',C(`<b>默认卡片</b><p class="sub">承载主要内容</p>`)+C(`<b>信息卡片</b><p class="sub">用于非阻断说明</p>`,'info')+C(`<b>警示卡片</b><p class="sub">待处理或需注意</p>`,'warn')+C(`<b>危险卡片</b><p class="sub">破坏性后果</p>`,'danger'))
+ +block('Chip / Switch / Progress','Chip 纯展示不承载点击；Switch 用 role="switch" + aria-checked；进度条可读写屏。',`<div class="chips" style="margin-bottom:16px">${chip('中性')}${chip('品牌','brand')}${chip('警示','warn')}${chip('危险','danger')}${chip('信息','info')}</div><div class="between" style="margin-bottom:14px"><span class="lbl">儿童模式</span>${sw(true,'','儿童模式示例')}${sw(false,'','已关闭示例')}</div>${prog(64,'示例进度')}<div style="height:14px"></div>${prog(88,'示例进度（临界）',true)}`)
+ +block('列表 / 头像 / 空态 / 骨架','列表行 ≥56px；状态不单靠颜色表达；骨架用于加载，空态必带主 CTA。',`<div class="listrow"><span class="lbl">${avatar('糖',0)} 在线状态</span><span class="val"><span class="dot on"></span> 在线</span></div><div class="listrow"><span class="lbl">观看时长</span><span class="val">52 分钟</span></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:45%"></div>`)
+ +block('形状 / 阴影 / 动效','圆角 8/12/16/20/999 五级；阴影 e1–e3 三级；动效 150/240/400ms 统一缓动，reduced-motion 下归零。',`<div class="comp-row">${[['8','r-sm'],['12','r-md'],['16','r-lg'],['20','r-xl']].map(([v,n])=>`<div style="width:52px;height:52px;border-radius:var(--${n});background:var(--brand-soft);border:1px solid var(--line);display:grid;place-items:center;font-size:12px">${v}</div>`).join('')}</div><p class="sub" style="font-size:12px">z-index：10 sticky / 20 tabbar / 30 scrim / 40 sheet / 50 toast。</p>`);
+}
+function a11yView(){
+ const rows=CONTRAST.map(([n,f,b,old])=>{const v=ratio(f,b);return `<tr><td>${n}</td><td><code>${f}</code> / <code>${b}</code></td><td>${old?`<span class="fail">${esc(old)}</span>`:'—'}</td><td class="${v>=4.5?'pass':'fail'}">${v.toFixed(2)}:1 ${v>=4.5?'✓':'✗'}</td></tr>`}).join('');
+ const allPass=CONTRAST.every(([,f,b])=>ratio(f,b)>=4.5);
+ return `<div class="a11y-card"><h3>对比度实测（脚本实时计算）</h3><table><thead><tr><th>组合</th><th>色值</th><th>V3 原值</th><th>V4 实测 / AA 4.5:1</th></tr></thead><tbody>${rows}</tbody></table><p class="sub" style="margin-top:12px">结论：<b class="${allPass?'pass':'fail'}">${allPass?'全部达标':'仍有未达标项'}</b>。V3 的 <code>--muted #6c7b76</code> 白底 4.44:1、画布底 4.20:1 均失败，且承载的是 10–12px 辅助文字；V4 用 <code>--ink-3 #5B6B63</code>（5.63:1）并把最小字号提到 12px。</p></div>
+ <div class="a11y-card"><h3>触控目标（≥ 44×44）</h3><table><thead><tr><th>元素</th><th>V3</th><th>V4</th></tr></thead><tbody><tr><td>返回 / 头像图标按钮</td><td class="fail">32×32</td><td class="pass">44×44</td></tr><tr><td>常规按钮</td><td class="fail">约 35px 高</td><td class="pass">44（主 48）</td></tr><tr><td>小按钮（批准 / 分享）</td><td class="fail">约 25px 高</td><td class="pass">44，紧凑态用 .hit 扩命中区</td></tr><tr><td>开关</td><td class="fail">38×22</td><td class="pass">44×26 视觉 + 44 命中区</td></tr><tr><td>列表行</td><td>—</td><td class="pass">≥ 56px</td></tr></tbody></table></div>
+ <div class="a11y-card"><h3>键盘 / 读屏 / 动效清单</h3><ul><li>所有交互元素为原生 <code>&lt;button&gt;</code> / <code>&lt;input&gt;</code>；图标按钮带 <code>aria-label</code>。</li><li>统一 <code>:focus-visible</code>：2px 品牌色描边 + 2px 偏移；Tab 顺序按视觉顺序。</li><li>弹层 <code>role="dialog" aria-modal="true"</code>、进入时聚焦默认安全项、Esc 关闭、关闭后回焦。</li><li>Toast <code>role="status" aria-live="polite"</code>；进度条 <code>role="progressbar"</code> + <code>aria-valuenow</code>。</li><li>Switch <code>role="switch" aria-checked</code>；Tab <code>role="tablist" / aria-selected</code>。</li><li>图标全部 <code>aria-hidden="true"</code>，语义由相邻文字提供；不依赖 Unicode 字符图标。</li><li>在线 / 离线 = 圆点 + 文字；错误 = 图标 + 文案，状态不单靠颜色。</li><li><code>prefers-reduced-motion</code> 下动画与过渡归零；表单有 <code>label[for]</code> 与 <code>aria-describedby</code>。</li><li>布局用弹性高度与 <code>env(safe-area-inset-*)</code>，支持 200% 文字缩放不截断。</li></ul></div>`;
+}
+
+/* ============ Render ============ */
+function render(){
+ document.documentElement.setAttribute('data-theme',state.theme);
+ $('themeIcon').innerHTML=icon(state.theme==='light'?'moon':'sun');
+ $('themeLabel').textContent=state.theme==='light'?'深色':'浅色';
+ document.querySelectorAll('[data-view]').forEach(b=>{const on=b.dataset.view===state.view;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on))});
+ ['preview','ds','a11y'].forEach(v=>$('view-'+v).classList.toggle('on',v===state.view));
+ $('pageNav').innerHTML=PAGES.map(([p,n,d])=>`<button type="button" class="navbtn ${state.page===p?'on':''}" data-page="${p}">${n}<small>${d}</small></button>`).join('');
+ $('modalNav').innerHTML=MODALS.map(([m,n])=>`<button type="button" class="navbtn" data-modal="${m}">${n}</button>`).join('');
+ $('dsGrid').innerHTML=dsView();$('a11yBody').innerHTML=a11yView();
+ $('appbar').innerHTML=appbar();
+ $('content').innerHTML=banner()+page();
+ $('tabs').innerHTML=tabs();$('tabs').style.display=TABS.includes(state.page)?'flex':'none';
+ const isChild=state.page==='child';
+ $('actionbar').className='actionbar'+(isChild?' on':'');
+ $('actionbar').innerHTML=isChild?`<div class="actions stack">${B('保存并同步','data-act="saveKid"','primary block lg','check')}${B('模拟并发冲突','data-act="openConflict"','block')}</div>`:'';
+ $('overlay').innerHTML=overlay();
+ $('toast').innerHTML=state.toast?`<div class="toast">${icon('check')}<span>${esc(state.toast)}</span></div>`:'';
+ $('notes').innerHTML=notes();
+ const f=$('overlay').querySelector('[data-autofocus]')||$('overlay').querySelector('.sheet button');
+ if(f&&f.focus)f.focus();
+}
+/* ============ Events ============ */
+document.addEventListener('input',e=>{if(e.target.id==='limit'){state.limitDraft=Number(e.target.value);state.dirty=true}});
+document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'&&state.modal){state.modal=null;render();return}
+ if(e.key==='Tab'&&state.modal){const sh=$('overlay').querySelector('.sheet');if(!sh)return;const f=[...sh.querySelectorAll('button,input,select,[tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled);if(!f.length)return;const first=f[0],last=f[f.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}
+});
+document.addEventListener('click',e=>{
+ const v=e.target.closest('[data-view]');if(v){state.view=v.dataset.view;render();return}
+ if(e.target.closest('[data-theme-toggle]')){state.theme=state.theme==='light'?'dark':'light';render();return}
+ const sc=e.target.closest('[data-scenario]');if(sc){state.scenario=sc.dataset.scenario;state.loggedIn=!['returning','empty'].includes(state.scenario);state.page=state.scenario==='returning'?'restore':'today';state.loginMode=false;state.modal=null;render();return}
+ const p=e.target.closest('[data-page]');if(p){setPage(p.dataset.page);return}
+ const mo=e.target.closest('[data-modal]');if(mo){state.modal=mo.dataset.modal;render();return}
+ const k=e.target.closest('[data-kid]');if(k){state.editKid=Number(k.dataset.kid);state.limitDraft=(kid(state.editKid)||{limit:90}).limit;state.dirty=false;setPage('child');return}
+ const td=e.target.closest('[data-tvdetail]');if(td){state.tv=Number(td.dataset.tvdetail);setPage('tv');return}
+ const inc=e.target.closest('[data-incoming]');if(inc){state.pickIncoming=Number(inc.dataset.incoming);render();return}
+ const un=e.target.closest('[data-unlock]');if(un){state.pickUnlock=Number(un.dataset.unlock);render();return}
+ const as=e.target.closest('[data-assign]');if(as&&!ro()){const i=Number(as.dataset.assign),t=state.tvs[i],id=state.editKid;t.active=t.active.includes(id)?t.active.filter(x=>x!==id):[...t.active,id];render();toast('分配已保存 · 规则对所有电视一致');return}
+ const ta=e.target.closest('[data-tvassign]');if(ta&&!ro()){const id=Number(ta.dataset.tvassign),t=state.tvs[state.tv];t.active=t.active.includes(id)?t.active.filter(x=>x!==id):[...t.active,id];render();toast('分配已保存');return}
+ const a=e.target.closest('[data-act]');if(!a)return;const act=a.dataset.act;
+ if(ro()&&WRITE_ACTS.includes(act)){toast('只读代管：不能修改配置');return}
+ if(act==='close'){state.modal=null;render();return}
+ if(act==='back'){if(state.dirty){state.modal='draft';render();return}setPage(['child','quiz'].includes(state.page)?'children':state.page==='tv'?'devices':state.page==='account'?'today':'today')}
+ if(act==='showLogin'){if(state.page==='restore'){state.loginMode=true;render()}else{state.modal='login';render()}}
+ if(act==='cancelLogin'){state.loginMode=false;render()}
+ if(act==='login'){state.loggedIn=true;state.scenario='active';state.modal=null;state.loginMode=false;setPage('today');toast('已恢复家庭档案、2 台电视与题库')}
+ if(act==='newAccount'){state.scenario='empty';state.loggedIn=true;setPage('today');toast('新家长号已创建')}
+ if(act==='deviceOnly'){state.scenario='empty';state.loggedIn=false;setPage('today')}
+ if(act==='unlock')toast('已批准，客厅电视恢复播放');
+ if(act==='scan')toast('打开扫码器 · 示例不调用摄像头');
+ if(act==='remote'){const t=state.tvs[Number(a.dataset.v||0)];toast('打开 '+(t?t.name:'')+' 遥控器')}
+ if(act==='addKid')toast('打开新增家庭档案表单');
+ if(act==='tvMode'){state.tvs[state.tv].mode=!state.tvs[state.tv].mode;render();toast('儿童模式已'+(state.tvs[state.tv].mode?'开启':'关闭')+'（仅本台）')}
+ if(act==='openUnlock'){const t=state.tvs[state.tv]||state.tvs[0];state.pickUnlock=Math.max(0,UNLOCKS.indexOf(t.unlock));state.modal='unlock';render()}
+ if(act==='saveUnlock'){const t=state.tvs[state.tv]||state.tvs[0];t.unlock=UNLOCKS[state.pickUnlock]||'远程确认';if(state.pickUnlock===1){const el=$('unlockPin');if(el)t.pin=el.value}state.modal=null;render();toast('已保存 · 仅「'+t.name+'」生效，其它电视不受影响')}
+ if(act==='saveKid'){if(state.saving)return;state.saving=true;const el=$('limit'),k=kid(state.editKid);if(el&&Number(el.value)>0&&k){k.limit=Number(el.value);state.limitDraft=k.limit}state.saving=false;state.dirty=false;render();toast('已保存 · 规则同步到所有电视，题库授权名单未丢失')}
+ if(act==='openShare'){state.editQuiz=Number(a.dataset.q);state.modal='share';render()}
+ if(act==='saveShare'){const q=state.quizzes.find(x=>x.id===state.editQuiz);const el=$('shareNames');if(q&&el)q.sharedTo=el.value.split(/[,，]/).map(x=>x.trim()).filter(Boolean);state.modal=null;render();toast('题库授权名单已保存')}
+ if(act==='openImport'){state.pickIncoming=0;state.modal='import';render()}
+ if(act==='doImport'){const src=state.incoming[state.pickIncoming||0],sel=$('importKid'),kidId=sel?Number(sel.value):state.kids[0].id;if(src){state.quizzes.push({id:Date.now(),kidId:kidId,title:src.title,count:src.count,local:false,source:'来自 '+src.from+' 的题库副本',sharedTo:[]})}state.editKid=kidId;state.modal=null;setPage('quiz');toast('已复制副本到「'+((kid(kidId)||{}).name||'')+'」的题库')}
+ if(act==='openUnbind'){state.modal='unbind';render()}
+ if(act==='doUnbind'){const name=(state.tvs[state.tv]||{}).name||'';state.tvs.splice(state.tv,1);state.tv=0;state.modal=null;setPage('devices');toast('已解绑 '+name+' · 家庭档案保留，今日时长不清零')}
+ if(act==='openDelete'){state.modal='delete';render()}
+ if(act==='doDelete'){const name=(kid(state.editKid)||{}).name||'';state.quizzes=state.quizzes.filter(q=>q.kidId!==state.editKid);state.kids=state.kids.filter(k=>k.id!==state.editKid);state.tvs.forEach(t=>t.active=t.active.filter(id=>id!==state.editKid));state.editKid=state.kids[0]?state.kids[0].id:0;state.modal=null;setPage('children');toast('已删除家庭档案「'+name+'」')}
+ if(act==='openConflict'){state.modal='conflict';render()}
+ if(act==='openDiff'){state.modal='diff';render()}
+ if(act==='backConflict'){state.modal='conflict';render()}
+ if(act==='resolveOverwrite'){state.modal=null;state.dirty=false;render();toast('已用我的版本覆盖，服务端版本递增为 v19')}
+ if(act==='resolveDrop'){const k=kid(state.editKid);state.limitDraft=k?k.limit:90;state.modal=null;state.dirty=false;render();toast('已放弃修改，页面恢复为服务端当前值')}
+ if(act==='dropDraft'){const k=kid(state.editKid);state.limitDraft=k?k.limit:90;state.dirty=false;state.modal=null;setPage('children')}
+});
+/* ============ Self test (real browser) ============ */
+function runSelfTest(){
+ const out=[];const ok=(n,c)=>out.push((c?'PASS':'FAIL')+' · '+n);
+ ['today','children','child','quiz','devices','tv','account','restore'].forEach(p=>{setPage(p);ok('页面渲染 '+p,$('content').innerHTML.length>120)});
+ MODALS.forEach(([m])=>{state.modal=m;render();ok('弹层 '+m,$('overlay').innerHTML.includes('role="dialog"'))});
+ state.modal=null;setPage('today');
+ const click=sel=>{const el=document.querySelector(sel);if(!el)return false;el.click();return true};
+ ok('主交互：批准解锁',click('[data-act="unlock"]')&&state.toast.includes('批准'));
+ setPage('child');ok('保存操作栏独立于滚动区',!!document.querySelector('#actionbar.on')&&$('content').nextElementSibling.id==='actionbar');
+ const before=state.tvs[0].active.length;ok('主交互：分配开关',click('[data-assign="0"]')&&state.tvs[0].active.length!==before);
+ ok('主交互：保存',click('[data-act="saveKid"]')&&state.toast.includes('已保存'));
+ ok('主交互：打开冲突',click('[data-act="openConflict"]')&&state.modal==='conflict');
+ ok('主交互：查看差异',click('[data-act="openDiff"]')&&state.modal==='diff');
+ state.modal=null;setPage('quiz');ok('主交互：分享设置',click('[data-act="openShare"]')&&state.modal==='share');
+ state.modal=null;render();ok('主交互：引用题库入口',click('[data-act="openImport"]')&&state.modal==='import');
+ ok('主交互：复制导入',click('[data-act="doImport"]')&&state.page==='quiz');
+ state.modal=null;setPage('tv');ok('主交互：解绑确认',click('[data-act="openUnbind"]')&&state.modal==='unbind');
+ ok('S4：解绑不影响题库授权与已导入副本',$('overlay').innerHTML.includes('不会因解绑电视而改变')&&$('overlay').innerHTML.includes('已导入的题库副本也不受影响'));
+ state.modal=null;
+ setPage('child');ok('CR-02：孩子详情规则区不再有解锁方式行',!$('content').innerHTML.includes('<span class="lbl">解锁方式</span>'));
+ setPage('tv');ok('CR-02：解锁方式为可编辑本台入口',!!document.querySelector('[data-act="openUnlock"]')&&!$('content').innerHTML.includes('家庭级，所有电视一致'));
+ click('[data-act="openUnlock"]');ok('CR-02：打开本台解锁方式弹层',state.modal==='unlock');
+ click('[data-unlock="1"]');ok('CR-02：选择 PIN 后出现本台 PIN 输入',!!document.querySelector('#unlockPin'));
+ click('[data-act="saveUnlock"]');ok('CR-02：保存只改当前电视',state.tvs[state.tv].unlock==='PIN 码'&&state.tvs[1].unlock==='算术题');
+ state.scenario='admin';setPage('children');render();
+ const addBtn=document.querySelector('[data-act="addKid"]');
+ ok('admin 写按钮禁用',!!addBtn&&addBtn.disabled);
+ ok('admin 只读横幅可见',$('content').innerHTML.includes('只读代管'));
+ state.modal='unlock';render();ok('CR-02：admin 不能保存本台解锁方式',!!document.querySelector('[data-act="saveUnlock"][disabled]'));
+ state.modal=null;
+ setPage('today');ok('admin 仍可批准解锁（唯一例外）',!!document.querySelector('[data-act="unlock"]:not([disabled])'));
+ state.scenario='active';render();
+ const tg=document.querySelector('[data-theme-toggle]');tg.click();ok('深色主题切换',document.documentElement.getAttribute('data-theme')==='dark');
+ const vb=document.querySelector('[data-view="a11y"]');vb.click();ok('无障碍视图',$('view-a11y').classList.contains('on'));
+ ok('对比度全部 ≥4.5:1',CONTRAST.every(([,f,b])=>ratio(f,b)>=4.5));
+ ok('SVG 图标替代字符图标',!document.querySelector('#view-preview').innerHTML.includes('♙'));
+ const n=document.createElement('pre');n.id='selftest-result';n.textContent=out.join('\n');document.body.appendChild(n);
+ document.title='SELFTEST '+out.filter(x=>x.startsWith('PASS')).length+'/'+out.length;
+}
+/* ============ Init ============ */
+const q=new URLSearchParams(location.search);
+if(q.get('scenario')){state.scenario=q.get('scenario');state.loggedIn=!['returning','empty'].includes(state.scenario)}
+if(q.get('page'))state.page=q.get('page');
+if(q.get('theme')==='dark')state.theme='dark';
+if(q.get('view'))state.view=q.get('view');
+if(q.get('modal')){state.modal=q.get('modal');if(state.modal==='unlock')state.pickUnlock=Math.max(0,UNLOCKS.indexOf((state.tvs[state.tv]||{}).unlock))}
+if(state.page==='restore')state.loggedIn=false;
+state.limitDraft=(kid(state.editKid)||{limit:90}).limit;
+render();
+if(q.get('selftest')==='1')runSelfTest();
+if(typeof window!=='undefined'&&window.addEventListener)window.addEventListener('popstate',()=>{if(state.modal){state.modal=null;render()}else if(!TABS.includes(state.page))setPage('today')});
+</script>
+</body>
+</html>

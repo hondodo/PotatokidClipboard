@@ -9,6 +9,7 @@ import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/ui/ui_scale.dart';
+import 'package:pscreen_home/features/parental/presentation/parental_theme.dart';
 import 'package:pscreen_home/features/parental/presentation/parental_unlock_overlay.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_stage_host.dart';
@@ -154,6 +155,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
+      extensions: <ThemeExtension<dynamic>>[
+        brightness == Brightness.dark ? ParentalTheme.dark : ParentalTheme.light,
+      ],
       scaffoldBackgroundColor: surfaceBg,
       appBarTheme: AppBarTheme(
         backgroundColor: appBarBg,

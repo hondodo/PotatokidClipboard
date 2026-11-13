@@ -337,3 +337,193 @@ List<String> _stringList(dynamic value) {
         .where((String item) => item.isNotEmpty)
         .toList(growable: false);
 }
+
+/// 家庭档案分配到的某台电视的引用（仅展示用，不含配置）。
+class FamilyTvRef {
+  const FamilyTvRef({required this.id, required this.name});
+
+  final String id;
+  final String name;
+
+  factory FamilyTvRef.fromJson(Map<String, dynamic> json) =>
+      FamilyTvRef(id: _string(json['id']), name: _string(json['name']));
+}
+
+/// 家庭级儿童主档案（D-02 / Task 32）：按 `childId` 全局唯一，不含 `deviceId`。
+///
+/// 与服务端 `familyStore.data.children` + `GET /api/admin/parental/children`
+/// 的投影同构：配额与限制类规则（限额 / 禁看时段 / 黑白名单 / 档位）全部归这里，
+/// 电视端只按分配表投影已启用的档案，不提供逐台改规则的入口（S2）。
+///
+/// `sharedTo` 在 D-02 + CR-01 后挂到**题库实体**上，这里只回显方便 UI 提示；
+/// `assignedTo` 是只读展示字段（哪些电视启用本档案），改分配走 assignment 接口。
+class FamilyChild {
+  const FamilyChild({
+    required this.id,
+    required this.name,
+    this.age,
+    this.avatarId,
+    this.profileMode = 'mild',
+    this.dailyLimitMin = 0,
+    this.sessionLimitMin = 0,
+    this.bedtimeStart = '',
+    this.bedtimeEnd = '',
+    this.blacklist = const <String>[],
+    this.whitelist = const <String>[],
+    this.locked = false,
+    this.sharedTo = const <String>[],
+    this.assignedTo = const <FamilyTvRef>[],
+    this.revision = 0,
+  });
+
+  final String id;
+  final String name;
+  final int? age;
+
+  /// 头像素材 id（app_server 镜像 sha256）；空 = 客户端回落预设。
+  final String? avatarId;
+
+  /// 档位：`mild | strict`（唯一按档案生效的档位来源）。
+  final String profileMode;
+
+  /// 单日累计限额（分钟）；0 = 不启用。
+  final int dailyLimitMin;
+
+  /// 单次连续观看限额（分钟）；0 = 不启用。
+  final int sessionLimitMin;
+
+  /// 禁看时段起点（如 `22:00`）；空 = 不启用。
+  final String bedtimeStart;
+
+  /// 禁看时段终点（如 `06:00`）；空 = 不启用。
+  final String bedtimeEnd;
+
+  /// 温和档黑名单 / 严格档白名单（按 profileMode 解读）。
+  final List<String> blacklist;
+  final List<String> whitelist;
+
+  /// 是否受验证保护（选人页 locked 闸门）。
+  final bool locked;
+
+  /// 题库分享白名单（CR-01：只授权家长号，不传 childId）。
+  final List<String> sharedTo;
+
+  /// 只读展示：哪些电视启用了本档案（来自 assignment 反向索引）。
+  final List<FamilyTvRef> assignedTo;
+
+  /// D-01：服务端维护的实体版本号（展示态，不写入配置字段；保存时作为 `baseRevision` 回传）。
+  final int revision;
+
+  bool get isStrict => profileMode == 'strict';
+  String get profileModeLabel => isStrict ? '严格档' : '温和档';
+
+  factory FamilyChild.fromJson(Map<String, dynamic> json) {
+    final dynamic rawAssigned = json['assignedTo'];
+    final List<FamilyTvRef> assigned = rawAssigned is List
+        ? rawAssigned
+            .whereType<Map>()
+            .map((Map item) =>
+                FamilyTvRef.fromJson(Map<String, dynamic>.from(item)))
+            .toList(growable: false)
+        : const <FamilyTvRef>[];
+    return FamilyChild(
+      id: _string(json['id'], fallback: _string(json['childId'])),
+      name: _string(json['name']),
+      age: _int(json['age']),
+      avatarId: _string(json['avatarId'], fallback: _string(json['avatar'])),
+      profileMode: _string(json['profileMode'], fallback: 'mild') == 'strict'
+          ? 'strict'
+          : 'mild',
+      dailyLimitMin: _int(json['dailyLimitMin']) ?? 0,
+      sessionLimitMin: _int(json['sessionLimitMin']) ?? 0,
+      bedtimeStart: _string(json['bedtimeStart']),
+      bedtimeEnd: _string(json['bedtimeEnd']),
+      blacklist: _stringList(json['blacklist']),
+      whitelist: _stringList(json['whitelist']),
+      locked: json['locked'] == true,
+      sharedTo: _stringList(json['sharedTo']),
+      assignedTo: assigned,
+      revision: _int(json['revision']) ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'name': name,
+        if (age != null) 'age': age,
+        if (avatarId != null && avatarId!.isNotEmpty) 'avatarId': avatarId,
+        'profileMode': profileMode,
+        'dailyLimitMin': dailyLimitMin,
+        'sessionLimitMin': sessionLimitMin,
+        if (bedtimeStart.isNotEmpty) 'bedtimeStart': bedtimeStart,
+        if (bedtimeEnd.isNotEmpty) 'bedtimeEnd': bedtimeEnd,
+        'blacklist': blacklist,
+        'whitelist': whitelist,
+        'locked': locked,
+      };
+
+  FamilyChild copyWith({
+    String? name,
+    int? age,
+    String? avatarId,
+    String? profileMode,
+    int? dailyLimitMin,
+    int? sessionLimitMin,
+    String? bedtimeStart,
+    String? bedtimeEnd,
+    List<String>? blacklist,
+    List<String>? whitelist,
+    bool? locked,
+    List<String>? sharedTo,
+    List<FamilyTvRef>? assignedTo,
+  }) =>
+      FamilyChild(
+        id: id,
+        name: name ?? this.name,
+        age: age ?? this.age,
+        avatarId: avatarId ?? this.avatarId,
+        profileMode: profileMode ?? this.profileMode,
+        dailyLimitMin: dailyLimitMin ?? this.dailyLimitMin,
+        sessionLimitMin: sessionLimitMin ?? this.sessionLimitMin,
+        bedtimeStart: bedtimeStart ?? this.bedtimeStart,
+        bedtimeEnd: bedtimeEnd ?? this.bedtimeEnd,
+        blacklist: blacklist ?? this.blacklist,
+        whitelist: whitelist ?? this.whitelist,
+        locked: locked ?? this.locked,
+        sharedTo: sharedTo ?? this.sharedTo,
+        assignedTo: assignedTo ?? this.assignedTo,
+        revision: revision,
+      );
+}
+
+/// CR-01：一份分享给我的题库（他人 `sharedTo` 含我），用于一键复制副本。
+///
+/// 仅含来源账号 / 来源 childId / 题目数等匿名聚合信息，不含任何观看时长、
+/// 观看记录或孩子姓名以外的隐私（Q3 口径）。
+class SharedQuizInfo {
+  const SharedQuizInfo({
+    required this.sourceAccount,
+    required this.sourceChildId,
+    required this.childName,
+    required this.questionCount,
+  });
+
+  /// 来源题库所属家长号（作者）。
+  final String sourceAccount;
+
+  /// 来源档案的 childId（题库按 childId 分库）。
+  final String sourceChildId;
+
+  /// 来源档案的展示名（仅用于选择时辨认，不用于统计）。
+  final String childName;
+
+  /// 题目数量（匿名聚合，不含内容预览）。
+  final int questionCount;
+
+  factory SharedQuizInfo.fromJson(Map<String, dynamic> json) => SharedQuizInfo(
+        sourceAccount: _string(json['sourceAccount']),
+        sourceChildId: _string(json['sourceChildId']),
+        childName: _string(json['childName']),
+        questionCount: _int(json['questionCount']) ?? 0,
+      );
+}

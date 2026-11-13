@@ -128,7 +128,7 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
       final int offX = (decoded.width - side) ~/ 2;
       final int offY = (decoded.height - side) ~/ 2;
       final img.Image cropped = img.copyCrop(decoded, x: offX, y: offY, width: side, height: side);
-      final img.Image resized = img.copyResize(cropped, width: 512, height: 512);
+      final img.Image resized = img.copyResize(cropped, width: 256, height: 256);
       final Uint8List encoded = Uint8List.fromList(img.encodePng(resized));
       if (!mounted) return;
       // 置上传中状态（显示本地预览 + 半透明进度条上涨）。
@@ -244,30 +244,89 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
     return a != null && a.isNotEmpty;
   }
 
+  /// 从当前表单组装 [ParentalChild]；保存与「是否有未保存改动」判断共用。
+  ParentalChild _buildChild() {
+    final ParentalChild? initial = widget.initial;
+    return ParentalChild(
+      id: initial?.id ?? 'c${DateTime.now().millisecondsSinceEpoch}',
+      name: _name.text.trim(),
+      age: int.tryParse(_age.text.trim()),
+      profileMode: _profileMode,
+      avatar: _avatar,
+      hideGroups: _split(_hideGroups.text),
+      hideChannels: _split(_hideChannels.text),
+      allowGroups: _split(_allowGroups.text),
+      allowChannels: _split(_allowChannels.text),
+      sessionLimitMin: _limit(_session.text),
+      dailyLimitMin: _limit(_daily.text),
+      quietHours: _split(_quietHours.text),
+      locked: _locked,
+    );
+  }
+
+  /// 是否有未保存改动（A7：离开前二次确认）。
+  bool _isDirty() {
+    final ParentalChild? initial = widget.initial;
+    final ParentalChild current = _buildChild();
+    if (initial == null) {
+      // 新增：仅当真正输入了内容才算脏，避免空表单误弹确认。
+      return current.name.isNotEmpty ||
+          current.avatar != null ||
+          current.profileMode != 'mild' ||
+          current.locked ||
+          current.age != null ||
+          current.hideGroups.isNotEmpty ||
+          current.hideChannels.isNotEmpty ||
+          current.allowGroups.isNotEmpty ||
+          current.allowChannels.isNotEmpty ||
+          current.sessionLimitMin != null ||
+          current.dailyLimitMin != null ||
+          current.quietHours.isNotEmpty;
+    }
+    return current.name != initial.name ||
+        current.age != initial.age ||
+        current.profileMode != initial.profileMode ||
+        current.avatar != initial.avatar ||
+        current.locked != initial.locked ||
+        current.hideGroups != initial.hideGroups ||
+        current.hideChannels != initial.hideChannels ||
+        current.allowGroups != initial.allowGroups ||
+        current.allowChannels != initial.allowChannels ||
+        current.sessionLimitMin != initial.sessionLimitMin ||
+        current.dailyLimitMin != initial.dailyLimitMin ||
+        current.quietHours != initial.quietHours;
+  }
+
+  /// 未保存改动离开前的二次确认。
+  Future<void> _confirmDiscard() async {
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('放弃未保存的改动？'),
+        content: const Text('你修改了这份儿童档案但还没有保存，离开后改动会丢失。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('继续编辑'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('放弃并返回'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   void _save() {
-    final String name = _name.text.trim();
-    if (name.isEmpty) {
+    if (_name.text.trim().isEmpty) {
       setState(() => _nameError = '请填写名称');
       return;
     }
-    final ParentalChild? initial = widget.initial;
-    Navigator.of(context).pop(
-      ParentalChild(
-        id: initial?.id ?? 'c${DateTime.now().millisecondsSinceEpoch}',
-        name: name,
-        age: int.tryParse(_age.text.trim()),
-        profileMode: _profileMode,
-        avatar: _avatar,
-        hideGroups: _split(_hideGroups.text),
-        hideChannels: _split(_hideChannels.text),
-        allowGroups: _split(_allowGroups.text),
-        allowChannels: _split(_allowChannels.text),
-        sessionLimitMin: _limit(_session.text),
-        dailyLimitMin: _limit(_daily.text),
-        quietHours: _split(_quietHours.text),
-        locked: _locked,
-      ),
-    );
+    Navigator.of(context).pop(_buildChild());
   }
 
   /// 逗号 / 顿号 / 换行分隔的名单 → 去空串列表。
@@ -287,7 +346,13 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Padding(
+    return PopScope(
+      canPop: !_isDirty(),
+      onPopInvokedWithResult: (bool didPop, Object? _) {
+        if (didPop) return;
+        _confirmDiscard();
+      },
+      child: Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         top: false,
@@ -396,7 +461,7 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
                     if (uploadIdx < _uploadedAvatars.length) {
                       final AvatarItem item = _uploadedAvatars[uploadIdx];
                       final bool selected = _isSelectedUploaded(item.url);
-                      return _AvatarTile(
+                      return AvatarTile(
                         size: 72,
                         selected: selected,
                         onTap: () => setState(() {
@@ -418,7 +483,7 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
                     final int presetIdx = uploadIdx - _uploadedAvatars.length;
                     final String key = _presetAvatars[presetIdx];
                     final bool selected = _isSelectedPreset(key);
-                    return _AvatarTile(
+                    return AvatarTile(
                       size: 72,
                       selected: selected,
                       onTap: () => setState(() {
@@ -599,95 +664,10 @@ class _ChildProfileEditorSheetState extends State<ChildProfileEditorSheet> {
           ),
         ),
       ),
+    ),
     );
   }
 }
 
-/// 头像选择条目：圆形图 + 选中描边 + 右下角 ✓ + 右上角 X（可选删除）。
-class _AvatarTile extends StatelessWidget {
-  const _AvatarTile({
-    required this.size,
-    required this.selected,
-    required this.onTap,
-    required this.child,
-    this.deleteAction,
-  });
-
-  final double size;
-  final bool selected;
-  final VoidCallback onTap;
-  final Widget child;
-
-  /// 非空时右上角显示 X 按钮；预设头像不传入这个。
-  final VoidCallback? deleteAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? theme.colorScheme.primary : Colors.transparent,
-            width: selected ? 3 : 0,
-          ),
-        ),
-        child: Stack(
-          children: <Widget>[
-            Padding(
-              padding: EdgeInsets.all(selected ? 1 : 0),
-              child: child,
-            ),
-            if (selected)
-              Positioned(
-                right: 2,
-                bottom: 2,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.check,
-                    size: 14,
-                    color: theme.colorScheme.onPrimary,
-                  ),
-                ),
-              ),
-            if (deleteAction != null)
-              Positioned(
-                top: -2,
-                right: -2,
-                child: GestureDetector(
-                  onTap: deleteAction,
-                  // 独立点击区：不触发外层 onTap。
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// `_AvatarTile` 已抽取为公共组件 `AvatarTile`，见
+// `packages/pscreen_screen/lib/core/parental/child_avatar.dart`。

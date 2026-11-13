@@ -1,9 +1,16 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// 正式签名：密钥与口令从 pscreen_home/cer/ 读取（相对 android/app/ 为 ../../cer/）。
+// 该目录已被 cer/.gitignore 忽略，不会随仓库分发；详见 cer/README.md。
+val releaseSigningStore: File = file("../../cer/potatokid-home-release.jks")
+val releaseSigningPassword: String = file("../../cer/.storepass.txt").readText().trim()
 
 android {
     namespace = "potatokid.tools.homecontroller"
@@ -74,11 +81,19 @@ android {
         }
     }
 
+    // 正式 release 签名配置：从 pscreen_home/cer/ 读取（见文件顶部 val 定义）。
+    signingConfigs {
+        create("release") {
+            storeFile = releaseSigningStore
+            storePassword = releaseSigningPassword
+            keyAlias = "potatokid-home"
+            keyPassword = releaseSigningPassword
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
