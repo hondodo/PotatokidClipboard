@@ -51,19 +51,46 @@ class ParentalTodayView extends StatelessWidget {
   final bool isServerError;
 
   /// 跨全部电视合并「今日」按档案分账的时长（秒）。
+  ///
+  /// `dailySecByChild` 是电视端每 25s 心跳里携带的「当日累计快照」，同一天
+  /// 会重复上报几十次（暂停/无人看时也原样重发）。因此必须**按电视取最新
+  /// 一条快照，再跨电视相加**——直接累加所有心跳会把同一份累计值重复计入，
+  /// 渲染出远超真实值的「今日已看」。
   Map<String, int> _mergedDailyByChild() {
     final String today = _dateKey(DateTime.now());
-    final Map<String, int> result = <String, int>{};
+    // 同一台电视的别名归一：commAccount 与设备 id 都可能出现在 from 里。
+    final Map<String, String> sourceOf = <String, String>{};
+    for (final ParentalMachine m in machines) {
+      if (m.commAccount.isNotEmpty) sourceOf[m.commAccount] = m.id;
+      if (m.id.isNotEmpty) sourceOf[m.id] = m.id;
+    }
+    // '$source|$childId' -> (该电视最新快照的 ts 与值)
+    final Map<String, int> bestTs = <String, int>{};
+    final Map<String, int> bestVal = <String, int>{};
     for (final RealtimeEvent event in watchEvents) {
       if ('${event.data['date'] ?? ''}' != today) continue;
       final dynamic raw = event.data['dailySecByChild'];
       if (raw is! Map) continue;
+      final String source = sourceOf[event.from] ?? event.from;
       raw.forEach((dynamic key, dynamic value) {
-        if (value is num && value >= 0) {
-          result['$key'] = (result['$key'] ?? 0) + value.toInt();
+        if (value is! num || value < 0) return;
+        final String k = '$source|$key';
+        // 快照单调递增：保留 ts 更新的一条（同 ts 取更大值兜底）。
+        final int? prevTs = bestTs[k];
+        if (prevTs == null ||
+            event.ts > prevTs ||
+            (event.ts == prevTs && value.toInt() > (bestVal[k] ?? 0))) {
+          bestTs[k] = event.ts;
+          bestVal[k] = value.toInt();
         }
       });
     }
+    // 各电视当日计数相互独立，跨电视求和得到家庭合计。
+    final Map<String, int> result = <String, int>{};
+    bestVal.forEach((String k, int v) {
+      final String childId = k.substring(k.indexOf('|') + 1);
+      result[childId] = (result[childId] ?? 0) + v;
+    });
     return result;
   }
 

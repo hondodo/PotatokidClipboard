@@ -45,6 +45,12 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, '解绑'));
     await tester.pumpAndSettle();
 
+    // S4 二次确认：弹窗说明后果，点弹窗内的「解绑」才真正执行。
+    expect(find.textContaining('解绑后将取消这台电视的儿童档案分配'), findsOneWidget);
+    expect(unbound, isEmpty);
+    await tester.tap(find.widgetWithText(FilledButton, '解绑'));
+    await tester.pumpAndSettle();
+
     expect(unbound, <String>['mA']);
     expect(find.text('已绑定设备'), findsNothing);
     expect(find.text('可绑定设备'), findsOneWidget);
