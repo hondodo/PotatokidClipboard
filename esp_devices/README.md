@@ -1,0 +1,188 @@
+# ESP 设备
+
+本目录存放 Potatokid 自研 ESP32 小屏的设备固件与操作文档。后续新增的 ESP 设备统一放在 `firmware/<设备名>/` 下。
+
+```
+esp_devices/
+├── README.md                       # 本文档
+├── .gitignore                      # 排除 secrets.h / 构建产物
+└── firmware/
+    └── potatokid_esp/              # ESP32-S3 + 1.3" OLED 小屏
+        ├── potatokid_esp.ino       # 固件（Arduino）
+        ├── secrets.h.example       # 私密配置模板
+        └── secrets.h               # 本地私密配置（不入库）
+```
+
+## 1. 硬件
+
+| 项目 | 型号 / 参数 |
+|---|---|
+| 主控 | ESP32-S3（QFN56 rev0.2，16MB Flash，8MB PSRAM） |
+| 串口 | CH343 USB-UART，Linux 下为 `/dev/ttyACM0` |
+| 屏幕 | 1.3 寸 OLED，**SH1106** 128x64，I2C，地址 `0x3C` |
+| 按键 | 可选 1~3 个轻触按键或干接点，接 GPIO4/5/6 对地 |
+
+## 2. 接线
+
+### 2.1 屏幕
+
+四根杜邦线，**接线前先断开 USB**：
+
+| OLED 模块 | 接到开发板 |
+|---|---|
+| VCC | **3V3**（不要接 5V） |
+| GND | GND |
+| SCL | GPIO9 |
+| SDA | GPIO8 |
+
+注意事项：
+
+- 按模块丝印接，不同厂家 4 针顺序不一定是 VCC/GND/SCL/SDA；
+- ESP32-S3 没有 GPIO22~25，别照抄 ESP32 老教程；GPIO33~37 被 PSRAM 占用，GPIO19/20 是 USB，都要避开；
+- 换引脚只改固件顶部的 `PIN_SDA` / `PIN_SCL` 两个常量；
+- 模块自带 4.7k 上拉，杜邦线尽量短。
+
+### 2.2 按键（测试期用杜邦线即可）
+
+| 槽位 | 开发板引脚 | 触发方式 |
+|---|---|---|
+| 按钮1 | GPIO4 | 与 GND 短接 |
+| 按钮2 | GPIO5 | 与 GND 短接 |
+| 按钮3 | GPIO6 | 与 GND 短接 |
+
+固件把三个引脚都配置为 `INPUT_PULLUP`，**按下 = 低电平**。没有按键时，一根杜邦线一头插 GPIO4、另一头碰 GND 就是一次「按下」。
+
+> GPIO 只做信号输入，**不要**把负载（灯、继电器线圈）直接串在 GPIO 上，也不要给 GPIO 灌 5V。
+
+## 3. 开发环境
+
+本机已装好 `arduino-cli 1.6.0` + ESP32 core `3.3.12` + `U8g2 2.36.19`，正常的编译烧录不需要联网。
+
+国内网络直连 GitHub 基本不可用（工具链下载会超时）。重装环境时用代理索引 + 只装 S3 需要的工具：
+
+```bash
+# 1) 安装 arduino-cli
+mkdir -p ~/.local/bin
+curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_Linux_64bit.tar.gz \
+  -o /tmp/arduino-cli.tgz
+tar -xzf /tmp/arduino-cli.tgz -C ~/.local/bin arduino-cli
+
+# 2) 安装核心与库
+~/.local/bin/arduino-cli core install esp32:esp32
+~/.local/bin/arduino-cli lib install U8g2
+```
+
+> 如果 `core install` 卡在 github.com 下载工具链：把索引里的 `https://github.com/` 换成
+> `https://ghfast.top/https://github.com/`，并删掉 riscv 工具链、其它芯片 libs 等 S3 用不到的
+> 依赖，用 `--config-file` 指向改造后的本地索引再安装。
+
+## 4. 编译与烧录
+
+```bash
+~/.local/bin/arduino-cli compile --upload -p /dev/ttyACM0 \
+  --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,CDCOnBoot=default,UploadSpeed=921600 \
+  /home/honghao/codes/PotatokidClipboard/esp_devices/firmware/potatokid_esp
+```
+
+板卡选项说明：
+
+| 选项 | 值 | 原因 |
+|---|---|---|
+| `FlashSize` | `16M` | 模组 16MB |
+| `PSRAM` | `opi` | WROOM-2 系列 8MB PSRAM |
+| `CDCOnBoot` | `default`（关闭） | 走 CH343 串口，Serial 输出到 UART0 |
+| `UploadSpeed` | `921600` | CH343 稳定档位 |
+
+串口日志：
+
+```bash
+~/.local/bin/arduino-cli monitor -p /dev/ttyACM0 -c baudrate=115200
+```
+
+## 5. 私密配置
+
+```bash
+cp firmware/potatokid_esp/secrets.h.example firmware/potatokid_esp/secrets.h
+# 编辑 secrets.h 填 WiFi 名称/密码、局域网设置页口令
+```
+
+`secrets.h` 已在 `.gitignore` 中排除，**不要提交真实密码**。缺失该文件时编译会直接报错，属预期行为。
+
+## 6. 运行行为
+
+1. 上电读取 NVS 中保存的 WiFi 与控制端地址，首次运行用 `secrets.h` 与固件默认值；
+2. 15 秒内连上：OLED 显示 `IP / srv ok / 信号`，向服务端注册并拉取已放行的控制项；
+3. 连不上：自动开热点 `Potatokid-Screen-Setup`（无密码），手机连上后浏览器打开
+   `http://192.168.4.1` 配网，配置写入 NVS 后自动重启；
+4. 联网期间每 60 秒心跳一次，并顺带刷新控制项列表；掉线超过 60 秒转配网热点；
+5. 局域网内访问 `http://<设备IP>/` 可改 WiFi，`/settings` 是设置页，都需要口令（`secrets.h` 的网页账号/密码）。
+
+## 7. 设置页（设备本地）
+
+`http://<设备IP>/settings`：
+
+| 项 | 说明 |
+|---|---|
+| 控制端地址 | 默认 `http://ptool.w1.luyouxia.net`，存 NVS，改完自动重启。换域名 / 换服务端只改这里，不用重新烧录；留空保存恢复默认 |
+| 可控设备列表 | 从服务端读取**已放行**的控制项（名称 / HA 实体 / 动作 / 按钮），每行可点「测试」直接执行一次 |
+| 物理按键 | GPIO4/5/6 对应按钮1/2/3，短接 GND 即触发 |
+
+屏幕上会短暂显示按键结果（`sent ok` / `failed, see serial`），失败原因看串口日志。
+
+## 8. 用按键控制 HA（白名单在服务端）
+
+固件本身不存 HA 地址和令牌，按键只发请求给 pscreen_server，由服务端按白名单代调 HA：
+
+1. 管理页 `/admin` → **设备状态** → 找到这台 ESP（类型为空、型号 `ESP32-S3 1.3 OLED`）→「ESP 控制」；
+2. 添加控制项：显示名、实体 id（如 `light.living_room`）、动作（切换/开/关/执行）、绑定的按钮槽位；
+3. 勾选「放行」——**只有勾选的项才会下发到设备**，没勾的设备看不到、也调不动；
+4. 右上角「HA 连接」填 HA 地址与长期访问令牌（HA：用户资料 → 长期访问令牌）。令牌只存在服务端，不下发到 ESP。
+
+服务端接口（设备侧无需鉴权，白名单是唯一门禁）：
+
+| 用途 | 接口 | 返回 |
+|---|---|---|
+| 拉取放行项 | `GET /api/device/esp/actions?deviceId=<id>&format=text` | `button\|name\|entityId\|action\|id` 每行一项 |
+| 按键触发 | `POST /api/device/esp/press`，body `{deviceId, button}` 或 `{deviceId, actionId}` | HA 执行结果 |
+
+管理页接口（需登录）：`GET/PUT /api/admin/machines/:id/esp`、`GET/PUT /api/admin/ha`。
+
+> 动作与 HA 服务的对应：`toggle → <domain>.toggle`、`turn_on → <domain>.turn_on`、`turn_off → <domain>.turn_off`、
+> `run → <domain>.turn_on`（用于 script / scene）。窗帘这类需要 `open_cover/close_cover` 的实体，建议在 HA 里建 script 后用「执行」。
+
+## 9. 控制真实设备（继电器）
+
+GPIO 只有 3.3V / 几 mA，只能给信号，不能直接带负载。常规做法：
+
+| 继电器模块 | 接到 |
+|---|---|
+| VCC | 开发板 5V（或外部 5V，与开发板共地） |
+| GND | GND（必须与开发板共地） |
+| IN | GPIO4（对应按钮1） |
+| COM / NO | 串在被控设备的火线或信号线上 |
+
+- 模块分「高电平触发 / 低电平触发」两种，固件按键是低电平有效；若模块是高电平触发，接 `IN` 后行为会相反，换低电平触发模块或把按键改成上拉对 VCC（改固件 `INPUT_PULLDOWN` + 高电平判断）；
+- 强烈建议被控设备的强电部分由**成品继电器/智能插座**承担，ESP 只做触发，避免市电接线风险；
+- 不想接继电器时，直接用「ESP 按键 + HA 控制」的方式验证链路：HA 里操作灯/插座，设备只负责发按键请求。
+
+## 10. 常见问题
+
+| 现象 | 排查 |
+|---|---|
+| 屏幕全黑 | 先看串口是否打印 `OLED ready at 0x3C`；没有则检查 SDA/SCL 是否接反、VCC 是否为 3V3 |
+| 屏幕花屏/错位（左缺右乱码） | 面板是 SH1106 而驱动写成 SSD1306；用 `U8G2_SH1106_128X64_NONAME_F_HW_I2C`（当前固件已如此） |
+| 串口无输出 | 确认板卡选项 `CDCOnBoot=default`，端口为 `/dev/ttyACM0` |
+| 连不上 WiFi | 只支持 2.4GHz；确认热点名称密码；等 15 秒自动进配网热点 |
+| 局域网设置页打不开 | 需要 Basic Auth（`secrets.h` 的口令）；确认设备和电脑在同一网段 |
+| 服务端显示离线 | 检查控制端地址是否可达、心跳日志 `[srv] ... -> HTTP 200 ok` |
+| 设置页控制项为空 | 管理页还没添加控制项，或没勾「放行」 |
+| 按键提示 failed | 看串口：`未配置 HA` → 填 HA 连接；`调用 HA 失败` → 检查 HA 地址/令牌；`未放行` → 回管理页勾选 |
+
+## 11. 新增 ESP 设备的约定
+
+- 目录：`firmware/<设备名>/<设备名>.ino`，与 Arduino sketch 同名规则保持一致；
+- 私密信息一律走 `secrets.h`（模板入库、真实文件不入库）；
+- `deviceId` 建议 `<前缀>-<MAC 12 位>`，前缀区分设备形态（如 `esp32s3`）；
+- 上线后统一调 `/api/device/register` 与 `/api/device/heartbeat`，不要另建注册接口；
+- 需要 HA 控制的设备，复用 `/api/device/esp/actions` 与 `/api/device/esp/press`，白名单统一在 admin 页维护；
+- 新增硬件引脚在 README 的接线表登记，避免后续换板接错。

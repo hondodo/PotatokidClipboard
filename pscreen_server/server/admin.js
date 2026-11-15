@@ -60,6 +60,12 @@ const MAX_AVATAR_URL_LEN = 512;
 const MAX_MACHINE_NAME = 40;
 const MAX_ALIAS_LENGTH = 40;
 const UNNAMED_DEVICE = '未命名设备';
+// ESP 小屏控制项：单台设备最多配置多少个可控制实体（白名单）。
+// 按钮槽位 1..4 与固件 esp_devices 的 BTN_PINS 顺序一致；0 表示只允许在网页里点。
+const MAX_ESP_ACTIONS = 20;
+const MAX_ESP_BUTTONS = 4;
+const ESP_ENTITY_RE = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i;
+const ESP_ACTION_KINDS = new Set(['toggle', 'turn_on', 'turn_off', 'run']);
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
 // （tv）可作为家长管控对象；家长端（parent）只是控制端，也不是管控对象，
 // 但同样上报心跳、走实时通道、可遥控电视。
@@ -235,6 +241,42 @@ function normalizeMachineAliases(value) {
         result[account] = alias;
     }
     return result;
+}
+
+/**
+ * ESP 控制项归一（白名单）。
+ *
+ * 「不想所有都开放」由这里兜底：只有 `enabled === true` 的项才会下发给设备，
+ * 设备按键时服务端也只认已启用的项。非法实体 / 动作直接丢弃，避免把
+ * 设备变成任意服务调用器。
+ */
+function normalizeEspActions(value) {
+    if (!Array.isArray(value)) return [];
+    const list = [];
+    const seen = new Set();
+    for (const raw of value) {
+        if (!raw || typeof raw !== 'object') continue;
+        const entityId = String(raw.entityId || '').trim().slice(0, 128);
+        if (!ESP_ENTITY_RE.test(entityId)) continue;
+        let id = String(raw.id || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `a${list.length + 1}`;
+        while (seen.has(id)) id = `${id}x`;
+        seen.add(id);
+        const name = String(raw.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId;
+        const action = ESP_ACTION_KINDS.has(raw.action) ? raw.action : 'toggle';
+        const button = Number(raw.button);
+        list.push({
+            id,
+            name,
+            entityId,
+            action,
+            // 0 = 不绑物理按钮（仅网页/接口测试用）；1..4 对应固件 BTN_PINS 顺序
+            button: Number.isInteger(button) && button >= 1 && button <= MAX_ESP_BUTTONS ? button : 0,
+            enabled: raw.enabled === true,
+        });
+        if (list.length >= MAX_ESP_ACTIONS) break;
+    }
+    return list;
 }
 
 /**
@@ -560,6 +602,9 @@ function attachAdmin(app, options = {}) {
     fs.mkdirSync(adminDir, { recursive: true });
 
     const machinesFile = path.join(adminDir, 'machines.json');
+    // ESP 小屏控制 HA 用的连接信息（地址 + 长期令牌），由 admin 页维护。
+    // 也可用环境变量 HA_BASE_URL / HA_TOKEN 提供，两者都没有时按键会明确报错。
+    const haFile = path.join(adminDir, 'ha.json');
     const layoutsFile = path.join(adminDir, 'layouts.json');
     const secretFile = path.join(adminDir, 'secret.key');
     // 答题解锁题库：按「设备 → 儿童档案」独立存储，不塞进 machines.json，
@@ -735,6 +780,8 @@ function attachAdmin(app, options = {}) {
             homes,
             // 儿童模式只对电视生效：home / parent 即便带了历史字段也一律置空。
             parental: kind === 'tv' ? parental : null,
+            // ESP 小屏控制白名单（实体 / 动作 / 按钮槽位 / 是否放行）。
+            espActions: normalizeEspActions(machine.espActions),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -760,6 +807,64 @@ function attachAdmin(app, options = {}) {
 
     function saveMachines(machines) {
         writeJson(machinesFile, machines);
+    }
+
+    // ------------------------------------------------------------ HA 调用（ESP 按键）
+
+    /** 读取 HA 连接信息：admin 页保存值优先，环境变量兜底。 */
+    function readHaConfig() {
+        const raw = readJson(haFile, {}) || {};
+        const pick = (fileValue, envValue) => {
+            const fromFile = typeof fileValue === 'string' ? fileValue.trim() : '';
+            if (fromFile) return fromFile;
+            return typeof envValue === 'string' ? envValue.trim() : '';
+        };
+        return {
+            baseUrl: pick(raw.baseUrl, process.env.HA_BASE_URL),
+            token: pick(raw.token, process.env.HA_TOKEN),
+        };
+    }
+
+    function haConfigView() {
+        const { baseUrl, token } = readHaConfig();
+        return { baseUrl, hasToken: token !== '', configured: baseUrl !== '' && token !== '' };
+    }
+
+    /** 实体域 + 动作 → HA 服务名；`run` 用于 script / scene / automation。 */
+    function haServiceName(entityId, action) {
+        const domain = entityId.split('.')[0].toLowerCase();
+        if (action === 'run') return `${domain}.turn_on`;
+        return `${domain}.${action}`;
+    }
+
+    /** 调一次 HA REST 服务。抛错由调用方转成业务失败。 */
+    async function callHaService(entityId, action) {
+        const { baseUrl, token } = readHaConfig();
+        if (!baseUrl || !token) throw new Error('服务端未配置 HA 地址或令牌');
+        const base = /^https?:\/\//i.test(baseUrl) ? baseUrl : `http://${baseUrl}`;
+        const url = `${base.replace(/\/+$/, '')}/api/services/${haServiceName(entityId, action)}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ entity_id: entityId }),
+                signal: controller.signal,
+            });
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`HA 返回 HTTP ${res.status}${text ? `：${text.slice(0, 120)}` : ''}`);
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') throw new Error('调用 HA 超时');
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     function readLayouts() {
@@ -2901,6 +3006,99 @@ function attachAdmin(app, options = {}) {
         } catch (error) {
             return jsonFail(res, error.message);
         }
+    });
+
+    // ------------------------------------------------------------ ESP 小屏控制
+    //
+    // 白名单只由 admin 页维护（machines.json 的 espActions），设备端看不到被
+    // 关掉的项，也无法借接口调用未放行的实体。
+
+    /** 取设备记录并校验存在；无效时已写响应，返回 null。 */
+    function espMachineOrFail(req, res, id) {
+        if (!id) {
+            jsonFail(res, 'deviceId 无效');
+            return null;
+        }
+        const machine = readMachines()[id];
+        if (!machine) {
+            jsonFail(res, '设备未注册', definds.code.FAILED, 404);
+            return null;
+        }
+        return machine;
+    }
+
+    app.get('/api/device/esp/actions', (req, res) => {
+        const id = safeDeviceId(req.query.deviceId);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const actions = machine.espActions.filter((item) => item.enabled);
+        // 固件没接 JSON 库，`format=text` 给一行一项：button|name|entityId|action|id
+        if (String(req.query.format || '') === 'text') {
+            const lines = actions.map((item) => [item.button, item.name, item.entityId, item.action, item.id].join('|'));
+            return res.type('text/plain; charset=utf-8').send(lines.join('\n'));
+        }
+        return jsonOk(res, { deviceId: id, actions });
+    });
+
+    app.post('/api/device/esp/press', async (req, res) => {
+        const body = req.body || {};
+        const id = safeDeviceId(body.deviceId);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const enabled = machine.espActions.filter((item) => item.enabled);
+        let action = null;
+        if (body.actionId) {
+            action = enabled.find((item) => item.id === String(body.actionId)) || null;
+        } else {
+            const button = Number(body.button);
+            if (!Number.isInteger(button) || button < 1) return jsonFail(res, 'button 无效');
+            action = enabled.find((item) => item.button === button) || null;
+        }
+        if (!action) return jsonFail(res, '该按钮未配置控制项，或尚未在后台开启', definds.code.FAILED, 403);
+        try {
+            await callHaService(action.entityId, action.action);
+            console.log(`[esp] ${id} 按钮${action.button || '-'} → ${action.entityId} ${action.action} ok`);
+            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action }, '已执行');
+        } catch (error) {
+            console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
+            return jsonFail(res, `调用 HA 失败：${error.message}`);
+        }
+    });
+
+    /** admin 页：读取某台 ESP 设备的控制项与 HA 连接状态。 */
+    app.get('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
+        const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
+        if (!machine) return undefined;
+        return jsonOk(res, { actions: machine.espActions, ha: haConfigView() });
+    });
+
+    /** admin 页：整表保存控制项（勾选 enabled 才下发）。 */
+    app.put('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const body = req.body || {};
+        const actions = normalizeEspActions(body.actions);
+        const machines = readMachines();
+        machines[id].espActions = actions;
+        saveMachines(machines);
+        console.log(`[esp] ${id} 控制项已更新：${actions.filter((item) => item.enabled).length}/${actions.length} 开启`);
+        return jsonOk(res, { actions }, '已保存');
+    });
+
+    /** admin 页：HA 地址 / 令牌（令牌回显为布尔值，不明文下发）。 */
+    app.get('/api/admin/ha', requireAdmin, (req, res) => jsonOk(res, haConfigView()));
+
+    app.put('/api/admin/ha', requireAdmin, (req, res) => {
+        const body = req.body || {};
+        const raw = readJson(haFile, {}) || {};
+        const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim().slice(0, 200) : (raw.baseUrl || '');
+        let token = typeof raw.token === 'string' ? raw.token : '';
+        if (body.clearToken === true) token = '';
+        else if (typeof body.token === 'string' && body.token.trim()) token = body.token.trim();
+        writeJson(haFile, { baseUrl, token });
+        console.log(`[esp] HA 连接信息已更新: ${baseUrl || '(空)'} token=${token ? '已设置' : '未设置'}`);
+        return jsonOk(res, haConfigView(), '已保存');
     });
 
     // 生效配置读取（含 parental/PIN）：按家长操作门禁放行 parent+admin。

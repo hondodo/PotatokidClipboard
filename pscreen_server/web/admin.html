@@ -372,6 +372,7 @@
         </div>
         <div class="panel-actions">
           <span class="pill" id="realtime-pill">实时通道在线：—</span>
+          <button class="btn small" id="ha-config-btn" type="button">HA 连接</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -986,6 +987,7 @@
               ? '<span class="muted">家长端无儿童模式</span>'
               : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
           <button class="btn small" data-action="rename" type="button">改名</button>
+          ${kind === '' ? '<button class="btn small" data-action="esp" type="button">ESP 控制</button>' : ''}
           <button class="btn small danger" data-action="delete" type="button">删除</button>
         </div>`,
     ];
@@ -1227,6 +1229,8 @@
         editMachineName(machine);
       } else if (btn.dataset.action === 'parental') {
         editParental(machine);
+      } else if (btn.dataset.action === 'esp') {
+        editEspActions(machine);
       } else if (btn.dataset.action === 'delete') {
         if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
         (async () => {
@@ -1494,6 +1498,198 @@
       }),
     });
   }
+
+  // ------------------------------------------------------------ ESP 小屏控制
+
+  const ESP_ACTION_LABELS = [
+    ['toggle', '切换'],
+    ['turn_on', '开'],
+    ['turn_off', '关'],
+    ['run', '执行（script/scene）'],
+  ];
+
+  /**
+   * ESP 控制项白名单编辑。
+   *
+   * 这里的「放行」勾选是唯一的开关：未勾选的项不会下发到设备，
+   * 设备按物理按钮时服务端也会拒绝。
+   */
+  function editEspActions(machine) {
+    const wrap = document.createElement('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = '12px';
+
+    const note = document.createElement('p');
+    note.className = 'field-note';
+    note.textContent = '只有勾选「放行」的项才会下发给设备。按钮 1~4 对应设备 GPIOn 按键顺序（0 = 仅网页测试）；实体格式如 light.living_room，script/scene 请选「执行」。若按键无反应，先点右上角「HA 连接」确认地址与令牌。';
+    wrap.appendChild(note);
+
+    const list = document.createElement('div');
+    list.style.display = 'grid';
+    list.style.gap = '8px';
+    wrap.appendChild(list);
+
+    const draft = (machine.espActions || []).map((item) => ({ ...item }));
+
+    function rowNode(item) {
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      row.style.gridTemplateColumns = '1fr 1.3fr .9fr .7fr auto auto';
+      row.style.alignItems = 'center';
+
+      const name = document.createElement('input');
+      name.placeholder = '显示名';
+      name.maxLength = 40;
+      name.value = item.name || '';
+
+      const entity = document.createElement('input');
+      entity.placeholder = 'light.living_room';
+      entity.maxLength = 128;
+      entity.value = item.entityId || '';
+
+      const action = document.createElement('select');
+      ESP_ACTION_LABELS.forEach(([value, label]) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (value === (item.action || 'toggle')) opt.selected = true;
+        action.appendChild(opt);
+      });
+
+      const button = document.createElement('select');
+      [['0', '不绑定'], ['1', '按钮1'], ['2', '按钮2'], ['3', '按钮3'], ['4', '按钮4']]
+        .forEach(([value, label]) => {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = label;
+          if (Number(value) === Number(item.button || 0)) opt.selected = true;
+          button.appendChild(opt);
+        });
+
+      const enabledLabel = document.createElement('label');
+      enabledLabel.className = 'inline-check';
+      const enabled = document.createElement('input');
+      enabled.type = 'checkbox';
+      enabled.checked = item.enabled === true;
+      enabledLabel.appendChild(enabled);
+      enabledLabel.appendChild(document.createTextNode('放行'));
+
+      const del = document.createElement('button');
+      del.className = 'btn small danger';
+      del.type = 'button';
+      del.textContent = '删除';
+      del.addEventListener('click', () => {
+        item.__removed = true;
+        row.remove();
+      });
+
+      row.append(name, entity, action, button, enabledLabel, del);
+      item.__node = { name, entity, action, button, enabled };
+      return row;
+    }
+
+    draft.forEach((item) => list.appendChild(rowNode(item)));
+
+    const add = document.createElement('button');
+    add.className = 'btn small';
+    add.type = 'button';
+    add.textContent = '添加控制项';
+    add.addEventListener('click', () => {
+      const item = {
+        id: `a${Date.now().toString(36)}`,
+        name: '',
+        entityId: '',
+        action: 'toggle',
+        button: 0,
+        enabled: false,
+      };
+      draft.push(item);
+      list.appendChild(rowNode(item));
+    });
+    wrap.appendChild(add);
+
+    openDialog({
+      title: `ESP 控制项 · ${machine.name}`,
+      content: wrap,
+      onSave: () => {
+        const actions = draft
+          .filter((item) => !item.__removed)
+          .map((item, index) => {
+            const node = item.__node || {};
+            return {
+              id: item.id || `a${index + 1}`,
+              name: node.name ? node.name.value.trim() : '',
+              entityId: node.entity ? node.entity.value.trim() : '',
+              action: node.action ? node.action.value : 'toggle',
+              button: node.button ? Number(node.button.value) : 0,
+              enabled: !!(node.enabled && node.enabled.checked),
+            };
+          })
+          .filter((item) => item.entityId);
+        if (!actions.length) throw new Error('至少保留一个控制项');
+        return api(`/api/admin/machines/${encodeURIComponent(machine.id)}/esp`, {
+          method: 'PUT',
+          body: JSON.stringify({ actions }),
+        });
+      },
+    });
+  }
+
+  function editHaConfig() {
+    const wrap = document.createElement('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = '12px';
+
+    const baseLabel = document.createElement('label');
+    baseLabel.textContent = 'Home Assistant 地址';
+    const baseInput = document.createElement('input');
+    baseInput.placeholder = 'http://192.168.1.10:8123';
+    baseInput.maxLength = 200;
+    baseLabel.appendChild(baseInput);
+
+    const tokenLabel = document.createElement('label');
+    tokenLabel.textContent = '长期访问令牌';
+    const tokenInput = document.createElement('input');
+    tokenInput.type = 'password';
+    tokenInput.placeholder = '已设置则留空表示不修改';
+    tokenLabel.appendChild(tokenInput);
+
+    const clearLabel = document.createElement('label');
+    clearLabel.className = 'inline-check';
+    const clearBox = document.createElement('input');
+    clearBox.type = 'checkbox';
+    clearLabel.appendChild(clearBox);
+    clearLabel.appendChild(document.createTextNode('清除已保存的令牌'));
+
+    const note = document.createElement('p');
+    note.className = 'field-note';
+    note.textContent = '令牌在 HA「用户资料 → 长期访问令牌」里创建。设备按键时由服务端代为调用 HA，令牌不会下发到 ESP。';
+
+    wrap.append(baseLabel, tokenLabel, clearLabel, note);
+
+    api('/api/admin/ha').then((data) => {
+      if (!data) return;
+      baseInput.value = data.baseUrl || '';
+      note.textContent = data.configured
+        ? '当前已配置完整，可直接保存。令牌不会下发到 ESP。'
+        : `尚未配置完整：地址${data.baseUrl ? '已填' : '为空'}、令牌${data.hasToken ? '已填' : '为空'}。设备按键会失败。`;
+    }).catch(() => {});
+
+    openDialog({
+      title: 'HA 连接',
+      content: wrap,
+      onSave: () => api('/api/admin/ha', {
+        method: 'PUT',
+        body: JSON.stringify({
+          baseUrl: baseInput.value.trim(),
+          token: tokenInput.value.trim(),
+          clearToken: clearBox.checked,
+        }),
+      }),
+    });
+  }
+
+  document.getElementById('ha-config-btn').addEventListener('click', editHaConfig);
 
   // ------------------------------------------------------------ 儿童模式（阶段 3）
 
