@@ -80,7 +80,7 @@ tar -xzf /tmp/arduino-cli.tgz -C ~/.local/bin arduino-cli
 
 ```bash
 ~/.local/bin/arduino-cli compile --upload -p /dev/ttyACM0 \
-  --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,CDCOnBoot=default,UploadSpeed=921600 \
+  --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,CDCOnBoot=default,UploadSpeed=921600,PartitionScheme=no_fs \
   /home/honghao/codes/PotatokidClipboard/esp_devices/firmware/potatokid_esp
 ```
 
@@ -92,6 +92,10 @@ tar -xzf /tmp/arduino-cli.tgz -C ~/.local/bin arduino-cli
 | `PSRAM` | `opi` | WROOM-2 系列 8MB PSRAM |
 | `CDCOnBoot` | `default`（关闭） | 走 CH343 串口，Serial 输出到 UART0 |
 | `UploadSpeed` | `921600` | CH343 稳定档位 |
+| `PartitionScheme` | `no_fs` | app0/app1 各 2MB（双 OTA 槽）。默认分区只有 1.25MB，装不下中文字库；`huge_app` 有 3MB 但没有 OTA 槽 |
+
+`no_fs` 没有文件系统分区，本项目不用；NVS 起始地址不变，换分区后 WiFi / 控制端地址等配置都保留。
+**首次从其它分区方案切换时仍需 USB 烧录一次**，之后即可远程 OTA。
 
 串口日志：
 
@@ -114,7 +118,7 @@ cp firmware/potatokid_esp/secrets.h.example firmware/potatokid_esp/secrets.h
 2. 15 秒内连上：OLED 显示 `IP / srv ok / 信号`，向服务端注册并拉取已放行的控制项；
 3. 连不上：自动开热点 `Potatokid-Screen-Setup`（无密码），手机连上后浏览器打开
    `http://192.168.4.1` 配网，配置写入 NVS 后自动重启；
-4. 联网期间每 60 秒心跳一次，并顺带刷新控制项列表；掉线超过 60 秒转配网热点；
+4. 联网期间每 60 秒心跳一次，并顺带刷新控制项列表、检查服务端是否发布了新固件；掉线超过 60 秒转配网热点；
 5. 局域网内访问 `http://<设备IP>/` 可改 WiFi，`/settings` 是设置页，都需要口令（`secrets.h` 的网页账号/密码）。
 
 ## 7. 设置页（设备本地）
@@ -126,6 +130,7 @@ cp firmware/potatokid_esp/secrets.h.example firmware/potatokid_esp/secrets.h
 | 控制端地址 | 默认 `http://ptool.w1.luyouxia.net`，存 NVS，改完自动重启。换域名 / 换服务端只改这里，不用重新烧录；留空保存恢复默认 |
 | 可控设备列表 | 从服务端读取**已放行**的控制项（名称 / HA 实体 / 动作 / 按钮），每行可点「测试」直接执行一次 |
 | 物理按键 | GPIO4/5/6 对应按钮1/2/3，短接 GND 即触发 |
+| 固件升级 | 显示当前版本；服务端发布新版本时显示新版本号、大小、更新说明和「立即升级」按钮 |
 
 屏幕上会短暂显示按键结果（`sent ok` / `failed, see serial`），失败原因看串口日志。
 
@@ -165,12 +170,47 @@ GPIO 只有 3.3V / 几 mA，只能给信号，不能直接带负载。常规做�
 - 强烈建议被控设备的强电部分由**成品继电器/智能插座**承担，ESP 只做触发，避免市电接线风险；
 - 不想接继电器时，直接用「ESP 按键 + HA 控制」的方式验证链路：HA 里操作灯/插座，设备只负责发按键请求。
 
-## 10. 常见问题
+## 10. 远程升级（OTA）
+
+设备每 60 秒心跳时会顺带问服务端「有没有新固件」。检测到版本不同 → 屏幕标题变成
+`Update ready`（显示当前/新版本并提示 `open web page`），用户打开设备的
+`http://<设备IP>/settings` → 「固件升级」→「立即升级」即可，升级时屏幕显示百分比，
+完成后自动重启，WiFi 与控制端地址配置都保留。
+
+**发布流程**：
+
+1. 改代码，并把 `APP_VER` 改成新版本号（如 `oled-1.4`）；
+2. 编译导出 bin（OTA 只需要 app 镜像，不要 `merged.bin`）：
+
+   ```bash
+   ~/.local/bin/arduino-cli compile \
+     --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,CDCOnBoot=default,UploadSpeed=921600,PartitionScheme=no_fs \
+     --output-dir /tmp/fw_out \
+     /home/honghao/codes/PotatokidClipboard/esp_devices/firmware/potatokid_esp
+   # 产物：/tmp/fw_out/potatokid_esp.ino.bin
+   ```
+
+3. 管理页 `/admin` → **设备状态** → 「固件升级」→ 选 `potatokid_esp.ino.bin`，
+   填与 `APP_VER` **完全一致**的版本号 →「上传并发布」；
+4. 设备下一次心跳（≤60 秒）就会提示可更新；「撤回发布」可让设备停止提示。
+
+注意：
+
+- 版本号必须与固件内 `APP_VER` 一致，否则升级后仍会提示（设备只做字符串比对）；
+- OTA 依赖双 app 槽，`no_fs`/`min_spiffs` 可用，`huge_app` 不行；
+- 升级中途断电不会变砖：旧固件仍在另一个槽，重新上电会回滚；
+- 设备侧接口：`GET /api/device/firmware/latest?format=text` → `version|size|sha256|notes`，
+  `GET /api/device/firmware/download` 下载 bin。
+
+## 11. 常见问题
 
 | 现象 | 排查 |
 |---|---|
 | 屏幕全黑 | 先看串口是否打印 `OLED ready at 0x3C`；没有则检查 SDA/SCL 是否接反、VCC 是否为 3V3 |
 | 屏幕花屏/错位（左缺右乱码） | 面板是 SH1106 而驱动写成 SSD1306；用 `U8G2_SH1106_128X64_NONAME_F_HW_I2C`（当前固件已如此） |
+| 按键名称显示乱码 | 控制项名是中文，必须用 UTF-8 中文字库 + `drawUTF8`（当前固件用 `u8g2_font_wqy12_t_gb2312`）；生僻字不在 GB2312 内可换 `u8g2_font_wqy12_t_chinese2/3` |
+| 设置页没有「立即升级」 | 服务端还没发布固件（admin →「固件升级」上传），或已发布版本与设备 `APP_VER` 相同 |
+| 升级失败 | 看串口 `[ota] failed code=...`；常见是分区不是 `no_fs`/`min_spiffs`（无双槽）、服务端 bin 被撤回、设备访问不到控制端地址 |
 | 串口无输出 | 确认板卡选项 `CDCOnBoot=default`，端口为 `/dev/ttyACM0` |
 | 连不上 WiFi | 只支持 2.4GHz；确认热点名称密码；等 15 秒自动进配网热点 |
 | 局域网设置页打不开 | 需要 Basic Auth（`secrets.h` 的口令）；确认设备和电脑在同一网段 |

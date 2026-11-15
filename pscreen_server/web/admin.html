@@ -372,6 +372,7 @@
         </div>
         <div class="panel-actions">
           <span class="pill" id="realtime-pill">实时通道在线：—</span>
+          <button class="btn small" id="firmware-btn" type="button">固件升级</button>
           <button class="btn small" id="ha-config-btn" type="button">HA 连接</button>
         </div>
       </div>
@@ -1670,6 +1671,8 @@
     api('/api/admin/ha').then((data) => {
       if (!data) return;
       baseInput.value = data.baseUrl || '';
+      // 令牌不回显：已保存时用 placeholder 提示，避免误以为被清空
+      tokenInput.placeholder = data.hasToken ? '已保存，留空表示不修改' : '粘贴长期访问令牌';
       note.textContent = data.configured
         ? '当前已配置完整，可直接保存。令牌不会下发到 ESP。'
         : `尚未配置完整：地址${data.baseUrl ? '已填' : '为空'}、令牌${data.hasToken ? '已填' : '为空'}。设备按键会失败。`;
@@ -1690,6 +1693,98 @@
   }
 
   document.getElementById('ha-config-btn').addEventListener('click', editHaConfig);
+
+  // ------------------------------------------------------------ ESP 固件升级（OTA）
+
+  /**
+   * 上传编译产物 .bin 并发布版本号。
+   *
+   * 设备每次心跳会比对这里发布的版本；不一致就在屏幕提示，用户在设备本地
+   * 设置页点「立即升级」。上传接口是 multipart，不能复用 api()。
+   */
+  function editFirmware() {
+    const wrap = document.createElement('div');
+    wrap.style.display = 'grid';
+    wrap.style.gap = '12px';
+
+    const status = document.createElement('div');
+    status.className = 'field-note';
+    status.textContent = '读取当前发布版本…';
+
+    const fileLabel = document.createElement('label');
+    fileLabel.textContent = '固件文件（.bin，应用分区镜像）';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.bin';
+    fileLabel.appendChild(fileInput);
+
+    const versionLabel = document.createElement('label');
+    versionLabel.textContent = '版本号（需与固件内 APP_VER 一致才不会再提示）';
+    const versionInput = document.createElement('input');
+    versionInput.placeholder = 'oled-1.3';
+    versionInput.maxLength = 32;
+    versionLabel.appendChild(versionInput);
+
+    const notesLabel = document.createElement('label');
+    notesLabel.textContent = '更新说明（可选，显示在设备设置页）';
+    const notesInput = document.createElement('input');
+    notesInput.maxLength = 200;
+    notesInput.placeholder = '例如：修复按键无响应';
+    notesLabel.appendChild(notesInput);
+
+    const revoke = document.createElement('button');
+    revoke.className = 'btn small danger';
+    revoke.type = 'button';
+    revoke.textContent = '撤回发布';
+    revoke.addEventListener('click', async () => {
+      if (!confirm('撤回后设备不再提示更新，确定？')) return;
+      try {
+        await api('/api/admin/firmware', { method: 'DELETE' });
+        status.textContent = '当前没有已发布的固件';
+        toast('已撤回', 'ok');
+      } catch (error) {
+        toast(error.message, 'error');
+      }
+    });
+
+    wrap.append(status, fileLabel, versionLabel, notesLabel, revoke);
+
+    api('/api/admin/firmware').then((data) => {
+      if (!data || !data.published) {
+        status.textContent = '当前没有已发布的固件。选择 .bin 并填写版本号后上传即可。';
+        return;
+      }
+      status.textContent = `当前发布：v${data.version} · ${(data.size / 1024).toFixed(0)}KB · sha256 ${String(data.sha256 || '').slice(0, 12)}…${data.notes ? ` · ${data.notes}` : ''}`;
+      versionInput.value = data.version || '';
+    }).catch(() => { status.textContent = '读取发布状态失败'; });
+
+    openDialog({
+      title: 'ESP 固件升级',
+      content: wrap,
+      saveLabel: '上传并发布',
+      onSave: async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) throw new Error('请选择 .bin 文件');
+        const version = versionInput.value.trim();
+        if (!version) throw new Error('请填写版本号');
+        const form = new FormData();
+        form.append('version', version);
+        form.append('notes', notesInput.value.trim());
+        form.append('file', file);
+        const res = await fetch('/api/admin/firmware', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: form,
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.code !== 0) {
+          throw new Error((data && data.msg) || `上传失败（HTTP ${res.status}）`);
+        }
+      },
+    });
+  }
+
+  document.getElementById('firmware-btn').addEventListener('click', editFirmware);
 
   // ------------------------------------------------------------ 儿童模式（阶段 3）
 

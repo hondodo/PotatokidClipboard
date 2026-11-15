@@ -17,6 +17,7 @@
 #include <DNSServer.h>
 #include <Preferences.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include "secrets.h"  // WiFi 默认账号 / 网页口令（本地文件，不入库）
 
 static const int PIN_SDA = 8;
@@ -41,7 +42,7 @@ static const char *WEB_PASS = SECRET_WEB_PASS;
 // 控制端地址：可在线修改（存 NVS），换域名不用重新烧录
 static const char *DEFAULT_SERVER_BASE = "http://ptool.w1.luyouxia.net";
 static const char *DEVICE_NAME         = "ESP32-S3 小屏";
-static const char *APP_VER             = "oled-1.1";
+static const char *APP_VER             = "oled-1.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -69,11 +70,32 @@ String btnLabel[8];
 struct BtnState { bool down; uint32_t changedAt; };
 BtnState buttons[BTN_COUNT];
 
+// OTA：服务端发布的版本与本地 APP_VER 不同即提示可升级
+bool fwAvailable = false;
+String fwVersion;
+String fwNotes;
+uint32_t fwSize = 0;
+
 /* ---------------- OLED ---------------- */
 
 String fit(const String &s) {
   // 6x10 字体一行约 21 个字符
   return s.length() > 21 ? s.substring(0, 21) : s;
+}
+
+// 按「字符」截断 UTF-8 文本（中文一个字 3 字节），超出加 ..
+String fitUtf8(const String &s, int maxChars) {
+  String out;
+  int i = 0, n = 0;
+  while (i < (int)s.length() && n < maxChars) {
+    unsigned char c = (unsigned char)s[i];
+    int len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
+    out += s.substring(i, i + len);
+    i += len;
+    n++;
+  }
+  if (i < (int)s.length()) out += "..";
+  return out;
 }
 
 void oledShow(const String &title, const String &l1 = "", const String &l2 = "", const String &l3 = "") {
@@ -89,9 +111,21 @@ void oledShow(const String &title, const String &l1 = "", const String &l2 = "",
   u8g2.sendBuffer();
 }
 
-// 按键反馈：临时占屏 2.5 秒，之后由主循环恢复常规页面
-void oledToast(const String &title, const String &l1 = "", const String &l2 = "") {
-  oledShow(title, l1, l2);
+// 按键反馈：临时占屏 2.5 秒，之后由主循环恢复常规页面。
+// 控制项名称来自服务端，可能是中文，必须用 UTF-8 中文字库 + drawUTF8，
+// 否则按字节渲染就是乱码。
+void oledToast(const String &title, const String &name = "", const String &status = "") {
+  if (!oledOk) return;
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_helvB10_tf);
+  u8g2.drawStr(0, 13, fit(title).c_str());
+  u8g2.drawHLine(0, 17, 128);
+  // 12px 中文字库，128 宽约放 10 个汉字
+  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+  u8g2.drawUTF8(0, 34, fitUtf8(name, 10).c_str());
+  u8g2.setFont(u8g2_font_6x10_tf);
+  u8g2.drawStr(0, 50, fit(status).c_str());
+  u8g2.sendBuffer();
   toastUntil = millis() + 2500;
 }
 
@@ -234,6 +268,58 @@ bool pressAction(const String &body) {
   return postJson("/api/device/esp/press", body);
 }
 
+/* ---------------- 固件升级（OTA） ---------------- */
+
+// 查服务端发布版本：version|size|sha256|notes，与 APP_VER 不同即可升级
+void checkFirmware() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  String text;
+  if (!getText("/api/device/firmware/latest?format=text", text)) return;
+  text.trim();
+  fwAvailable = false;
+  fwNotes = "";
+  fwSize = 0;
+  if (text.length() == 0) return;
+  int p1 = text.indexOf('|');
+  if (p1 <= 0) return;
+  int p2 = text.indexOf('|', p1 + 1);
+  int p3 = p2 < 0 ? -1 : text.indexOf('|', p2 + 1);
+  fwVersion = text.substring(0, p1);
+  if (p2 > 0) fwSize = text.substring(p1 + 1, p2).toInt();
+  if (p3 >= 0) fwNotes = text.substring(p3 + 1);
+  fwAvailable = fwVersion.length() > 0 && fwVersion != String(APP_VER);
+  if (fwAvailable) Serial.printf("[ota] 可升级: %s -> %s (%uKB)\n", APP_VER, fwVersion.c_str(), (unsigned)(fwSize / 1024));
+}
+
+// 下载并写入另一个 OTA 槽；成功自动重启，失败保留旧固件
+void runOta() {
+  if (!fwAvailable) return;
+  Serial.printf("[ota] start download %s\n", fwVersion.c_str());
+  oledShow("Updating", "connecting...");
+  WiFiClient client;
+  String url = serverBase + "/api/device/firmware/download";
+  httpUpdate.rebootOnUpdate(false);
+  httpUpdate.onProgress([](int cur, int total) {
+    static uint32_t last = 0;
+    if (millis() - last < 300) return;
+    last = millis();
+    int pct = total > 0 ? (int)((long)cur * 100 / total) : 0;
+    oledShow("Updating", String(pct) + "%",
+             String(cur / 1024) + " / " + String(total / 1024) + "KB");
+  });
+  t_httpUpdate_return ret = httpUpdate.update(client, url);
+  if (ret == HTTP_UPDATE_OK) {
+    Serial.println("[ota] ok, rebooting");
+    oledShow("Update done", "rebooting...");
+    delay(1200);
+    ESP.restart();
+  }
+  String err = httpUpdate.getLastErrorString();
+  Serial.printf("[ota] failed code=%d msg=%s\n", (int)httpUpdate.getLastError(), err.c_str());
+  oledShow("Update failed", String(httpUpdate.getLastError()), err.substring(0, 21));
+  toastUntil = millis() + 5000;
+}
+
 void onButtonPress(int button) {
   if (deviceId.isEmpty()) buildDeviceId();
   Serial.printf("[btn] %d pressed\n", button);
@@ -258,6 +344,11 @@ void pollButtons() {
 }
 
 void drawMain() {
+  if (fwAvailable) {
+    // 有更新时优先提示，引导用户打开本机设置页升级
+    oledShow("Update ready", String("cur ") + APP_VER, String("new ") + fwVersion, "open web page");
+    return;
+  }
   oledShow("WiFi connected", ssid, WiFi.localIP().toString(),
            (srvOk ? "srv ok " : "srv fail ") + String(WiFi.RSSI()) + "dBm");
 }
@@ -272,6 +363,7 @@ void showConnected() {
   buildDeviceId();
   reportToServer(true);
   fetchActions();
+  checkFirmware();
   lastReport = millis();
 
   drawMain();
@@ -410,6 +502,17 @@ String pageSettings(const String &listText, const String &err) {
   h += "<h3>物理按键</h3>";
   h += "<div class='tip'>GPIO4 = 按钮1，GPIO5 = 按钮2，GPIO6 = 按钮3；用杜邦线把对应 GPIO 与 GND 短接即触发。<br>";
   h += "按键动作由服务端白名单决定：在 pscreen_server 管理页给每项选「按钮1/2/3」并勾选「放行」，设备才会执行。</div>";
+
+  h += "<h3>固件升级</h3>";
+  h += String("<div class='st'>当前版本：") + APP_VER + "</div>";
+  if (fwAvailable) {
+    h += String("<div class='st'>新版本：") + fwVersion + "（" + String(fwSize / 1024) + "KB）</div>";
+    if (fwNotes.length()) h += String("<div class='tip'>") + fwNotes + "</div>";
+    h += "<form method='POST' action='/update'><button type='submit'>立即升级</button></form>";
+    h += "<div class='tip'>升级期间不要断电；完成后设备会自动重启，配置不会丢。</div>";
+  } else {
+    h += "<div class='tip'>已是最新版本（服务端未发布新固件时也显示此项）。</div>";
+  }
   h += "</div></body></html>";
   return h;
 }
@@ -494,6 +597,23 @@ void setupServer() {
                 String("<meta charset='utf-8'><div style='font-family:-apple-system;padding:24px'>") +
                 msg + "<p><a href='/settings'>返回设置</a></p></div>");
   });
+  // 本地页面「立即升级」：先回包再下载，浏览器不用等整个 OTA
+  server.on("/update", HTTP_POST, []() {
+    if (authBlocked()) return;
+    if (!fwAvailable) {
+      server.send(200, "text/html; charset=utf-8",
+                  "<meta charset='utf-8'><div style='font-family:-apple-system;padding:24px'>没有可用更新"
+                  "<p><a href='/settings'>返回设置</a></p></div>");
+      return;
+    }
+    server.send(200, "text/html; charset=utf-8",
+                String("<meta charset='utf-8'><div style='font-family:-apple-system;padding:24px'>"
+                       "<h3>正在升级到 ") + fwVersion +
+                "</h3><p>屏幕会显示进度，完成后设备会自动重启。</p></div>");
+    delay(300);
+    runOta();
+  });
+
   server.onNotFound([]() {
     if (gApMode) {
       server.sendHeader("Location", "http://192.168.4.1/");
@@ -600,6 +720,7 @@ void loop() {
     lastReport = millis();
     reportToServer(false);
     fetchActions();  // 白名单可能在后台改过
+    checkFirmware(); // 服务端可能发布了新固件
   }
 
   static uint32_t lastDraw = 0;

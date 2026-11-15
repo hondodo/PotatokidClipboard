@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const multer = require('multer');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
 const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
@@ -605,6 +606,11 @@ function attachAdmin(app, options = {}) {
     // ESP 小屏控制 HA 用的连接信息（地址 + 长期令牌），由 admin 页维护。
     // 也可用环境变量 HA_BASE_URL / HA_TOKEN 提供，两者都没有时按键会明确报错。
     const haFile = path.join(adminDir, 'ha.json');
+    // ESP 固件托管：admin 页上传 bin，设备检测到版本不同时自行下载写 OTA 槽。
+    const firmwareDir = path.join(datasDir, 'firmware');
+    fs.mkdirSync(firmwareDir, { recursive: true });
+    const firmwareBin = path.join(firmwareDir, 'firmware.bin');
+    const firmwareMeta = path.join(firmwareDir, 'meta.json');
     const layoutsFile = path.join(adminDir, 'layouts.json');
     const secretFile = path.join(adminDir, 'secret.key');
     // 答题解锁题库：按「设备 → 儿童档案」独立存储，不塞进 machines.json，
@@ -830,11 +836,12 @@ function attachAdmin(app, options = {}) {
         return { baseUrl, hasToken: token !== '', configured: baseUrl !== '' && token !== '' };
     }
 
-    /** 实体域 + 动作 → HA 服务名；`run` 用于 script / scene / automation。 */
+    /** 实体域 + 动作 → HA 服务路径；`run` 用于 script / scene / automation。 */
     function haServiceName(entityId, action) {
         const domain = entityId.split('.')[0].toLowerCase();
-        if (action === 'run') return `${domain}.turn_on`;
-        return `${domain}.${action}`;
+        // HA REST 的服务路径是 /api/services/<domain>/<service>（斜杠，不是点号）
+        const service = action === 'run' ? 'turn_on' : action;
+        return `${domain}/${service}`;
     }
 
     /** 调一次 HA REST 服务。抛错由调用方转成业务失败。 */
@@ -3099,6 +3106,95 @@ function attachAdmin(app, options = {}) {
         writeJson(haFile, { baseUrl, token });
         console.log(`[esp] HA 连接信息已更新: ${baseUrl || '(空)'} token=${token ? '已设置' : '未设置'}`);
         return jsonOk(res, haConfigView(), '已保存');
+    });
+
+    // ------------------------------------------------------------ ESP 固件升级（OTA）
+    //
+    // 发布流程：本地编译出 .bin → admin 页上传并填版本号 → 设备心跳时比对版本，
+    // 不一致就在屏幕提示，用户在设备本地设置页点「立即升级」从本服务下载写入
+    // 另一个 OTA 槽。分区方案必须是双 app 槽（no_fs / min_spiffs）。
+
+    const FW_VERSION_RE = /^[A-Za-z0-9._-]{1,32}$/;
+    const firmwareUpload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 8 * 1024 * 1024 },
+    });
+
+    function readFirmwareMeta() {
+        const raw = readJson(firmwareMeta, null);
+        if (!raw || typeof raw !== 'object') return null;
+        if (!FW_VERSION_RE.test(String(raw.version || ''))) return null;
+        if (!fs.existsSync(firmwareBin)) return null;
+        return {
+            version: String(raw.version),
+            size: Number(raw.size) || fs.statSync(firmwareBin).size,
+            sha256: typeof raw.sha256 === 'string' ? raw.sha256 : '',
+            notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 200) : '',
+            uploadedAt: Number(raw.uploadedAt) || 0,
+        };
+    }
+
+    /** 设备侧：当前发布版本。没上传过固件时返回空文本。 */
+    app.get('/api/device/firmware/latest', (req, res) => {
+        const meta = readFirmwareMeta();
+        if (!meta) return res.type('text/plain; charset=utf-8').send('');
+        if (String(req.query.format || '') === 'text') {
+            // 固件不接 JSON 库：version|size|sha256|notes（notes 取到行尾）
+            return res.type('text/plain; charset=utf-8')
+                .send([meta.version, meta.size, meta.sha256, meta.notes].join('|'));
+        }
+        return jsonOk(res, {
+            ...meta,
+            url: '/api/device/firmware/download',
+        });
+    });
+
+    /** 设备侧：下载已发布的 bin。 */
+    app.get('/api/device/firmware/download', (req, res) => {
+        if (!readFirmwareMeta()) return jsonFail(res, '暂无固件', definds.code.FAILED, 404);
+        res.setHeader('Cache-Control', 'no-store');
+        res.type('application/octet-stream');
+        return res.sendFile(firmwareBin);
+    });
+
+    app.get('/api/admin/firmware', requireAdmin, (req, res) => {
+        const meta = readFirmwareMeta();
+        return jsonOk(res, meta ? { ...meta, published: true } : { published: false });
+    });
+
+    app.post('/api/admin/firmware', requireAdmin, firmwareUpload.single('file'), (req, res) => {
+        try {
+            const version = String((req.body && req.body.version) || '').trim();
+            if (!FW_VERSION_RE.test(version)) return jsonFail(res, '版本号不合法（字母数字 . _ -，≤32 位）');
+            if (!req.file || !req.file.buffer || !req.file.buffer.length) return jsonFail(res, '未收到固件文件');
+            if (req.file.buffer.length < 64 * 1024) return jsonFail(res, '文件太小，不像是完整固件');
+            const notes = String((req.body && req.body.notes) || '').trim().slice(0, 200);
+            fs.writeFileSync(firmwareBin, req.file.buffer);
+            const meta = {
+                version,
+                size: req.file.buffer.length,
+                sha256: crypto.createHash('sha256').update(req.file.buffer).digest('hex'),
+                notes,
+                uploadedAt: nowMs(),
+            };
+            writeJson(firmwareMeta, meta);
+            console.log(`[ota] 固件已更新: v${version} ${(meta.size / 1024).toFixed(0)}KB sha256=${meta.sha256.slice(0, 12)}…`);
+            return jsonOk(res, meta, '固件已发布');
+        } catch (error) {
+            console.error('[ota] 固件上传失败:', error.message);
+            return jsonFail(res, `固件上传失败：${error.message}`);
+        }
+    });
+
+    app.delete('/api/admin/firmware', requireAdmin, (req, res) => {
+        try {
+            fs.rmSync(firmwareBin, { force: true });
+            fs.rmSync(firmwareMeta, { force: true });
+            console.log('[ota] 已撤回固件发布');
+            return jsonOk(res, { published: false }, '已撤回');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
     });
 
     // 生效配置读取（含 parental/PIN）：按家长操作门禁放行 parent+admin。
