@@ -61,8 +61,10 @@
             "deviceId": "linux",
             "request": "launch",
             "type": "dart",
+            "flutterMode": "profile",
             "env": {
-                "GDK_BACKEND": "x11"
+                "GDK_BACKEND": "x11",
+                "NO_AT_BRIDGE": "1"
             }
         },
         {

@@ -42,18 +42,26 @@ const CHUNK = 8 * 1024 * 1024;
 
 // 支持发布家长端（parent flavor）与电视端（tv flavor）；按 appId 推导产物名。
 const IS_TV = APP_ID.includes('screen-tv');
-const FLAVOR = IS_TV ? 'tv' : 'parent';
+const IS_BOARD = APP_ID.includes('-board');
+const FLAVOR = IS_TV ? 'tv' : IS_BOARD ? 'board' : 'parent';
 const APK_DIR = process.env.YUNTU_APK_DIR
   || `/home/honghao/codes/PotatokidClipboard/${IS_TV ? 'pscreen/potatokid_screen' : 'pscreen_home'}/build/app/outputs/flutter-apk`;
+// 可用 YUNTU_ABIS 只发布指定架构（逗号分隔），如 armeabi-v7a 可省掉 120MB 通用包。
+const ONLY_ABIS = (process.env.YUNTU_ABIS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const ARTIFACTS = [
   { file: `app-${FLAVOR}-release.apk`, abi: 'universal' },
   { file: `app-arm64-v8a-${FLAVOR}-release.apk`, abi: 'arm64-v8a' },
   { file: `app-armeabi-v7a-${FLAVOR}-release.apk`, abi: 'armeabi-v7a' },
-];
+].filter((a) => ONLY_ABIS.length === 0 || ONLY_ABIS.includes(a.abi));
 const NOTES = process.env.YUNTU_NOTES
   || (IS_TV
     ? '电视端：选人页暂停播放与计时；题库变更即时刷新；D-01 冲突保护。'
-    : '家长端：D-01 冲突三选一与埋点；解绑/切号确认；解锁中心拒绝重试；导航灰度开关。');
+    : IS_BOARD
+      ? '中控板载端：新增中转配置（REPLY_SOURCE），修复港澳台源直连超时；统一 release 签名。'
+      : '家长端：D-01 冲突三选一与埋点；解绑/切号确认；解锁中心拒绝重试；导航灰度开关。');
 
 const cookieJar = path.join(os.tmpdir(), `yuntu_cookies_${Date.now()}.txt`);
 
@@ -63,6 +71,8 @@ function tryParse(s) {
 
 async function curl(method, url, opts = {}) {
   const args = ['-sS', '-m', String(opts.timeout || 300), '-w', '\n%{http_code}'];
+  // 显式绕过本机代理：yuntu 走公网直连，代理会重置连接。
+  args.push('--noproxy', '*');
   const env = { ...process.env };
   env.NO_PROXY = `${YUNTU_IP},${env.NO_PROXY || ''}`;
   env.no_proxy = `${YUNTU_IP},${env.no_proxy || ''}`;
