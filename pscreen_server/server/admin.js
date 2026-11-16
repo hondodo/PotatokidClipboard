@@ -22,6 +22,8 @@ const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
 const claims = require('./claims');
 const parentalShare = require('./parental_share');
 const { FamilyStore } = require('./parental_family');
+const haCatalog = require('./ha_catalog');
+const deviceTypes = require('./deviceTypes');
 
 // D-02 硬阻塞地基：家庭级主档案模型。默认关闭，开标志位才启用读路径切换
 // （连同客户端/电视端同批次部署，见实施计划第 12 节第 8 条铁律）。
@@ -66,7 +68,14 @@ const UNNAMED_DEVICE = '未命名设备';
 const MAX_ESP_ACTIONS = 20;
 const MAX_ESP_BUTTONS = 4;
 const ESP_ENTITY_RE = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i;
-const ESP_ACTION_KINDS = new Set(['toggle', 'turn_on', 'turn_off', 'run']);
+// S5：带参动作与系统动作一并纳入白名单，配合字典里 set_temperature(+0.5) 这类带值写法。
+// 解析时按「动作名(参数)」拆开，动作名必须落在白名单里才放行。
+const ESP_ACTION_KINDS = new Set([
+    'toggle', 'turn_on', 'turn_off', 'run',
+    'set_temperature', 'set_operation_mode', 'set_hvac_mode', 'set_percentage',
+    'select_option', 'number_set', 'brightness', 'press', 'next_effect', 'next_option',
+]);
+const ESP_SYS_ACTIONS = new Set(['next_page', 'prev_page', 'home_page']);
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
 // （tv）可作为家长管控对象；家长端（parent）只是控制端，也不是管控对象，
 // 但同样上报心跳、走实时通道、可遥控电视。
@@ -257,20 +266,29 @@ function normalizeEspActions(value) {
     const seen = new Set();
     for (const raw of value) {
         if (!raw || typeof raw !== 'object') continue;
+        // 先判动作：系统动作（翻页等）没有 entityId，不能走下面的实体校验。
+        const rawAction = String(raw.action || 'toggle').trim();
+        const isSys = ESP_SYS_ACTIONS.has(rawAction);
         const entityId = String(raw.entityId || '').trim().slice(0, 128);
-        if (!ESP_ENTITY_RE.test(entityId)) continue;
+        if (!isSys && !ESP_ENTITY_RE.test(entityId)) continue;
         let id = String(raw.id || '').trim();
         if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `a${list.length + 1}`;
         while (seen.has(id)) id = `${id}x`;
         seen.add(id);
-        const name = String(raw.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId;
-        const action = ESP_ACTION_KINDS.has(raw.action) ? raw.action : 'toggle';
+        const name = String(raw.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || rawAction;
+        // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
+        // 拆成 {kind, param}，只按 kind 做白名单校验，参数原样保留给 callHaService。
+        const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
+        const kind = isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
+        const param = m && m[2] != null ? m[2].slice(0, 40) : '';
         const button = Number(raw.button);
         list.push({
             id,
             name,
-            entityId,
-            action,
+            entityId: isSys ? '' : entityId,
+            action: kind,
+            param,
+            sys: isSys,
             // 0 = 不绑物理按钮（仅网页/接口测试用）；1..4 对应固件 BTN_PINS 顺序
             button: Number.isInteger(button) && button >= 1 && button <= MAX_ESP_BUTTONS ? button : 0,
             enabled: raw.enabled === true,
@@ -278,6 +296,19 @@ function normalizeEspActions(value) {
         if (list.length >= MAX_ESP_ACTIONS) break;
     }
     return list;
+}
+
+/** ESP 设备的显示绑定：哪个实体做主状态 / 副状态1 / 副状态2。 */
+function normalizeEspDisplay(value) {
+    if (!value || typeof value !== 'object') return { deviceType: '', bindings: { main: '', s1: '', s2: '' } };
+    const deviceType = deviceTypes.typeKeys.has(value.deviceType) ? value.deviceType : '';
+    const src = value.bindings && typeof value.bindings === 'object' ? value.bindings : {};
+    const bindings = {};
+    for (const slot of ['main', 's1', 's2']) {
+        const entityId = String(src[slot] || '').trim().slice(0, 128);
+        bindings[slot] = ESP_ENTITY_RE.test(entityId) ? entityId : '';
+    }
+    return { deviceType, bindings };
 }
 
 /**
@@ -788,6 +819,8 @@ function attachAdmin(app, options = {}) {
             parental: kind === 'tv' ? parental : null,
             // ESP 小屏控制白名单（实体 / 动作 / 按钮槽位 / 是否放行）。
             espActions: normalizeEspActions(machine.espActions),
+            // ESP 显式设备分类 + 显示实体绑定（S2：字典层共用的设备侧字段）。
+            ...normalizeEspDisplay(machine.espDisplay),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -836,20 +869,89 @@ function attachAdmin(app, options = {}) {
         return { baseUrl, hasToken: token !== '', configured: baseUrl !== '' && token !== '' };
     }
 
-    /** 实体域 + 动作 → HA 服务路径；`run` 用于 script / scene / automation。 */
-    function haServiceName(entityId, action) {
-        const domain = entityId.split('.')[0].toLowerCase();
-        // HA REST 的服务路径是 /api/services/<domain>/<service>（斜杠，不是点号）
-        const service = action === 'run' ? 'turn_on' : action;
-        return `${domain}/${service}`;
-    }
+    // 设备类型字典服务（S1/S3）：home 与 ESP 共用的唯一真源。覆盖层落在
+    // datas/admin/deviceTypes.json，admin 页改一处两端生效。
+    const deviceTypesFile = path.join(adminDir, 'deviceTypes.json');
+    const deviceTypeService = deviceTypes.createDeviceTypeService({ file: deviceTypesFile });
 
-    /** 调一次 HA REST 服务。抛错由调用方转成业务失败。 */
-    async function callHaService(entityId, action) {
+    // HA 实体目录服务：拉注册表 + 状态 + 服务清单，按「家 → 房间」分组。
+    // 带 60 秒缓存（HA 在同一局域网内，实时性要求不高）；HA 短暂不可用时
+    // 服务清单沿用上一份缓存，避免按键全挂。
+    const haCatalogService = haCatalog.createHaCatalog({ readHaConfig });
+
+    /**
+     * 调一次 HA REST 服务。抛错由调用方转成业务失败。
+     *
+     * ⚠️ 服务名不能写死「domain/action」：HA 各域支持的服务不一样，
+     * 例如 cover 只有 open_cover/close_cover（没有 turn_on）、lock 是 lock/unlock、
+     * button 是 press。写死会让「选了就 404」。这里按该域实际支持的服务
+     * 动态解析（见 ha_catalog.resolveActionService），解析不出直接报错。
+     */
+    // 带参动作 → HA 服务请求体的字段名（Home Assistant 各服务的数据键不同）。
+    const HA_PARAM_KEYS = {
+        set_temperature: 'temperature',
+        set_operation_mode: 'operation_mode',
+        set_hvac_mode: 'hvac_mode',
+        set_percentage: 'percentage',
+        select_option: 'option',
+        number_set: 'value',
+        brightness: 'brightness_pct',
+        next_effect: 'effect',
+        next_option: 'option',
+    };
+    // 相对参数（如 +0.5 / -25）需要读取当前值再相加，各动作取当前值的属性不同。
+    const HA_PARAM_ATTRS = {
+        set_temperature: 'temperature',
+        set_percentage: 'percentage',
+        brightness: 'brightness',
+        number_set: 'value',
+    };
+
+    /**
+     * 调一次 HA REST 服务。抛错由调用方转成业务失败。
+     *
+     * ⚠️ 服务名不能写死「domain/action」：HA 各域支持的服务不一样，
+     * 例如 cover 只有 open_cover/close_cover（没有 turn_on）、lock 是 lock/unlock、
+     * button 是 press。写死会让「选了就 404」。这里按该域实际支持的服务
+     * 动态解析（见 ha_catalog.resolveActionService），解析不出直接报错。
+     *
+     * S5：param 是带参动作的值（如 "0.5" / "+0.5" / "制冷"）。相对值先读当前
+     * 状态属性再相加；所有计算在服务端完成，令牌和数值运算都不进设备。
+     */
+    async function callHaService(entityId, action, param) {
         const { baseUrl, token } = readHaConfig();
         if (!baseUrl || !token) throw new Error('服务端未配置 HA 地址或令牌');
         const base = /^https?:\/\//i.test(baseUrl) ? baseUrl : `http://${baseUrl}`;
-        const url = `${base.replace(/\/+$/, '')}/api/services/${haServiceName(entityId, action)}`;
+        const domain = entityId.split('.')[0].toLowerCase();
+        // HA REST 的服务路径是 /api/services/<domain>/<service>（斜杠，不是点号）
+        const service = await haCatalogService.resolveActionService(entityId, action);
+        const url = `${base.replace(/\/+$/, '')}/api/services/${domain}/${service}`;
+
+        const body = { entity_id: entityId };
+        const paramKey = HA_PARAM_KEYS[action];
+        if (paramKey && param) {
+            let value = param;
+            // 相对值：+0.5 / -25 —— 读当前属性算好绝对值，服务端 clamp 交给 HA 域自身。
+            const relMatch = String(param).match(/^([+-])(\d+(?:\.\d+)?)$/);
+            if (relMatch) {
+                const attr = HA_PARAM_ATTRS[action];
+                const current = await haCatalogService.getStates([entityId]);
+                const stateObj = current[entityId];
+                const attrs = (stateObj && stateObj.attributes) || {};
+                const baseVal = Number(attr ? attrs[attr] : stateObj && stateObj.state);
+                if (!Number.isFinite(baseVal)) throw new Error(`无法读取 ${entityId} 当前值，相对调节失败`);
+                const delta = Number(relMatch[2]);
+                value = relMatch[1] === '-' ? baseVal - delta : baseVal + delta;
+                // 浮点误差收敛到 2 位小数（温度 step 常见 0.5）
+                value = Math.round(value * 100) / 100;
+            }
+            // brightness 服务要 0-255，界面用的是百分比；做一次换算。
+            if (action === 'brightness' && /^\d+(?:\.\d+)?$/.test(String(value))) {
+                value = Math.max(0, Math.min(255, Math.round(Number(value) * 255 / 100)));
+            }
+            body[paramKey] = value;
+        }
+
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 6000);
         try {
@@ -859,7 +961,7 @@ function attachAdmin(app, options = {}) {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ entity_id: entityId }),
+                body: JSON.stringify(body),
                 signal: controller.signal,
             });
             if (!res.ok) {
@@ -3034,17 +3136,43 @@ function attachAdmin(app, options = {}) {
         return machine;
     }
 
-    app.get('/api/device/esp/actions', (req, res) => {
+    app.get('/api/device/esp/actions', async (req, res) => {
         const id = safeDeviceId(req.query.deviceId);
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
         const actions = machine.espActions.filter((item) => item.enabled);
-        // 固件没接 JSON 库，`format=text` 给一行一项：button|name|entityId|action|id
-        if (String(req.query.format || '') === 'text') {
-            const lines = actions.map((item) => [item.button, item.name, item.entityId, item.action, item.id].join('|'));
-            return res.type('text/plain; charset=utf-8').send(lines.join('\n'));
+
+        // S4：按设备分类 + 显示绑定，读 HA 状态解析出屏幕四行文本。
+        // 令牌留服务端；固件只收纯文本，不认识设备类型。
+        let display = { title: machine.name || '', main: '--', sub: '', keys: '', homeLabel: '当前状态' };
+        try {
+            const bindings = machine.bindings || {};
+            const entityIds = [bindings.main, bindings.s1, bindings.s2].filter(Boolean);
+            const states = entityIds.length ? await haCatalogService.getStates(entityIds) : {};
+            const buttons = actions.filter((item) => item.button >= 1)
+                .sort((a, b) => a.button - b.button)
+                .map((item) => `${item.button}${item.name}`).join(' ');
+            display = Object.assign(display, deviceTypes.resolveDisplay({
+                deviceType: machine.deviceType || '',
+                bindings,
+                states,
+                deviceName: machine.name || '',
+                buttonText: buttons,
+            }));
+        } catch (error) {
+            // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
+            console.warn(`[esp] ${id} 解析显示文本失败，降级:`, error.message);
         }
-        return jsonOk(res, { deviceId: id, actions });
+
+        // 固件没接 JSON 库，`format=text` 给：
+        // 前 4 行是显示层（DISPLAY|title|main|sub|keys），其后每行一项控制项
+        // button|name|entityId|action|id（旧固件忽略不认识的 DISPLAY 行）。
+        if (String(req.query.format || '') === 'text') {
+            const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys].join('|');
+            const lines = actions.map((item) => [item.button, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
+            return res.type('text/plain; charset=utf-8').send([displayLine].concat(lines).join('\n'));
+        }
+        return jsonOk(res, { deviceId: id, actions, display });
     });
 
     app.post('/api/device/esp/press', async (req, res) => {
@@ -3062,10 +3190,17 @@ function attachAdmin(app, options = {}) {
             action = enabled.find((item) => item.button === button) || null;
         }
         if (!action) return jsonFail(res, '该按钮未配置控制项，或尚未在后台开启', definds.code.FAILED, 403);
+
+        // 系统动作（翻页）：不改 HA，只回执让固件切 currentPage。
+        if (action.sys) {
+            console.log(`[esp] ${id} 按钮${action.button || '-'} → 系统动作 ${action.action}`);
+            return jsonOk(res, { name: action.name, sys: action.action }, '已执行');
+        }
+
         try {
-            await callHaService(action.entityId, action.action);
-            console.log(`[esp] ${id} 按钮${action.button || '-'} → ${action.entityId} ${action.action} ok`);
-            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action }, '已执行');
+            await callHaService(action.entityId, action.action, action.param);
+            console.log(`[esp] ${id} 按钮${action.button || '-'} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
+            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action, param: action.param }, '已执行');
         } catch (error) {
             console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
             return jsonFail(res, `调用 HA 失败：${error.message}`);
@@ -3076,25 +3211,114 @@ function attachAdmin(app, options = {}) {
     app.get('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
         const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
         if (!machine) return undefined;
-        return jsonOk(res, { actions: machine.espActions, ha: haConfigView() });
+        return jsonOk(res, {
+            actions: machine.espActions,
+            deviceType: machine.deviceType,
+            bindings: machine.bindings,
+            types: deviceTypeService.list(),
+            ha: haConfigView(),
+        });
     });
 
-    /** admin 页：整表保存控制项（勾选 enabled 才下发）。 */
+    /** admin 页：整表保存控制项 + 设备分类/显示绑定（勾选 enabled 才下发）。 */
     app.put('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
         const id = safeDeviceId(req.params.id);
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
         const body = req.body || {};
         const actions = normalizeEspActions(body.actions);
+        const disp = normalizeEspDisplay(body.espDisplay || body);
         const machines = readMachines();
         machines[id].espActions = actions;
+        machines[id].espDisplay = disp;
         saveMachines(machines);
-        console.log(`[esp] ${id} 控制项已更新：${actions.filter((item) => item.enabled).length}/${actions.length} 开启`);
-        return jsonOk(res, { actions }, '已保存');
+        console.log(`[esp] ${id} 控制项已更新：${actions.filter((item) => item.enabled).length}/${actions.length} 开启，类型=${disp.deviceType || '未分类'}`);
+        return jsonOk(res, { actions, ...disp }, '已保存');
+    });
+
+    /* ---- 设备类型字典 CRUD（S3）：home 与 ESP 共用的唯一真源 ---- */
+    app.get('/api/admin/device-types', requireAdmin, (req, res) => {
+        return jsonOk(res, { types: deviceTypeService.list() });
+    });
+
+    app.post('/api/admin/device-types', requireAdmin, (req, res) => {
+        const body = req.body || {};
+        const key = String(body.key == null ? '' : body.key);
+        try {
+            // 新格式可同时保存 dict / rules / card / priority / meta；旧格式只给 dict。
+            const hasRulePatch = body.rules != null || body.card != null
+                || body.priority != null || body.meta != null;
+            const patch = hasRulePatch
+                ? { dict: body.dict, rules: body.rules, card: body.card, priority: body.priority, meta: body.meta }
+                : (body.dict || {});
+            const updated = deviceTypeService.update(key, patch);
+            console.log(`[deviceTypes] 更新类型 ${key || '通用兜底'}（规则 ${updated.rules.length} 条），两端字典同步生效`);
+            return jsonOk(res, { type: updated }, '字典已保存，home 与 ESP 两端生效');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** admin：新建自定义设备类型（规则引擎支持动态类型）。 */
+    app.post('/api/admin/device-types/create', requireAdmin, (req, res) => {
+        const body = req.body || {};
+        try {
+            const created = deviceTypeService.create(body.key, {
+                label: body.label, icon: body.icon, color: body.color,
+                rules: body.rules, card: body.card, priority: body.priority,
+            });
+            console.log(`[deviceTypes] 新建类型 ${created.key}（${created.label}）`);
+            return jsonOk(res, { type: created }, '类型已创建');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** admin：规则命中测试——传一组实体，返回判定结果（单一真源，前端不自己算）。 */
+    app.post('/api/admin/device-types/classify', requireAdmin, (req, res) => {
+        try {
+            const entities = Array.isArray((req.body || {}).entities) ? req.body.entities : [];
+            const result = deviceTypes.classify(entities, deviceTypeService.list());
+            return jsonOk(res, { result });
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    app.post('/api/admin/device-types/reset', requireAdmin, (req, res) => {
+        const key = String((req.body || {}).key == null ? '' : (req.body || {}).key);
+        try {
+            return jsonOk(res, { type: deviceTypeService.reset(key) }, '已恢复默认规则');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
     });
 
     /** admin 页：HA 地址 / 令牌（令牌回显为布尔值，不明文下发）。 */
     app.get('/api/admin/ha', requireAdmin, (req, res) => jsonOk(res, haConfigView()));
+
+    /**
+     * admin 页：HA 实体目录（按「家 → 房间」分组，含每个实体可用的动作）。
+     *
+     * 前端不直连 HA——令牌不下发到浏览器，由服务端代取。
+     * query.refresh=1 时跳过缓存强制重取。
+     */
+    app.get('/api/admin/ha/entities', requireAdmin, async (req, res) => {
+        try {
+            const refresh = req.query && req.query.refresh === '1';
+            const catalog = await haCatalogService.getCatalog(refresh);
+            return jsonOk(res, {
+                homes: catalog.homes,
+                entities: catalog.entities,
+                domains: catalog.domains,
+                cached: catalog.cached === true,
+                updatedAt: Date.now(),
+            });
+        } catch (error) {
+            console.error('[ha] 拉取实体目录失败:', error.message);
+            return jsonFail(res, `拉取 HA 实体目录失败：${error.message}`);
+        }
+    });
 
     app.put('/api/admin/ha', requireAdmin, (req, res) => {
         const body = req.body || {};
@@ -3192,6 +3416,57 @@ function attachAdmin(app, options = {}) {
             fs.rmSync(firmwareMeta, { force: true });
             console.log('[ota] 已撤回固件发布');
             return jsonOk(res, { published: false }, '已撤回');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 设备类型字典（公开读，无敏感信息）：home 端据此解析设备展示字段。
+     * 只包含类型规则（属性/模板/标签）+ 显式设备分类映射，不含 HA 令牌。
+     * home 直连 HA WS 取实时状态，只把这里当「类型→字段」的规则源；
+     * 服务端不可达时 home 用内置 fallback，不阻塞启动。
+     */
+    app.get('/api/device/device-types', async (req, res) => {
+        try {
+            const machines = readMachines();
+            // 显式分类（admin 设备分类 Tab 手选的）优先级高于规则自动判定。
+            const manual = {};
+            for (const [id, machine] of Object.entries(machines)) {
+                if (machine.deviceType) manual[id] = machine.deviceType;
+            }
+
+            const types = deviceTypeService.list();
+            const auto = {};
+            try {
+                const catalog = await haCatalogService.getCatalog();
+                const byDevice = new Map();
+                for (const e of (catalog.entities || [])) {
+                    const devKey = e.deviceId || e.id;
+                    if (!byDevice.has(devKey)) byDevice.set(devKey, []);
+                    byDevice.get(devKey).push({
+                        id: e.id, domain: e.domain, name: e.name, state: e.state,
+                        attrs: e.attributes || {},
+                        device: { name: e.device || '', model: e.deviceModel || '', manufacturer: e.manufacturer || '' },
+                    });
+                }
+                for (const [devKey, entities] of byDevice.entries()) {
+                    const hit = deviceTypes.classify(entities, types);
+                    if (hit) auto[devKey] = hit.key;
+                }
+            } catch (error) {
+                console.warn('[deviceTypes] 自动分类取 HA 目录失败（不影响显式分类）:', error.message);
+            }
+
+            return jsonOk(res, {
+                types,
+                classification: Object.assign({}, auto, manual),
+                autoClassification: auto,
+                manualClassification: manual,
+                ruleEngineEnabled: true,
+                genericCardTypes: deviceTypeService.genericCardTypes(),
+                updatedAt: Date.now(),
+            });
         } catch (error) {
             return jsonFail(res, error.message);
         }

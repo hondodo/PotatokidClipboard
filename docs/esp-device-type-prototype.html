@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设备类型字典 · Admin 规划原型</title>
+<style>
+  :root{
+    --bg:#0c131a; --panel:#121b25; --panel2:#16212d; --line:#22303f;
+    --text:#dbe6f0; --muted:#8fa2b6; --muted2:#65809a;
+    --accent:#4dd4ac; --accent2:#2f9cff; --warn:#ffb454; --danger:#ff6b6b;
+    --purple:#b98cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  button,input,select{font:inherit;color:inherit}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  [hidden]{display:none!important}
+
+  .topbar{height:54px;display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.3px}
+  .topbar .crumb{color:var(--muted);font-size:12px}
+  .topbar .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:7px 13px;cursor:pointer;font-size:12.5px}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#06221b;border-color:var(--accent);font-weight:650}
+  .btn.primary:hover{filter:brightness(1.08)}
+
+  /* 顶层导航：模拟真实 Admin 的 Tab 栏，末尾两个为本规划新增 */
+  .topnav{display:flex;align-items:center;gap:2px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+  .topnav .navtab{border:none;background:none;color:var(--muted);padding:12px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .topnav .navtab:hover:not(.disabled){color:var(--text)}
+  .topnav .navtab.disabled{color:#4a5b6d;cursor:default}
+  .topnav .navtab.active{color:var(--purple);border-bottom-color:var(--purple);font-weight:650}
+  .topnav .navtab .new{font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(185,140,255,.16);color:var(--purple);margin-left:5px;vertical-align:1px}
+
+  .notice{margin:14px 22px 0;padding:12px 16px;border:1px solid var(--line);border-left:3px solid var(--purple);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12.5px;line-height:1.7}
+  .notice b{color:var(--text)}
+  .notice code{background:#0a1017;padding:1px 5px;border-radius:4px;color:var(--accent);font-size:11.5px}
+  .notice .bad{color:var(--danger)}
+  .notice .good{color:var(--accent)}
+  .notice .nav-ref{color:var(--purple);font-weight:600}
+
+  .flowbar{display:flex;align-items:center;gap:8px;margin:12px 22px 0;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .flowbar .step{padding:6px 12px;border:1px solid var(--line);border-radius:16px;background:var(--panel);white-space:nowrap}
+  .flowbar .step b{color:var(--text)}
+  .flowbar .step.on{border-color:var(--purple);color:var(--purple)}
+  .flowbar .arw{color:var(--muted2)}
+  .flowbar .fork{border-style:dashed;color:var(--purple)}
+  .flowbar .branch{display:flex;flex-direction:column;gap:5px}
+  .flowbar .branch .step{padding:5px 10px;font-size:11px}
+  .flowbar .branch .step.home{border-color:rgba(47,156,255,.5);color:var(--accent2)}
+  .flowbar .branch .step.esp{border-color:rgba(185,140,255,.5);color:var(--purple)}
+
+  .layout{display:grid;grid-template-columns:220px minmax(560px,1fr) 350px;gap:14px;padding:14px 22px 40px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+  .card>h2{font-size:12px;letter-spacing:.6px;color:var(--muted2);margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .card>h2 .tag{font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(185,140,255,.13);color:var(--purple);font-weight:500}
+  .card .body{padding:13px}
+
+  .dev-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin-bottom:3px}
+  .dev-item:hover{background:var(--panel2)}
+  .dev-item.active{border-color:var(--purple);background:rgba(185,140,255,.08)}
+  .dev-item .ic{width:26px;height:26px;display:grid;place-items:center;background:var(--panel2);border-radius:6px;font-size:14px;flex:none}
+  .dev-item .nm{flex:1;min-width:0}
+  .dev-item .nm b{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dev-item .nm span{font-size:10.5px;color:var(--muted2)}
+  .dev-item .typ{font-size:9.5px;padding:1px 5px;border-radius:8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .dev-item .typ.unset{color:var(--warn);border-color:rgba(255,180,84,.4)}
+
+  /* 字典视图左侧：类型列表 */
+  .type-list .tl-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin-bottom:2px}
+  .type-list .tl-item:hover{background:var(--panel2)}
+  .type-list .tl-item.active{border-color:var(--purple);background:rgba(185,140,255,.08)}
+  .type-list .tl-item .ic{width:24px;height:24px;display:grid;place-items:center;background:var(--panel2);border-radius:6px;font-size:13px;flex:none}
+  .type-list .tl-item .lb{flex:1;min-width:0;font-size:12px;font-weight:600}
+  .type-list .tl-item .used{font-size:9.5px;padding:1px 6px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--muted2);white-space:nowrap}
+  .type-list .tl-item .used.have{color:var(--accent);border-color:rgba(77,212,172,.35)}
+
+  .section{margin-bottom:18px}
+  .section:last-child{margin-bottom:0}
+  .section h3{font-size:12px;color:var(--muted);margin:0 0 9px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .section h3 .n{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--panel2);border:1px solid var(--line);color:var(--accent2);font-size:10px;flex:none}
+  .section h3 .tag{font-size:10px;padding:1px 7px;border-radius:10px;background:var(--panel2);color:var(--muted2);font-weight:500}
+  input[type=text],select{background:#0d151e;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:12.5px;width:100%;min-width:0}
+  input[type=text]:focus,select:focus{outline:none;border-color:var(--accent2)}
+  select{cursor:pointer}
+  .hint{font-size:11px;color:var(--muted2);margin-top:6px;line-height:1.65}
+  .linkbtn{border:none;background:none;color:var(--accent2);cursor:pointer;font-size:11px;padding:0}
+  .linkbtn:hover{text-decoration:underline}
+
+  .type-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+  .type-chip{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:10px 5px;text-align:center;cursor:pointer;transition:.12s}
+  .type-chip:hover{border-color:var(--accent2)}
+  .type-chip.active{border-color:var(--purple);background:rgba(185,140,255,.1);color:var(--purple)}
+  .type-chip .ic{font-size:17px;display:block;line-height:1.2}
+  .type-chip .lb{font-size:11px;display:block;margin-top:4px}
+
+  .bind-row{display:grid;grid-template-columns:78px 1fr;gap:8px;align-items:center;margin-bottom:8px}
+  .bind-row .role{font-size:11.5px;color:var(--muted);text-align:right}
+  .bind-row .role b{color:var(--text);font-weight:600}
+  .entity-pick{position:relative}
+  .entity-pick .chosen{display:flex;align-items:center;gap:7px;background:#0d151e;border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer;min-height:33px}
+  .entity-pick .chosen:hover{border-color:var(--accent2)}
+  .entity-pick .chosen.empty{color:var(--muted2)}
+  .entity-pick .dom{font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(47,156,255,.13);color:var(--accent2);white-space:nowrap}
+  .entity-pick .en{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .entity-pick .eid{font-size:10px;color:var(--muted2);white-space:nowrap}
+  .ent-menu{position:fixed;z-index:99;background:var(--panel);border:1px solid var(--accent2);border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.6);width:430px;max-height:340px;display:flex;flex-direction:column}
+  .ent-menu .search{padding:8px;border-bottom:1px solid var(--line)}
+  .ent-menu .search input{background:#0a1017}
+  .ent-list{overflow:auto;padding:5px}
+  .ent-group{font-size:10px;color:var(--muted2);padding:7px 8px 3px;letter-spacing:.5px}
+  .ent-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+  .ent-opt:hover,.ent-opt.hi{background:var(--panel2)}
+  .ent-opt .dom{font-size:9px;padding:1px 5px;border-radius:5px;background:rgba(47,156,255,.13);color:var(--accent2);width:58px;text-align:center;flex:none}
+  .ent-opt .nm{font-size:11.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ent-opt .eid{font-size:9.5px;color:var(--muted2);max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{color:var(--muted2);font-weight:600;font-size:10.5px;text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:6px;border-bottom:1px solid rgba(34,48,63,.5);vertical-align:middle}
+  td.slot{width:44px}
+  .slot-badge{display:inline-grid;place-items:center;width:22px;height:20px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);font-weight:700;color:var(--accent2);font-size:10px}
+  select.mini{padding:4px 6px;font-size:11.5px}
+
+  .dict-view{background:#0d151e;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:11.5px;line-height:1.85}
+  .dict-view .rule{display:grid;grid-template-columns:78px 1fr;gap:8px;margin-bottom:4px}
+  .dict-view .rule .k{color:var(--muted2);text-align:right}
+  .dict-view .rule .v code{background:rgba(185,140,255,.1);color:var(--purple);padding:1px 5px;border-radius:4px;font-size:10.5px}
+  .dict-view .src{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);color:var(--muted2);font-size:10.5px}
+
+  /* 字典编辑器：三列 */
+  .dict-editor{background:#0d151e;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .dict-head{display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+  .dict-head select{width:auto;min-width:170px}
+  .dict-head .badge{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(185,140,255,.14);color:var(--purple);white-space:nowrap}
+  .dict-cols{display:grid;grid-template-columns:1fr 1fr 1fr}
+  .dict-col{padding:12px;border-right:1px solid var(--line)}
+  .dict-col:last-child{border-right:none}
+  .dict-col h4{margin:0 0 11px;font-size:11px;color:var(--accent2);font-weight:600;display:flex;flex-direction:column;gap:2px}
+  .dict-col h4 .who{font-size:9.5px;color:var(--muted2);font-weight:400}
+  .dict-col.shared h4{color:var(--purple)}
+  .df{display:grid;grid-template-columns:62px 1fr;gap:7px;align-items:center;margin-bottom:8px}
+  .df label{font-size:10.5px;color:var(--muted2);text-align:right}
+  .df input,.df select{padding:5px 7px;font-size:11.5px}
+  .dict-foot{padding:9px 12px;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted2);line-height:1.75}
+  .dict-foot b{color:var(--accent)}
+  .live-tag{font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(77,212,172,.13);color:var(--accent);margin-left:5px}
+
+  .preview-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .oled-bezel{width:100%;background:#05080b;border:6px solid #1d2732;border-radius:12px;padding:10px;box-shadow:0 12px 32px rgba(0,0,0,.6),inset 0 0 0 1px #2b3948}
+  canvas#screen{display:block;image-rendering:pixelated;width:100%;max-width:384px;aspect-ratio:2/1;height:auto;margin:0 auto;background:#000;border-radius:2px}
+  .preview-meta{font-size:11px;color:var(--muted2);text-align:center;line-height:1.7}
+  .preview-meta b{color:var(--accent)}
+  .screen-theme{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
+  .screen-theme button{border:1px solid var(--line);background:var(--panel2);border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11px;color:var(--muted)}
+  .screen-theme button.active{border-color:var(--accent2);color:var(--text);background:rgba(47,156,255,.12)}
+  .screen-theme .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+  .phone{width:100%;max-width:252px;margin:0 auto;background:#0a1017;border:1px solid #2b3948;border-radius:14px;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.5)}
+  .phone-bar{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .phone-bar .back{color:var(--accent2);font-size:15px}
+  .phone-bar .ttl{flex:1;color:var(--text);font-weight:600}
+  .phone-hero{padding:18px 12px 15px;text-align:center}
+  .phone-val{font-size:30px;font-weight:700;color:var(--accent);line-height:1.15;letter-spacing:-.5px}
+  .phone-lbl{font-size:10px;color:var(--muted2);margin-top:3px}
+  .phone-sub{font-size:11px;color:var(--muted);margin-top:10px;padding:6px 9px;background:var(--panel2);border-radius:7px;display:inline-block}
+  .phone-ctrls{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 10px 12px}
+  .phone-ctrls button{border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:8px 2px;font-size:10px;color:var(--text);cursor:default}
+  .home-meta{font-size:10.5px;color:var(--muted2);text-align:center;margin-top:9px;line-height:1.6}
+  .home-meta b{color:var(--accent2)}
+
+  .payload{background:#0a1017;border:1px solid var(--line);border-radius:8px;padding:11px;font:10.5px/1.65 ui-monospace,Menlo,Consolas,monospace;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto}
+  .payload .k{color:var(--accent2)}
+  .payload .s{color:var(--accent)}
+  .payload .n{color:var(--warn)}
+
+  .footer-note{margin:6px 22px 40px;font-size:11px;color:var(--muted2);line-height:1.8}
+  .footer-note b{color:var(--text)}
+
+  @media(max-width:1200px){.layout{grid-template-columns:190px 1fr}.preview-card,.home-card{grid-column:1/-1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>设备类型字典</h1>
+  <span class="crumb" id="crumb">HA 实体库 / 设备类型字典</span>
+  <span class="spacer"></span>
+  <button class="btn" onclick="resetAll()">重置示例</button>
+  <button class="btn primary" onclick="save()">保存</button>
+</div>
+
+<!-- 顶层导航：灰项为真实 Admin 已有 Tab，紫色两项为本规划新增 -->
+<div class="topnav" id="topnav">
+  <button class="navtab disabled">设备状态</button>
+  <button class="navtab disabled">用户与家庭</button>
+  <button class="navtab disabled">首页布局</button>
+  <button class="navtab disabled">流量统计</button>
+  <button class="navtab disabled">节目编辑</button>
+  <button class="navtab disabled">HA 实体库</button>
+  <button class="navtab active" data-view="dict" onclick="switchView('dict')">设备类型字典<span class="new">新增</span></button>
+  <button class="navtab" data-view="dev" onclick="switchView('dev')">ESP 设备分类<span class="new">新增</span></button>
+</div>
+
+<div class="notice">
+  <b>为什么单独做成顶层 Tab：</b>类型字典是 <b class="nav-ref">home + ESP 共用的全局真源</b>，管的是「每类设备怎么解析」——
+  它不该藏在某台设备的配置里（否则改全局规则得先随便挑一台设备）。
+  <span class="bad">home 端靠 entity_id 后缀猜类型会串类（_status_p_2_2 被洗衣机/空气炸锅/净水器共用）</span>，
+  ESP 照抄只会复制这个雷。<b class="good">现在两处各司其职：</b>
+  <span class="nav-ref">「设备类型字典」</span>定义规则、<span class="nav-ref">「ESP 设备分类」</span>给每台设备选类型+绑实体；
+  规则改一处，两端同时生效，但<b>取数通道各自独立</b>（home 直连 HA 保实时，ESP 服务端代读下发文本）。
+</div>
+
+<div class="flowbar">
+  <span class="step on"><b>① admin</b> 显式分类</span><span class="arw">→</span>
+  <span class="step on"><b>② 服务端类型字典</b> 唯一真源</span><span class="arw">→</span>
+  <span class="fork">┬</span>
+  <span class="branch">
+    <span class="step home"><b>③a home 端</b> 直连 HA · 本地执行 · 实时推送</span>
+    <span class="step esp"><b>③b ESP 端</b> 服务端代读 · 解析成 4 行文本下发</span>
+  </span>
+</div>
+
+<!-- ============ 视图 A：设备类型字典（全局规则） ============ -->
+<div class="layout" id="viewDict">
+  <div class="card">
+    <h2>设备类型 <span id="typeCount">15</span></h2>
+    <div class="body type-list" id="typeList"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="dictCfgTitle">类型字典配置</h2>
+    <div class="body">
+      <div class="section">
+        <h3><span class="n">★</span>解析规则 <span class="tag">唯一真源 · home / ESP 都读这里</span></h3>
+        <div class="dict-editor">
+          <div class="dict-head">
+            <select id="dictTypeSel" onchange="onDictTypeChange()"></select>
+            <span class="badge">共用字段</span>
+            <span class="live-tag">改这里 → 两端同时刷新</span>
+          </div>
+          <div class="dict-cols">
+            <div class="dict-col shared">
+              <h4>共用语义字段<span class="who">home / ESP 都消费</span></h4>
+              <div class="df"><label>主状态</label><select id="dfMainAttr" onchange="onDictEdit()"></select></div>
+              <div class="df"><label>显示格式</label><input id="dfMainFmt" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>副状态</label><input id="dfSubTpl" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>单位/步长</label><input id="dfStep" type="text" oninput="onDictEdit()"></div>
+            </div>
+            <div class="dict-col">
+              <h4>home 端消费<span class="who">直连 HA · 实时 · 详情面板</span></h4>
+              <div class="df"><label>状态标签</label><input id="dfHomeLabel" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>控件组</label><input id="dfHomeCtrls" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>控制动作</label><input id="dfHomeActs" type="text" oninput="onDictEdit()"></div>
+            </div>
+            <div class="dict-col">
+              <h4>ESP 端消费<span class="who">服务端代读 · 4 行文本</span></h4>
+              <div class="df"><label>标题行</label><input id="dfEspTitle" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>主状态行</label><input id="dfEspMain" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>副状态行</label><input id="dfEspSub" type="text" oninput="onDictEdit()"></div>
+              <div class="df"><label>按键行</label><input id="dfEspKeys" type="text" oninput="onDictEdit()"></div>
+            </div>
+          </div>
+          <div class="dict-foot" id="dictFoot"></div>
+        </div>
+      </div>
+      <div class="section">
+        <h3><span class="n">↔</span>联动验证 <span class="tag">右侧两个预览会同时变化</span></h3>
+        <div class="hint" style="margin-top:0">改「显示格式」的单位（如 <code>°C</code> → <code>℃</code>）或「副状态」模板 ——
+          右侧 <b>ESP 屏幕</b> 与 <b>home 详情面板</b> 会同时刷新。「home 端消费 / ESP 端消费」是各端专属字段，互不干扰。<br>
+          这台设备用了该类型？去 <button class="linkbtn" onclick="switchView('dev')">「ESP 设备分类」→</button> 给具体设备选类型、绑实体。</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sharedPreviewDict"></div>
+</div>
+
+<!-- ============ 视图 B：ESP 设备分类（每台设备） ============ -->
+<div class="layout" id="viewDev" hidden>
+  <div class="card">
+    <h2>ESP 设备 <span id="devCount">6</span></h2>
+    <div class="body" id="devList"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="cfgTitle">设备分类配置</h2>
+    <div class="body">
+      <div class="section">
+        <h3><span class="n">1</span>设备类型 <span class="tag">在此显式声明，不靠猜</span></h3>
+        <div class="type-grid" id="typeGrid"></div>
+        <div class="hint">类型选一次。规则定义在
+          <button class="linkbtn" onclick="goEditType()">「设备类型字典」</button>（全局 Tab），这里只引用类型、绑定实体。未选类型走通用兜底。</div>
+      </div>
+      <div class="section" id="bindSection">
+        <h3><span class="n">2</span>实体绑定 <span class="tag">从 HA 实体库下拉选，不手填后缀</span></h3>
+        <div id="bindRows"></div>
+        <div class="hint">按类型不同要绑的字段不同（热水器要「当前水温/工作状态」，洗衣机要「剩余时间/运行模式」）。绑定存进 <code style="color:var(--accent)">deviceType + displayBindings</code>。</div>
+      </div>
+      <div class="section" id="btnSection">
+        <h3><span class="n">3</span>按键定义 <span class="tag">支持带数值/模式的动作</span></h3>
+        <table>
+          <thead><tr><th>槽位</th><th>短标签</th><th>行为（含参数）</th></tr></thead>
+          <tbody id="buttonRows"></tbody>
+        </table>
+        <div class="hint">「温度 +/−」= 同一个 <code style="color:var(--accent)">set_temperature</code> 带不同数值，非新动作种类。参数由服务端按当前值 ± 步长算出。</div>
+      </div>
+      <div class="section">
+        <h3><span class="n">4</span>命中的字典规则 <span class="tag">定义在全局字典 Tab</span></h3>
+        <div class="dict-view" id="dictView"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sharedPreviewDev"></div>
+</div>
+
+<div class="footer-note">
+  规划原型 · 仅演示信息架构与交互，未接真实接口。设备取自线上 <code>datas/admin/machines.json</code> 的真实形态，实体库为模拟数据。<br>
+  信息架构：<b>「设备类型字典」= 全局规则（唯一真源，home + ESP 共用）；「ESP 设备分类」= 每台设备选类型 + 绑实体 + 按键</b>，两者都是 Admin 顶层 Tab、可互相跳转。<br>
+  屏幕渲染遵循既定约定：单色三选一、无虚线、反白强调异常、跑马灯仅在放不下时触发、顶部状态栏含页码/IP/WiFi（IP 落地取 WiFi.localIP()）。
+</div>
+
+<div class="ent-menu" id="entMenu" hidden>
+  <div class="search"><input type="text" id="entSearch" placeholder="搜索实体名 / entity_id…" oninput="renderEntList()"></div>
+  <div class="ent-list" id="entList"></div>
+</div>
+
+<!-- 共享的右侧预览模板：运行时移动到当前视图，两个视图共用一份，避免双 canvas -->
+<template id="previewTpl">
+  <div class="card preview-card">
+    <h2>ESP 屏幕实时预览 <span class="tag">共用字典</span></h2>
+    <div class="body preview-wrap">
+      <div class="oled-bezel"><canvas id="screen" width="128" height="64"></canvas></div>
+      <div class="screen-theme" id="screenTheme"></div>
+      <div class="preview-meta" id="previewMeta"></div>
+    </div>
+  </div>
+  <div class="card home-card">
+    <h2>home 端详情预览 <span class="tag">同一份字典</span></h2>
+    <div class="body">
+      <div class="phone">
+        <div class="phone-bar"><span class="back">‹</span><span class="ttl" id="homeTitle">客厅热水器</span><span>⋮</span></div>
+        <div class="phone-hero">
+          <div class="phone-val" id="homeMain">42.5°C</div>
+          <div class="phone-lbl" id="homeLabel">当前水温</div>
+          <div class="phone-sub" id="homeSub">制热中 · 目标 45°C</div>
+        </div>
+        <div class="phone-ctrls" id="homeCtrls"></div>
+      </div>
+      <div class="home-meta" id="homeMeta"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>下发数据结构 <span class="tag" id="payloadTag">machines.json 增量字段</span></h2>
+    <div class="body">
+      <div class="payload" id="payload"></div>
+      <div class="hint" id="payloadHint"></div>
+    </div>
+  </div>
+</template>
+
+<script>
+/* ---------- 模拟数据 ---------- */
+const DEVICES = [
+  { id:'esp-3030f96cd03c', name:'客厅热水器面板', icon:'♨', deviceType:'water_heater',
+    bindings:{ main:'water_heater.mijia_01', sub1:'sensor.mijia_status_p_2_5', sub2:'sensor.mijia_inlet_temp' },
+    buttons:[
+      {slot:1,label:'开关',action:'toggle',entityId:'water_heater.mijia_01'},
+      {slot:2,label:'+',action:'temp_plus',entityId:'water_heater.mijia_01',param:1},
+      {slot:3,label:'-',action:'temp_minus',entityId:'water_heater.mijia_01',param:1},
+      {slot:4,label:'预热',action:'toggle',entityId:'switch.mijia_recirculation'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+  { id:'esp-a1b2c3d4e5f6', name:'卧室风扇灯面板', icon:'✦', deviceType:'fan',
+    bindings:{ main:'fan.bedroom_fan', sub1:'number.fan_delay', sub2:'' },
+    buttons:[
+      {slot:1,label:'开关',action:'toggle',entityId:'fan.bedroom_fan'},
+      {slot:2,label:'风+',action:'pct_plus',entityId:'fan.bedroom_fan',param:25},
+      {slot:3,label:'风-',action:'pct_minus',entityId:'fan.bedroom_fan',param:25},
+      {slot:4,label:'摆头',action:'toggle',entityId:'fan.bedroom_fan'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+  { id:'esp-998877665544', name:'厨房空气炸锅面板', icon:'▣', deviceType:'air_fryer',
+    bindings:{ main:'sensor.af_status_p_2_2', sub1:'number.af_target_temp', sub2:'number.af_target_time' },
+    buttons:[
+      {slot:1,label:'开始',action:'press',entityId:'button.af_start_cook'},
+      {slot:2,label:'Temp+',action:'num_plus',entityId:'number.af_target_temp',param:5},
+      {slot:3,label:'Time+',action:'num_plus',entityId:'number.af_target_time',param:1},
+      {slot:4,label:'取消',action:'press',entityId:'button.af_cancel'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+  { id:'esp-112233445566', name:'阳台洗衣机面板', icon:'◉', deviceType:'washer',
+    bindings:{ main:'sensor.washer_status_p_2_2', sub1:'sensor.washer_left_time', sub2:'select.washer_mode' },
+    buttons:[
+      {slot:1,label:'启动',action:'press',entityId:'button.washer_start'},
+      {slot:2,label:'暂停',action:'press',entityId:'button.washer_pause'},
+      {slot:3,label:'停止',action:'press',entityId:'button.washer_stop'},
+      {slot:4,label:'模式',action:'next_option',entityId:'select.washer_mode'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+  { id:'esp-abc123def456', name:'客厅灯光面板', icon:'☀', deviceType:'light',
+    bindings:{ main:'light.living_room', sub1:'', sub2:'' },
+    buttons:[
+      {slot:1,label:'开关',action:'toggle',entityId:'light.living_room'},
+      {slot:2,label:'亮+',action:'bright_plus',entityId:'light.living_room',param:10},
+      {slot:3,label:'亮-',action:'bright_minus',entityId:'light.living_room',param:10},
+      {slot:4,label:'场景',action:'next_effect',entityId:'light.living_room'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+  { id:'esp-000000000000', name:'书房新设备（未分类）', icon:'?', deviceType:'',
+    bindings:{ main:'', sub1:'', sub2:'' },
+    buttons:[
+      {slot:1,label:'开关',action:'toggle',entityId:'switch.study_plug'},
+      {slot:5,label:'下一页',action:'next_page',entityId:''},
+    ]},
+];
+
+const DEVICE_TYPES = [
+  {key:'water_heater',icon:'♨',label:'热水器',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'当前水温 current_temperature',sub:'工作状态 + 目标温度',action:'set_temperature(带数值)'}},
+  {key:'kettle',icon:'♨',label:'热水瓶',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'当前温度 temperature',sub:'工作状态 + 保温温度',action:'set_temperature / select_option'}},
+  {key:'fan',icon:'✦',label:'风扇',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'风速 percentage',sub:'模式 + 延时关闭',action:'set_percentage(带数值)'}},
+  {key:'climate',icon:'❄',label:'空调',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'当前温度 current_temperature',sub:'目标温度 + 模式',action:'set_temperature / set_hvac_mode'}},
+  {key:'light',icon:'☀',label:'灯光',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'开关 state',sub:'亮度 + 色温',action:'turn_on(带 brightness)'}},
+  {key:'projector',icon:'▤',label:'投影仪',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'工作状态 sensor',sub:'输入源 + 亮度',action:'button press / select_option'}},
+  {key:'air_fryer',icon:'▣',label:'空气炸锅',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'工作状态 sensor',sub:'目标温度 + 剩余时间',action:'button press / number set'}},
+  {key:'washer',icon:'◉',label:'洗衣机',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'运行状态 sensor',sub:'剩余时间 + 模式',action:'button press / select_option'}},
+  {key:'fridge',icon:'▥',label:'冰箱',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'冷藏温度 sensor',sub:'冷冻温度 + 模式',action:'只读展示'}},
+  {key:'rice_cooker',icon:'▢',label:'电饭煲',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'工作状态 sensor',sub:'当前模式 + 预约',action:'button press / select_option'}},
+  {key:'socket',icon:'⏻',label:'插座',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'开关 state',sub:'功率 + 电压',action:'toggle'}},
+  {key:'purifier',icon:'◌',label:'净水器',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'工作状态 sensor',sub:'滤芯寿命 + TDS',action:'只读展示'}},
+  {key:'range_hood',icon:'⌇',label:'油烟机',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'开关 state',sub:'档位 + 照明',action:'toggle / set_percentage'}},
+  {key:'multi_switch',icon:'▦',label:'多路开关',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'已开启路数',sub:'各路状态汇总',action:'toggle per entity'}},
+  {key:'',icon:'?',label:'通用兜底',roles:['主状态','副状态1','副状态2'],
+   dict:{main:'主实体 state',sub:'domain + 属性摘要',action:'toggle（若可开关）'}},
+];
+
+const HA_ENTITIES = [
+  {id:'water_heater.mijia_01',name:'米家燃气热水器',domain:'water_heater'},
+  {id:'sensor.mijia_status_p_2_5',name:'热水器工作状态',domain:'sensor'},
+  {id:'sensor.mijia_inlet_temp',name:'进水温度',domain:'sensor'},
+  {id:'switch.mijia_recirculation',name:'热水循环预热',domain:'switch'},
+  {id:'switch.mijia_intelligent_preheat',name:'智能预热',domain:'switch'},
+  {id:'fan.bedroom_fan',name:'卧室风扇',domain:'fan'},
+  {id:'number.fan_delay',name:'延时关闭',domain:'number'},
+  {id:'sensor.af_status_p_2_2',name:'空气炸锅状态',domain:'sensor'},
+  {id:'number.af_target_temp',name:'目标温度',domain:'number'},
+  {id:'number.af_target_time',name:'目标时间',domain:'number'},
+  {id:'button.af_start_cook',name:'开始烹饪',domain:'button'},
+  {id:'button.af_cancel',name:'取消烹饪',domain:'button'},
+  {id:'sensor.washer_status_p_2_2',name:'洗衣机状态',domain:'sensor'},
+  {id:'sensor.washer_left_time',name:'剩余时间',domain:'sensor'},
+  {id:'select.washer_mode',name:'洗衣模式',domain:'select'},
+  {id:'button.washer_start',name:'启动洗涤',domain:'button'},
+  {id:'button.washer_pause',name:'暂停',domain:'button'},
+  {id:'button.washer_stop',name:'停止',domain:'button'},
+  {id:'light.living_room',name:'客厅主灯',domain:'light'},
+  {id:'switch.study_plug',name:'书房插座',domain:'switch'},
+];
+
+const SCREEN_THEMES = {
+  blue:{label:'蓝光',swatch:'#6cb6ff',on:'#6cb6ff'},
+  white:{label:'白光',swatch:'#f2f2f2',on:'#e6e6e6'},
+  yellow:{label:'黄光',swatch:'#ffd23f',on:'#ffd23f'},
+};
+let themeKey='blue', scrollBase=0;
+const ON=()=>SCREEN_THEMES[themeKey].on;
+const SPEED={title:0.45,main:0.75,sub:1.1,keys:1.6};
+let currentDev=0, dictEditKey='water_heater', curView='dict', pickTarget=null;
+
+/* 字典字段：共用字段两端都读；home 与 esp 前缀字段各端专属 */
+const DICT_DEFAULTS={
+  mainAttr:'state', mainFmt:'{v}', subTpl:'{s1} · {s2}', step:'1',
+  homeLabel:'当前状态', homeCtrls:'电源', homeActs:'toggle',
+  espTitle:'{device}', espMain:'{main}', espSub:'{sub}', espKeys:'{buttons}',
+  simMain:'--', simSub1:'在线', simSub2:'就绪'
+};
+const DICT_DETAIL={
+  water_heater:{mainAttr:'current_temperature',mainFmt:'{v}°C',subTpl:'{s1} · 目标 {s2}°C',step:'0.5°C',homeLabel:'当前水温',homeCtrls:'电源 温度− 温度+ 预热',homeActs:'toggle set_temperature(-0.5) set_temperature(+0.5) toggle',simMain:'42.5',simSub1:'制热中',simSub2:'45'},
+  kettle:{mainAttr:'temperature',mainFmt:'{v}°C',subTpl:'{s1} · 保温 {s2}°C',step:'1°C',homeLabel:'当前温度',homeCtrls:'电源 保温',homeActs:'toggle select_option',simMain:'98',simSub1:'加热中',simSub2:'55'},
+  fan:{mainAttr:'percentage',mainFmt:'风速 {v}%',subTpl:'{s1} · {s2}',step:'25%',homeLabel:'当前风速',homeCtrls:'电源 风+ 风− 摆头',homeActs:'toggle set_percentage(+25) set_percentage(-25) toggle',simMain:'60',simSub1:'自然风',simSub2:'延时 30min'},
+  climate:{mainAttr:'current_temperature',mainFmt:'{v}°C',subTpl:'{s1} · 目标 {s2}°C',step:'0.5°C',homeLabel:'当前室温',homeCtrls:'电源 温度− 温度+ 模式',homeActs:'toggle set_temperature(-0.5) set_temperature(+0.5) set_hvac_mode',simMain:'26',simSub1:'制冷',simSub2:'24'},
+  light:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · {s2}',step:'10%',homeLabel:'灯光状态',homeCtrls:'电源 亮度+ 亮度− 场景',homeActs:'turn_on brightness(+10) brightness(-10) next_effect',simMain:'已开启',simSub1:'亮度 80%',simSub2:'4000K'},
+  air_fryer:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · 剩 {s2}min',step:'5°C',homeLabel:'工作状态',homeCtrls:'开始 温度+ 时间+ 取消',homeActs:'press number(+5) number(+1) press',simMain:'烹饪中',simSub1:'180°C',simSub2:'12'},
+  washer:{mainAttr:'state',mainFmt:'{v}',subTpl:'剩 {s1} · {s2}',step:'—',homeLabel:'运行状态',homeCtrls:'启动 暂停 停止 模式',homeActs:'press press press next_option',simMain:'洗涤中',simSub1:'23min',simSub2:'标准洗'},
+  projector:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · {s2}',step:'—',homeLabel:'播放状态',homeCtrls:'电源 信号源 亮度',homeActs:'toggle select_option set_percentage',simMain:'播放中',simSub1:'HDMI1',simSub2:'亮度 70%'},
+  fridge:{mainAttr:'temperature',mainFmt:'{v}°C',subTpl:'{s1} · {s2}',step:'1°C',homeLabel:'冷藏温度',homeCtrls:'模式',homeActs:'只读',simMain:'4',simSub1:'冷冻 −18°C',simSub2:'节能'},
+  rice_cooker:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · 剩 {s2}min',step:'—',homeLabel:'工作状态',homeCtrls:'开始 取消 预约',homeActs:'press press select_option',simMain:'煮饭中',simSub1:'标准',simSub2:'18'},
+  socket:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · {s2}',step:'—',homeLabel:'开关状态',homeCtrls:'电源',homeActs:'toggle',simMain:'已开启',simSub1:'功率 65W',simSub2:'220V'},
+  purifier:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · {s2}',step:'—',homeLabel:'运行状态',homeCtrls:'电源',homeActs:'toggle',simMain:'制水中',simSub1:'滤芯 82%',simSub2:'TDS 18'},
+  range_hood:{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1} · {s2}',step:'1档',homeLabel:'运行状态',homeCtrls:'电源 档位+ 档位− 照明',homeActs:'toggle set_percentage(+25) set_percentage(-25) toggle',simMain:'已开启',simSub1:'档位 2',simSub2:'照明开'},
+  multi_switch:{mainAttr:'state',mainFmt:'开启 {v}',subTpl:'{s1} · {s2}',step:'—',homeLabel:'已开启路数',homeCtrls:'1 2 3 4',homeActs:'toggle ×4',simMain:'2/4',simSub1:'1开 2开',simSub2:'3关 4关'},
+  '':{mainAttr:'state',mainFmt:'{v}',subTpl:'{s1}',step:'—',homeLabel:'当前状态',homeCtrls:'电源',homeActs:'toggle',simMain:'开启',simSub1:'switch · 在线',simSub2:''}
+};
+DEVICE_TYPES.forEach(t=>{t.dict=Object.assign({},DICT_DEFAULTS,DICT_DETAIL[t.key]||{},t.dict||{});});
+
+/* ---------- 工具 ---------- */
+function $(id){return document.getElementById(id);}
+function dev(){return DEVICES[currentDev];}
+function typeOf(d){return DEVICE_TYPES.find(t=>t.key===d.deviceType)||DEVICE_TYPES[DEVICE_TYPES.length-1];}
+function typeByKey(k){return DEVICE_TYPES.find(t=>t.key===k)||DEVICE_TYPES[DEVICE_TYPES.length-1];}
+function dictByKey(k){return typeByKey(k).dict;}
+function dictValues(d){
+  const t=typeOf(d),x=t.dict;
+  return {t, d:x,
+    main:x.mainFmt.replace('{v}',x.simMain||'--'),
+    sub:x.subTpl.replace('{s1}',x.simSub1||'').replace('{s2}',x.simSub2||'')};
+}
+/* 当前预览用哪台设备：字典视图用该类型的代表设备，设备视图用选中的设备 */
+function previewDev(){
+  if(curView==='dict'){
+    const hit=DEVICES.find(d=>d.deviceType===dictEditKey);
+    if(hit)return hit;
+    const t=typeByKey(dictEditKey);
+    return {id:'sample',name:t.label+'示例',icon:t.icon,deviceType:dictEditKey,bindings:{},buttons:[{slot:1,label:'开关',action:'toggle'},{slot:5,label:'下一页',action:'next_page'}]};
+  }
+  return DEVICES[currentDev];
+}
+
+/* ---------- 顶层视图切换（共享预览跟着移动到当前视图） ---------- */
+function switchView(v){
+  curView=v;
+  document.querySelectorAll('.topnav .navtab[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  $('viewDict').hidden=v!=='dict'; $('viewDev').hidden=v!=='dev';
+  $('sharedPreviewDict').innerHTML=''; $('sharedPreviewDev').innerHTML='';
+  $(v==='dict'?'sharedPreviewDict':'sharedPreviewDev').appendChild($('previewTpl').content.cloneNode(true));
+  $('crumb').textContent = v==='dict' ? 'HA 实体库 / 设备类型字典' : '设备状态 / 某台设备 / ESP 设备分类';
+  renderPreview(); renderAll();
+}
+function goEditType(){dictEditKey=dev().deviceType;switchView('dict');}
+
+/* ---------- 字典视图 ---------- */
+function renderTypeList(){
+  $('typeCount').textContent=DEVICE_TYPES.length;
+  $('typeList').innerHTML=DEVICE_TYPES.map(t=>{
+    const n=DEVICES.filter(d=>d.deviceType===t.key).length;
+    return `<div class="tl-item ${t.key===dictEditKey?'active':''}" onclick="selectDictType('${t.key}')">
+      <div class="ic">${t.icon}</div><div class="lb">${t.label}</div>
+      <div class="used ${n?'have':''}">${n?n+' 台':'未用'}</div></div>`;
+  }).join('');
+}
+function selectDictType(k){dictEditKey=k;renderTypeList();renderDictEditor();renderPreview();}
+function onDictTypeChange(){selectDictType($('dictTypeSel').value);}
+function renderDictFoot(){
+  const t=typeByKey(dictEditKey),n=DEVICES.filter(d=>d.deviceType===dictEditKey).length;
+  $('dictFoot').innerHTML=`当前编辑 <b style="color:var(--purple)">${t.label}</b> 规则 · <b>${n}</b> 台设备已声明此类型（改动后它们的 home 面板与 ESP 屏幕同时刷新）。两端取数通道各自独立，共用的只是这份语义字典。`;
+}
+function renderDictEditor(){
+  if(!$('dictTypeSel'))return;
+  $('dictTypeSel').innerHTML=DEVICE_TYPES.map(t=>
+    `<option value="${t.key}" ${t.key===dictEditKey?'selected':''}>${t.label}${t.key?'':'（兜底）'}</option>`).join('');
+  const d=dictByKey(dictEditKey);
+  const attrs=['state','current_temperature','temperature','percentage','brightness','mode','status','battery_level'];
+  $('dfMainAttr').innerHTML=attrs.map(a=>`<option value="${a}" ${a===d.mainAttr?'selected':''}>${a}</option>`).join('');
+  [['dfMainFmt',d.mainFmt],['dfSubTpl',d.subTpl],['dfStep',d.step],
+   ['dfHomeLabel',d.homeLabel],['dfHomeCtrls',d.homeCtrls],['dfHomeActs',d.homeActs],
+   ['dfEspTitle',d.espTitle],['dfEspMain',d.espMain],['dfEspSub',d.espSub],['dfEspKeys',d.espKeys]
+  ].forEach(([id,v])=>$(id).value=v);
+  $('dictCfgTitle').textContent='类型字典配置 · '+typeByKey(dictEditKey).label;
+  renderDictFoot();
+}
+function onDictEdit(){
+  const x=dictByKey(dictEditKey);
+  x.mainAttr=$('dfMainAttr').value;
+  [['mainFmt','dfMainFmt'],['subTpl','dfSubTpl'],['step','dfStep'],['homeLabel','dfHomeLabel'],['homeCtrls','dfHomeCtrls'],['homeActs','dfHomeActs'],['espTitle','dfEspTitle'],['espMain','dfEspMain'],['espSub','dfEspSub'],['espKeys','dfEspKeys']]
+  .forEach(([k,id])=>x[k]=$(id).value);
+  renderDictFoot(); renderPreview();
+  if(curView==='dev')renderDictView();
+}
+
+/* ---------- 设备视图 ---------- */
+function renderDevList(){
+  $('devCount').textContent=DEVICES.length;
+  $('devList').innerHTML=DEVICES.map((d,i)=>{
+    const t=typeOf(d);
+    return `<div class="dev-item ${i===currentDev?'active':''}" onclick="selectDev(${i})">
+      <div class="ic">${d.icon}</div>
+      <div class="nm"><b>${d.name}</b><span>${d.id}</span></div>
+      <div class="typ ${d.deviceType?'':'unset'}">${d.deviceType?t.label:'未分类'}</div>
+    </div>`;
+  }).join('');
+}
+function renderTypeGrid(){
+  $('typeGrid').innerHTML=DEVICE_TYPES.map(t=>
+    `<div class="type-chip ${t.key===DEVICES[currentDev].deviceType?'active':''}" onclick="setType('${t.key}')">
+       <span class="ic">${t.icon}</span><span class="lb">${t.label}</span>
+     </div>`).join('');
+}
+function renderBindRows(){
+  const d=dev(),roles=typeOf(d).roles,keys=['main','sub1','sub2'];
+  $('bindRows').innerHTML=roles.map((role,i)=>{
+    const k=keys[i],eid=d.bindings[k]||'',ent=HA_ENTITIES.find(e=>e.id===eid);
+    return `<div class="bind-row"><div class="role">${k==='main'?'<b>主状态</b>':role}</div>
+      <div class="entity-pick"><div class="chosen ${ent?'':'empty'}" onclick="openEntMenu('${k}',event)">
+        ${ent?`<span class="dom">${ent.domain}</span><span class="en">${ent.name}</span><span class="eid">${ent.id}</span>`:'<span class="en">＋ 点击选择实体</span>'}
+      </div></div></div>`;
+  }).join('');
+}
+const ACTIONS=[['toggle','切换'],['turn_on','开'],['turn_off','关'],['press','按下'],
+  ['temp_plus','温度+'],['temp_minus','温度-'],['pct_plus','风速+'],['pct_minus','风速-'],
+  ['bright_plus','亮度+'],['bright_minus','亮度-'],['num_plus','数值+'],['num_minus','数值-'],
+  ['next_option','下一模式'],['next_effect','下一场景'],['next_page','下一页'],['prev_page','上一页'],['home','回首页']];
+function renderButtons(){
+  $('buttonRows').innerHTML=dev().buttons.map((b,i)=>{
+    const opts=ACTIONS.map(([v,l])=>`<option value="${v}" ${b.action===v?'selected':''}>${l}</option>`).join('');
+    const hasParam=['temp_plus','temp_minus','pct_plus','pct_minus','bright_plus','bright_minus','num_plus','num_minus'].includes(b.action);
+    return `<tr><td class="slot"><span class="slot-badge">${b.slot}</span></td>
+      <td><input type="text" value="${b.label}" maxlength="4" oninput="dev().buttons[${i}].label=this.value;renderPreview()" style="width:62px"></td>
+      <td><select class="mini" onchange="dev().buttons[${i}].action=this.value;renderButtons();renderPreview()">${opts}</select>
+        ${hasParam?`<input type="text" value="${b.param||1}" oninput="dev().buttons[${i}].param=Number(this.value)||0" style="width:44px;padding:3px 5px">`:''}
+      </td></tr>`;
+  }).join('');
+}
+function renderDictView(){
+  const x=typeOf(dev()).dict;
+  $('dictView').innerHTML=`
+    <div class="rule"><div class="k">主状态取</div><div class="v"><code>${x.mainAttr} → ${x.mainFmt}</code></div></div>
+    <div class="rule"><div class="k">副状态拼</div><div class="v"><code>${x.subTpl}</code></div></div>
+    <div class="rule"><div class="k">动作解析</div><div class="v"><code>${x.action}</code></div></div>
+    <div class="src">规则定义在顶层 <code style="color:var(--purple)">「设备类型字典」</code> Tab。
+      <button class="linkbtn" onclick="goEditType()">编辑此类型 →</button></div>`;
+}
+function renderPayload(){
+  if(curView==='dev'){
+    const d=dev();
+    const obj={deviceId:d.id,deviceType:d.deviceType||null,displayBindings:d.bindings,
+      buttons:d.buttons.map(b=>({slot:b.slot,label:b.label,action:b.action,entityId:b.entityId,param:b.param}))};
+    $('payloadTag').textContent='machines.json 增量字段';
+    $('payloadHint').innerHTML='配置存盘后下发给服务端的数据。固件收到的只有解析后的 <code style="color:var(--accent)">title/main/sub/keys</code> 四行文本，不含类型信息。';
+    $('payload').innerHTML=colorJson(obj);
+  }else{
+    const t=typeByKey(dictEditKey),x=t.dict;
+    const obj={typeKey:t.key,label:t.label,shared:{mainAttr:x.mainAttr,mainFmt:x.mainFmt,subTpl:x.subTpl,step:x.step},
+      home:{label:x.homeLabel,controls:x.homeCtrls,actions:x.homeActs},
+      esp:{title:x.espTitle,main:x.espMain,sub:x.espSub,keys:x.espKeys}};
+    $('payloadTag').textContent='deviceTypes.js 字典条目';
+    $('payloadHint').innerHTML='这条规则供 <code style="color:var(--accent2)">home + ESP 两端</code> 共用；home 与服务端各持一份解析副本，来源同一字典。';
+    $('payload').innerHTML=colorJson(obj);
+  }
+}
+function colorJson(obj){
+  return JSON.stringify(obj,null,2).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/("([\w]+)"):/g,'<span class="k">$1</span>:')
+    .replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>')
+    .replace(/: (\d+|null)/g,': <span class="n">$1</span>');
+}
+function selectDev(i){currentDev=i;renderPreview();renderAll();}
+function setType(key){
+  DEVICES[currentDev].deviceType=key;
+  const map={water_heater:['water_heater.mijia_01','sensor.mijia_status_p_2_5','sensor.mijia_inlet_temp'],
+    fan:['fan.bedroom_fan','number.fan_delay',''],light:['light.living_room','','']};
+  const s=map[key];if(s)DEVICES[currentDev].bindings={main:s[0],sub1:s[1],sub2:s[2]};
+  renderPreview();renderAll();
+}
+
+/* ---------- 实体下拉 ---------- */
+function openEntMenu(slot,ev){
+  pickTarget=slot;const m=$('entMenu');m.hidden=false;
+  const r=ev.currentTarget.getBoundingClientRect();
+  m.style.left=Math.min(r.left,window.innerWidth-445)+'px';
+  m.style.top=Math.min(r.bottom+4,window.innerHeight-350)+'px';
+  $('entSearch').value='';renderEntList();setTimeout(()=>$('entSearch').focus(),0);
+}
+function renderEntList(){
+  const q=$('entSearch').value.trim().toLowerCase();
+  const list=HA_ENTITIES.filter(e=>!q||e.name.toLowerCase().includes(q)||e.id.toLowerCase().includes(q));
+  const groups={};list.forEach(e=>{(groups[e.domain]=groups[e.domain]||[]).push(e);});
+  $('entList').innerHTML=Object.keys(groups).length
+    ? Object.entries(groups).map(([dom,es])=>`<div class="ent-group">${dom.toUpperCase()}</div>`+
+        es.map(e=>`<div class="ent-opt" onclick="chooseEnt('${e.id}')"><span class="dom">${e.domain}</span><span class="nm">${e.name}</span><span class="eid">${e.id}</span></div>`).join('')).join('')
+    : '<div class="ent-group">无匹配实体</div>';
+}
+function chooseEnt(eid){
+  if(pickTarget)DEVICES[currentDev].bindings[pickTarget]=eid;
+  pickTarget=null;$('entMenu').hidden=true;renderPreview();renderAll();
+}
+document.addEventListener('mousedown',e=>{
+  const m=$('entMenu');if(m.hidden)return;
+  if(!m.contains(e.target)&&!e.target.closest('.entity-pick'))m.hidden=true;
+});
+window.addEventListener('scroll',e=>{
+  const m=$('entMenu');if(m.hidden)return;
+  if(e.target instanceof Node&&m.contains(e.target))return;
+  m.hidden=true;
+},true);
+
+/* ---------- 预览：单色、无虚线、反白、分速跑马灯 ---------- */
+function renderTheme(){
+  $('screenTheme').innerHTML=Object.entries(SCREEN_THEMES).map(([k,t])=>
+    `<button data-k="${k}" class="${k===themeKey?'active':''}" onclick="applyTheme('${k}')"><span class="dot" style="background:${t.swatch}"></span>${t.label}</button>`
+  ).join('');
+}
+function applyTheme(k){themeKey=k;renderTheme();draw();}
+function marquee(ctx,txt,x,y,maxPx,speed){
+  ctx.save();ctx.beginPath();ctx.rect(x,y-10,maxPx,13);ctx.clip();
+  const w=ctx.measureText(txt).width;
+  if(w<=maxPx){ctx.fillText(txt,x,y);}
+  else{const gap=18,cycle=w+gap,shift=(scrollBase*speed)%cycle;ctx.fillText(txt,x-shift,y);ctx.fillText(txt,x-shift+cycle,y);}
+  ctx.restore();
+}
+function draw(){
+  const c=$('screen');if(!c)return;const ctx=c.getContext('2d'),d=previewDev(),t=typeOf(d),on=ON();
+  ctx.fillStyle='#000';ctx.fillRect(0,0,128,64);
+  ctx.fillStyle=on;ctx.textBaseline='alphabetic';
+  const pi=DEVICES.indexOf(d),idx=pi>=0?pi+1:1,total=pi>=0?DEVICES.length:1;
+  ctx.font='8px monospace';ctx.fillText(`${idx}/${total}`,3,9);
+  const ip='192.168.1.123',x=108,y=9;
+  ctx.font='7px monospace';const iw=ctx.measureText(ip).width;
+  ctx.fillText(ip,x-10-iw,y);
+  ctx.fillRect(x,y-3,2,3);ctx.fillRect(x+4,y-5,2,5);ctx.fillRect(x+8,y-7,2,7);
+  const title=d.name.replace('面板','');
+  const {main:rawMain,sub:rawSub}=dictValues(d);
+  const main=t.dict.espMain.replace('{main}',rawMain).replace('{v}',rawMain);
+  const sub=t.dict.espSub.replace('{sub}',rawSub).replace('{v}',rawSub);
+  const ttl=t.dict.espTitle.replace('{device}',title).replace('{v}',title);
+  ctx.fillStyle=on;ctx.font='10px "Microsoft YaHei",sans-serif';
+  marquee(ctx,ttl,3,22,122,SPEED.title);
+  ctx.fillStyle=on;ctx.font='bold 12px "Microsoft YaHei",sans-serif';
+  marquee(ctx,main,3,38,122,SPEED.main);
+  if(sub){ctx.fillStyle=on;ctx.font='8px "Microsoft YaHei",sans-serif';marquee(ctx,sub,3,50,122,SPEED.sub);}
+  const btns=d.buttons.filter(b=>b.label&&!['下一页','上一页','回首页'].includes(b.label)).slice(0,5);
+  if(btns.length){
+    ctx.fillStyle=on;ctx.font='8px "Microsoft YaHei",monospace';
+    const ktRaw=btns.map(b=>`${b.slot}${b.label}`).join(' ');
+    const kt=t.dict.espKeys.replace('{buttons}',ktRaw).replace('{v}',ktRaw);
+    marquee(ctx,kt,3,62,124,SPEED.keys);
+  }
+  $('previewMeta').innerHTML=`类型 <b>${t.label}</b> · 主状态取 <b>${t.dict.mainAttr}</b><br>文本由共用字典解析，固件只收 4 行字符串`;
+}
+function drawHome(){
+  const d=previewDev(),{t,x,main,sub}=(()=>{const r=dictValues(d);return {t:r.t,x:r.d,main:r.main,sub:r.sub};})();
+  $('homeTitle').textContent=d.name.replace('面板','');
+  $('homeMain').textContent=main;
+  $('homeLabel').textContent=x.homeLabel;
+  $('homeSub').textContent=sub;
+  $('homeCtrls').innerHTML=x.homeCtrls.split(/\s+/).filter(Boolean).map(c=>`<button>${c}</button>`).join('');
+  $('homeMeta').innerHTML=`按 <b>${t.label}</b> 字典解析 · 主状态取 <b>${x.mainAttr}</b> · 步长 ${x.step}<br>控件组由字典 home 段提供，与 ESP 屏幕无关`;
+}
+function renderPreview(){if(!$('screen'))return;renderTheme();draw();drawHome();renderPayload();}
+function startLoop(){
+  let last=0;const tick=ts=>{if(last)scrollBase+=(ts-last)*0.015;last=ts;draw();requestAnimationFrame(tick);};
+  requestAnimationFrame(tick);
+}
+
+function resetAll(){currentDev=0;dictEditKey='water_heater';renderPreview();renderAll();}
+function save(){
+  alert(curView==='dict'
+    ? '原型演示：保存后写入 deviceTypes.js 字典。home 端与 ESP 服务端各取一份解析副本，来源同一真源。'
+    : '原型演示：保存后写入 machines.json 的 deviceType + displayBindings，服务端按字典解析出 title/main/sub/keys 下发固件。');
+}
+function renderAll(){
+  if(curView==='dict'){renderTypeList();renderDictEditor();}
+  else{renderDevList();renderTypeGrid();renderBindRows();renderButtons();renderDictView();
+       $('cfgTitle').textContent='设备分类配置 · '+dev().name;}
+  renderPayload();
+}
+
+/* 初始：把共享预览挂到字典视图，初始化两个视图的内容 */
+$('sharedPreviewDict').appendChild($('previewTpl').content.cloneNode(true));
+renderPreview();renderAll();startLoop();
+</script>
+</body>
+</html>

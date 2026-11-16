@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP 128×64 显示规划原型</title>
+<style>
+  :root{--bg:#0b1218;--panel:#121b25;--line:#23313f;--text:#dce7f1;--muted:#8ea2b6;--muted2:#617b94;--accent:#4dd4ac;--accent2:#3aa4ff;--warn:#ffb454;--danger:#ff6b6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  button{font:inherit;color:inherit}
+  .top{padding:18px 24px 0}
+  h1{margin:0 0 5px;font-size:19px;font-weight:650}
+  .sub{color:var(--muted);font-size:12.5px;max-width:900px;line-height:1.7}
+  .sub b{color:var(--warn)}
+  .layout{display:grid;grid-template-columns:245px minmax(520px,1fr) 320px;gap:16px;padding:18px 24px 50px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .card>h2{margin:0;padding:11px 14px;border-bottom:1px solid var(--line);font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted2);font-weight:600}
+
+  /* 状态列表 */
+  .st-item{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin:3px 6px}
+  .st-item:hover{background:#17222d}
+  .st-item.active{border-color:var(--accent);background:rgba(77,212,172,.09)}
+  .st-item .dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex:none}
+  .st-item.active .dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .st-item .tx b{display:block;font-size:12.5px;font-weight:600}
+  .st-item .tx span{font-size:10.5px;color:var(--muted2)}
+  .st-item.warn .dot{background:var(--warn)}
+  .st-item.danger .dot{background:var(--danger)}
+
+  /* 屏幕 */
+  .screen-area{padding:20px;display:flex;flex-direction:column;align-items:center;gap:14px}
+  .bezel{background:#050709;border:9px solid #1b2530;border-radius:16px;padding:14px 16px;box-shadow:0 18px 44px rgba(0,0,0,.65),inset 0 0 0 1px #2d3b4a}
+  .bezel::before{content:'128×64 单色 OLED（蓝光 / 白光 / 黄光） · Potatokid ESP32-S3';display:block;text-align:center;font:9px ui-monospace,monospace;color:#3d5165;margin-bottom:9px;letter-spacing:.6px}
+  canvas#main{display:block;width:512px;height:256px;image-rendering:pixelated;background:#000;border-radius:2px;box-shadow:inset 0 0 24px var(--screen-glow,rgba(255,255,255,.05))}
+  .bezel-cap{display:flex;justify-content:space-between;margin-top:9px;color:#2f4152;font:9px ui-monospace,monospace}
+  .screen-theme{display:flex;gap:7px;justify-content:center;align-items:center;flex-wrap:wrap}
+  .screen-theme button{border:1px solid var(--line);background:#182531;border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11px;color:var(--muted)}
+  .screen-theme button.active{border-color:var(--accent2);color:var(--text);background:rgba(58,164,255,.12)}
+  .screen-theme .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+  .screen-theme .tip{width:100%;text-align:center;font-size:10px;color:var(--muted2)}
+  .desc{width:100%;border:1px solid var(--line);border-radius:9px;background:#0f1821;padding:12px 14px;min-height:104px}
+  .desc b{color:var(--accent);font-size:13px}
+  .desc p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.75}
+  .desc .why{color:var(--warn)}
+
+  /* 缩略图 */
+  .thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px}
+  .thumb{border:1px solid var(--line);border-radius:8px;background:#060a0e;padding:6px;cursor:pointer}
+  .thumb:hover{border-color:var(--accent2)}
+  .thumb.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .thumb canvas{width:100%;display:block;image-rendering:pixelated}
+  .thumb span{display:block;text-align:center;font-size:10px;color:var(--muted2);margin-top:5px}
+
+  /* 信息优先级 */
+  .prio{padding:13px}
+  .prio h3{margin:14px 0 7px;font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px}
+  .prio h3:first-child{margin-top:0}
+  .prio .item{display:flex;gap:8px;font-size:11.5px;padding:5px 0;border-bottom:1px dashed rgba(35,49,63,.7);line-height:1.5}
+  .prio .item .n{width:17px;height:17px;flex:none;border-radius:5px;background:rgba(77,212,172,.12);color:var(--accent);display:grid;place-items:center;font-size:10px;font-weight:700}
+  .prio .item.no .n{background:rgba(255,107,107,.12);color:var(--danger)}
+  .prio .item b{color:var(--text);font-weight:600}
+  .prio .item span{color:var(--muted2)}
+  .tools{padding:0 14px 14px}
+  .btn{border:1px solid var(--line);background:#182531;border-radius:7px;padding:7px 10px;cursor:pointer;font-size:12px;width:100%}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>ESP 小屏显示内容规划 · 128×64</h1>
+  <div class="sub">屏幕资源极其有限（<b>一行约 10 个汉字 / 4~5 行</b>），所以每一像素都要给「用户此刻真正需要的信息」。
+    <b style="color:var(--accent)">WiFi / 联网状态固定在顶部</b>，所有页面、所有状态都保留，不受页面配置影响。
+    <b style="color:var(--warn)">任何一行文字放不下时才会跑马灯循环滚动</b>（不截断、不省略号），且各行速度不同、不同步——见左侧「长文本滚动」状态。<b style="color:var(--accent2)">实物屏幕有蓝光 / 白光 / 黄光三种单色版本，中间可切换预览</b>；单色屏每像素只有亮/灭两级、无灰阶，异常靠文案 + 反白块区分，不用红/黄告警色。点击左侧状态或下方缩略图切换查看。</div>
+</div>
+
+<div class="layout">
+  <div class="card">
+    <h2>屏幕状态</h2>
+    <div id="stateList"></div>
+    <div class="tools" style="padding-top:8px"><button class="btn" onclick="playDemo()">▶ 播放交互演示</button></div>
+  </div>
+
+  <div class="card">
+    <h2>屏幕实机效果（4× 放大）</h2>
+    <div class="screen-area">
+      <div class="bezel">
+        <canvas id="main" width="128" height="64"></canvas>
+        <div class="bezel-cap"><span>GPIO8 SDA · GPIO9 SCL</span><span>3V3</span></div>
+      </div>
+      <div class="screen-theme" id="screenTheme"></div>
+      <div class="desc" id="desc"></div>
+    </div>
+    <h2 style="border-top:1px solid var(--line)">全部状态缩略图</h2>
+    <div class="thumbs" id="thumbs"></div>
+  </div>
+
+  <div class="card">
+    <h2>用户关心什么？（信息优先级）</h2>
+    <div class="prio">
+      <h3>✅ 必须显示</h3>
+      <div class="item"><span class="n">1</span><div><b>联网状态</b><br><span>顶部 WiFi 信号格，断网/配网立刻可见</span></div></div>
+      <div class="item"><span class="n">2</span><div><b>当前设备是什么</b><br><span>页面名，翻页后马上知道在看哪台</span></div></div>
+      <div class="item"><span class="n">3</span><div><b>它现在什么状态</b><br><span>开/关、当前温度、档位——用最大字号</span></div></div>
+      <div class="item"><span class="n">4</span><div><b>关键参数</b><br><span>目标值、模式，拼成一行</span></div></div>
+      <div class="item"><span class="n">5</span><div><b>按键现在能做什么</b><br><span>底部提示条，翻页后随页面变化</span></div></div>
+      <div class="item"><span class="n">6</span><div><b>操作反馈</b><br><span>按下后 2.5 秒显示「已执行 / 失败」</span></div></div>
+
+      <h3>❌ 坚决不显示</h3>
+      <div class="item no"><span class="n">×</span><div><b>entity_id / HA 服务名</b><br><span>调试信息，不是给用户看的</span></div></div>
+      <div class="item no"><span class="n">×</span><div><b>IP、RSSI、内存</b><br><span>只在设置网页里看，屏幕上挤占空间</span></div></div>
+      <div class="item no"><span class="n">×</span><div><b>历史记录 / 日志</b><br><span>小屏做不好，也不该做</span></div></div>
+
+      <h3>⚙ 系统状态例外</h3>
+      <div class="item"><span class="n">!</span><div><b>断网 / 配网 / 升级 / 未配置</b><br><span>临时占满屏幕，处理完自动回到常规页</span></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- 单色屏配色：实物有蓝光 / 白光 / 黄光三种 ----------
+   单色 OLED 每像素只有「亮 / 灭」两级，没有灰阶、没有淡色。
+   全屏一个亮色；层次靠字号 + 留白表达，重点用反白块，不画虚线、不用红黄多色。 */
+const SCREEN_THEMES={
+  blue:   {label:'蓝光',swatch:'#6cb6ff',on:'#6cb6ff',glow:'rgba(108,182,255,.07)'},
+  white:  {label:'白光',swatch:'#ffffff',on:'#ffffff',glow:'rgba(255,255,255,.05)'},
+  yellow: {label:'黄光',swatch:'#ffd23f',on:'#ffd23f',glow:'rgba(255,210,63,.06)'}
+};
+let themeKey='blue';
+let C;
+function renderScreenTheme(){
+  $('screenTheme').innerHTML=Object.entries(SCREEN_THEMES).map(([k,t])=>
+    `<button data-k="${k}" class="${k===themeKey?'active':''}" onclick="applyTheme('${k}')"><span class="dot" style="background:${t.swatch}"></span>${t.label}</button>`
+  ).join('')+'<div class="tip">只有亮 / 灭两级，无灰阶；靠字号 + 留白分层，重点用反白</div>';
+}
+function applyTheme(k){
+  themeKey=k; const t=SCREEN_THEMES[k];
+  C=t.on;
+  document.body.style.setProperty('--screen-glow',t.glow);
+  document.querySelectorAll('#screenTheme button').forEach(b=>b.classList.toggle('active',b.dataset.k===k));
+  renderList(); refresh();
+}
+
+/* ---------- 通用绘制原语（128×64 坐标系） ---------- */
+const DEVICE_IP='192.168.1.123';   // 固件从 WiFi 拿到的 station IP；原型用示例值
+function base(ctx, pageNo, total, wifi){
+  ctx.fillStyle='#000';ctx.fillRect(0,0,128,64);
+  ctx.fillStyle=C;ctx.font='8px monospace';ctx.textBaseline='alphabetic';
+  ctx.fillText(`${pageNo}/${total}`,3,9);
+  // 顶部 WiFi 信号格（系统固定）
+  const x=108,y=9;
+  if(wifi==='ok'){
+    ctx.fillStyle=C;ctx.fillRect(x,y-3,2,3);ctx.fillRect(x+4,y-5,2,5);ctx.fillRect(x+8,y-7,2,7);
+    // 已连接时把 IP 显示在状态栏中间（页码与信号格之间）；断网/配网态不显示
+    ctx.font='8px monospace';
+    const w=ctx.measureText(DEVICE_IP).width;
+    ctx.fillText(DEVICE_IP, Math.round((128-w)/2), 9);
+  }
+  else if(wifi==='off'){
+    ctx.fillStyle=C;
+    ctx.fillRect(x,y-6,2,2);   ctx.fillRect(x+8,y-6,2,2);
+    ctx.fillRect(x+2,y-4,2,2); ctx.fillRect(x+6,y-4,2,2);
+    ctx.fillRect(x+4,y-2,2,2);
+    ctx.fillRect(x+2,y,2,2);   ctx.fillRect(x+6,y,2,2);
+    ctx.fillRect(x,y+2,2,2);   ctx.fillRect(x+8,y+2,2,2);
+  }
+  else if(wifi==='ap'){ctx.fillStyle=C;ctx.font='7px monospace';ctx.fillText('AP',x-2,y);}
+}
+/* 跑马灯：放得下就静止；只有放不下才无缝循环左滚（U8g2 固件同款逻辑），不截断、不省略号。
+   四行各有独立速度 SPEED：标题最慢 < 主状态 < 副状态 < 按键提示最快。
+   即使满屏都是长文本，各行也各滚各的、不同步——短文本则完全静止，不会满屏乱跑。
+   scrollBase 由 requestAnimationFrame 全局递增（单位 px），行内相位 = scrollBase * speed。 */
+let scrollBase = 0;
+const SPEED={title:0.45,big:0.75,sub:1.1,keys:1.6};
+function marquee(ctx,t,x,y,maxPx,speed){
+  speed=speed||1;
+  ctx.save();
+  ctx.beginPath();ctx.rect(x,y-10,maxPx,13);ctx.clip();
+  const w=ctx.measureText(t).width;
+  if(w<=maxPx){ctx.fillText(t,x,y);}
+  else{
+    const gap=18,cycle=w+gap,shift=(scrollBase*speed)%cycle;
+    ctx.fillText(t,x-shift,y);
+    ctx.fillText(t,x-shift+cycle,y);
+  }
+  ctx.restore();
+}
+function title(ctx,t){ctx.fillStyle=C;ctx.font='10px "Microsoft YaHei",sans-serif';marquee(ctx,t,3,22,122,SPEED.title);}
+/* 反白强调：整块填满亮色、文字用黑色。单色屏唯一能做的「重点标记」，
+   比淡色更真实——异常状态用它，不用红/黄多色。 */
+function big(ctx,t,invert){
+  ctx.font='bold 12px "Microsoft YaHei",sans-serif';
+  if(invert){
+    const w=ctx.measureText(t).width;
+    ctx.fillStyle=C;ctx.fillRect(2,26,Math.min(124,w+5),16);
+    ctx.fillStyle='#000';ctx.fillText(t,4,38);
+  }else{
+    ctx.fillStyle=C;marquee(ctx,t,3,38,122,SPEED.big);
+  }
+}
+function sub(ctx,t){ctx.fillStyle=C;ctx.font='8px "Microsoft YaHei",sans-serif';marquee(ctx,t,3,50,122,SPEED.sub);}
+function keys(ctx,list,tmp){
+  // 临时态用反白行表达（单色屏唯一强调手法），不画点线；留白本身即可分行
+  ctx.font='8px "Microsoft YaHei",monospace';
+  const txt=list.join(' ');
+  if(tmp){
+    const w=ctx.measureText(txt).width;
+    ctx.fillStyle=C;ctx.fillRect(2,54,Math.min(124,w+5),11);
+    ctx.fillStyle='#000';marquee(ctx,txt,4,62,120,SPEED.keys);
+  }else{
+    ctx.fillStyle=C;marquee(ctx,txt,3,62,124,SPEED.keys);
+  }
+}
+function progress(ctx,pct){
+  const x=3,y=45,w=122,h=9;
+  ctx.strokeStyle=C;ctx.strokeRect(x,y,w,h);
+  ctx.fillStyle=C;ctx.fillRect(x+1,y+1,Math.floor((w-2)*pct/100),h-2);
+}
+
+const SCREENS = [
+  {
+    id:'water', name:'常规页 · 热水器', tag:'最常用', cls:'',
+    draw(c){base(c,1,3,'ok');title(c,'热水器');big(c,'制热 42°C');sub(c,'水温42° · 目标45°');keys(c,['1开','2+','3-','4热','5›'])},
+    desc:'<b>常规页面：热水器</b><p>顶部固定 WiFi 信号格 + 页码 + IP（已连接时显示）；第 2 行设备名；<span class="why">主状态用最大字号（制热 42°C）</span>，一眼就能读到；副状态把水温和目标值拼成一行；底部按键提示条告诉用户「现在按 1 是开关、按 5 是翻页」。</p>'
+  },
+  {
+    id:'ac', name:'常规页 · 客厅空调', tag:'翻页后', cls:'',
+    draw(c){base(c,2,3,'ok');title(c,'客厅空调');big(c,'制冷 26°C');sub(c,'室外31° · 风速自动');keys(c,['1开','2+','3-','4模','5›'])},
+    desc:'<b>翻页后的同一组物理按键</b><p>按「5›」翻到本页后，<span class="why">1/2/3/4 的含义整组变成空调的开、温度+/-、模式</span>——不需要重新烧录，也不需要为每种设备做一套固件。屏幕上的按键提示条同步变化，用户不会按错。</p>'
+  },
+  {
+    id:'toast', name:'按键反馈', tag:'2.5 秒', cls:'',
+    draw(c){base(c,1,3,'ok');title(c,'热水器');big(c,'✓ 已执行');sub(c,'「开关」→ 开');keys(c,['1开','2+','3-','4热','5›'],true)},
+    desc:'<b>按键后临时占屏 2.5 秒</b><p>先显示「Button N / 名称」，收到服务端成功回包后变成「✓ 已执行」。失败则显示「失败，见串口」。底部按键提示整行反白（亮底黑字），提示用户这是临时状态（单色屏做不到变暗，只能用反白强调）；2.5 秒后自动恢复常规页。</p>'
+  },
+  {
+    id:'offline', name:'WiFi 断线', tag:'异常', cls:'warn',
+    draw(c){base(c,1,3,'off');title(c,'WiFi 已断开');big(c,'重连中… 12s',true);sub(c,'配置 192.168.4.1');keys(c,['60s 后转配网'])},
+    desc:'<b>联网异常</b><p>顶部 WiFi 图标立刻变成 ✗（<span class="why">联网状态永远在顶部，所有页面都能看到</span>）。屏幕显示重连倒计时；超过 60 秒自动转配网热点。恢复联网后自动回到常规页，不需要人工干预。</p>'
+  },
+  {
+    id:'ap', name:'配网模式', tag:'异常', cls:'warn',
+    draw(c){base(c,0,0,'ap');title(c,'Potatokid Setup');big(c,'192.168.4.1',true);sub(c,'手机连此热点后打开');keys(c,['无密码 · 配网页'])},
+    desc:'<b>首次配网 / 断网超时</b><p>设备开热点 <code>Potatokid-Screen-Setup</code>，屏幕直接显示管理页地址。顶部标记 AP 表示当前是配网态。手机连上后浏览器打开 192.168.4.1 配 WiFi，保存后设备重启回到常规页。</p>'
+  },
+  {
+    id:'ota', name:'固件升级中', tag:'系统', cls:'',
+    draw(c){base(c,1,3,'ok');title(c,'固件升级中');big(c,'68%');progress(c,68);sub(c,'请勿断电 · 自动重启');keys(c,['oled-1.3 → oled-2.0'])},
+    desc:'<b>OTA 升级</b><p>服务端发布新版本后，常规页先提示「Update ready / open web page」。用户在设备设置页点升级后，屏幕显示百分比进度条。<span class="why">升级过程不能断电</span>，完成后自动重启并回到常规页。</p>'
+  },
+  {
+    id:'srv', name:'服务端不可达', tag:'异常', cls:'danger',
+    draw(c){base(c,1,3,'ok');title(c,'服务端连接失败');big(c,'重试 3/5 次',true);sub(c,'已离线 2分14秒');keys(c,['60s 后自动重试'])},
+    desc:'<b>WiFi 正常但服务端失联</b><p>顶部 WiFi 仍是信号格（因为 WiFi 没断），但屏幕明确告知「服务端连接失败」——<span class="why">这两种故障必须区分</span>，否则用户会以为家里网断了。心跳定期重试，恢复后自动回到常规页。</p>'
+  },
+  {
+    id:'empty', name:'未配置', tag:'初始', cls:'',
+    draw(c){base(c,1,1,'ok');title(c,'屏幕待配置');big(c,'请在 Admin 添加页面');sub(c,'esp32s3-3030f9…');keys(c,['设备已联网 · 等待下发'])},
+    desc:'<b>首次联网但后台还没配页面</b><p>设备联网、注册、心跳都正常，但服务端还没有放行任何显示页面。屏幕明确提示去后台配置，而不是显示空白让用户以为屏幕坏了。</p>'
+  },
+  {
+    id:'marquee', name:'长文本滚动', tag:'跑马灯', cls:'',
+    draw(c){base(c,1,3,'ok');title(c,'主卧美的智能热水器 Pro 旗舰版');big(c,'预热中 · 水温42.5°C · 剩余18分钟');sub(c,'目标45°C · 速热模式 · 峰谷电价时段已开启');keys(c,['1开','2加温','3减温','4预热','5下一页'])},
+    desc:'<b>文字放不下时：跑马灯循环滚动</b><p>实体名、状态值都可能很长（如 <span class="why">「主卧美的智能热水器 Pro 旗舰版」</span>）。<span class="why">绝不截断、不加省略号</span>——超出一屏的文字在显示带内无缝循环滚动，用户停留片刻就能读到完整内容。<b>短文字照常静止，不会满屏乱跑</b>；即便四行同时超长也<span class="why">不同步</span>：标题 0.45× 最慢、主状态 0.75×、副状态 1.1×、按键提示 1.6× 最快，各行错开，像真实 OLED 那样有快有慢。</p>'
+  },
+];
+let cur = SCREENS[0];
+const $=id=>document.getElementById(id);
+function draw(ctx, s){s.draw(ctx)}
+function renderList(){
+  $('stateList').innerHTML = SCREENS.map(s=>`
+    <div class="st-item ${s.id===cur.id?'active':''} ${s.cls}" onclick="pick('${s.id}')">
+      <span class="dot"></span><span class="tx"><b>${s.name}</b><span>${s.tag}</span></span>
+    </div>`).join('');
+  $('thumbs').innerHTML = SCREENS.map(s=>`
+    <div class="thumb ${s.id===cur.id?'active':''}" onclick="pick('${s.id}')">
+      <canvas width="128" height="64" data-id="${s.id}"></canvas><span>${s.name.replace('常规页 · ','')}</span>
+    </div>`).join('');
+  document.querySelectorAll('.thumb canvas').forEach(cv=>draw(cv.getContext('2d'),SCREENS.find(s=>s.id===cv.dataset.id)));
+}
+function pick(id){cur=SCREENS.find(s=>s.id===id);renderList();refresh()}
+function refresh(){draw($('main').getContext('2d'),cur);$('desc').innerHTML=cur.desc}
+function playDemo(){
+  const seq=['water','toast','ac','toast','water','srv','offline','ap','marquee','water'];
+  let i=0;
+  const step=()=>{if(i>=seq.length)return;cur=SCREENS.find(s=>s.id===seq[i++]);refresh();renderList();setTimeout(step,1500)};
+  step();
+}
+// 跑马灯动画：只重绘 canvas，不碰 DOM（缩略图静止即可，主屏持续滚动）
+let last=0;
+function tick(ts){
+  if(last) scrollBase += (ts-last)*0.015;  // 基准约 15px/s（已整体调慢 2 倍），各行再乘自己的速度系数
+  last=ts;
+  draw($('main').getContext('2d'),cur);
+  requestAnimationFrame(tick);
+}
+renderScreenTheme();applyTheme('blue');requestAnimationFrame(tick);
+</script>
+</body>
+</html>

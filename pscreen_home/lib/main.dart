@@ -17,6 +17,7 @@ import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
+import 'package:pscreen_home/features/home/data/device_type_store.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/app/config/data_files.dart';
@@ -120,6 +121,12 @@ void main() {
       // 4. 初始化路由（异步，决定 initialLocation），必须在 runApp 前
       await Injection.get<AppRouter>().initialize();
       await serverSync;
+
+      // 4.2 设备类型字典：home 与 ESP 共用规则的运行时刷新（fail-open，
+      //     服务端不可达时保留内置 fallback，不阻塞启动/不降级实时性）。
+      try {
+        await Injection.get<DeviceTypeStore>().refresh().timeout(const Duration(seconds: 6));
+      } catch (_) { /* 字典刷新失败静默降级到 fallback */ }
 
       // 4.5 实时通道自动连接（DI 单例；不阻塞启动，失败仅记日志）。
       //     ws 恒用**设备派生号**（channelAccount + 默认口令）——它是设备身份证，

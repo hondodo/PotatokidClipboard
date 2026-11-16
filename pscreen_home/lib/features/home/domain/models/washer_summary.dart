@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 洗衣机设备摘要：从同一 device 下的全部实体中，按**实体 id 的 MIoT 属性
 /// 后缀**（如 `_status_p_2_2`、`_mode_p_2_3`）找出关键实体。
@@ -34,6 +35,10 @@ class WasherSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'washer')) {
+      return null;
+    }
     final HaEntityStateModel? status =
         _byId(entities, '_status_p_2_2', domain: 'sensor');
     final HaEntityStateModel? modeEntity =

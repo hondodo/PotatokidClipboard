@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 冰箱摘要：冷藏 / 冷冻 / 变温三舱温度 + 模式 + 故障/门提醒。
 ///
@@ -26,6 +27,10 @@ class FridgeSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'fridge')) {
+      return null;
+    }
     final HaEntityStateModel? mode =
         _byId(entities, '_mode_p_2_2', domain: 'select');
     if (mode == null) return null;

@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/power_stats.dart';
 
 /// 智能插座摘要：开关 + 当前功率 / 累计电量 / 设备温度 / 开关次数。
@@ -17,6 +18,10 @@ class SocketSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'socket')) {
+      return null;
+    }
     if (entities.any((HaEntityStateModel e) => e.isClimate)) return null;
     final HaEntityStateModel? power = _byId(
       entities,

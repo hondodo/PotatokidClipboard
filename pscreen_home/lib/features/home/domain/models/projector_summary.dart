@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 投影仪摘要：坚果投影仪在 HA 里没有 media_player / 电源 switch，
 /// 而是拆成开机 / 关机 button、音量 / 亮度 number、输入源 select、
@@ -46,6 +47,10 @@ class ProjectorSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'projector')) {
+      return null;
+    }
     final HaEntityStateModel? appList =
         _byId(entities, '_applist_p_8_2', domain: 'sensor');
     final HaEntityStateModel? brightness =

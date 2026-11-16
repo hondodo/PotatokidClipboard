@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设备类型判定规则引擎 · 配置原型（设计稿）</title>
+<style>
+  :root{
+    --bg:#0c131a; --panel:#121b25; --panel2:#16212d; --line:#22303f;
+    --text:#dbe6f0; --muted:#8fa2b6; --muted2:#65809a;
+    --accent:#4dd4ac; --accent2:#2f9cff; --warn:#ffb454; --danger:#ff6b6b;
+    --purple:#b98cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  button,input,select{font:inherit;color:inherit}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  [hidden]{display:none!important}
+
+  .topbar{height:56px;display:flex;align-items:center;gap:16px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.3px}
+  .topbar .ver{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(185,140,255,.14);color:var(--purple);border:1px solid rgba(185,140,255,.35)}
+  .topbar .spacer{flex:1}
+  .topbar .note{font-size:11.5px;color:var(--muted2)}
+
+  .topnav{display:flex;align-items:center;gap:2px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+  .topnav .navtab{border:none;background:none;color:var(--muted);padding:11px 13px;font-size:12.5px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .topnav .navtab.active{color:var(--purple);border-bottom-color:var(--purple);font-weight:650}
+  .topnav .navtab .new{font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(185,140,255,.16);color:var(--purple);margin-left:5px;vertical-align:1px}
+
+  .notice{margin:14px 22px 0;padding:12px 16px;border:1px solid var(--line);border-left:3px solid var(--purple);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12.5px;line-height:1.75}
+  .notice b{color:var(--text)}
+  .notice code{background:#0a1017;padding:1px 5px;border-radius:4px;color:var(--accent);font-size:11.5px}
+  .notice .bad{color:var(--danger)}
+  .notice .good{color:var(--accent)}
+
+  .flowbar{display:flex;align-items:center;gap:7px;margin:12px 22px 0;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+  .flowbar .step{padding:6px 11px;border:1px solid var(--line);border-radius:16px;background:var(--panel);white-space:nowrap}
+  .flowbar .step b{color:var(--text)}
+  .flowbar .step.rule{border-color:var(--purple);color:var(--purple)}
+  .flowbar .step.home{border-color:rgba(47,156,255,.5);color:var(--accent2)}
+  .flowbar .step.esp{border-color:rgba(185,140,255,.5);color:var(--purple)}
+  .flowbar .arw{color:var(--muted2)}
+
+  .layout{display:grid;grid-template-columns:206px minmax(520px,1fr) 388px;gap:13px;padding:14px 22px 30px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:13px}
+  .card>h2{font-size:12px;letter-spacing:.4px;color:var(--muted);margin:0;padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .card>h2 .nm{color:var(--text)}
+  .card>h2 .tag{font-size:10px;padding:1px 8px;border-radius:10px;background:rgba(185,140,255,.12);color:var(--purple);font-weight:500;white-space:nowrap}
+  .card .body{padding:13px}
+  .hint{font-size:11px;color:var(--muted2);margin:0 0 11px;line-height:1.7}
+  .hint code{color:var(--accent);background:#0a1017;padding:0 4px;border-radius:3px}
+
+  .btn{border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:6px 11px;cursor:pointer;font-size:12px}
+  .btn:hover{border-color:var(--accent2);color:var(--accent2)}
+  .btn.primary{background:rgba(185,140,255,.14);border-color:rgba(185,140,255,.5);color:var(--purple)}
+  .btn.primary:hover{background:rgba(185,140,255,.24)}
+  .btn.ok{background:rgba(77,212,172,.12);border-color:rgba(77,212,172,.45);color:var(--accent)}
+  .btn.mini{padding:3px 8px;font-size:11px;border-radius:6px}
+  .btn.danger:hover{border-color:var(--danger);color:var(--danger)}
+  .linkbtn{border:none;background:none;color:var(--accent2);cursor:pointer;font-size:11px;padding:0}
+  .linkbtn:hover{text-decoration:underline}
+
+  input[type=text],select,input[type=number]{background:#0d151e;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;width:100%;min-width:0}
+  input[type=text]:focus,select:focus,input[type=number]:focus{outline:none;border-color:var(--accent2)}
+  select{cursor:pointer}
+  input::placeholder{color:#4d6275}
+
+  .tl-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin-bottom:2px}
+  .tl-item:hover{background:var(--panel2)}
+  .tl-item.active{border-color:var(--purple);background:rgba(185,140,255,.08)}
+  .tl-item .ic{width:25px;height:25px;display:grid;place-items:center;background:var(--panel2);border-radius:6px;font-size:14px;flex:none}
+  .tl-item .lb{flex:1;min-width:0;font-size:12px;font-weight:600}
+  .tl-item .cnt{font-size:9.5px;padding:1px 6px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--muted2);white-space:nowrap}
+  .tl-item .cnt.have{color:var(--accent);border-color:rgba(77,212,172,.35)}
+  .newtype-box{border:1px dashed rgba(185,140,255,.5);border-radius:8px;padding:10px;margin:6px 4px 2px;background:rgba(185,140,255,.05)}
+  .newtype-box .nt-row{display:flex;gap:5px;margin-bottom:6px}
+  .newtype-box .nt-row input{padding:5px 6px;font-size:11px}
+  .newtype-box label{font-size:9.5px;color:var(--muted2);display:block;margin-bottom:3px}
+
+  .rule{border:1px solid var(--line);border-radius:9px;background:var(--panel2);padding:11px;margin-bottom:10px}
+  .rule.off{opacity:.5}
+  .rule .rh{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .rule .rh .rname{flex:1;background:transparent;border:none;border-bottom:1px dashed var(--line);font-size:12px;font-weight:600;padding:3px 0}
+  .rule .rh .rname:focus{outline:none;border-bottom-color:var(--accent2)}
+  .rule .rh .badge{font-size:9.5px;padding:1px 7px;border-radius:8px;background:rgba(47,156,255,.12);color:var(--accent2)}
+  .rule .rlogic{font-size:10px;color:var(--muted2);margin:2px 0 7px 2px}
+  .cond{display:grid;grid-template-columns:18px 1.15fr 0.9fr 1.1fr 22px;gap:6px;align-items:center;margin-bottom:6px}
+  .cond .and{font-size:10px;color:var(--muted2);text-align:center}
+  .cond .del{border:none;background:none;color:var(--muted2);cursor:pointer;font-size:15px;line-height:1;padding:0}
+  .cond .del:hover{color:var(--danger)}
+  .cond input,.cond select{padding:5px 6px;font-size:11.5px}
+  .rule .addr{margin-top:4px}
+  .opsbar{display:flex;align-items:center;gap:8px;margin-top:2px}
+  .opsbar .sep{flex:1}
+
+  .cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .cfg-grid .full{grid-column:1/-1}
+  .fld label{display:block;font-size:10.5px;color:var(--muted2);margin-bottom:4px}
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
+  .btnchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:5px 7px;font-size:11px}
+  .btnchip input{width:88px;padding:3px 6px;font-size:11px}
+  .btnchip select{width:110px;padding:3px 5px;font-size:11px}
+  .btnchip .x{border:none;background:none;color:var(--muted2);cursor:pointer;font-size:14px;padding:0 1px}
+  .btnchip .x:hover{color:var(--danger)}
+
+  .phone{width:100%;max-width:232px;margin:0 auto;background:#0a1017;border:1px solid #263548;border-radius:16px;padding:11px}
+  .phone .pstatus{display:flex;justify-content:space-between;font-size:9px;color:var(--muted2);margin-bottom:9px;padding:0 2px}
+  .dcard{border-radius:12px;padding:14px;min-height:132px;position:relative;overflow:hidden}
+  .dcard .dtop{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dcard .dico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:17px;background:rgba(255,255,255,.12)}
+  .dcard .dtt{flex:1;min-width:0}
+  .dcard .dtt b{display:block;font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dcard .dtt span{font-size:9.5px;opacity:.72}
+  .dcard .dlabel{font-size:10px;opacity:.7;margin-bottom:1px}
+  .dcard .dmain{font-size:30px;font-weight:700;line-height:1.1;letter-spacing:-.5px}
+  .dcard .dsub{font-size:11px;opacity:.82;margin-top:5px}
+  .dcard .dbtns{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+  .dcard .dbtn{font-size:10px;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.12)}
+
+  .oled{background:#0a0f14;border:2px solid #2a3644;border-radius:7px;padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;max-width:280px;margin:0 auto}
+  .oled .obar{display:flex;justify-content:space-between;font-size:9px;color:#7fd7ff;border-bottom:1px dashed #2a3644;padding-bottom:5px;margin-bottom:7px}
+  .oled .ol{display:flex;align-items:center;gap:7px;margin:5px 0;min-height:18px;white-space:nowrap;overflow:hidden}
+  .oled .ol .ic{color:#7fd7ff;width:12px;flex:none}
+  .oled .ol .tx{font-size:11px}
+  .oled .l0 .tx{color:#fff;font-weight:700}
+  .oled .l1 .tx{color:#ffd257;font-size:13px;font-weight:700}
+  .oled .l2 .tx{color:#fff}
+  .oled .l3 .tx{color:#7fd7ff}
+
+  .testsel{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+  .testsel select{flex:1}
+  .ents{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 9px;margin-bottom:10px;max-height:132px;overflow:auto}
+  .ents .en{display:flex;gap:6px;align-items:center;font-size:10.5px;padding:2px 0;color:var(--muted)}
+  .ents .en .d{font-size:9px;padding:0 5px;border-radius:4px;background:rgba(47,156,255,.13);color:var(--accent2);min-width:44px;text-align:center}
+  .ents .en .eid{font-family:ui-monospace,Menlo,monospace;color:var(--muted2);font-size:9.5px}
+  .verdict{border-radius:9px;padding:11px;margin-bottom:9px;font-size:12px}
+  .verdict.win{border:1px solid rgba(77,212,172,.5);background:rgba(77,212,172,.08)}
+  .verdict .vt{font-size:10px;color:var(--muted2);margin-bottom:3px}
+  .verdict .vv{font-size:17px;font-weight:700;color:var(--accent)}
+  .verdict .vr{font-size:10.5px;color:var(--muted);margin-top:5px;line-height:1.6}
+  .verdict .vr code{color:var(--accent2)}
+  .verdict.fail{border:1px solid var(--line);background:var(--panel2)}
+  .verdict.fail .vv{color:var(--muted)}
+  .tres{font-size:11px}
+  .tres .tline{display:flex;align-items:center;gap:7px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;margin-bottom:5px}
+  .tres .tline.hit{border-color:rgba(77,212,172,.4);background:rgba(77,212,172,.05)}
+  .tres .tline .mark{width:15px;text-align:center;font-weight:700}
+  .tres .tline .mark.y{color:var(--accent)}
+  .tres .tline .mark.n{color:var(--muted2)}
+  .tres .tline .tn{flex:1;font-weight:600}
+  .tres .tline .why{font-size:9.5px;color:var(--muted2)}
+  .tres .tline .score{font-size:9.5px;padding:1px 6px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--warn)}
+
+  .changelog{margin:0 22px 40px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  .changelog h3{font-size:12.5px;margin:0 0 10px;color:var(--text)}
+  .changelog table{width:100%;border-collapse:collapse;font-size:11.5px}
+  .changelog th,.changelog td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  .changelog th{color:var(--muted2);font-weight:600;font-size:10.5px}
+  .changelog td code{background:#0a1017;padding:1px 5px;border-radius:4px;color:var(--accent);font-size:10.5px}
+  .changelog .pill{font-size:9.5px;padding:1px 6px;border-radius:8px;white-space:nowrap}
+  .changelog .pill.s4{background:rgba(77,212,172,.12);color:var(--accent)}
+  .changelog .pill.s3{background:rgba(185,140,255,.12);color:var(--purple)}
+  .changelog .pill.s2{background:rgba(47,156,255,.12);color:var(--accent2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>设备类型判定规则引擎</h1>
+  <span class="ver">配置原型 · 设计稿</span>
+  <span class="spacer"></span>
+  <span class="note">左侧改规则 → 右侧三端实时预览 · 纯规则自动判定 · 通用卡片</span>
+</div>
+
+<nav class="topnav">
+  <div class="navtab">设备状态</div>
+  <div class="navtab">HA 实体库</div>
+  <div class="navtab">设备类型字典</div>
+  <div class="navtab active">设备判定规则<span class="new">规划</span></div>
+  <div class="navtab">ESP 设备分类</div>
+</nav>
+
+<div class="notice">
+  <b>设计目标：</b>把"哪台设备算空调 / 热水器 / 热水瓶"的判定，从 <b class="bad">home 端 13 个写死的 xxx_summary.dart 后缀匹配</b>，搬到这里由你配成
+  <b>多条件组合规则</b>（规则之间 <code>OR</code>、规则内条件之间 <code>AND</code>）。服务端算好后下发"设备 → 类型"，home 端用<b>通用卡片</b>按配置渲染，ESP 端保持哑巴显示四行文本。
+  这样改判定<b class="good">只动这一处、两端立刻生效</b>。左侧可<b>新建任意类型</b>，字段/操作符/动作均为<b>开放输入</b>（下拉只推荐、不阻断），新 HA 属性直接填 <code>attr.xxx</code> 即可。
+</div>
+
+<div class="flowbar">
+  <span class="step"><b>HA 设备实体集</b></span><span class="arw">→</span>
+  <span class="step rule"><b>判定规则引擎</b>（你配的条件）</span><span class="arw">→</span>
+  <span class="step"><b>设备类型</b></span><span class="arw">→</span>
+  <span class="step home">home 通用卡片</span>
+  <span class="step esp">ESP 四行文本</span>
+</div>
+
+<!-- 开放输入 + 白名单提示：可输入任意值，下拉只作推荐，不阻断自定义 -->
+<datalist id="dlFields"></datalist>
+<datalist id="dlOps"></datalist>
+<datalist id="dlActions"></datalist>
+
+<main class="layout">
+
+  <!-- 左：类型列表 -->
+  <section class="card">
+    <h2>设备类型 <span class="tag" id="typeCount">—</span></h2>
+    <div class="body" id="typeList" style="padding:8px"></div>
+    <div style="padding:0 8px 10px">
+      <button class="btn mini" style="width:100%" onclick="toggleNewType()" id="newTypeBtn">＋ 新建类型</button>
+      <div class="newtype-box" id="newTypeBox" hidden>
+        <label>类型名称（如：加湿器）</label>
+        <div class="nt-row"><input type="text" id="ntLabel" placeholder="加湿器"></div>
+        <label>内部 key（英文，如 humidifier）</label>
+        <div class="nt-row"><input type="text" id="ntKey" placeholder="humidifier"></div>
+        <label>图标 / 主题色</label>
+        <div class="nt-row">
+          <input type="text" id="ntIcon" value="✦" style="width:44px">
+          <input type="text" id="ntColor" value="#4dd4ac" style="flex:1">
+        </div>
+        <div class="nt-row" style="margin-bottom:0">
+          <button class="btn mini primary" style="flex:1" onclick="createType()">创建</button>
+          <button class="btn mini" onclick="toggleNewType()">取消</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 中：判定规则 + 通用卡片配置 -->
+  <section>
+    <div class="card">
+      <h2><span>判定规则 · <span class="nm" id="ruleTypeName">—</span></span><span class="tag">规则 OR · 条件 AND</span></h2>
+      <div class="body">
+        <p class="hint">一个类型可配多条规则，<b>任一规则命中</b>即判为该类型；每条规则内的条件必须<b>全部满足</b>。条件语义：设备下"存在某个实体"满足该条件（各条件可由不同实体满足）。<b>字段/操作符是可输入的</b>：填 <code>attr.属性名</code> 即可取任意 HA 属性，下拉只是常用推荐。<br><b>按实体 ID 前缀分类 ≠ domain</b>：<code>domain</code> 是 <code>button.</code> / <code>switch.</code> 这种冒号前的域（太宽泛易串类）；像 <code>xiaomi_cn_mitv_</code> 这种设备前缀应填 <b>字段=实体 ID、操作符=开头是、值=前缀</b>（会自动忽略 <code>button.</code> / <code>switch.</code> 域前缀）。命中测试里已内置这 3 个真实实体可直接试。<br><b>更稳的做法是按设备型号</b>：字段填 <code>device.model</code>（如 <code>xiaomi.tv.v1</code>），来自 HA 设备注册表，比实体 ID 前缀稳定且语义清晰；实测 52 台设备有 51 台带 model。</p>
+        <div id="ruleList"></div>
+        <button class="btn mini" onclick="addRule()">＋ 添加规则</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span>通用卡片配置 · <span class="nm" id="cfgTypeName">—</span></span><span class="tag">home 卡片 + ESP 四行共用</span></h2>
+      <div class="body" id="cardCfg"></div>
+    </div>
+  </section>
+
+  <!-- 右：三端预览 -->
+  <section>
+    <div class="card">
+      <h2><span>home 通用卡片预览</span><span class="tag">读配置渲染</span></h2>
+      <div class="body"><div class="phone"><div class="pstatus"><span>客厅 · 中控屏</span><span>规则驱动</span></div><div id="homePreview"></div></div></div>
+    </div>
+
+    <div class="card">
+      <h2><span>ESP 四行预览</span><span class="tag">哑巴显示</span></h2>
+      <div class="body"><div class="oled" id="espPreview"></div></div>
+    </div>
+
+    <div class="card">
+      <h2><span>规则命中测试</span><span class="tag" id="hitTypeTag">—</span></h2>
+      <div class="body">
+        <div class="testsel">
+          <select id="testDevice" onchange="onTestDevice()"></select>
+          <button class="btn ok mini" onclick="runTest()">运行判定</button>
+        </div>
+        <div class="ents" id="testEnts"></div>
+        <div id="testResult"><p class="hint">点「运行判定」看这个设备会被判成哪一类、命中了哪条规则。</p></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="changelog">
+  <h3>落地时改哪些地方（评审确认后再动代码）</h3>
+  <table>
+    <thead><tr><th style="width:22%">端</th><th>改动</th><th style="width:14%">状态</th></tr></thead>
+    <tbody>
+      <tr><td>服务端 <code>deviceTypes.js</code></td><td>字典增加 <code>rules[]</code>（条件字段/操作符/值）与 <code>card</code>（通用卡片字段）；新增判定引擎 <code>classify(deviceEntities, dict)</code>：规则 OR、条件 AND、具体度优先 → 类型</td><td><span class="pill s3">新增</span></td></tr>
+      <tr><td>服务端 <code>admin.js</code></td><td><code>/api/device/device-types</code> 下发规则+卡片配置；home/ESP 取数接口附"设备→类型"判定结果；admin 规则/卡片配置 CRUD</td><td><span class="pill s3">新增</span></td></tr>
+      <tr><td>Admin <code>admin.html</code></td><td>本稿的「设备判定规则」Tab：规则编辑器 + 通用卡片配置 + 命中测试（配完可当场验证）</td><td><span class="pill s3">新增</span></td></tr>
+      <tr><td>home 端</td><td>用通用 <code>RuleEngine</code> 按服务端规则判定类型（<b>停用 13 个 summary 的后缀 tryBuild</b>）；用通用 <code>GenericCard</code> 按 card 配置渲染，替代 13 个专用 widget。新增类型需要新卡片形态时，<b>可接受随 App 发版更新</b>（通用引擎 + 少量类型专属模板）</td><td><span class="pill s2">改造大</span></td></tr>
+      <tr><td>ESP 固件</td><td><b>不动，永久</b>：仍收 title/main/sub/keys 四行文本，服务端按 card 配置算好。ESP 动作是<b>已知有限集合</b>（toggle/press/set_temperature/select_option…），仅在确实引入全新动作 kind 时才扩服务端白名单，固件不烧录</td><td><span class="pill s4">无需改</span></td></tr>
+      <tr><td>扩展性</td><td>类型清单<b>可动态新建</b>（本稿左侧「＋新建类型」，存覆盖层 JSON）；条件字段 / 操作符 / 动作 kind 均为<b>开放输入 + 白名单提示</b>（datalist 只推荐不阻断），新 HA 属性可直接填 <code>attr.xxx</code>，无需改代码</td><td><span class="pill s3">本稿已含</span></td></tr>
+      <tr><td>迁移策略</td><td>先保留 13 个 summary 作为兜底/回退；通用卡片灰度覆盖，逐个类型切换，切一个验一个，全绿后下线旧 summary</td><td><span class="pill s2">分批</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+var FIELDS = [
+  {v:'domain', t:'实体域 domain'},
+  {v:'entity_id', t:'实体 ID'},
+  {v:'name', t:'名称 / friendly_name'},
+  {v:'state', t:'状态 state'},
+  {v:'attr.current_temperature', t:'属性 · 当前温度'},
+  {v:'attr.temperature', t:'属性 · 温度'},
+  {v:'attr.percentage', t:'属性 · 百分比'},
+  {v:'attr.options', t:'属性 · 可选项'},
+  {v:'device.model', t:'设备型号 model'},
+  {v:'device.name', t:'设备名称'},
+  {v:'device.manufacturer', t:'厂商 manufacturer'},
+];
+var OPS = [
+  {v:'eq', t:'等于'},
+  {v:'neq', t:'不等于'},
+  {v:'contains', t:'包含'},
+  {v:'not_contains', t:'不包含'},
+  {v:'startsWith', t:'开头是'},
+  {v:'exists', t:'存在'},
+  {v:'gt', t:'大于'},
+  {v:'lt', t:'小于'},
+];
+
+function cond(field, op, value){ return {field:field, op:op, value:value}; }
+function rule(id, name, conds){ return {id:id, name:name, enabled:true, conds:conds}; }
+
+var TYPES = [
+  {
+    key:'climate', label:'空调', icon:'❄', color:'#2f9cff', priority:10,
+    rules:[ rule('c1','米家空调（有当前温度）',[
+      cond('domain','eq','climate'),
+      cond('attr.current_temperature','exists',''),
+    ]) ],
+    card:{ label:'当前室温', mainAttr:'current_temperature', mainFmt:'{v}°C', subTpl:'{state} · 目标 {target}°C',
+      icon:'❄', color:'#2f9cff', mainEntity:'climate · 主实体',
+      buttons:[ {label:'开关',action:'toggle'}, {label:'温度−',action:'set_temperature(-0.5)'}, {label:'温度+',action:'set_temperature(+0.5)'} ] }
+  },
+  {
+    key:'socket', label:'插座', icon:'⏻', color:'#4dd4ac', priority:20,
+    rules:[
+      rule('s1','空调插座（按名称识别）',[
+        cond('name','contains','插座'),
+        cond('domain','eq','climate'),
+      ]),
+      rule('s2','普通开关插座',[
+        cond('domain','eq','switch'),
+      ]),
+    ],
+    card:{ label:'开关状态', mainAttr:'state', mainFmt:'{v}', subTpl:'功率 {power}W · {state}',
+      icon:'⏻', color:'#4dd4ac', mainEntity:'switch · 主实体',
+      buttons:[ {label:'开关',action:'toggle'} ] }
+  },
+  {
+    key:'kettle', label:'热水瓶', icon:'♨', color:'#ffb454', priority:15,
+    rules:[ rule('k1','米家电热水瓶',[
+      cond('entity_id','contains','_temperature_p_2_6'),
+      cond('attr.options','contains','自来水'),
+    ]) ],
+    card:{ label:'当前温度', mainAttr:'temperature', mainFmt:'{v}°C', subTpl:'{state} · {mode}',
+      icon:'♨', color:'#ffb454', mainEntity:'sensor · 温度实体',
+      buttons:[ {label:'加热',action:'notify'}, {label:'保温',action:'select_option'} ] }
+  },
+  {
+    key:'water_heater', label:'热水器', icon:'♨', color:'#ff6b6b', priority:12,
+    rules:[ rule('w1','米家热水器',[
+      cond('domain','eq','water_heater'),
+    ]) ],
+    card:{ label:'当前水温', mainAttr:'current_temperature', mainFmt:'{v}°C', subTpl:'{state} · 目标 {target}°C',
+      icon:'♨', color:'#ff6b6b', mainEntity:'water_heater · 主实体',
+      buttons:[ {label:'开关',action:'toggle'}, {label:'温度±',action:'set_temperature'} ] }
+  },
+  {
+    key:'washer', label:'洗衣机', icon:'◉', color:'#b98cff', priority:12,
+    rules:[ rule('wa1','米家洗衣机',[
+      cond('entity_id','contains','_status_p_2_2'),
+      cond('attr.options','contains','标准洗'),
+    ]) ],
+    card:{ label:'运行状态', mainAttr:'state', mainFmt:'{v}', subTpl:'剩 {remain} · {mode}',
+      icon:'◉', color:'#b98cff', mainEntity:'sensor · 状态实体',
+      buttons:[ {label:'启动',action:'press'}, {label:'暂停',action:'press'}, {label:'停止',action:'press'} ] }
+  },
+  {
+    key:'fan', label:'风扇', icon:'✦', color:'#4dd4ac', priority:8,
+    rules:[ rule('f1','米家风扇',[
+      cond('attr.percentage','exists',''),
+      cond('name','contains','风扇'),
+    ]) ],
+    card:{ label:'当前风速', mainAttr:'percentage', mainFmt:'风速 {v}%', subTpl:'{state} · {preset_mode}',
+      icon:'✦', color:'#4dd4ac', mainEntity:'fan · 主实体',
+      buttons:[ {label:'开关',action:'toggle'}, {label:'风+',action:'set_percentage(+25)'} ] }
+  },
+];
+
+var TEST_DEVICES = [
+  { name:'卧室空调（正常）', entities:[
+    {domain:'climate', id:'climate.xiaomi_cn_944140253_h09h00', name:'卧室空调', state:'cool', attrs:{current_temperature:26, temperature:24, hvac_mode:'cool'}},
+  ]},
+  { name:'空调插座（截图误判案例）', entities:[
+    {domain:'climate', id:'climate.lumi_cn_649055521_mcn02', name:'空调插座', state:'heat', attrs:{current_temperature:29, temperature:30}},
+  ]},
+  { name:'小米空调巨省电', entities:[
+    {domain:'climate', id:'climate.xiaomi_cn_735376016_m9', name:'小米空调巨省电', state:'cool', attrs:{current_temperature:27, temperature:25}},
+  ]},
+  { name:'小米电视（button 前缀案例）', entities:[
+    {domain:'button', id:'button.xiaomi_cn_mitv_fc153364912268cd61c4d4ab0c391ecd_77de1a61a78d6428ef6b82bf9f45e450_v1_play_a_3_1', name:'播放', state:'unknown', attrs:{}, device:{name:'小米电视', model:'xiaomi.tv.v1', manufacturer:'小米'}},
+  ]},
+  { name:'风扇灯（button 前缀案例）', entities:[
+    {domain:'button', id:'button.xiaomi_cn_991270332_cfan01_toggle_a_2_1', name:'开关', state:'unknown', attrs:{}, device:{name:'风扇灯', model:'xiaomi.light.cfan01', manufacturer:'小米'}},
+  ]},
+  { name:'儿童房大灯（switch 前缀案例）', entities:[
+    {domain:'switch', id:'switch.xiaomi_cn_918088698_ceil02_flex_switch_p_2_12', name:'凌动开关', state:'on', attrs:{}, device:{name:'儿童房大灯', model:'xiaomi.light.ceil02', manufacturer:'小米'}},
+  ]},
+  { name:'电热水瓶', entities:[
+    {domain:'sensor', id:'sensor.mijia_kettle_temperature_p_2_6', name:'电热水瓶 温度', state:'98', attrs:{}},
+    {domain:'select', id:'select.mijia_kettle_mode', name:'电热水瓶 模式', state:'自来水', attrs:{options:['自来水','纯净水','凉白开']}},
+    {domain:'switch', id:'switch.mijia_kettle_status_p_2_1', name:'电热水瓶 状态', state:'on', attrs:{}},
+  ]},
+  { name:'洗衣机', entities:[
+    {domain:'sensor', id:'sensor.washer_status_p_2_2', name:'洗衣机 状态', state:'washing', attrs:{options:['标准洗','快洗']}},
+    {domain:'sensor', id:'sensor.washer_remain', name:'洗衣机 剩余', state:'23min', attrs:{}},
+  ]},
+];
+
+var selectedType = TYPES[1].key;
+var selectedTestIdx = 1;
+
+function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function curType(){ for(var i=0;i<TYPES.length;i++){ if(TYPES[i].key===selectedType) return TYPES[i]; } return TYPES[0]; }
+function curTest(){ return TEST_DEVICES[selectedTestIdx]; }
+
+function renderTypeList(){
+  document.getElementById('typeCount').textContent = TYPES.length + ' 类';
+  var box = document.getElementById('typeList');
+  box.innerHTML = TYPES.map(function(t){
+    var n = t.rules.filter(function(r){return r.enabled;}).length;
+    return '<div class="tl-item '+(t.key===selectedType?'active':'')+'" onclick="pickType(\''+t.key+'\')">'
+      + '<span class="ic" style="color:'+t.color+'">'+t.icon+'</span>'
+      + '<span class="lb">'+esc(t.label)+'</span>'
+      + '<span class="cnt '+(n?'have':'')+'">'+n+' 规则</span></div>';
+  }).join('');
+}
+
+var ACTIONS = ['toggle','press','turn_on','turn_off','set_temperature','set_temperature(-0.5)','set_temperature(+0.5)','set_percentage','set_percentage(+25)','select_option','notify','brightness(+10)','next_effect'];
+function fillDataLists(){
+  document.getElementById('dlFields').innerHTML = FIELDS.map(function(f){ return '<option value="'+f.v+'">'+f.t+'</option>'; }).join('');
+  document.getElementById('dlOps').innerHTML = OPS.map(function(o){ return '<option value="'+o.v+'">'+o.t+'</option>'; }).join('');
+  document.getElementById('dlActions').innerHTML = ACTIONS.map(function(a){ return '<option value="'+a+'"></option>'; }).join('');
+}
+
+function renderRules(){
+  var t = curType();
+  document.getElementById('ruleTypeName').textContent = t.label;
+  document.getElementById('hitTypeTag').textContent = t.label;
+  var box = document.getElementById('ruleList');
+  box.innerHTML = t.rules.map(function(r, ri){
+    var conds = r.conds.map(function(c, ci){
+      return '<div class="cond">'
+        + '<span class="and">'+(ci===0?'当':'且')+'</span>'
+        + '<input type="text" list="dlFields" value="'+esc(c.field)+'" title="字段：可输入任意 HA 属性，下拉为推荐" oninput="setCond(\''+r.id+'\','+ci+',\'field\',this.value)">'
+        + '<input type="text" list="dlOps" value="'+esc(c.op)+'" title="操作符：可自定义，下拉为推荐" oninput="setCond(\''+r.id+'\','+ci+',\'op\',this.value)">'
+        + '<input type="text" value="'+esc(c.value)+'" placeholder="值（exists 可留空）" oninput="setCond(\''+r.id+'\','+ci+',\'value\',this.value)">'
+        + '<button class="del" onclick="delCond(\''+r.id+'\','+ci+')" title="删除条件">×</button>'
+        + '</div>';
+    }).join('');
+    return '<div class="rule '+(r.enabled?'':'off')+'">'
+      + '<div class="rh">'
+      + '<input type="checkbox" '+(r.enabled?'checked':'')+' onchange="toggleRule(\''+r.id+'\',this.checked)" style="width:auto;cursor:pointer">'
+      + '<input class="rname" value="'+esc(r.name)+'" oninput="setRuleName(\''+r.id+'\',this.value)">'
+      + '<span class="badge">规则 '+(ri+1)+'</span>'
+      + '<button class="btn mini danger" onclick="delRule(\''+r.id+'\')">删</button>'
+      + '</div>'
+      + '<div class="rlogic">本规则内：条件全部满足 → 该规则命中；规则间满足任一即可</div>'
+      + conds
+      + '<button class="linkbtn addr" onclick="addCond(\''+r.id+'\')">＋ 加条件（AND）</button>'
+      + '</div>';
+  }).join('');
+}
+
+function renderCardCfg(){
+  var t = curType();
+  document.getElementById('cfgTypeName').textContent = t.label;
+  var c = t.card;
+  var btns = c.buttons.map(function(b, i){
+    return '<span class="btnchip">'
+      + '<input type="text" value="'+esc(b.label)+'" title="按钮文案" oninput="setBtn('+i+',\'label\',this.value,1)">'
+      + '<input type="text" list="dlActions" value="'+esc(b.action)+'" title="动作 kind：可输入任意动作，下拉为已知动作（ESP 固件已支持）" oninput="setBtn('+i+',\'action\',this.value,1)">'
+      + '<button class="x" onclick="delBtn('+i+')">×</button></span>';
+  }).join('');
+  document.getElementById('cardCfg').innerHTML =
+    '<div class="cfg-grid">'
+    + '<div class="fld"><label>大字上方小字标签</label><input type="text" value="'+esc(c.label)+'" oninput="setCard(\'label\',this.value)"></div>'
+    + '<div class="fld"><label>主数值取哪个属性</label><input type="text" value="'+esc(c.mainAttr)+'" oninput="setCard(\'mainAttr\',this.value)" placeholder="current_temperature"></div>'
+    + '<div class="fld"><label>主数值格式（{v}=实际值）</label><input type="text" value="'+esc(c.mainFmt)+'" oninput="setCard(\'mainFmt\',this.value)"></div>'
+    + '<div class="fld"><label>副文案模板</label><input type="text" value="'+esc(c.subTpl)+'" oninput="setCard(\'subTpl\',this.value)"></div>'
+    + '<div class="fld"><label>主实体来源（提示，实际用实体选择）</label><input type="text" value="'+esc(c.mainEntity)+'" oninput="setCard(\'mainEntity\',this.value)"></div>'
+    + '<div class="fld"><label>卡片图标 / 主题色</label><div style="display:flex;gap:6px"><input type="text" value="'+esc(c.icon)+'" oninput="setCard(\'icon\',this.value)" style="width:52px">'+
+        ['#2f9cff','#4dd4ac','#ffb454','#ff6b6b','#b98cff'].map(function(col){return '<button onclick="setCard(\'color\',\''+col+'\')" style="width:22px;height:22px;border-radius:6px;border:2px solid '+(c.color===col?'#fff':'transparent')+';background:'+col+';cursor:pointer"></button>';}).join('')+'</div></div>'
+    + '<div class="fld full"><label>卡片按钮（文案 + 动作，动作即服务端 callHaService 的 kind）</label><div class="btnrow" id="btnRow">'+btns+'</div><button class="linkbtn" style="margin-top:7px" onclick="addBtn()">＋ 加按钮</button></div>'
+    + '</div>';
+  renderPreviews();
+}
+
+function sampleVal(attr){
+  var map = {current_temperature:'26', temperature:'98', percentage:'60', state:'开启'};
+  return map[attr] || '42';
+}
+function renderPreviews(){
+  var t = curType(), c = t.card;
+  var main = c.mainFmt.replace('{v}', sampleVal(c.mainAttr));
+  var sub = c.subTpl.replace('{state}','制冷中').replace('{mode}','标准').replace('{target}','24').replace('{power}','65').replace('{remain}','23min').replace('{preset_mode}','自然风');
+  document.getElementById('homePreview').innerHTML =
+    '<div class="dcard" style="background:linear-gradient(135deg,'+c.color+',rgba(0,0,0,.35))">'
+    + '<div class="dtop"><div class="dico">'+c.icon+'</div><div class="dtt"><b>'+esc(t.label)+' · 演示设备</b><span>'+esc(curTest().name)+'</span></div></div>'
+    + '<div class="dlabel">'+esc(c.label)+'</div><div class="dmain">'+esc(main)+'</div>'
+    + '<div class="dsub">'+esc(sub)+'</div>'
+    + '<div class="dbtns">'+c.buttons.map(function(b){return '<span class="dbtn">'+esc(b.label)+'</span>';}).join('')+'</div>'
+    + '</div>';
+  document.getElementById('espPreview').innerHTML =
+    '<div class="obar"><span>1/3</span><span>192.168.1.50</span><span>WiFi</span></div>'
+    + '<div class="ol l0"><span class="ic">▎</span><span class="tx">'+esc(t.label)+' · 演示设备</span></div>'
+    + '<div class="ol l1"><span class="ic">◆</span><span class="tx">'+esc(main)+'</span></div>'
+    + '<div class="ol l2"><span class="ic">·</span><span class="tx">'+esc(sub)+'</span></div>'
+    + '<div class="ol l3"><span class="ic">›</span><span class="tx">'+c.buttons.map(function(b){return '['+b.label+']';}).join(' ')+'</span></div>';
+}
+
+function renderTestSel(){
+  document.getElementById('testDevice').innerHTML = TEST_DEVICES.map(function(d,i){ return '<option value="'+i+'" '+(i===selectedTestIdx?'selected':'')+'>'+esc(d.name)+'</option>'; }).join('');
+  renderTestEnts();
+}
+function renderTestEnts(){
+  document.getElementById('testEnts').innerHTML = curTest().entities.map(function(e){
+    return '<div class="en"><span class="d">'+esc(e.domain)+'</span><span class="eid">'+esc(e.id)+'</span></div>';
+  }).join('');
+}
+
+function actual(entity, field){
+  if(field.indexOf('attr.')===0){ var k=field.slice(5); return entity.attrs && entity.attrs[k]!=null ? entity.attrs[k] : undefined; }
+  if(field.indexOf('device.')===0){ var dk=field.slice(7); return entity.device && entity.device[dk]!=null ? entity.device[dk] : undefined; }
+  if(field==='domain') return entity.domain;
+  if(field==='entity_id') return entity.id;
+  if(field==='name') return entity.name;
+  if(field==='state') return entity.state;
+  return undefined;
+}
+function opMatch(actual, op, value){
+  if(op==='exists') return actual!==undefined && actual!=='';
+  if(actual===undefined) return false;
+  var a=String(actual), v=String(value==null?'':value);
+  if(op==='eq') return a===v;
+  if(op==='neq') return a!==v;
+  if(op==='contains') return a.indexOf(v)>=0 || (Array.isArray(actual)&&actual.join('|').indexOf(v)>=0);
+  if(op==='not_contains') return a.indexOf(v)<0;
+  // 实体 ID 的“开头是”自动忽略 button. / switch. 这类域前缀，按设备标识匹配
+  if(op==='startsWith'){ var bare=a.slice(a.indexOf('.')+1); return a.indexOf(v)===0 || bare.indexOf(v)===0; }
+  if(op==='not_startsWith'){ var bare2=a.slice(a.indexOf('.')+1); return a.indexOf(v)!==0 && bare2.indexOf(v)!==0; }
+  if(op==='gt') return parseFloat(a)>parseFloat(v);
+  if(op==='lt') return parseFloat(a)<parseFloat(v);
+  return false;
+}
+function condHit(cond, device){
+  for(var i=0;i<device.entities.length;i++){ if(opMatch(actual(device.entities[i], cond.field), cond.op, cond.value)) return true; }
+  return false;
+}
+function ruleHit(r, device){
+  if(!r.enabled) return false;
+  for(var i=0;i<r.conds.length;i++){ if(!condHit(r.conds[i], device)) return false; }
+  return true;
+}
+function fieldText(field){
+  for(var i=0;i<FIELDS.length;i++){ if(FIELDS[i].v===field) return FIELDS[i].t; }
+  return field;
+}
+function opText(op){
+  for(var i=0;i<OPS.length;i++){ if(OPS[i].v===op) return OPS[i].t; }
+  return op;
+}
+
+function runTest(){
+  var device = curTest();
+  var hits = [];
+  var detail = [];
+  TYPES.forEach(function(t){
+    var matchedRules = t.rules.filter(function(r){return ruleHit(r,device);});
+    if(matchedRules.length){
+      var specificity = Math.max.apply(null, matchedRules.map(function(r){return r.conds.length;}));
+      hits.push({type:t, rules:matchedRules, specificity:specificity, priority:t.priority});
+      var why = matchedRules.map(function(r){return '规则「'+esc(r.name)+'」命中 ('+r.conds.length+' 条件)';}).join('<br>');
+      detail.push('<div class="tline hit"><span class="mark y">✓</span><span class="tn">'+esc(t.label)+'</span><span class="why">'+why+'</span><span class="score">具体度 '+specificity+'</span></div>');
+    } else {
+      detail.push('<div class="tline"><span class="mark n">·</span><span class="tn" style="color:var(--muted2)">'+esc(t.label)+'</span><span class="why">无规则命中</span></div>');
+    }
+  });
+  hits.sort(function(a,b){ return b.specificity-a.specificity || b.priority-a.priority; });
+  var box = document.getElementById('testResult');
+  if(!hits.length){
+    box.innerHTML = '<div class="verdict fail"><div class="vt">判定结果</div><div class="vv">通用兜底 / 未分类</div><div class="vr">没有任何规则命中 → 走通用卡片（domain + state），不会黑屏。</div></div><div class="tres">'+detail.join('')+'</div>';
+    return;
+  }
+  var win = hits[0];
+  var reason = '命中类型 '+hits.length+' 个';
+  if(hits.length>1){
+    reason += '：<b>'+esc(win.type.label)+'</b> 命中规则具体度最高（'+win.specificity+' 条件'+(hits[1].specificity===win.specificity?'，与 '+esc(hits[1].type.label)+' 同分则按优先级 '+win.priority+'>'+hits[1].priority:'，高于 '+esc(hits[1].type.label)+' 的 '+hits[1].specificity)+'），胜出。';
+  } else {
+    reason += '，唯一命中 <b>'+esc(win.type.label)+'</b>。';
+  }
+  box.innerHTML = '<div class="verdict win"><div class="vt">最终判定</div><div class="vv">'+esc(win.type.label)+' <span style="font-size:11px;color:var(--muted)">'+esc(win.type.key)+'</span></div><div class="vr">'+reason+'</div></div><div class="tres">'+detail.join('')+'</div>';
+}
+
+function toggleNewType(){
+  var box=document.getElementById('newTypeBox');
+  box.hidden=!box.hidden;
+}
+function createType(){
+  var label=document.getElementById('ntLabel').value.trim();
+  var key=document.getElementById('ntKey').value.trim();
+  var icon=document.getElementById('ntIcon').value.trim()||'✦';
+  var color=document.getElementById('ntColor').value.trim()||'#4dd4ac';
+  if(!label||!key){ alert('请填类型名称和 key'); return; }
+  if(TYPES.some(function(t){return t.key===key;})){ alert('key 已存在'); return; }
+  TYPES.push({
+    key:key, label:label, icon:icon, color:color, priority:5,
+    rules:[ rule('n'+Date.now(),'新类型规则 1',[ cond('domain','eq','') ]) ],
+    card:{ label:'当前值', mainAttr:'state', mainFmt:'{v}', subTpl:'{state}', icon:icon, color:color,
+      mainEntity:'（待配置）', buttons:[ {label:'开关',action:'toggle'} ] }
+  });
+  document.getElementById('ntLabel').value=''; document.getElementById('ntKey').value='';
+  toggleNewType();
+  pickType(key);
+}
+function pickType(k){ selectedType=k; renderTypeList(); renderRules(); renderCardCfg(); document.getElementById('testResult').innerHTML='<p class="hint">点「运行判定」看这个设备会被判成哪一类、命中了哪条规则。</p>'; }
+function onTestDevice(){ selectedTestIdx=parseInt(document.getElementById('testDevice').value,10); renderTestEnts(); renderPreviews(); document.getElementById('testResult').innerHTML='<p class="hint">点「运行判定」看这个设备会被判成哪一类、命中了哪条规则。</p>'; }
+function addRule(){ var t=curType(); var id='r'+Date.now(); t.rules.push(rule(id,'新规则 '+t.rules.length,[cond('domain','eq','')])); renderRules(); renderTypeList(); }
+function delRule(id){ var t=curType(); t.rules=t.rules.filter(function(r){return r.id!==id;}); renderRules(); renderTypeList(); }
+function toggleRule(id,on){ var t=curType(); t.rules.forEach(function(r){if(r.id===id)r.enabled=on;}); renderTypeList(); }
+function setRuleName(id,v){ var t=curType(); t.rules.forEach(function(r){if(r.id===id)r.name=v;}); }
+function addCond(id){ var t=curType(); t.rules.forEach(function(r){if(r.id===id)r.conds.push(cond('domain','eq',''));}); renderRules(); }
+function delCond(id,i){ var t=curType(); t.rules.forEach(function(r){if(r.id===id)r.conds.splice(i,1);}); renderRules(); }
+function setCond(id,i,k,v){ var t=curType(); t.rules.forEach(function(r){if(r.id===id){ r.conds[i][k]=v; }}); /* 开放输入：不重渲染，避免输入失焦 */ }
+function setCard(k,v){ curType().card[k]=v; renderPreviews(); }
+function setBtn(i,k,v,light){ curType().card.buttons[i][k]=v; if(!light) renderCardCfg(); else renderPreviews(); }
+function addBtn(){ curType().card.buttons.push({label:'新按钮',action:'toggle'}); renderCardCfg(); }
+function delBtn(i){ curType().card.buttons.splice(i,1); renderCardCfg(); }
+
+window.pickType=pickType; window.onTestDevice=onTestDevice; window.runTest=runTest;
+window.toggleNewType=toggleNewType; window.createType=createType;
+window.addRule=addRule; window.delRule=delRule; window.toggleRule=toggleRule; window.setRuleName=setRuleName;
+window.addCond=addCond; window.delCond=delCond; window.setCond=setCond;
+window.setCard=setCard; window.setBtn=setBtn; window.addBtn=addBtn; window.delBtn=delBtn;
+
+fillDataLists(); renderTypeList(); renderRules(); renderCardCfg(); renderTestSel();
+
+})();
+</script>
+</body>
+</html>

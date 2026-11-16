@@ -20,6 +20,7 @@ import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -43,6 +44,7 @@ import 'package:pscreen_home/features/home/presentation/components/button_widget
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
+import 'package:pscreen_home/features/home/presentation/components/generic_rule_card.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/air_fryer_widget.dart';
@@ -1164,6 +1166,55 @@ class _ControlGridState extends State<_ControlGrid> {
           final String areaLabel = state.areaLabelFor(
             group.primary?.entityId ?? group.entities.first.entityId,
           );
+
+          // 灰度：admin 在「设备判定规则」里给该类型打开「通用卡片」开关后，
+          // home 按服务端下发的 card 配置渲染，取代下面 13 个专用 Summary。
+          // 未开启（默认）时全部走原有专用卡片，行为完全不变。
+          final DeviceTypeDictionary ruleDict = DeviceTypeDictionary.active;
+          final String? classifiedType = group.deviceId == null
+              ? null
+              : ruleDict.classifiedTypeOf(group.deviceId!);
+          if (classifiedType != null && ruleDict.useGenericCard(classifiedType)) {
+            final DeviceTypeRule? typeRule = ruleDict.rule(classifiedType);
+            final DeviceCardConfig? cardCfg = typeRule?.card;
+            if (typeRule != null && cardCfg != null) {
+              final String primaryId = group.primary?.entityId ?? '';
+              return GenericRuleCard(
+                group: group,
+                rule: typeRule,
+                card: cardCfg,
+                areaLabel: areaLabel,
+                showAreaInTitle: state.selectedAreaId.isEmpty,
+                isToggling: primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
+                onTogglePrimary: group.primary != null && group.primary!.isSwitchable
+                    ? () => context.read<HomeBloc>().add(ToggleEntity(entityId: primaryId))
+                    : null,
+                onAction: (String action) {
+                  final HomeBloc bloc = context.read<HomeBloc>();
+                  final String kind = action.split('(').first.trim();
+                  if (primaryId.isEmpty) return;
+                  switch (kind) {
+                    case 'toggle':
+                    case 'turn_on':
+                    case 'turn_off':
+                      bloc.add(ToggleEntity(entityId: primaryId));
+                      break;
+                    case 'press':
+                      bloc.add(PressEntityButton(entityId: primaryId));
+                      break;
+                    case 'notify':
+                      bloc.add(PressNotifyAction(entityId: primaryId, message: action));
+                      break;
+                    default:
+                      // 带参动作（set_temperature / select_option / brightness 等）
+                      // 走详情页由专用面板处理，通用卡片只下发简单动作。
+                      _openDeviceDetail(context, group);
+                  }
+                },
+                onOpenDetail: () => _openDeviceDetail(context, group),
+              );
+            }
+          }
 
           // 门锁：上锁状态 + 电池电量 + 电量更新时间（无快捷开关按钮）
           final LockSummary? lock = group.deviceId == null

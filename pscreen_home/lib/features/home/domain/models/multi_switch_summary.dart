@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 双开开关摘要：同一设备下的左键 / 右键两路开关。
 class MultiSwitchSummary {
@@ -13,6 +14,10 @@ class MultiSwitchSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'multi_switch')) {
+      return null;
+    }
     final HaEntityStateModel? left =
         _byIdEnding(entities, '_on_p_2_1', domain: 'switch');
     final HaEntityStateModel? right =

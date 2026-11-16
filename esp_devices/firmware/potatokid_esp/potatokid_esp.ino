@@ -42,7 +42,9 @@ static const char *WEB_PASS = SECRET_WEB_PASS;
 // 控制端地址：可在线修改（存 NVS），换域名不用重新烧录
 static const char *DEFAULT_SERVER_BASE = "http://ptool.w1.luyouxia.net";
 static const char *DEVICE_NAME         = "ESP32-S3 小屏";
-static const char *APP_VER             = "oled-1.3";
+// 版本号要递增，否则 OTA 检测不到更新（服务端比对 APP_VER != 发布版本）。
+// oled-2.0：中文字库主屏 + 顶栏真实 IP + 分速跑马灯 + 单色适配 + 四行协议 + 翻页。
+static const char *APP_VER             = "oled-2.0";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -70,6 +72,22 @@ String btnLabel[8];
 struct BtnState { bool down; uint32_t changedAt; };
 BtnState buttons[BTN_COUNT];
 
+// ---- 屏幕四行内容（服务端按设备类型字典下发，固件只管显示）----
+// 顶栏固定：页码 + 真实 IP（WiFi.localIP，拿到前留空）+ WiFi 信号格。
+String scrTitle = "", scrMain = "", scrSub = "", scrKeys = "";
+int  pageCount = 1, pageIndex = 1;      // 页码来自服务端（若下发）；>=1
+uint32_t lastMarquee = 0;               // 跑马灯相位推进节拍（~10fps）
+uint32_t phaseTitle = 0, phaseMain = 0, phaseSub = 0, phaseKeys = 0;  // 各行独立相位
+
+// 分页：每个按键槽可绑到一个动作；翻页由服务端回执 sys 动作驱动。
+// 当前页号随回执变化，屏幕提示与按键映射由服务端随页下发。
+int currentPage = 1;
+
+// 单色屏：实物有蓝光/白光/黄光三种。灰阶不存在，只有亮/灭两级；
+// 层次靠字号 + 留白 + 反白块。这里用 U8G2 的像素翻转实现「反白」强调。
+// 0=蓝 1=白 2=黄 由 NVS 保存，蓝屏/白屏/黄屏硬件本身发光色不同，固件绘制一致。
+int screenColor = 0;
+
 // OTA：服务端发布的版本与本地 APP_VER 不同即提示可升级
 bool fwAvailable = false;
 String fwVersion;
@@ -78,37 +96,116 @@ uint32_t fwSize = 0;
 
 /* ---------------- OLED ---------------- */
 
+// 西文等宽：6x10 字体一行约 21 字符。保留给系统提示（英文/数字）。
 String fit(const String &s) {
-  // 6x10 字体一行约 21 个字符
   return s.length() > 21 ? s.substring(0, 21) : s;
 }
 
-// 按「字符」截断 UTF-8 文本（中文一个字 3 字节），超出加 ..
-String fitUtf8(const String &s, int maxChars) {
-  String out;
-  int i = 0, n = 0;
-  while (i < (int)s.length() && n < maxChars) {
+// UTF-8 显示宽度（ASCII 按 6px，中文按 12px），用于跑马灯测宽与反白块宽度。
+int utf8Width(const String &s) {
+  int px = 0, i = 0;
+  while (i < (int)s.length()) {
     unsigned char c = (unsigned char)s[i];
-    int len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : 4;
-    out += s.substring(i, i + len);
-    i += len;
-    n++;
+    if (c < 0x80) { px += 6; i += 1; }
+    else { px += 12; i += ((c >> 4) == 0xE ? 3 : ((c >> 5) == 0x6 ? 2 : 4)); }
   }
-  if (i < (int)s.length()) out += "..";
-  return out;
+  return px;
 }
 
-void oledShow(const String &title, const String &l1 = "", const String &l2 = "", const String &l3 = "") {
+// 跑马灯（E3/E4）：文字放得下就静止；放不下才在行带内无缝循环左滚。
+// 每行独立相位 + 独立速度（标题最慢、按键提示最快），各行不同步。
+// 用 u8g2 的 clip 把文字限制在本行显示带，避免滚出界压到相邻行。
+// 只重绘变化的行带——不整屏 30fps，避免拖慢 I2C / 心跳 / 按键轮询。
+static const float MARQUEE_SPEED[4] = { 0.45, 0.75, 1.1, 1.6 };  // 基准 15px/s 的倍率
+void marqueeLine(const String &txt, int x, int baseline, int maxPx,
+                 uint32_t &phase, float speed, bool useCn) {
+  u8g2.setClipWindow(x, baseline - 10, min((int)(x + maxPx), 128), min(baseline + 3, 64));
+  int w = useCn ? utf8Width(txt) : (int)txt.length() * 6;
+  if (w <= maxPx) {
+    if (useCn) u8g2.drawUTF8(x, baseline, txt.c_str());
+    else u8g2.drawStr(x, baseline, txt.c_str());
+  } else {
+    int gap = 18;
+    int cycle = w + gap;
+    int shift = (int)(phase % (uint32_t)cycle);
+    if (useCn) {
+      u8g2.drawUTF8(x - shift, baseline, txt.c_str());
+      u8g2.drawUTF8(x - shift + cycle, baseline, txt.c_str());
+    } else {
+      u8g2.drawStr(x - shift, baseline, txt.c_str());
+      u8g2.drawStr(x - shift + cycle, baseline, txt.c_str());
+    }
+  }
+  u8g2.setMaxClipWindow();
+}
+
+// 反白强调（E4）：单色屏唯一能做的「重点」——填满亮色 + 黑字。
+// abnormal=true 时，主状态行整块反白（用于异常/警告，替代红黄告警色）。
+void invertBlock(int x, int y, int w, int h) {
+  for (int yy = y; yy < y + h; yy++) u8g2.drawHLine(x, yy, w);
+}
+
+// 顶部状态栏（E2）：页码 + 真实 IP（拿到前留空）+ WiFi 信号格。
+// 只有 WiFi 已连接才画 IP；断网/配网由 drawSysMessage 单独处理，不显示假 IP。
+void drawStatusBar() {
+  u8g2.setFont(u8g2_font_6x10_tf);
+  u8g2.setClipWindow(0, 0, 128, 12);
+  // 左：页码
+  char pg[12];
+  snprintf(pg, sizeof(pg), "%d/%d", pageIndex, pageCount);
+  u8g2.drawStr(2, 9, pg);
+  // 中：真实 station IP（未连上则为空，绝不写死示例值）
+  if (WiFi.status() == WL_CONNECTED) {
+    String ip = WiFi.localIP().toString();
+    u8g2.drawStr(30, 9, ip.c_str());
+  }
+  // 右：WiFi 信号格（3 条递增竖条）
+  int sx = 114;
+  u8g2.drawBox(sx, 6, 2, 3);
+  u8g2.drawBox(sx + 4, 4, 2, 5);
+  u8g2.drawBox(sx + 8, 2, 2, 7);
+  u8g2.setMaxClipWindow();
+}
+
+// 主屏（E1/E2/E3/E4）：顶栏 + 标题 + 主状态 + 副状态 + 按键提示，四行分速滚动。
+// 统一用 wqy12（12px，含 ASCII 字形），中英文都能画；字号 + 留白 + 反白分层。
+void drawScreen(const String &title, const String &main, const String &sub, const String &keys, bool abnormal) {
   if (!oledOk) return;
   u8g2.clearBuffer();
-  u8g2.setFont(u8g2_font_helvB10_tf);
-  u8g2.drawStr(0, 13, fit(title).c_str());
-  u8g2.drawHLine(0, 17, 128);
-  u8g2.setFont(u8g2_font_6x10_tf);
-  u8g2.drawStr(0, 31, fit(l1).c_str());
-  u8g2.drawStr(0, 44, fit(l2).c_str());
-  u8g2.drawStr(0, 57, fit(l3).c_str());
+  drawStatusBar();
+
+  // ① 标题（10px 中文）：
+  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+  marqueeLine(title, 3, 22, 122, phaseTitle, MARQUEE_SPEED[0], true);
+
+  // ② 主状态：异常时整行反白（亮底黑字），否则正常亮字。
+  if (abnormal) {
+    invertBlock(2, 27, 124, 14);
+    u8g2.setDrawColor(0);
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    marqueeLine(main, 3, 38, 122, phaseMain, MARQUEE_SPEED[1], true);
+    u8g2.setDrawColor(1);
+  } else {
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    marqueeLine(main, 3, 38, 122, phaseMain, MARQUEE_SPEED[1], true);
+  }
+
+  // ③ 副状态（8px 用小一号中文，wqy12 已是最小中文字库，靠 y 间距分层）：
+  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+  marqueeLine(sub, 3, 51, 122, phaseSub, MARQUEE_SPEED[2], true);
+
+  // ⑤ 按键提示行（底部 54..64）：
+  if (keys.length()) {
+    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+    marqueeLine(keys, 3, 63, 124, phaseKeys, MARQUEE_SPEED[3], true);
+  }
   u8g2.sendBuffer();
+}
+
+// 兼容旧调用：oledShow(title,l1,l2,l3) 走同一套四行布局（无反白）。
+// 系统提示（Booting / WiFi lost / Updating 等）仍用此入口，只是不显示反白块。
+void oledShow(const String &title, const String &l1 = "", const String &l2 = "", const String &l3 = "") {
+  drawScreen(title, l1, l2, l3, false);
 }
 
 // 按键反馈：临时占屏 2.5 秒，之后由主循环恢复常规页面。
@@ -116,16 +213,9 @@ void oledShow(const String &title, const String &l1 = "", const String &l2 = "",
 // 否则按字节渲染就是乱码。
 void oledToast(const String &title, const String &name = "", const String &status = "") {
   if (!oledOk) return;
-  u8g2.clearBuffer();
-  u8g2.setFont(u8g2_font_helvB10_tf);
-  u8g2.drawStr(0, 13, fit(title).c_str());
-  u8g2.drawHLine(0, 17, 128);
-  // 12px 中文字库，128 宽约放 10 个汉字
-  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  u8g2.drawUTF8(0, 34, fitUtf8(name, 10).c_str());
-  u8g2.setFont(u8g2_font_6x10_tf);
-  u8g2.drawStr(0, 50, fit(status).c_str());
-  u8g2.sendBuffer();
+  // 按键反馈用同一套四行布局；第 2 行反白表示「这是临时反馈态」。
+  // 单色屏做不到变暗，靠反白块 + 文案表达（E4）。
+  drawScreen(title, name, status, "", true);
   toastUntil = millis() + 2500;
 }
 
@@ -158,6 +248,8 @@ void loadCreds() {
 
   prefs.begin("cfg", true);
   serverBase = prefs.getString("base", DEFAULT_SERVER_BASE);
+  screenColor = prefs.getInt("color", 0);   // E4：0=蓝 1=白 2=黄（仅记录色别，绘制三色通用）
+  if (screenColor < 0 || screenColor > 2) screenColor = 0;
   prefs.end();
   if (serverBase.isEmpty()) serverBase = DEFAULT_SERVER_BASE;
 
@@ -240,32 +332,70 @@ void reportToServer(bool isRegister) {
 /* ---------------- HA 控制 ---------------- */
 
 // 从服务端拉取已放行的控制项（button|name|entityId|action|id），缓存按钮名称供屏幕提示用
+// 按分隔符 | 取第 n 段（0 起）。文本里 | 已被服务端清洗掉，直接 split 即可。
+String fieldAt(const String &line, int n) {
+  int start = 0, idx = 0;
+  while (idx < n) {
+    int p = line.indexOf('|', start);
+    if (p < 0) return "";
+    start = p + 1; idx++;
+  }
+  int end = line.indexOf('|', start);
+  return line.substring(start, end < 0 ? line.length() : end);
+}
+
 void fetchActions() {
   if (WiFi.status() != WL_CONNECTED) return;
   if (deviceId.isEmpty()) buildDeviceId();
   for (int i = 0; i < 8; i++) btnLabel[i] = "";
   String text;
-  if (!getText("/api/device/esp/actions?format=text&deviceId=" + deviceId, text)) return;
+  if (!getText("/api/device/esp/actions?format=text&deviceId=" + deviceId + "&page=" + String(currentPage), text)) return;
   int start = 0;
+  bool gotDisplay = false;
   while (start < (int)text.length()) {
     int end = text.indexOf('\n', start);
     if (end < 0) end = text.length();
     String line = text.substring(start, end);
     line.trim();
     start = end + 1;
-    int p1 = line.indexOf('|');
-    if (p1 < 0) continue;
-    int p2 = line.indexOf('|', p1 + 1);
-    if (p2 < 0) continue;
-    int btn = line.substring(0, p1).toInt();
-    if (btn >= 1 && btn < 8) btnLabel[btn] = line.substring(p1 + 1, p2);
+    if (!line.length()) continue;
+
+    // 显示层（E4/E5）：DISPLAY|title|main|sub|keys —— 服务端按字典解析好的四行
+    if (line.startsWith("DISPLAY")) {
+      scrTitle = fieldAt(line, 1);
+      scrMain  = fieldAt(line, 2);
+      scrSub   = fieldAt(line, 3);
+      scrKeys  = fieldAt(line, 4);
+      gotDisplay = true;
+      continue;
+    }
+    // 控制项（兼容旧固件格式）：button|name|entityId|action|id
+    int btn = fieldAt(line, 0).toInt();
+    if (btn >= 1 && btn < 8) btnLabel[btn] = fieldAt(line, 1);
   }
-  Serial.printf("[esp] 已放行控制项 %u 个\n", (unsigned)text.length());
+  // 没收到 DISPLAY 行（老服务端 / 未分类）时用系统默认，不显示假内容。
+  if (!gotDisplay) {
+    scrTitle = "";
+    scrMain  = "未配置显示";
+    scrSub   = "请在 Admin 设备分类页设置";
+    scrKeys  = "";
+  }
+  Serial.printf("[esp] 已放行控制项 %u 字节，显示行 %d\n", (unsigned)text.length(), gotDisplay ? 1 : 0);
 }
 
-// 让服务端执行某个按钮 / 控制项对应的 HA 动作
-bool pressAction(const String &body) {
-  return postJson("/api/device/esp/press", body);
+// 让服务端执行某个按钮 / 控制项对应的 HA 动作。
+// 返回服务端响应体（含 sys 翻页回执），失败返回空串。
+String pressAction(const String &body) {
+  WiFiClient client;
+  HTTPClient http;
+  String out;
+  if (!http.begin(client, serverBase + "/api/device/esp/press")) return out;
+  http.setTimeout(6000);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST((uint8_t *)body.c_str(), body.length());
+  if (code == 200) out = http.getString();
+  http.end();
+  return out;
 }
 
 /* ---------------- 固件升级（OTA） ---------------- */
@@ -322,10 +452,31 @@ void runOta() {
 
 void onButtonPress(int button) {
   if (deviceId.isEmpty()) buildDeviceId();
-  Serial.printf("[btn] %d pressed\n", button);
+  Serial.printf("[btn] %d pressed (page %d)\n", button, currentPage);
   oledToast(String("Button ") + button, btnLabel[button].length() ? btnLabel[button] : "sending...");
-  String body = "{\"deviceId\":\"" + deviceId + "\",\"button\":" + String(button) + "}";
-  bool ok = pressAction(body);
+  String body = "{\"deviceId\":\"" + deviceId + "\",\"button\":" + String(button)
+              + ",\"page\":" + String(currentPage) + "}";
+  String resp = pressAction(body);
+  bool ok = resp.indexOf("\"code\":0") >= 0;
+
+  // E7：翻页系统动作 —— 服务端回执里带 sys=next_page/prev_page/home_page。
+  if (resp.indexOf("next_page") >= 0) {
+    currentPage = pageCount > 1 ? (currentPage % pageCount) + 1 : 1;
+    fetchActions();  // 拉新页的四行文本 + 按键定义
+    drawMain();
+    return;
+  } else if (resp.indexOf("prev_page") >= 0) {
+    currentPage = pageCount > 1 ? ((currentPage - 2 + pageCount) % pageCount) + 1 : 1;
+    fetchActions();
+    drawMain();
+    return;
+  } else if (resp.indexOf("home_page") >= 0) {
+    currentPage = 1;
+    fetchActions();
+    drawMain();
+    return;
+  }
+
   oledToast(String("Button ") + button, btnLabel[button].length() ? btnLabel[button] : "-",
             ok ? "sent ok" : "failed, see serial");
 }
@@ -349,8 +500,35 @@ void drawMain() {
     oledShow("Update ready", String("cur ") + APP_VER, String("new ") + fwVersion, "open web page");
     return;
   }
-  oledShow("WiFi connected", ssid, WiFi.localIP().toString(),
-           (srvOk ? "srv ok " : "srv fail ") + String(WiFi.RSSI()) + "dBm");
+  // 常规页：优先显示服务端下发的四行（设备类型字典解析），没配置时退回连接信息。
+  if (scrMain.length()) {
+    drawScreen(scrTitle, scrMain, scrSub, scrKeys, false);
+  } else {
+    drawScreen("WiFi connected", ssid, WiFi.localIP().toString(),
+               (srvOk ? "srv ok " : "srv fail ") + String(WiFi.RSSI()) + "dBm", false);
+  }
+}
+
+// 跑马灯节拍（E3）：~10fps 推进各行相位，只在有超长文本被滚动时才重绘，
+// 避免整屏高频刷新拖慢 I2C / 心跳 / 按键轮询。相位 = 时间 × 15px/s × 各行倍率。
+void tickMarquee() {
+  if (!oledOk) return;
+  static uint32_t lastTickMs = 0;
+  uint32_t now = millis();
+  if (now - lastTickMs < 100) return;         // ~10fps
+  uint32_t dt = now - lastTickMs;
+  lastTickMs = now;
+  if (toastUntil && now < toastUntil) return; // 按键反馈占屏期间不滚
+  // 只有文字确实超宽才需要滚动；静止文本不动相位。
+  bool needScroll = utf8Width(scrTitle) > 122 || utf8Width(scrMain) > 122
+                 || utf8Width(scrSub) > 122 || utf8Width(scrKeys) > 124;
+  if (!needScroll) return;
+  float base = 15.0f * dt / 1000.0f;          // 基准 15px/s
+  phaseTitle += (uint32_t)(base * MARQUEE_SPEED[0]);
+  phaseMain  += (uint32_t)(base * MARQUEE_SPEED[1]);
+  phaseSub   += (uint32_t)(base * MARQUEE_SPEED[2]);
+  phaseKeys  += (uint32_t)(base * MARQUEE_SPEED[3]);
+  drawMain();                                  // 用新相位重绘
 }
 
 void showConnected() {
@@ -722,6 +900,8 @@ void loop() {
     fetchActions();  // 白名单可能在后台改过
     checkFirmware(); // 服务端可能发布了新固件
   }
+
+  tickMarquee();   // E3：~10fps 分速滚动（仅超长文本触发）
 
   static uint32_t lastDraw = 0;
   if (toastUntil && millis() > toastUntil) {

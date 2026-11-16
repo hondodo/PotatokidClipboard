@@ -121,6 +121,36 @@ cp firmware/potatokid_esp/secrets.h.example firmware/potatokid_esp/secrets.h
 4. 联网期间每 60 秒心跳一次，并顺带刷新控制项列表、检查服务端是否发布了新固件；掉线超过 60 秒转配网热点；
 5. 局域网内访问 `http://<设备IP>/` 可改 WiFi，`/settings` 是设置页，都需要口令（`secrets.h` 的网页账号/密码）。
 
+> ⚠️ **状态栏 IP 必须是真实值，禁止写死假 IP**
+>
+> 屏幕顶部状态栏中间显示的设备 IP，**必须取自 `WiFi.localIP()` 的真实 station IP**。
+> 在 WiFi 连上、拿到 IP **之前该位置留空**，绝不显示任何占位/示例地址。
+>
+> 规划原型 `docs/esp-screen-admin-prototype.html` 与 `docs/esp-screen-display-prototype.html`
+> 里写的 `192.168.1.123` **只是演示用的假值**，落地固件时**不要照抄**。
+> 断网态画 ✗、配网态画 AP，这两种状态同样不显示 IP。
+
+### 6.1 屏幕四行显示与设备类型字典（oled-2.0+）
+
+固件保持「哑巴」：不认识任何设备类型，只显示服务端下发的**四行纯文本**。设备在 Admin 页
+显式声明 `deviceType` + 显示实体绑定，服务端按共享字典（`pscreen_server/server/deviceTypes.js`，
+与 home 端共用）把 HA 状态解析成四行下发，新设备类型接入**不用重烧固件**。
+
+- `GET /api/device/esp/actions?format=text&deviceId=...&page=N` 的返回：
+  - 第一行固定 `DISPLAY|标题|主状态|副状态|按键提示`（服务端解析好的纯文本）；
+  - 其后每行 `button|name|entityId|action|id` 是放行的控制项（旧固件忽略 DISPLAY 行，仍可读按键行）。
+- 屏幕布局：顶部状态栏固定「页码 + 真实 IP + WiFi 信号格」，下面依次标题 / 主状态 /
+  副状态 / 按键提示四行。主状态异常时用**反白块**（亮底黑字）强调——单色屏唯一的重点手段。
+- **单色三色通用**：实物有蓝光 / 白光 / 黄光三种屏，但每像素只有亮/灭两级，没有灰阶。
+  绘制只用单一亮色，层次靠字号 + 留白 + 反白；不画灰阶、不画虚线。`screenColor`（NVS, 0蓝/1白/2黄）
+  仅记录色别，三色 firmware 绘制逻辑一致。
+- **跑马灯**：文字放得下就静止，放不下才无缝循环滚动；四行独立相位、速度
+  标题 0.45× → 主状态 0.75× → 副状态 1.1× → 按键提示 1.6×（基准 15px/s），各行不同步。
+  以 ~10fps 推进相位，仅超长时重绘，不整屏高频刷新（避免拖慢 I2C / 心跳 / 按键轮询）。
+- **翻页**：按键绑 `next_page` / `prev_page` / `home_page` 系统动作时，服务端回执 `sys`，
+  固件维护 `currentPage` 并重新拉取该页四行文本与按键定义。按键硬件可扩展（当前 3 键）。
+- **中文字库**：主屏用 `wqy12_t_gb2312` + `drawUTF8`；缺字可按 README 前文换 `chinese2/3` 字库。
+
 ## 7. 设置页（设备本地）
 
 `http://<设备IP>/settings`：

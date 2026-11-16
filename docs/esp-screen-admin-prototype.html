@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP 屏幕配置 · Admin 规划原型</title>
+<style>
+  :root{
+    --bg:#0c131a; --panel:#121b25; --panel2:#16212d; --line:#22303f;
+    --text:#dbe6f0; --muted:#8fa2b6; --muted2:#65809a;
+    --accent:#4dd4ac; --accent2:#2f9cff; --warn:#ffb454; --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  button,input,select{font:inherit;color:inherit}
+  a{color:var(--accent2)}
+
+  .topbar{height:54px;display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.3px}
+  .topbar .crumb{color:var(--muted);font-size:12px}
+  .topbar .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:7px 13px;cursor:pointer;font-size:12.5px}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#06221b;border-color:var(--accent);font-weight:650}
+  .btn.primary:hover{filter:brightness(1.08);color:#06221b}
+  .btn.danger:hover{border-color:var(--danger);color:var(--danger)}
+
+  .notice{margin:14px 22px 0;padding:12px 16px;border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12.5px}
+  .notice b{color:var(--text)}
+  .notice code{background:#0a1017;padding:1px 5px;border-radius:4px;color:var(--accent);font-size:11.5px}
+
+  .layout{display:grid;grid-template-columns:210px minmax(560px,1fr) 330px;gap:14px;padding:14px 22px 40px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card>h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted2);margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .card .body{padding:13px}
+
+  /* 页面列表 */
+  .page-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin-bottom:4px}
+  .page-item:hover{background:var(--panel2)}
+  .page-item.active{border-color:var(--accent);background:rgba(77,212,172,.08)}
+  .page-item .ic{width:24px;height:24px;display:grid;place-items:center;background:var(--panel2);border-radius:6px;font-size:14px}
+  .page-item .nm{flex:1;min-width:0}
+  .page-item .nm b{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .page-item .nm span{font-size:11px;color:var(--muted2)}
+  .page-item .num{font-size:11px;color:var(--muted2)}
+
+  .section{margin-bottom:16px}
+  .section:last-child{margin-bottom:0}
+  .section h3{font-size:12px;color:var(--muted);margin:0 0 8px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .section h3 .tag{font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(47,156,255,.13);color:var(--accent2);font-weight:500}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:7px}
+  .row .lbl{width:66px;flex:none;color:var(--muted2);font-size:12px}
+  input[type=text],select{background:#0d151e;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12.5px;width:100%;min-width:0}
+  input[type=text]:focus,select:focus{outline:none;border-color:var(--accent2)}
+  select{cursor:pointer}
+  .hint{font-size:11px;color:var(--muted2);margin-top:5px;line-height:1.5}
+
+  /* 显示内容行 */
+  .disp-row{display:grid;grid-template-columns:64px 1fr 122px 26px;gap:7px;align-items:center;margin-bottom:6px}
+  .disp-row .mini-lbl{font-size:11px;color:var(--muted);text-align:right}
+  .icon-btn{border:1px solid var(--line);background:var(--panel2);border-radius:6px;width:26px;height:28px;cursor:pointer;color:var(--muted);line-height:1}
+  .icon-btn:hover{border-color:var(--danger);color:var(--danger)}
+
+  /* 按键表 */
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{color:var(--muted2);font-weight:600;font-size:11px;text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
+  td{padding:5px 6px;border-bottom:1px solid rgba(34,48,63,.5);vertical-align:middle}
+  td.slot{width:52px}
+  .slot-badge{display:inline-grid;place-items:center;width:26px;height:22px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);font-weight:700;color:var(--accent2);font-size:11px}
+  .kind-pill{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--muted)}
+  .kind-pill.sys{color:var(--warn);border-color:rgba(255,180,84,.35);background:rgba(255,180,84,.08)}
+
+  /* 预览 */
+  .preview-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .oled-bezel{background:#05080b;border:6px solid #1d2732;border-radius:12px;padding:10px;box-shadow:0 12px 32px rgba(0,0,0,.6),inset 0 0 0 1px #2b3948}
+  canvas#screen{display:block;image-rendering:pixelated;width:384px;height:192px;background:#000;border-radius:2px}
+  .preview-meta{font-size:11px;color:var(--muted2);text-align:center;line-height:1.7}
+  .preview-meta b{color:var(--accent)}
+  .screen-theme{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
+  .screen-theme button{border:1px solid var(--line);background:var(--panel2);border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11px;color:var(--muted)}
+  .screen-theme button.active{border-color:var(--accent2);color:var(--text);background:rgba(47,156,255,.12)}
+  .screen-theme .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+  .screen-theme .tip{width:100%;text-align:center;font-size:10px;color:var(--muted2)}
+  .legend{font-size:11px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.8}
+  .legend b{color:var(--text)}
+  .legend .k{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--accent);margin-right:5px}
+
+  .footer-note{margin:6px 22px 40px;font-size:11px;color:var(--muted2);line-height:1.8}
+  .footer-note code{color:var(--accent);background:#0a1017;padding:1px 5px;border-radius:4px}
+
+  @media(max-width:1200px){.layout{grid-template-columns:190px 1fr}.preview-card{grid-column:1/-1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>ESP 屏幕配置</h1>
+  <span class="crumb">设备状态 / esp32s3-3030f96cd03c / 屏幕配置</span>
+  <span class="spacer"></span>
+  <button class="btn" onclick="resetAll()">重置示例</button>
+  <button class="btn primary" onclick="save()">保存并下发到设备</button>
+</div>
+
+<div class="notice">
+  <b>核心概念：以「页面（Page）」为单位配置。</b>
+  一页 = 一个设备 + 一份屏幕显示内容 + 一组按键定义。按「下一页」后，按键含义和屏幕内容整页切换 —— 不用为每种设备重做固件。
+  右侧预览按真实 <code>128×64</code> 像素渲染（<code>3×</code> 放大），改任何配置都会实时更新。
+  <b style="color:var(--warn)">联网状态固定在屏幕顶部</b>，不受页面配置影响。
+  <b style="color:var(--accent)">任何一行文字显示不下时才会跑马灯循环滚动（不截断、不加省略号）</b>——短文字照常静止，不会满屏乱跑；打开右侧「超长文本演示」可看极端情况。<b style="color:var(--accent)">即使几行同时超长也不同步：标题最慢、按键提示最快</b>。<b style="color:var(--warn)">实物屏幕有蓝光 / 白光 / 黄光三种单色版本，右侧可切换预览</b>。
+</div>
+
+<div class="layout">
+  <!-- 左：页面列表 -->
+  <div class="card">
+    <h2>屏幕页面 <span id="pageCount">3</span></h2>
+    <div class="body" id="pageList"></div>
+    <div class="body" style="padding-top:0">
+      <button class="btn" style="width:100%" onclick="addPage()">＋ 添加页面</button>
+    </div>
+  </div>
+
+  <!-- 中：配置 -->
+  <div class="card">
+    <h2 id="configTitle">页面配置</h2>
+    <div class="body">
+
+      <div class="section">
+        <h3>① 页面属性</h3>
+        <div class="row"><span class="lbl">页面名称</span><input type="text" id="pageName" oninput="onName(this.value)"></div>
+        <div class="row"><span class="lbl">图标</span><input type="text" id="pageIcon" maxlength="2" oninput="onIcon(this.value)" style="width:70px"></div>
+        <div class="hint">名称显示在屏幕顶部状态栏下方；图标用于后台列表，不占屏幕像素。</div>
+      </div>
+
+      <div class="section">
+        <h3>② 屏幕显示内容 <span class="tag">用户真正关心的信息</span></h3>
+        <div class="disp-row" style="color:var(--muted2);font-size:10px">
+          <span class="mini-lbl">位置</span><span>HA 实体 / 数据来源</span><span>显示格式</span><span></span>
+        </div>
+        <div id="displayRows"></div>
+        <button class="btn" style="margin-top:4px" onclick="addDisplayRow()">＋ 添加一行</button>
+        <div class="hint">受 128×64 限制：<b>标题 1 行 + 主状态 1 行 + 副状态 1 行 + 底部按键提示 1 行</b>。
+          第 2 行起会拼成一行（如 <code>42°C · 目标 45°C</code>）。主状态推荐放开关状态 / 当前温度 / 当前档位。</div>
+      </div>
+
+      <div class="section">
+        <h3>③ 按键定义 <span class="tag">按页面切换，含义跟着变</span></h3>
+        <table>
+          <thead><tr><th>槽位</th><th>短标签（显示在屏幕底部）</th><th>行为</th><th></th></tr></thead>
+          <tbody id="buttonRows"></tbody>
+        </table>
+        <div class="hint">「行为」可选 <b>HA 动作</b>（开/关/切换/执行/数值+/-）或 <b>系统动作</b>（下一页 / 上一页 / 回首页）。
+          同一物理按键在不同页面可绑定完全不同的行为。<br>
+          <b style="color:var(--warn)">屏幕底部提示条只有 128px、5 个按键摆一行 → 短标签最多 2 字（推荐 1 字）。</b>
+          完整的控制项名称仍保留在后台和按键反馈提示里，不受此限制。</div>
+      </div>
+
+      <div class="section">
+        <h3>④ 翻页与安全</h3>
+        <div class="row"><span class="lbl">循环翻页</span>
+          <select id="loopMode" onchange="onLoop(this.value)"><option value="1">是（末页回到首页）</option><option value="0">否（末页停住）</option></select>
+        </div>
+        <div class="row"><span class="lbl">空闲返回</span>
+          <select id="idleHome" onchange="onIdle(this.value)"><option value="0">不自动返回</option><option value="60">60 秒无操作回首页</option><option value="300">5 分钟无操作回首页</option></select>
+        </div>
+        <div class="hint">翻页不需要新增硬件按键 —— 把任意槽位的行为设为「下一页」即可。</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 右：预览 -->
+  <div class="card preview-card">
+    <h2>128×64 实时预览</h2>
+    <div class="body preview-wrap">
+      <div class="oled-bezel"><canvas id="screen" width="128" height="64"></canvas></div>
+      <label style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none">
+        <input type="checkbox" id="demoLong" onchange="drawPreview()" style="vertical-align:middle"> 超长文本演示（跑马灯）
+      </label>
+      <div class="screen-theme" id="screenTheme"></div>
+      <div class="preview-meta" id="previewMeta"></div>
+      <div class="legend">
+        <b>屏幕阅读顺序</b><br>
+        <span class="k"></span>顶部：页码 + IP + WiFi 信号（系统固定）<br>
+        ① 当前设备是什么<br>
+        ② 它现在什么状态（最大字）<br>
+        ③④ 关键参数<br>
+        ⑤ 按键现在能做什么（随页面变）<br>
+        <span style="color:var(--accent)">跑马灯速度：标题 0.45× · 主状态 0.75× · 副状态 1.1× · 按键提示 1.6×（各行独立、不同步）</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  <b>落地说明：</b>配置存服务端 <code>machines.json</code> 的 <code>espPages</code>（每页含 display + buttons）；
+  设备心跳时通过 <code>GET /api/device/esp/actions</code> 拉到「当前页的按钮定义」，通过
+  <code>GET /api/device/esp/screen</code> 拉到「当前页的显示内容」。
+  <b>服务端负责把 HA 实体状态翻译成屏幕文本</b>（如 <code>on → 开</code>、<code>42.5 → 42°C</code>），
+  ESP 只按文本渲染，不需要 JSON 解析库和中文字库之外的逻辑。WiFi / 服务端状态由固件直接画在顶部，不参与页面配置。
+</div>
+
+<script>
+const HA_ENTITIES = [
+  'climate.water_heater','climate.living_room_ac','switch.water_heater',
+  'sensor.water_temp','sensor.outdoor_temp','cover.living_room',
+  'light.living_room','button.water_heater_preheat','script.preheat'
+];
+const FORMATS = ['状态文字','数值 + 单位','属性：hvac_action','属性：temperature','百分比','仅名称'];
+const HA_ACTS = ['切换 (toggle)','开 (turn_on)','关 (turn_off)','执行 (run)','数值 + (increase)','数值 - (decrease)'];
+const SYS_ACTS = ['下一页 ›','上一页 ‹','回首页 ⌂'];
+
+const STATES = {
+  'climate.water_heater':{state:'heat',temp:'42.5',fmt:'状态文字'},
+  'sensor.water_temp':{state:'42.5',unit:'°C',fmt:'数值 + 单位'},
+  'climate.living_room_ac':{state:'cool',temp:'26',fmt:'状态文字'},
+  'switch.water_heater':{state:'on',fmt:'状态文字'},
+  'sensor.outdoor_temp':{state:'31.2',unit:'°C',fmt:'数值 + 单位'},
+  'light.living_room':{state:'on',fmt:'状态文字'},
+  'cover.living_room':{state:'open',fmt:'状态文字'},
+};
+const STATE_CN = {on:'开',off:'关',heat:'制热',cool:'制冷',open:'已开',closed:'已关',auto:'自动',playing:'播放中',home:'在家'};
+
+function defaultData(){return {
+  loop:true, idle:0,
+  pages:[
+    {id:'p1',name:'热水器',icon:'♨',loop:true,idle:0,
+     display:[
+       {label:'主状态',entity:'climate.water_heater',fmt:'状态文字'},
+       {label:'副状态1',entity:'sensor.water_temp',fmt:'数值 + 单位'},
+       {label:'副状态2',entity:'climate.water_heater',fmt:'属性：temperature'},
+     ],
+     buttons:[
+       {slot:1,label:'开',kind:'ha',act:'切换 (toggle)',entity:'switch.water_heater'},
+       {slot:2,label:'+',kind:'ha',act:'数值 + (increase)',entity:'climate.water_heater'},
+       {slot:3,label:'-',kind:'ha',act:'数值 - (decrease)',entity:'climate.water_heater'},
+       {slot:4,label:'热',kind:'ha',act:'执行 (run)',entity:'script.preheat'},
+       {slot:5,label:'›',kind:'sys',act:'下一页 ›',entity:''},
+     ]},
+    {id:'p2',name:'客厅空调',icon:'❄',loop:true,idle:0,
+     display:[
+       {label:'主状态',entity:'climate.living_room_ac',fmt:'状态文字'},
+       {label:'副状态1',entity:'climate.living_room_ac',fmt:'属性：temperature'},
+       {label:'副状态2',entity:'sensor.outdoor_temp',fmt:'数值 + 单位'},
+     ],
+     buttons:[
+       {slot:1,label:'开',kind:'ha',act:'切换 (toggle)',entity:'climate.living_room_ac'},
+       {slot:2,label:'+',kind:'ha',act:'数值 + (increase)',entity:'climate.living_room_ac'},
+       {slot:3,label:'-',kind:'ha',act:'数值 - (decrease)',entity:'climate.living_room_ac'},
+       {slot:4,label:'模',kind:'ha',act:'切换 (toggle)',entity:'climate.living_room_ac'},
+       {slot:5,label:'›',kind:'sys',act:'下一页 ›',entity:''},
+     ]},
+    {id:'p3',name:'客厅灯',icon:'☀',loop:true,idle:0,
+     display:[
+       {label:'主状态',entity:'light.living_room',fmt:'状态文字'},
+       {label:'副状态1',entity:'cover.living_room',fmt:'状态文字'},
+     ],
+     buttons:[
+       {slot:1,label:'灯',kind:'ha',act:'切换 (toggle)',entity:'light.living_room'},
+       {slot:2,label:'帘',kind:'ha',act:'切换 (toggle)',entity:'cover.living_room'},
+       {slot:5,label:'⌂',kind:'sys',act:'回首页 ⌂',entity:''},
+     ]},
+  ]
+};}
+let data = defaultData();
+let activeId = 'p1';
+const $ = id => document.getElementById(id);
+const page = () => data.pages.find(p => p.id === activeId) || data.pages[0];
+
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function renderList(){
+  $('pageCount').textContent = data.pages.length;
+  $('pageList').innerHTML = data.pages.map((p,i)=>`
+    <div class="page-item${p.id===activeId?' active':''}" onclick="selectPage('${p.id}')">
+      <span class="ic">${esc(p.icon||'·')}</span>
+      <span class="nm"><b>${esc(p.name||'未命名')}</b><span>${p.buttons.length} 个按键 · ${p.display.length} 行显示</span></span>
+      <span class="num">${i+1}</span>
+    </div>`).join('');
+}
+
+function renderConfig(){
+  const p = page(); if(!p) return;
+  $('configTitle').textContent = '页面配置 · ' + (p.name || '未命名');
+  $('pageName').value = p.name; $('pageIcon').value = p.icon||'';
+  $('loopMode').value = p.loop?'1':'0'; $('idleHome').value = String(p.idle||0);
+
+  $('displayRows').innerHTML = p.display.map((d,i)=>`
+    <div class="disp-row">
+      <span class="mini-lbl">${i===0?'主状态':'副状态'+i}</span>
+      <select onchange="setDisp(${i},'entity',this.value)">${HA_ENTITIES.map(e=>`<option${e===d.entity?' selected':''}>${e}</option>`).join('')}</select>
+      <select onchange="setDisp(${i},'fmt',this.value)">${FORMATS.map(f=>`<option${f===d.fmt?' selected':''}>${f}</option>`).join('')}</select>
+      <button class="icon-btn" onclick="delDisp(${i})" title="删除">×</button>
+    </div>`).join('');
+
+  $('buttonRows').innerHTML = p.buttons.map((b,i)=>`
+    <tr>
+      <td class="slot"><span class="slot-badge">${b.slot}</span></td>
+      <td><input type="text" value="${esc(b.label)}" oninput="setBtn(${i},'label',this.value)" maxlength="2" placeholder="≤2字" title="屏幕底部提示条只有 128px，5 个按键摆一行，每个标签最多 2 字（推荐 1 字）"></td>
+      <td>
+        <div class="row" style="margin:0 0 4px">
+          <select style="width:88px" onchange="setBtn(${i},'kind',this.value)">
+            <option value="ha"${b.kind==='ha'?' selected':''}>HA 动作</option>
+            <option value="sys"${b.kind==='sys'?' selected':''}>系统动作</option>
+          </select>
+          <select onchange="setBtn(${i},'act',this.value)">${(b.kind==='sys'?SYS_ACTS:HA_ACTS).map(a=>`<option${a===b.act?' selected':''}>${a}</option>`).join('')}</select>
+        </div>
+        ${b.kind==='ha'?`<select onchange="setBtn(${i},'entity',this.value)">${HA_ENTITIES.map(e=>`<option${e===b.entity?' selected':''}>${e}</option>`).join('')}</select>`:''}
+      </td>
+      <td><button class="icon-btn" onclick="delBtn(${i})" title="删除">×</button></td>
+    </tr>`).join('');
+  drawPreview();
+}
+
+function selectPage(id){activeId=id;renderList();renderConfig()}
+function onName(v){page().name=v;renderList();drawPreview()}
+function onIcon(v){page().icon=v;renderList()}
+function onLoop(v){page().loop=v==='1';drawPreview()}
+function onIdle(v){page().idle=+v;drawPreview()}
+function setDisp(i,k,v){page().display[i][k]=v;drawPreview()}
+function delDisp(i){page().display.splice(i,1);renderConfig()}
+function addDisplayRow(){page().display.push({label:'',entity:'sensor.water_temp',fmt:'状态文字'});renderConfig()}
+function setBtn(i,k,v){page().buttons[i][k]=v;if(k==='kind'){page().buttons[i].act=v==='sys'?SYS_ACTS[0]:HA_ACTS[0];page().buttons[i].entity='';renderConfig()}else drawPreview()}
+function delBtn(i){page().buttons.splice(i,1);renderConfig()}
+function addPage(){
+  const id='p'+Date.now();
+  data.pages.push({id,name:'新页面',icon:'·',loop:true,idle:0,display:[{label:'主状态',entity:'light.living_room',fmt:'状态文字'}],buttons:[{slot:1,label:'开',kind:'ha',act:'切换 (toggle)',entity:'light.living_room'},{slot:5,label:'›',kind:'sys',act:'下一页 ›',entity:''}]});
+  activeId=id;renderList();renderConfig();
+}
+function resetAll(){data=defaultData();activeId='p1';renderList();renderConfig()}
+function save(){alert('原型演示：配置已保存到 machines.json 的 espPages，并在下一次心跳下发到设备。')}
+
+/* ---------- 单色屏配色：实物有蓝光 / 白光 / 黄光三种 ----------
+   单色 OLED 每个像素只有「亮 / 灭」两级，没有灰阶、没有淡色。
+   全屏只用一个亮色；层次靠字号与留白表达，重点用反白块，不靠降低亮度或虚线。 */
+const SCREEN_THEMES = {
+  blue:   { label:'蓝光', swatch:'#6cb6ff', on:'#6cb6ff', glow:'rgba(108,182,255,.06)' },
+  white:  { label:'白光', swatch:'#ffffff', on:'#ffffff', glow:'rgba(255,255,255,.05)' },
+  yellow: { label:'黄光', swatch:'#ffd23f', on:'#ffd23f', glow:'rgba(255,210,63,.05)' }
+};
+let themeKey = 'blue';
+const TH = () => SCREEN_THEMES[themeKey];
+function renderScreenTheme(){
+  $('screenTheme').innerHTML = Object.entries(SCREEN_THEMES).map(([k,t])=>
+    `<button data-k="${k}" class="${k===themeKey?'active':''}" onclick="applyScreenTheme('${k}')"><span class="dot" style="background:${t.swatch}"></span>${t.label}</button>`
+  ).join('') + '<div class="tip">单色屏只有亮 / 灭两级，无灰阶；靠字号 + 留白分层，重点用反白</div>';
+}
+function applyScreenTheme(k){
+  themeKey = k;
+  document.querySelectorAll('#screenTheme button').forEach(b=>b.classList.toggle('active', b.dataset.k===k));
+  $('screen').style.boxShadow = `inset 0 0 24px ${TH().glow}`;
+  drawPreview();
+}
+
+/* ---------- 128x64 渲染（与固件 drawMain 同构） ---------- */
+function fmtValue(entity, fmt){
+  const s = STATES[entity] || {state:'on'};
+  if(fmt==='属性：hvac_action') return s.state==='heat'?'制热中':s.state==='cool'?'制冷中':'运行中';
+  if(fmt==='属性：temperature') return '目标 '+(s.temp||'25')+'°C';
+  if(fmt==='数值 + 单位') return (s.state||'--')+(s.unit||'');
+  if(fmt==='仅名称') return entity.split('.').pop().replace(/_/g,' ');
+  return STATE_CN[s.state] || s.state || '--';
+}
+/* 跑马灯：文字放得下就静止显示；只有放不下才无缝循环左滚（不截断、不省略号）。
+   每行有独立速度 SPEED：标题最慢、按键提示最快——即使满屏长文本也不会齐步走。
+   scrollBase 由 requestAnimationFrame 全局递增（单位 px），行内相位 = scrollBase * speed。
+   用 clip 把文字限制在该行的显示带内，避免滚出界压到相邻行。 */
+let scrollBase = 0;
+const SPEED = { title:0.45, main:0.75, sub:1.1, keys:1.6 };
+function marquee(ctx, txt, x, y, maxPx, speed){
+  speed = speed || 1;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y-10, maxPx, 13);   // 该行显示带（基线 y，字高约 10px）
+  ctx.clip();
+  const w = ctx.measureText(txt).width;
+  if(w <= maxPx){
+    ctx.fillText(txt, x, y);
+  } else {
+    const gap = 18;               // 两段文字之间的间隔
+    const cycle = w + gap;
+    const shift = (scrollBase * speed) % cycle;
+    ctx.fillText(txt, x - shift, y);
+    ctx.fillText(txt, x - shift + cycle, y);
+  }
+  ctx.restore();
+}
+function startMarqueeLoop(fn){
+  let last = 0;
+  const tick = (ts) => {
+    if(last) scrollBase += (ts - last) * 0.015; // 基准约 15px/s（已整体调慢 2 倍），各行再乘速度系数
+    last = ts;
+    fn();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function demoLines(){
+  const demo = $('demoLong') && $('demoLong').checked;
+  if(!demo) return null;
+  return {
+    name: '主卧智能热水器（美的·商城 Pro 旗舰版）',
+    main: '预热中 · 水温 42.5°C · 剩余 18 分钟',
+    sub:  '目标温度 45°C · 模式：速热 · 峰谷电价时段已开启',
+    keys: ['1开','2加温','3减温','4预热','5下一页设备']
+  };
+}
+function drawWifi(ctx, ok){
+  // 右上角信号格：3 条递增竖条；离线画 ✕（单色屏靠符号 + 文案表达异常）
+  const x=110,y=8;
+  ctx.fillStyle=TH().on;
+  if(ok){ctx.fillRect(x,y-3,2,3);ctx.fillRect(x+4,y-5,2,5);ctx.fillRect(x+8,y-7,2,7);}
+  else{
+    ctx.fillStyle=TH().on;
+    ctx.fillRect(x,y-6,2,2);   ctx.fillRect(x+8,y-6,2,2);
+    ctx.fillRect(x+2,y-4,2,2); ctx.fillRect(x+6,y-4,2,2);
+    ctx.fillRect(x+4,y-2,2,2);
+    ctx.fillRect(x+2,y,2,2);   ctx.fillRect(x+6,y,2,2);
+    ctx.fillRect(x,y+2,2,2);   ctx.fillRect(x+8,y+2,2,2);
+  }
+}
+function drawPreview(){
+  const c=$('screen'), ctx=c.getContext('2d'); const p=page(); if(!p)return;
+  const on=TH().on;
+  ctx.fillStyle='#000';ctx.fillRect(0,0,128,64);
+  ctx.fillStyle=on;ctx.font='8px monospace';ctx.textBaseline='alphabetic';
+
+  // 顶部系统状态栏：页码 + IP + WiFi（固件固定绘制，不受页面配置影响）
+  const idx=data.pages.indexOf(p)+1;
+  ctx.fillText(`${idx}/${data.pages.length}`,4,9);
+  drawWifi(ctx,true);
+  // 已连接时把 IP 显示在状态栏中间（固件已从 WiFi 取到 station IP）
+  const ipTxt='192.168.1.123';
+  ctx.font='8px monospace';
+  const ipW=ctx.measureText(ipTxt).width;
+  ctx.fillText(ipTxt, Math.round((128-ipW)/2), 9);
+
+  const demo = demoLines();
+
+  // ① 标题
+  ctx.fillStyle=on;ctx.font='10px "Microsoft YaHei",sans-serif';
+  marquee(ctx, demo?demo.name:(p.name||'未命名'), 3,22,122, SPEED.title);
+
+  // ② 主状态（大字号；单色屏靠字号区分层级，不靠亮度）
+  const d=p.display||[];
+  const mainTxt = demo?demo.main:(d[0]?fmtValue(d[0].entity,d[0].fmt):'--');
+  ctx.fillStyle=on;ctx.font='bold 12px "Microsoft YaHei",sans-serif';
+  marquee(ctx, mainTxt, 3,38,122, SPEED.main);
+
+  // ③ 副状态：第 2 行起拼成一行（服务端 join 后下发一段文本）
+  ctx.fillStyle=on;ctx.font='8px "Microsoft YaHei",sans-serif';
+  if(d.length>1 || demo){
+    const sub = demo?demo.sub:d.slice(1).map(x=>fmtValue(x.entity,x.fmt)).join(' · ');
+    marquee(ctx, sub, 3,50,122, SPEED.sub);
+  }
+
+  // ⑤ 底部按键提示条：黑底亮字（靠留白与上方内容分隔，不加线）
+  const btns=p.buttons.filter(b=>b.label).slice(0,5);
+  if(btns.length){
+    ctx.fillStyle=on;ctx.font='8px "Microsoft YaHei",monospace';
+    const keyTxt = demo?demo.keys.map((k,i)=>`${i+1}${k}`).join(' '):btns.map(b=>`${b.slot}${b.label}`).join(' ');
+    marquee(ctx, keyTxt, 3,62,124, SPEED.keys);
+  }
+
+  const used = p.display.filter(x=>x.entity).length;
+  $('previewMeta').innerHTML = `页面 <b>${idx}/${data.pages.length}</b> · ${p.buttons.length} 个按键 · ${used} 行显示<br>顶部页码、IP、WiFi 为系统固定绘制`;
+}
+
+renderScreenTheme();renderList();renderConfig();
+startMarqueeLoop(drawPreview);
+</script>
+</body>
+</html>

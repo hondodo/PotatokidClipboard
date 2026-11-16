@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 门锁设备摘要：是否已上锁 + 各电池剩余电量 + 电量更新时间。
 ///
@@ -31,6 +32,10 @@ class LockSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'lock')) {
+      return null;
+    }
     final HaEntityStateModel? stateEntity = _findLockState(entities);
     if (stateEntity == null) return null;
 

@@ -255,6 +255,12 @@ class ServerApiClient {
     return ServerDeviceConfig.fromJson(config);
   }
 
+  /// 拉取设备类型字典（公开读，无敏感信息）。返回已解包的 data 对象。
+  /// home 端用它做「类型→字段」的规则源，实时状态仍走自己的 HA WebSocket。
+  Future<Map<String, dynamic>> fetchDeviceTypes() async {
+    return await _send('GET', '/api/device/device-types');
+  }
+
   Future<ServerLayout> fetchLayout(String deviceId) async {
     final Map<String, dynamic> data = await _send(
       'GET',

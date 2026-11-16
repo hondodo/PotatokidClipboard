@@ -2,6 +2,7 @@ import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
+import 'package:pscreen_home/core/server/server_api.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/connection/domain/repositories/connection_repository.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
@@ -12,6 +13,7 @@ import 'package:pscreen_screen/features/msg/application/current_scene_provider.d
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_home/features/home/data/cache/file_home_state_cache.dart';
 import 'package:pscreen_home/features/home/data/cache/settings_registry_cache.dart';
+import 'package:pscreen_home/features/home/data/device_type_store.dart';
 import 'package:pscreen_home/features/home/data/repositories/home_repository_impl.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_repository.dart';
 import 'package:pscreen_home/features/home/domain/repositories/home_state_cache.dart';
@@ -22,6 +24,14 @@ class HomeModule {
   const HomeModule._();
 
   static Future<void> register() async {
+    // 设备类型字典：home 与 ESP 共用的规则源。fallback 立即可用，
+    // 后台由 main 触发 refresh（公开接口，失败 fail-open）。
+    getIt.registerLazySingleton<ServerApiClient>(
+      () => ServerApiClient(baseUrl: HaConfig.serverBaseUrl),
+    );
+    getIt.registerLazySingleton<DeviceTypeStore>(
+      () => DeviceTypeStore(getIt<ServerApiClient>()),
+    );
     getIt.registerLazySingleton<RegistryCache>(
       () => SettingsRegistryCache(
         store: getIt<SettingsStore>(),
@@ -83,5 +93,7 @@ class HomeModule {
     await getIt.unregister<HomeRepository>();
     await getIt.unregister<HomeStateCache>();
     await getIt.unregister<RegistryCache>();
+    await getIt.unregister<DeviceTypeStore>();
+    await getIt.unregister<ServerApiClient>();
   }
 }

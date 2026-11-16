@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 空气炸锅摘要：模式、温度、时间、剩余时间、开始/暂停/继续/停止。
 class AirFryerSummary {
@@ -35,6 +36,10 @@ class AirFryerSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'air_fryer')) {
+      return null;
+    }
     final HaEntityStateModel? mode =
         _byId(entities, '_mode_p_2_25', domain: 'select');
     final HaEntityStateModel? temperature =

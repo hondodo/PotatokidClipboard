@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 电热水瓶摘要：HA 把设备拆成 select / number / switch / sensor / notify /
 /// button 等实体，这里按设备实体名/id 组装成可渲染的状态。
@@ -44,6 +45,10 @@ class KettleSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'kettle')) {
+      return null;
+    }
     final HaEntityStateModel? modeEntity = _find(
       entities,
       (HaEntityStateModel e) =>

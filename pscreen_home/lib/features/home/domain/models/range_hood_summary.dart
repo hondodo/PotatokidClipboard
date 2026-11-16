@@ -1,4 +1,5 @@
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 
 /// 抽油烟机摘要：电源、风量、灯光、延时关机、自动巡航、假日模式、干洗。
 class RangeHoodSummary {
@@ -56,6 +57,10 @@ class RangeHoodSummary {
     required String name,
     required Iterable<HaEntityStateModel> entities,
   }) {
+    // H2 显式消歧：admin 已把该设备声明为别的类型时，不再靠后缀误认领。
+    if (DeviceTypeDictionary.active.isExplicitlyOtherType(deviceId, 'range_hood')) {
+      return null;
+    }
     final HaEntityStateModel? power =
         _byId(entities, '_on_p_2_1', domain: 'switch');
     final HaEntityStateModel? fan =

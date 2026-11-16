@@ -1,0 +1,450 @@
+// 设备类型字典：home 端与 ESP 端共用的「唯一真源」。
+//
+// 为什么需要这一层：
+// - home 端原来靠 entity_id 后缀猜设备类型（_status_p_2_2 被洗衣机/空气炸锅/
+//   净水器共用），改一类规则就串到另一类。现在判定规则由 admin 后台显式配置，
+//   判定统一在服务端算（deviceTypes.classify），home 拿结果直接选卡片。
+// - 固件保持「哑巴」：服务端按字典把 HA 状态解析成 title/main/sub/keys 四行
+//   纯文本下发，固件不认识任何设备类型，新类型接入不用重烧固件。
+// - home 直连 HA WS 拿实时状态，但「某类设备的主状态取哪个属性、怎么拼副
+//   状态」也读这份字典 → 两端同源、改一处全生效。
+//
+// 存储：默认规则在本文件（DEVICE_TYPES / DICT_DEFAULTS / DETAIL / DEFAULT_RULES）；
+// admin 页的改动作为覆盖层写进 datas/admin/deviceTypes.json。覆盖层同时兼容
+// 旧格式（顶层直接是 dict 字段）和新格式（{dict, rules, card, priority, meta}）。
+
+const fs = require('fs');
+const path = require('path');
+
+// 类型清单：key 与 home 端 XXXSummary / 原型 DICT_DETAIL 对齐。
+const DEVICE_TYPES = [
+    { key: 'water_heater', icon: '♨', label: '热水器', color: '#ff6b6b', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'kettle', icon: '♨', label: '热水瓶', color: '#ffb454', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'fan', icon: '✦', label: '风扇', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'climate', icon: '❄', label: '空调', color: '#2f9cff', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'light', icon: '☀', label: '灯光', color: '#facc15', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'projector', icon: '▤', label: '投影仪', color: '#60a5fa', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'air_fryer', icon: '▣', label: '空气炸锅', color: '#fb923c', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'washer', icon: '◉', label: '洗衣机', color: '#b98cff', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'fridge', icon: '▥', label: '冰箱', color: '#7dd3fc', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'rice_cooker', icon: '▢', label: '电饭煲', color: '#fda4af', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'socket', icon: '⏻', label: '插座', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'purifier', icon: '◌', label: '净水器', color: '#38bdf8', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'range_hood', icon: '⌇', label: '油烟机', color: '#94a3b8', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'multi_switch', icon: '▦', label: '多路开关', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'lock', icon: '⚿', label: '门锁', color: '#f87171', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'home_climate', icon: '⌂', label: '全屋环境', color: '#5eead4', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: '', icon: '?', label: '通用兜底', color: '#9ca3af', roles: ['主状态', '副状态1', '副状态2'] },
+];
+
+// 通用默认字段：未单独声明的类型继承这些。
+const DICT_DEFAULTS = {
+    mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '1',
+    homeLabel: '当前状态', homeCtrls: '电源', homeActs: 'toggle',
+    espTitle: '{device}', espMain: '{main}', espSub: '{sub}', espKeys: '{buttons}',
+    simMain: '--', simSub1: '在线', simSub2: '就绪',
+};
+
+// 各类型的默认解析规则（字段与 admin 字典 Tab 一致）。
+const DICT_DETAIL = {
+    water_heater: { mainAttr: 'current_temperature', mainFmt: '{v}°C', subTpl: '{s1} · 目标 {s2}°C', step: '0.5', homeLabel: '当前水温', homeCtrls: '电源 温度− 温度+ 预热', homeActs: 'toggle set_temperature(-0.5) set_temperature(+0.5) toggle', simMain: '42.5', simSub1: '制热中', simSub2: '45' },
+    kettle: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · 保温 {s2}°C', step: '1', homeLabel: '当前温度', homeCtrls: '电源 保温', homeActs: 'toggle select_option', simMain: '98', simSub1: '加热中', simSub2: '55' },
+    fan: { mainAttr: 'percentage', mainFmt: '风速 {v}%', subTpl: '{s1} · {s2}', step: '25', homeLabel: '当前风速', homeCtrls: '电源 风+ 风− 摆头', homeActs: 'toggle set_percentage(+25) set_percentage(-25) toggle', simMain: '60', simSub1: '自然风', simSub2: '延时 30min' },
+    climate: { mainAttr: 'current_temperature', mainFmt: '{v}°C', subTpl: '{s1} · 目标 {s2}°C', step: '0.5', homeLabel: '当前室温', homeCtrls: '电源 温度− 温度+ 模式', homeActs: 'toggle set_temperature(-0.5) set_temperature(+0.5) set_hvac_mode', simMain: '26', simSub1: '制冷', simSub2: '24' },
+    light: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '10', homeLabel: '灯光状态', homeCtrls: '电源 亮度+ 亮度− 场景', homeActs: 'turn_on brightness(+10) brightness(-10) next_effect', simMain: '已开启', simSub1: '亮度 80%', simSub2: '4000K' },
+    projector: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '播放状态', homeCtrls: '电源 信号源 亮度', homeActs: 'toggle select_option set_percentage', simMain: '播放中', simSub1: 'HDMI1', simSub2: '亮度 70%' },
+    air_fryer: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · 剩 {s2}min', step: '5', homeLabel: '工作状态', homeCtrls: '开始 温度+ 时间+ 取消', homeActs: 'press number(+5) number(+1) press', simMain: '烹饪中', simSub1: '180°C', simSub2: '12' },
+    washer: { mainAttr: 'state', mainFmt: '{v}', subTpl: '剩 {s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '启动 暂停 停止 模式', homeActs: 'press press press next_option', simMain: '洗涤中', simSub1: '23min', simSub2: '标准洗' },
+    fridge: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · {s2}', step: '1', homeLabel: '冷藏温度', homeCtrls: '模式', homeActs: '只读', simMain: '4', simSub1: '冷冻 −18°C', simSub2: '节能' },
+    rice_cooker: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · 剩 {s2}min', step: '—', homeLabel: '工作状态', homeCtrls: '开始 取消 预约', homeActs: 'press press select_option', simMain: '煮饭中', simSub1: '标准', simSub2: '18' },
+    socket: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '开关状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '已开启', simSub1: '功率 65W', simSub2: '220V' },
+    purifier: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '制水中', simSub1: '滤芯 82%', simSub2: 'TDS 18' },
+    range_hood: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '1', homeLabel: '运行状态', homeCtrls: '电源 档位+ 档位− 照明', homeActs: 'toggle set_percentage(+25) set_percentage(-25) toggle', simMain: '已开启', simSub1: '档位 2', simSub2: '照明开' },
+    multi_switch: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '1 2 3 4', homeActs: 'toggle ×4', simMain: '2/4', simSub1: '1开 2开', simSub2: '3关 4关' },
+    lock: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '门锁状态', homeCtrls: '只读', homeActs: '只读', simMain: '已上锁', simSub1: '安全', simSub2: '' },
+    home_climate: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · 湿度 {s2}%', step: '1', homeLabel: '室内温度', homeCtrls: '只读', homeActs: '只读', simMain: '26', simSub1: '舒适', simSub2: '55' },
+    '': { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '开启', simSub1: 'switch · 在线', simSub2: '' },
+};
+
+// 默认判定规则 + 通用卡片配置（从 docs/device-type-rule-engine-prototype.html 迁移）。
+// 字段可在 admin「设备判定规则」Tab 里改；规则间 OR、规则内条件 AND。
+const DEFAULT_RULES = {
+    climate: { priority: 10, rules: [
+        { id: 'c1', name: '米家空调（有当前温度）', enabled: true, conds: [
+            { field: 'domain', op: 'eq', value: 'climate' },
+            { field: 'attr.current_temperature', op: 'exists', value: '' },
+        ] },
+    ] },
+    socket: { priority: 20, rules: [
+        { id: 's1', name: '空调插座（按名称识别）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '插座' },
+            { field: 'domain', op: 'eq', value: 'climate' },
+        ] },
+        { id: 's2', name: '普通开关插座', enabled: true, conds: [
+            { field: 'domain', op: 'eq', value: 'switch' },
+        ] },
+    ] },
+    kettle: { priority: 15, rules: [
+        { id: 'k1', name: '米家电热水瓶', enabled: true, conds: [
+            { field: 'entity_id', op: 'contains', value: '_temperature_p_2_6' },
+            { field: 'attr.options', op: 'contains', value: '自来水' },
+        ] },
+    ] },
+    water_heater: { priority: 12, rules: [
+        { id: 'w1', name: '米家热水器', enabled: true, conds: [
+            { field: 'domain', op: 'eq', value: 'water_heater' },
+        ] },
+    ] },
+    washer: { priority: 12, rules: [
+        { id: 'wa1', name: '米家洗衣机', enabled: true, conds: [
+            { field: 'entity_id', op: 'contains', value: '_status_p_2_2' },
+            { field: 'attr.options', op: 'contains', value: '标准洗' },
+        ] },
+    ] },
+    fan: { priority: 8, rules: [
+        { id: 'f1', name: '米家风扇', enabled: true, conds: [
+            { field: 'attr.percentage', op: 'exists', value: '' },
+            { field: 'name', op: 'contains', value: '风扇' },
+        ] },
+    ] },
+};
+
+const CARD_DEFAULTS = {
+    label: '当前值', mainAttr: 'state', mainFmt: '{v}', subTpl: '{state}',
+    icon: '✦', color: '#4dd4ac', mainEntity: '主实体', buttons: [{ label: '开关', action: 'toggle' }],
+    // 灰度开关：默认 false（继续用 home 13 个专用卡片）。admin 里逐类型打开后，
+    // home 才用通用卡片渲染该类型——切一个验一个，全绿再整体切换。
+    genericEnabled: false,
+};
+
+const TYPE_KEYS = new Set(DEVICE_TYPES.map((t) => t.key));
+const DICT_FIELDS = Object.keys(DICT_DEFAULTS);
+const RULE_OPS = new Set(['eq', 'neq', 'contains', 'not_contains', 'startsWith', 'not_startsWith', 'exists', 'gt', 'lt']);
+
+function clampText(value, max = 120) {
+    return String(value == null ? '' : value).replace(/[\r\n]/g, ' ').slice(0, max);
+}
+
+/** 单条字典规则归一：默认 → 覆盖 → 字段白名单。 */
+function normalizeDictEntry(key, value) {
+    const base = Object.assign({}, DICT_DEFAULTS, DICT_DETAIL[key] || {});
+    if (!value || typeof value !== 'object') return base;
+    for (const field of DICT_FIELDS) {
+        if (value[field] != null) base[field] = clampText(value[field]);
+    }
+    return base;
+}
+
+function normalizeRules(value) {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 50).filter((r) => r && typeof r === 'object').map((r, i) => ({
+        id: String(r.id || ('r' + i)).slice(0, 40),
+        name: clampText(r.name || ('规则 ' + (i + 1)), 60),
+        enabled: r.enabled !== false,
+        conds: (Array.isArray(r.conds) ? r.conds : []).slice(0, 20).filter((c) => c && typeof c === 'object').map((c) => ({
+            field: clampText(c.field || 'domain', 80),
+            op: RULE_OPS.has(c.op) ? c.op : 'eq',
+            value: clampText(c.value == null ? '' : c.value, 120),
+        })),
+    }));
+}
+
+function normalizeCard(value, key) {
+    const meta = DEVICE_TYPES.find((t) => t.key === key) || {};
+    const base = Object.assign({}, CARD_DEFAULTS, {
+        label: (DICT_DETAIL[key] || {}).homeLabel || CARD_DEFAULTS.label,
+        mainAttr: (DICT_DETAIL[key] || {}).mainAttr || CARD_DEFAULTS.mainAttr,
+        mainFmt: (DICT_DETAIL[key] || {}).mainFmt || CARD_DEFAULTS.mainFmt,
+        subTpl: (DICT_DETAIL[key] || {}).subTpl || CARD_DEFAULTS.subTpl,
+        icon: meta.icon || CARD_DEFAULTS.icon,
+        color: meta.color || CARD_DEFAULTS.color,
+    });
+    if (!value || typeof value !== 'object') return base;
+    const out = Object.assign({}, base);
+    for (const f of ['label', 'mainAttr', 'mainFmt', 'subTpl', 'icon', 'color', 'mainEntity']) {
+        if (value[f] != null) out[f] = clampText(value[f], f === 'mainEntity' ? 120 : 80);
+    }
+    if (Array.isArray(value.buttons)) {
+        out.buttons = value.buttons.slice(0, 8).filter((b) => b && typeof b === 'object').map((b) => ({
+            label: clampText(b.label || '按钮', 24),
+            action: clampText(b.action || 'toggle', 60),
+        }));
+    }
+    out.genericEnabled = value.genericEnabled === true;
+    return out;
+}
+
+/**
+ * 创建字典服务：读默认规则 + 覆盖层，提供查询 / 更新 / 判定 / 状态解析。
+ */
+function createDeviceTypeService({ file } = {}) {
+    let overrides = {};
+    if (file && fs.existsSync(file)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) overrides = raw;
+        } catch (error) {
+            console.error('[deviceTypes] 读取覆盖层失败，使用默认:', error.message);
+        }
+    }
+
+    function persist() {
+        if (!file) return;
+        try {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            const tmp = `${file}.tmp`;
+            fs.writeFileSync(tmp, JSON.stringify(overrides, null, 2), 'utf8');
+            fs.renameSync(tmp, file);
+        } catch (error) {
+            console.error('[deviceTypes] 写入覆盖层失败:', error.message);
+        }
+    }
+
+    // 兼容旧格式：旧覆盖层顶层直接是 dict 字段；新格式含 dict/rules/card。
+    function entryOf(key) {
+        const ov = overrides[key] || {};
+        const isNew = Object.prototype.hasOwnProperty.call(ov, 'dict')
+            || Object.prototype.hasOwnProperty.call(ov, 'rules')
+            || Object.prototype.hasOwnProperty.call(ov, 'card')
+            || Object.prototype.hasOwnProperty.call(ov, 'meta');
+        const dictPatch = isNew ? (ov.dict || {}) : ov;
+        const defaultRule = DEFAULT_RULES[key] || {};
+        const meta = DEVICE_TYPES.find((t) => t.key === key);
+        return {
+            key,
+            icon: (ov.meta && ov.meta.icon) || (meta && meta.icon) || '✦',
+            label: clampText((ov.meta && ov.meta.label) || (meta && meta.label) || key || '未命名', 40),
+            color: (ov.meta && ov.meta.color) || (meta && meta.color) || '#4dd4ac',
+            roles: meta ? meta.roles : ['主状态', '副状态1', '副状态2'],
+            dict: normalizeDictEntry(key, dictPatch),
+            rules: normalizeRules(ov.rules != null ? ov.rules : defaultRule.rules),
+            card: normalizeCard(ov.card, key),
+            priority: Number.isFinite(ov.priority) ? ov.priority : (defaultRule.priority || 5),
+            customized: Object.prototype.hasOwnProperty.call(overrides, key),
+            dynamic: !meta,
+        };
+    }
+
+    /** 返回完整字典（含默认），供 admin 编辑器与 home 端读取。 */
+    function list() {
+        const built = DEVICE_TYPES.map((t) => entryOf(t.key));
+        const dynamic = Object.keys(overrides)
+            .filter((k) => !TYPE_KEYS.has(k))
+            .map((k) => entryOf(k));
+        return built.concat(dynamic);
+    }
+
+    function get(key) {
+        const k = String(key == null ? '' : key);
+        if (!TYPE_KEYS.has(k) && !Object.prototype.hasOwnProperty.call(overrides, k)) {
+            return entryOf('');
+        }
+        return entryOf(k);
+    }
+
+    /** admin 覆盖某个类型（支持 dict / rules / card / priority / meta）。 */
+    function update(key, patch) {
+        const k = String(key == null ? '' : key);
+        if (!TYPE_KEYS.has(k) && !Object.prototype.hasOwnProperty.call(overrides, k)) {
+            throw new Error('未知设备类型');
+        }
+        if (!patch || typeof patch !== 'object') throw new Error('字典内容无效');
+        const cur = entryOf(k);
+        const next = {
+            dict: Object.assign({}, cur.dict),
+            rules: patch.rules != null ? normalizeRules(patch.rules) : cur.rules,
+            card: patch.card != null ? normalizeCard(patch.card, k) : cur.card,
+            priority: patch.priority != null ? Number(patch.priority) || 5 : cur.priority,
+            meta: patch.meta != null ? {
+                label: clampText(patch.meta.label || cur.label, 40),
+                icon: clampText(patch.meta.icon || cur.icon, 8),
+                color: clampText(patch.meta.color || cur.color, 24),
+            } : (cur.dynamic ? { label: cur.label, icon: cur.icon, color: cur.color } : undefined),
+        };
+        if (patch.dict && typeof patch.dict === 'object') {
+            for (const f of DICT_FIELDS) {
+                if (patch.dict[f] != null) next.dict[f] = clampText(patch.dict[f]);
+            }
+        }
+        overrides[k] = next;
+        persist();
+        return entryOf(k);
+    }
+
+    /** 新建自定义类型（key 必须唯一）。 */
+    function create(key, meta) {
+        const k = String(key == null ? '' : key).trim();
+        if (!k || !/^[a-z0-9_]{1,40}$/i.test(k)) throw new Error('类型 key 只能用字母数字下划线（1-40 位）');
+        if (TYPE_KEYS.has(k) || Object.prototype.hasOwnProperty.call(overrides, k)) throw new Error('类型 key 已存在');
+        overrides[k] = {
+            dict: {},
+            rules: normalizeRules((meta && meta.rules) || [{ id: 'r' + Date.now(), name: '新类型规则 1', enabled: true, conds: [{ field: 'domain', op: 'eq', value: '' }] }]),
+            card: normalizeCard(meta && meta.card, k),
+            priority: meta && meta.priority != null ? Number(meta.priority) || 5 : 5,
+            meta: {
+                label: clampText((meta && meta.label) || k, 40),
+                icon: clampText((meta && meta.icon) || '✦', 8),
+                color: clampText((meta && meta.color) || '#4dd4ac', 24),
+            },
+        };
+        persist();
+        return entryOf(k);
+    }
+
+    /** 恢复某类型为默认（删除覆盖层条目；内置类型恢复默认，动态类型删除）。 */
+    function reset(key) {
+        const k = String(key == null ? '' : key);
+        if (!TYPE_KEYS.has(k) && !Object.prototype.hasOwnProperty.call(overrides, k)) {
+            throw new Error('未知设备类型');
+        }
+        delete overrides[k];
+        persist();
+        return TYPE_KEYS.has(k) ? entryOf(k) : entryOf('');
+    }
+
+    /** 灰度开关：启用了通用卡片的类型 key 列表（home 据此决定是否替换专用卡片）。 */
+    function genericCardTypes() {
+        return list().filter((t) => t.card && t.card.genericEnabled === true).map((t) => t.key);
+    }
+
+    return { list, get, update, create, reset, genericCardTypes, typeKeys: TYPE_KEYS };
+}
+
+// ---------------------------------------------------------------------------
+// 判定引擎：把「设备的一组实体」按类型规则判成某一类。
+// 输入 entities: [{id, domain, name, state, attrs, device:{name,model,manufacturer}}]
+// 规则间 OR、规则内条件 AND（每个条件可由不同实体满足），具体度优先、再按 priority。
+// ---------------------------------------------------------------------------
+
+function fieldValue(entity, field) {
+    const f = String(field || '');
+    if (f.indexOf('attr.') === 0) {
+        const k = f.slice(5);
+        return entity.attrs && entity.attrs[k] != null ? entity.attrs[k] : undefined;
+    }
+    if (f.indexOf('device.') === 0) {
+        const k = f.slice(7);
+        return entity.device && entity.device[k] != null ? entity.device[k] : undefined;
+    }
+    if (f === 'domain') return entity.domain;
+    if (f === 'entity_id') return entity.id;
+    if (f === 'name') return entity.name;
+    if (f === 'state') return entity.state;
+    return undefined;
+}
+
+function opMatch(actualValue, op, value) {
+    if (op === 'exists') return actualValue !== undefined && actualValue !== '' && actualValue !== null;
+    if (actualValue === undefined || actualValue === null) return false;
+    const a = String(actualValue);
+    const v = String(value == null ? '' : value);
+    if (op === 'eq') return a === v;
+    if (op === 'neq') return a !== v;
+    if (op === 'contains') {
+        if (Array.isArray(actualValue)) return actualValue.join('|').indexOf(v) >= 0;
+        return a.indexOf(v) >= 0;
+    }
+    if (op === 'not_contains') return a.indexOf(v) < 0;
+    // entity_id 的「开头是」自动忽略 button. / switch. 域前缀。
+    if (op === 'startsWith') {
+        const bare = a.slice(a.indexOf('.') + 1);
+        return a.indexOf(v) === 0 || bare.indexOf(v) === 0;
+    }
+    if (op === 'not_startsWith') {
+        const bare = a.slice(a.indexOf('.') + 1);
+        return a.indexOf(v) !== 0 && bare.indexOf(v) !== 0;
+    }
+    if (op === 'gt') return parseFloat(a) > parseFloat(v);
+    if (op === 'lt') return parseFloat(a) < parseFloat(v);
+    return false;
+}
+
+function condHit(cond, entities) {
+    for (const entity of entities || []) {
+        if (opMatch(fieldValue(entity, cond.field), cond.op, cond.value)) return true;
+    }
+    return false;
+}
+
+function ruleHit(rule, entities) {
+    if (rule.enabled === false) return false;
+    if (!Array.isArray(rule.conds) || !rule.conds.length) return false;
+    return rule.conds.every((c) => condHit(c, entities));
+}
+
+/**
+ * 判定设备类型。
+ * @param {Array} entities 设备下的实体（含 device 元信息）
+ * @param {Array} types deviceTypeService.list() 的类型清单
+ * @returns {{key,label,specificity,priority,matchedRules}|null}
+ */
+function classify(entities, types) {
+    let best = null;
+    for (const type of types || []) {
+        const matched = (type.rules || []).filter((r) => ruleHit(r, entities));
+        if (!matched.length) continue;
+        const specificity = Math.max.apply(null, matched.map((r) => (r.conds || []).length));
+        const priority = Number(type.priority) || 5;
+        if (!best || specificity > best.specificity
+            || (specificity === best.specificity && priority > best.priority)) {
+            best = {
+                key: type.key,
+                label: type.label,
+                specificity,
+                priority,
+                matchedRules: matched.map((r) => r.name),
+            };
+        }
+    }
+    return best;
+}
+
+/**
+ * 按字典把「设备类型 + 绑定实体的状态」解析成屏幕四行文本。
+ */
+function resolveDisplay({ deviceType, bindings, states, deviceName, buttonText }) {
+    const dict = normalizeDictEntry(deviceType, null);
+    const b = bindings || {};
+    const stateMap = states || {};
+
+    const mainState = b.main ? stateMap[b.main] : null;
+    const s1State = b.s1 ? stateMap[b.s1] : null;
+    const s2State = b.s2 ? stateMap[b.s2] : null;
+
+    function valueOf(stateObj, attr) {
+        if (!stateObj) return '--';
+        const attrs = stateObj.attributes || {};
+        const v = attrs[attr];
+        if (v != null && v !== '') return String(v);
+        if (stateObj.state != null && stateObj.state !== '') return String(stateObj.state);
+        return '--';
+    }
+
+    const mainValue = valueOf(mainState, dict.mainAttr);
+    const s1Value = valueOf(s1State, 'state');
+    const s2Value = valueOf(s2State, 'state');
+
+    const main = dict.mainFmt.replace('{v}', mainValue);
+    const sub = dict.subTpl.replace('{s1}', s1Value).replace('{s2}', s2Value);
+    const title = deviceName || '';
+    const keys = buttonText || '';
+
+    return { title, main, sub, keys, homeLabel: dict.homeLabel, step: dict.step };
+}
+
+module.exports = {
+    DEVICE_TYPES,
+    DICT_DEFAULTS,
+    DICT_DETAIL,
+    DICT_FIELDS,
+    DEFAULT_RULES,
+    CARD_DEFAULTS,
+    normalizeDictEntry,
+    normalizeRules,
+    normalizeCard,
+    createDeviceTypeService,
+    classify,
+    fieldValue,
+    opMatch,
+    resolveDisplay,
+};
