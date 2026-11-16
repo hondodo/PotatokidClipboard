@@ -337,7 +337,16 @@
       background: rgba(96,165,250,.14); color: var(--accent-2); font-weight: 500;
     }
     .esp-field-row { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 8px; align-items: center; margin-bottom: 8px; }
+    .esp-field-row.tall { align-items: start; }
     .esp-field-row > label { font-size: 11.5px; color: var(--muted); }
+    .esp-section textarea {
+      width: 100%; min-height: 46px; resize: vertical; outline: none;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(4, 10, 15, .55); color: var(--text);
+      padding: 8px 12px; font-size: 12px; line-height: 1.5;
+    }
+    .esp-section textarea:focus { border-color: rgba(95, 211, 196, .55); box-shadow: 0 0 0 3px rgba(95, 211, 196, .1); }
+    .esp-section textarea::placeholder { color: var(--muted-2); }
     .esp-bind-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
     .esp-bind-grid label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
     .esp-btn-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -365,6 +374,22 @@
       font-size: 11.5px; color: var(--muted); margin-bottom: 8px;
     }
     .esp-map-line b { color: var(--accent); font-weight: 600; }
+    /* 槽位显示名：设备级，屏幕底部提示用名字代替数字 */
+    .esp-slotnames { margin: 2px 0 12px; }
+    .esp-slotnames-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .esp-slotnames-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .esp-slotname { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .esp-slotname > span {
+      min-width: 20px; height: 26px; display: grid; place-items: center;
+      border-radius: 6px; background: rgba(95, 211, 196, .12);
+      color: var(--accent); font-size: 11.5px; font-weight: 700;
+    }
+    .esp-slotname input { width: 126px; padding: 6px 9px; font-size: 12px; }
+    .esp-slot-sub {
+      display: block; margin-top: 3px; max-width: 64px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 10.5px; color: var(--muted-2);
+    }
     .pin-badge {
       display: inline-block; padding: 2px 7px; border-radius: 6px; white-space: nowrap;
       border: 1px solid rgba(95, 211, 196, .3); background: rgba(95, 211, 196, .08);
@@ -4529,6 +4554,7 @@
       tplMain: '',
       tplSub: '',
       valueMap: '',
+      entityValueMap: '',
       buttons: [],
       loop: true,
       idle: 0,
@@ -4613,14 +4639,30 @@
     return map;
   }
 
-  /** 取实体显示值：优先属性，缺失回落 state；命中值替换表则翻译。 */
-  function espEntityValue(index, map, entityId, attr) {
+  /** 按实体的值替换表：`entity_id: on=有人, off=无人`（一行一个实体）。 */
+  function espParseEntityValueMap(text) {
+    const map = new Map();
+    String(text || '').split('\n').forEach((line) => {
+      const idx = line.search(/[:：]/);
+      if (idx <= 0) return;
+      const entityId = line.slice(0, idx).trim();
+      if (!/^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i.test(entityId)) return;
+      const rules = espParseValueMap(line.slice(idx + 1));
+      if (rules.size) map.set(entityId, rules);
+    });
+    return map;
+  }
+
+  /** 取实体显示值：优先属性，缺失回落 state；优先按实体替换，再落到页面级。 */
+  function espEntityValue(index, map, entityMaps, entityId, attr) {
     const entity = entityId ? index.get(entityId) : null;
     if (!entity) return '';
     const attrs = entity.attributes || {};
     const raw = (attr && attrs[attr] != null && attrs[attr] !== '')
       ? String(attrs[attr])
       : (entity.state != null && entity.state !== '' ? String(entity.state) : '');
+    const own = entityMaps.get(entityId);
+    if (own && own.has(raw)) return own.get(raw);
     return map.size && map.has(raw) ? map.get(raw) : raw;
   }
 
@@ -4660,11 +4702,12 @@
     const dict = (type && type.dict) || { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}' };
     const index = espEntityIndex();
     const map = espParseValueMap(page.valueMap);
+    const entityMaps = espParseEntityValueMap(page.entityValueMap);
     const b = page.bindings || {};
     const ctx = {
-      main: espEntityValue(index, map, b.main, dict.mainAttr),
-      s1: espEntityValue(index, map, b.s1, 'state'),
-      s2: espEntityValue(index, map, b.s2, 'state'),
+      main: espEntityValue(index, map, entityMaps, b.main, dict.mainAttr),
+      s1: espEntityValue(index, map, entityMaps, b.s1, 'state'),
+      s2: espEntityValue(index, map, entityMaps, b.s2, 'state'),
       title: page.name || '',
       entities: {},
     };
@@ -4672,7 +4715,9 @@
     const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
     const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
     let m;
-    while ((m = re.exec(tplAll))) ctx.entities[m[1]] = espEntityValue(index, map, m[1], 'state');
+    while ((m = re.exec(tplAll))) {
+      ctx.entities[m[1]] = espEntityValue(index, map, entityMaps, m[1], 'state');
+    }
 
     const mainTxt = page.tplMain
       ? espRenderTemplate(page.tplMain, ctx)
@@ -4683,7 +4728,10 @@
     const keys = (page.buttons || [])
       .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
       .sort((a, b2) => Number(a.slot) - Number(b2.slot))
-      .map((item) => `${item.slot}:${String(item.name || item.label || '').trim()}`)
+      .map((item) => {
+        const slotName = (espDevDraft && espDevDraft.slotNames || {})[String(item.slot)];
+        return `${slotName || item.slot}:${String(item.name || item.label || '').trim()}`;
+      })
       .join('  ');
     return { title: page.name || '未命名', main: mainTxt, sub: subTxt, keys };
   }
@@ -4817,6 +4865,24 @@
       .filter((item) => item.enabled !== false && Number(item.slot) >= 1 && !pinMap.has(Number(item.slot)))
       .map((item) => Number(item.slot)))].sort((a, b) => a - b);
 
+    // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」代替「1:空调开关」。
+    const slotNames = (espDevDraft && espDevDraft.slotNames) || {};
+    // 只列出实际用到的槽位（本机已映射 + 各页面按键），没有时给 1~4 方便先起名。
+    const usedSlots = new Set();
+    (espDevDraft.buttons || []).forEach((item) => {
+      const slot = Number(item.slot);
+      if (slot >= 1) usedSlots.add(slot);
+    });
+    espDevDraft.pages.forEach((item) => (item.buttons || []).forEach((button) => {
+      const slot = Number(button.slot);
+      if (slot >= 1) usedSlots.add(slot);
+    }));
+    const slotList = usedSlots.size ? [...usedSlots].sort((a, b) => a - b) : [1, 2, 3, 4];
+    const slotNameFields = slotList.map((slot) => `
+      <label class="esp-slotname"><span>${slot}</span>
+        <input data-slotname="${slot}" maxlength="16" value="${esc(slotNames[String(slot)] || '')}" placeholder="默认 ${slot}">
+      </label>`).join('');
+
     const buttonRow = (button, index) => {
       const isSys = button.kind === 'sys';
       const pin = pinOf(button.slot);
@@ -4834,7 +4900,9 @@
         .join('');
       const total = (page.buttons || []).length;
       return `<tr data-btn="${esc(button.id)}">
-        <td class="slot-cell"><select data-f="slot">${slotOpts}</select></td>
+        <td class="slot-cell"><select data-f="slot">${slotOpts}</select>${
+          slotNames[String(button.slot)] ? `<span class="esp-slot-sub">${esc(slotNames[String(button.slot)])}</span>` : ''
+        }</td>
         <td><span class="pin-badge${pin.mapped ? '' : ' off'}">${esc(pin.text)}</span></td>
         <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
         <td><div class="esp-action-cell">
@@ -4883,13 +4951,23 @@
         <div class="esp-field-row"><label>值替换</label>
           <input id="esp-value-map" maxlength="300" value="${esc(String(page.valueMap || '').replace(/\n/g, '，'))}" placeholder="on=开启, off=关闭">
         </div>
-        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可直接搜家庭/房间/设备。值替换用逗号分隔，缺值的段会自动省略（不会留下 <b>--</b> 或 <b>·</b>）。</p>
+        <div class="esp-field-row tall"><label>按实体替换</label>
+          <div class="esp-ent-cell" style="align-items:start">
+            <textarea id="esp-entity-value-map" rows="2" maxlength="2000" placeholder="switch.bedroom_light: on=有人, off=无人">${esc(page.entityValueMap || '')}</textarea>
+            <button class="btn small" type="button" data-entmap-pick>插入实体</button>
+          </div>
+        </div>
+        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可直接搜家庭/房间/设备。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
       </div>
       <div class="esp-section">
         <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>
         <div class="esp-map-line">
           本机按键映射（设备上报）：<b>${esc(mappingText)}</b>
           <button class="btn small" type="button" id="esp-refresh-pins">刷新引脚</button>
+        </div>
+        <div class="esp-slotnames">
+          <div class="esp-slotnames-label">槽位显示名（可选，屏幕提示用名字代替数字）</div>
+          <div class="esp-slotnames-grid">${slotNameFields}</div>
         </div>
         ${missingSlots.length ? `<div class="esp-warn">槽位 ${missingSlots.join('、')} 在本机未启用：按下不会触发。请到设备设置页「物理按键槽位」添加或修改 GPIO，或把按键改到已映射的槽位。</div>` : ''}
         <table class="esp-btn-table">
@@ -4899,7 +4977,7 @@
         <div class="dt-actions">
           <button class="btn small" type="button" id="esp-add-btn">＋ 添加按键</button>
         </div>
-        <p class="hint">「板上 GPIO」来自设备心跳上报的实际槽位映射（后台只读）。显示「未映射」说明本机没启用该槽位，按下不会触发；名称直接用完整文案，屏幕底部提示行放不下会自动滚动。</p>
+        <p class="hint">「板上 GPIO」来自设备心跳上报的实际槽位映射（后台只读）。显示「未映射」说明本机没启用该槽位，按下不会触发；名称直接用完整文案，屏幕底部提示行放不下会自动滚动。上方「槽位显示名」只影响屏幕提示（数字 → 蓝色按钮），不改槽位号和 GPIO。</p>
       </div>
       <div class="esp-section">
         <h4>④ 翻页与安全</h4>
@@ -4949,6 +5027,21 @@
       page.valueMap = event.target.value;
       drawEspPreview();
     });
+    $('esp-entity-value-map').addEventListener('input', (event) => {
+      page.entityValueMap = event.target.value;
+      drawEspPreview();
+    });
+    // 槽位显示名（设备级）：立即影响预览底部提示，保存后随页面配置一起下发。
+    host.querySelectorAll('[data-slotname]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.slotname;
+        if (!espDevDraft.slotNames) espDevDraft.slotNames = {};
+        const value = el.value.trim();
+        if (value) espDevDraft.slotNames[key] = value;
+        else delete espDevDraft.slotNames[key];
+        drawEspPreview();
+      });
+    });
     // 「插入实体」：在光标处插入 {entity_id}，绑定数量不够时可直接引用任意实体。
     host.querySelectorAll('[data-tpl-pick]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -4971,6 +5064,27 @@
         });
       });
     });
+    // 「按实体替换」的插入按钮：插入 `entity_id: `，再补 on=…, off=…
+    const entMapBtn = host.querySelector('[data-entmap-pick]');
+    if (entMapBtn) {
+      entMapBtn.addEventListener('click', () => {
+        const input = $('esp-entity-value-map');
+        openEntityPicker({
+          title: '选择要单独替换值的实体',
+          onPick: (entity) => {
+            const token = `${entity.id}: `;
+            const start = input.selectionStart == null ? input.value.length : input.selectionStart;
+            const end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
+            input.value = input.value.slice(0, start) + token + input.value.slice(end);
+            const pos = start + token.length;
+            page.entityValueMap = input.value;
+            input.focus();
+            input.setSelectionRange(pos, pos);
+            drawEspPreview();
+          },
+        });
+      });
+    }
     host.querySelectorAll('[data-bind]').forEach((el) => {
       el.addEventListener('input', () => {
         page.bindings[el.dataset.bind] = el.value.trim();
@@ -5134,6 +5248,7 @@
       tplMain: page.tplMain || '',
       tplSub: page.tplSub || '',
       valueMap: page.valueMap || '',
+      entityValueMap: page.entityValueMap || '',
       buttons: (page.buttons || []).map((button) => ({ ...button })),
       loop: page.loop !== false,
       idle: Number(page.idle) || 0,
@@ -5146,6 +5261,8 @@
       activePageId: pages[0].id,
       // 设备本机上报的槽位→GPIO（read-only），用于在后台显示实际引脚。
       buttons: Array.isArray(cfg.buttons) ? cfg.buttons : [],
+      // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」。
+      slotNames: Object.assign({}, cfg.slotNames || {}),
     };
 
     // 从「HA 实体库 → 绑定到 ESP」跳过来：预填成当前页的一个按键。
@@ -5174,6 +5291,8 @@
     if (!espDevDraft) return;
     const activeId = espDevDraft.activePageId;
     const payload = {
+      // 槽位显示名是设备级配置，和页面一起保存。
+      slotNames: espDevDraft.slotNames || {},
       pages: espDevDraft.pages.map((page) => ({
         id: page.id,
         name: page.name,
@@ -5183,6 +5302,7 @@
         tplMain: page.tplMain || '',
         tplSub: page.tplSub || '',
         valueMap: page.valueMap || '',
+        entityValueMap: page.entityValueMap || '',
         loop: page.loop !== false,
         idle: Number(page.idle) || 0,
         buttons: (page.buttons || []).map((button) => ({

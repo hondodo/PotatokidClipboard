@@ -266,6 +266,25 @@ function normalizeEspBindings(value) {
     return bindings;
 }
 
+/**
+ * 槽位显示名：`{ "1": "蓝色按钮", "2": "红色按钮" }`。
+ *
+ * 槽位号是设备上的物理按键编号，后台和屏幕提示默认只显示数字；
+ * 这里允许给每个槽位起一个名字，屏幕底部提示就变成「蓝色按钮:空调开关」。
+ * 只认 1..8，空名称视为未设置（继续显示数字）。
+ */
+function normalizeEspSlotNames(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const out = {};
+    for (const [rawSlot, rawName] of Object.entries(value)) {
+        const slot = Number(rawSlot);
+        if (!Number.isInteger(slot) || slot < 1 || slot > MAX_ESP_BUTTONS) continue;
+        const name = String(rawName == null ? '' : rawName).trim().slice(0, 16);
+        if (name) out[String(slot)] = name;
+    }
+    return out;
+}
+
 /** 设备类型 key 只做格式校验，不认识的自定义 key 交给字典层回落。 */
 function normalizeEspTypeKey(value) {
     const raw = String(value || '').trim();
@@ -292,6 +311,27 @@ function normalizeEspValueMap(value) {
         .slice(0, 50)
         .join('\n')
         .slice(0, 800);
+}
+
+/**
+ * 按实体的值替换表：一行一个实体，`entity_id: on=有人, off=无人`。
+ *
+ * 只用于服务端渲染（不下发设备），所以不需要挡 `|`；
+ * 实体名固定在前，冒号后的内容复用全局值替换的解析规则。
+ */
+function normalizeEspEntityValueMap(value) {
+    return String(value || '')
+        .replace(/\r/g, '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => {
+            const idx = line.search(/[:：]/);
+            if (idx <= 0) return false;
+            return ESP_ENTITY_RE.test(line.slice(0, idx).trim());
+        })
+        .slice(0, 50)
+        .join('\n')
+        .slice(0, 2000);
 }
 
 /**
@@ -370,6 +410,7 @@ function normalizeEspPage(raw, index) {
         tplMain: normalizeEspTemplate(raw.tplMain),
         tplSub: normalizeEspTemplate(raw.tplSub),
         valueMap: normalizeEspValueMap(raw.valueMap),
+        entityValueMap: normalizeEspEntityValueMap(raw.entityValueMap),
         buttons,
         loop: raw.loop !== false,
         idle,
@@ -402,6 +443,7 @@ function migrateEspActionsToPages(actions, display, deviceName) {
             tplMain: '',
             tplSub: '',
             valueMap: '',
+            entityValueMap: '',
             buttons: items.map((item) => ({
                 id: item.id,
                 name: item.name,
@@ -970,6 +1012,8 @@ function attachAdmin(app, options = {}) {
                 nameInfo.nameSet ? nameInfo.name : ''),
             // 设备本地上报的按键槽位→GPIO（只读展示，后台不反向下发）。
             espButtons: normalizeEspButtons(machine.espButtons),
+            // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
+            espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -3300,15 +3344,18 @@ function attachAdmin(app, options = {}) {
 
     /**
      * 屏幕底部按键提示：`1:空调开关  2:客厅灯`（一页最多 8 个）。
+     *
      * 槽位号与名称之间用中文冒号，按键之间用两个空格分隔——直接拼接
      * `1空调开关2客厅灯` 在 128px 屏上完全分不清哪里是一个按键。
+     * 槽位配了显示名（如「蓝色按钮」）时用名字代替数字。
      * 这里用**完整名称**，超出一行时由固件按自己的节拍走马灯滚动。
      */
-    function espKeyHints(buttons) {
+    function espKeyHints(buttons, slotNames) {
+        const names = slotNames || {};
         return buttons
             .filter((item) => item.enabled && item.slot >= 1)
             .sort((a, b) => a.slot - b.slot)
-            .map((item) => `${item.slot}:${(item.name || item.label || '').trim()}`)
+            .map((item) => `${names[String(item.slot)] || item.slot}:${(item.name || item.label || '').trim()}`)
             .join('  ');
     }
 
@@ -3338,16 +3385,35 @@ function attachAdmin(app, options = {}) {
         return map;
     }
 
-    /** 把 HA 状态里的 state 按值替换表翻译（只动 state，温度等属性原样保留）。 */
-    function mapEspStates(states, map) {
-        if (!map.size) return states;
+    /** 按实体的值替换：`entity_id: on=有人, off=无人`（一行一个实体）。 */
+    function parseEspEntityValueMap(text) {
+        const map = new Map();
+        for (const line of String(text || '').split('\n')) {
+            const idx = line.search(/[:：]/);
+            if (idx <= 0) continue;
+            const entityId = line.slice(0, idx).trim();
+            if (!ESP_ENTITY_RE.test(entityId)) continue;
+            const rules = parseEspValueMap(line.slice(idx + 1));
+            if (rules.size) map.set(entityId, rules);
+        }
+        return map;
+    }
+
+    /**
+     * 把 HA 状态里的 state 按值替换表翻译。
+     *
+     * 优先用该实体自己的替换表，没有命中再落到页面级兜底表；
+     * 只动 state，温度等属性原样保留。
+     */
+    function mapEspStates(states, globalMap, entityMap) {
         const out = {};
         for (const [id, state] of Object.entries(states || {})) {
             if (!state || typeof state !== 'object') continue;
             const next = Object.assign({}, state);
-            if (next.state != null && map.has(String(next.state))) {
-                next.state = map.get(String(next.state));
-            }
+            const raw = next.state == null ? '' : String(next.state);
+            const own = entityMap && entityMap.get(id);
+            if (own && own.has(raw)) next.state = own.get(raw);
+            else if (globalMap.has(raw)) next.state = globalMap.get(raw);
             out[id] = next;
         }
         return out;
@@ -3402,7 +3468,7 @@ function attachAdmin(app, options = {}) {
             title: pageObj ? pageObj.name : (machine.name || ''),
             main: pageObj ? '' : '未配置',
             sub: pageObj ? '' : '请在 Admin「ESP 设备分类」添加页面',
-            keys: espKeyHints(actions),
+            keys: espKeyHints(actions, machine.espSlotNames),
             homeLabel: '当前状态',
         };
         if (pageObj) {
@@ -3421,8 +3487,12 @@ function attachAdmin(app, options = {}) {
             if (entityIds.length) {
                 try {
                     const rawStates = await haCatalogService.getStates(entityIds);
-                    // 值替换（on=开启…）对字典与自定义模板同时生效。
-                    const states = mapEspStates(rawStates, parseEspValueMap(pageObj.valueMap));
+                    // 值替换（全局 + 按实体）对字典与自定义模板同时生效。
+                    const states = mapEspStates(
+                        rawStates,
+                        parseEspValueMap(pageObj.valueMap),
+                        parseEspEntityValueMap(pageObj.entityValueMap),
+                    );
                     const dict = deviceTypes.normalizeDictEntry(pageObj.deviceType || '', null);
                     const ctx = {
                         main: espStateValue(states[bindings.main], dict.mainAttr),
@@ -3522,6 +3592,8 @@ function attachAdmin(app, options = {}) {
             pages: machine.espPages,
             // 设备本机上报的槽位→GPIO，用于后台展示「实际引脚 / 未映射」。
             buttons: machine.espButtons,
+            // 槽位显示名（1..8），屏幕底部提示与后台表格共用。
+            slotNames: machine.espSlotNames || {},
             types: deviceTypeService.list(),
         });
     });
@@ -3535,6 +3607,10 @@ function attachAdmin(app, options = {}) {
         const pages = normalizeEspPages(body.pages);
         const machines = readMachines();
         machines[id].espPages = pages;
+        // 槽位显示名是设备级配置；老后台没传时保留原值。
+        if (body.slotNames !== undefined) {
+            machines[id].espSlotNames = normalizeEspSlotNames(body.slotNames);
+        }
         // 迁移落盘：旧字段不再保留，避免下次读取又走迁移分支。
         delete machines[id].espActions;
         delete machines[id].espDisplay;

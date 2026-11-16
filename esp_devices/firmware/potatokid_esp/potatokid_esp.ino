@@ -58,7 +58,8 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 // oled-2.5：注册/心跳上报本机槽位→GPIO 映射，后台可直接看到实际引脚与未映射项。
 // oled-2.6：心跳/拉配置/查 OTA 移到后台 FreeRTOS 任务，主循环不再被 HTTP 阻塞
 //           （消除约每分钟一次的卡顿）；主/副状态没有值时留白，不显示 `--`。
-static const char *APP_VER             = "oled-2.6";
+// oled-2.7：按键动作成功后约 0.7 秒自动拉一次显示，状态即时刷新，不用等 60 秒心跳。
+static const char *APP_VER             = "oled-2.7";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -111,7 +112,7 @@ struct NetSnapshot {
 SemaphoreHandle_t netMux = nullptr;
 NetSnapshot netPending;
 volatile bool netEnabled = false;   // 注册成功后才开始周期拉取
-volatile bool netRefresh = false;   // 翻页 / 空闲回首页后立即拉一次
+volatile uint32_t netRefreshAt = 0; // 到点后立即拉一次（0 = 无排队；按键执行后延迟刷新）
 volatile int  netPage = 1;          // 后台任务要拉的页码
 
 // ---- 屏幕四行内容（服务端按设备类型字典下发，固件只管显示）----
@@ -608,6 +609,10 @@ void onButtonPress(int slot) {
   }
 
   oledToast(String("Slot ") + slot, shown, ok ? "sent ok" : "failed, see serial");
+
+  // 动作已下发：约 0.7 秒后（等 HA 状态机更新）立刻拉一次显示，
+  // 不用等 60 秒心跳，按下后屏幕状态基本即时更新。
+  if (ok) netRefreshAt = millis() + 700;
 }
 
 // 轮询物理按键：内部上拉，对地短接为按下；60ms 去抖。
@@ -647,7 +652,7 @@ void drawMain() {
 /** 请求后台任务立刻拉一次指定页（翻页 / 空闲回首页后调用）。 */
 void requestPage(int page) {
   netPage = page;
-  netRefresh = true;
+  netRefreshAt = millis();
 }
 
 /** 把任务解析好的快照发布到共享槽位（任务侧调用，只写 netPending）。 */
@@ -718,8 +723,10 @@ void applyNetSnapshot() {
 void netTask(void *) {
   uint32_t lastCycle = 0;
   for (;;) {
-    bool refresh = netRefresh;
-    if (refresh) netRefresh = false;
+    // 到点刷新：翻页是立即，按键动作后延迟 ~0.7 秒等 HA 状态机更新。
+    // 用有符号差值比较，millis() 回绕也不会漏触发。
+    bool refresh = netRefreshAt != 0 && (int32_t)(millis() - netRefreshAt) >= 0;
+    if (refresh) netRefreshAt = 0;
     if (netEnabled && WiFi.status() == WL_CONNECTED
         && (refresh || millis() - lastCycle >= REPORT_MS)) {
       lastCycle = millis();
@@ -768,7 +775,7 @@ void showConnected() {
   // 注册完成后交给后台任务：首次拉取 + 之后每 REPORT_MS 一次心跳/配置。
   netEnabled = true;
   netPage = currentPage;
-  netRefresh = true;
+  netRefreshAt = millis();
 
   drawMain();
 }
