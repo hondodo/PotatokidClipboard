@@ -305,6 +305,93 @@
     .dict-rule { background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 8px; padding: 11px 13px; font-size: 12px; line-height: 1.75; }
     .dict-rule code { color: var(--accent); }
 
+    /* ESP 屏幕页面：一页 = 一台被控设备（页面列表 + 配置 + 128×64 预览） */
+    .esp-work { display: grid; gap: 12px; min-width: 0; }
+    .esp-pages-card h3 { display: flex; align-items: center; gap: 8px; }
+    .esp-pages { display: flex; flex-wrap: wrap; gap: 8px; }
+    .esp-page-chip {
+      display: flex; align-items: center; gap: 7px; padding: 8px 11px;
+      border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.03);
+      font-size: 12.5px; color: var(--muted); cursor: pointer;
+    }
+    .esp-page-chip:hover { color: var(--text); border-color: rgba(148,163,184,.34); }
+    .esp-page-chip.active { border-color: var(--accent); background: rgba(95,211,196,.1); color: var(--text); }
+    .esp-page-chip .num { font-size: 10.5px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+    .esp-page-chip .x {
+      border: 0; background: transparent; color: var(--muted-2);
+      font-size: 14px; line-height: 1; padding: 0 2px; cursor: pointer;
+    }
+    .esp-page-chip .x:hover { color: var(--danger); }
+    .esp-page-add {
+      border: 1px dashed rgba(148,163,184,.4); background: transparent; color: var(--muted);
+      border-radius: 9px; padding: 8px 12px; font-size: 12.5px; cursor: pointer;
+    }
+    .esp-page-add:hover { color: var(--accent); border-color: rgba(95,211,196,.55); }
+    .esp-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 12px; align-items: start; }
+    @media(max-width:1240px){ .esp-editor-layout { grid-template-columns: 1fr; } }
+    .esp-section { margin-bottom: 16px; }
+    .esp-section:last-child { margin-bottom: 0; }
+    .esp-section h4 { margin: 0 0 9px; font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
+    .esp-section h4 .tag {
+      font-size: 10px; padding: 1px 6px; border-radius: 10px;
+      background: rgba(96,165,250,.14); color: var(--accent-2); font-weight: 500;
+    }
+    .esp-field-row { display: grid; grid-template-columns: 74px minmax(0,1fr); gap: 8px; align-items: center; margin-bottom: 8px; }
+    .esp-field-row > label { font-size: 11.5px; color: var(--muted); }
+    .esp-bind-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+    .esp-bind-grid label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
+    .esp-btn-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .esp-btn-table th {
+      position: static; background: transparent; border-bottom: 1px solid var(--line);
+      padding: 6px 5px; font-size: 11px; color: var(--muted-2);
+    }
+    .esp-btn-table td { padding: 5px; border-bottom: 1px solid rgba(34,48,63,.5); vertical-align: middle; }
+    .esp-btn-table input, .esp-btn-table select { padding: 6px 8px; font-size: 12px; }
+    .esp-btn-table .slot-cell { width: 62px; }
+    .esp-btn-table .label-cell { width: 68px; }
+    .esp-btn-table .ops-cell { width: 94px; white-space: nowrap; }
+    .esp-btn-table .ops-cell .move-btn,
+    .esp-btn-table .ops-cell .del-btn {
+      border: 1px solid var(--line); background: transparent; color: var(--muted);
+      border-radius: 6px; width: 26px; height: 28px; cursor: pointer; font-size: 15px; line-height: 1;
+    }
+    .esp-btn-table .ops-cell .move-btn:disabled { opacity: .3; cursor: default; }
+    .esp-btn-table .ops-cell .move-btn:not(:disabled):hover { color: var(--accent); border-color: rgba(95, 211, 196, .45); }
+    .esp-btn-table .del-btn:hover { color: #ff8080; border-color: rgba(248,113,113,.5); }
+    .esp-action-cell { display: flex; gap: 6px; }
+    .esp-action-cell select:first-child { flex: 0 0 96px; }
+    .esp-map-line {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      font-size: 11.5px; color: var(--muted); margin-bottom: 8px;
+    }
+    .esp-map-line b { color: var(--accent); font-weight: 600; }
+    .pin-badge {
+      display: inline-block; padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+      border: 1px solid rgba(95, 211, 196, .3); background: rgba(95, 211, 196, .08);
+      color: var(--accent); font-size: 11px;
+    }
+    .pin-badge.off {
+      border-color: rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .08);
+      color: #fca5a5;
+    }
+    .esp-warn {
+      margin: 0 0 9px; padding: 9px 12px; border-radius: 8px; line-height: 1.6;
+      border: 1px solid rgba(251, 191, 36, .35); background: rgba(251, 191, 36, .08);
+      color: #fcd34d; font-size: 11.5px;
+    }
+    .esp-preview-card2 { position: sticky; top: 14px; }
+    .esp-preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .oled-bezel {
+      background: #05080b; border: 6px solid #1d2732; border-radius: 12px; padding: 10px;
+      box-shadow: 0 12px 32px rgba(0,0,0,.6), inset 0 0 0 1px #2b3948;
+    }
+    .oled-bezel canvas { display: block; width: 384px; height: 192px; image-rendering: pixelated; background: #000; border-radius: 2px; }
+    .esp-preview-meta { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.7; }
+    .esp-preview-meta b { color: var(--accent); }
+    .esp-theme { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+    .esp-theme select { width: auto; }
+    .esp-empty-pages { font-size: 12.5px; color: var(--muted); padding: 14px 0; line-height: 1.7; }
+
     /* 设备判定规则（规则引擎） */
     .re-layout { display: grid; grid-template-columns: 210px minmax(0, 1.35fr) minmax(260px, .8fr); gap: 14px; align-items: start; }
     @media(max-width:1240px){ .re-layout { grid-template-columns: 210px 1fr; } .re-preview { grid-column: 1 / -1; } }
@@ -448,6 +535,45 @@
     }
     .entity-picker-menu::-webkit-scrollbar-thumb:hover { background: rgba(149, 178, 190, .7); background-clip: padding-box; }
 
+    /* 实体选择弹窗：家庭/房间/设备筛选 + 当前状态值 */
+    .ent-pick-dialog .dialog-body { display: grid; gap: 10px; }
+    .ent-pick-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+    .ent-pick-filters label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); min-width: 128px; }
+    .ent-pick-filters .ent-pick-search { flex: 1 1 190px; min-width: 160px; }
+    .ent-pick-filters .ent-pick-only {
+      display: flex; align-items: center; gap: 6px; align-self: center;
+      font-size: 12px; color: var(--muted); min-width: 0;
+    }
+    .ent-pick-filters .ent-pick-only input { width: auto; }
+    .ent-pick-meta { font-size: 11.5px; color: var(--muted-2); }
+    .ent-pick-list {
+      max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px;
+      background: rgba(4, 10, 15, .45);
+    }
+    .ent-pick-row {
+      display: grid; gap: 2px; width: 100%; text-align: left; padding: 8px 10px;
+      border: 0; border-bottom: 1px solid rgba(34, 48, 63, .5);
+      background: transparent; color: var(--text); cursor: pointer;
+    }
+    .ent-pick-row:last-child { border-bottom: 0; }
+    .ent-pick-row:hover { background: rgba(95, 211, 196, .1); }
+    .ent-pick-row.current { background: rgba(95, 211, 196, .16); }
+    .ent-pick-row .ent-pick-main { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+    .ent-pick-row .nm { font-size: 12.5px; font-weight: 600; }
+    .ent-pick-row .st { font-size: 11.5px; color: var(--accent); white-space: nowrap; }
+    .ent-pick-row .ent-pick-where { font-size: 11px; color: var(--muted); }
+    .ent-pick-row .ent-pick-id {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10.5px; color: var(--muted-2); word-break: break-all;
+    }
+    .ent-pick-empty { padding: 26px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+    .ent-pick-tip { margin-right: auto; font-size: 11px; color: var(--muted); }
+    .ent-pick-tip code { color: var(--accent); font-size: 11px; }
+    /* 绑定输入 + 「选择」按钮并排 */
+    .esp-ent-cell { display: flex; gap: 6px; align-items: center; }
+    .esp-ent-cell input { flex: 1 1 auto; min-width: 0; }
+    .esp-ent-cell .btn { flex: 0 0 auto; }
+
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);
       display: grid; place-items: center; padding: 18px; z-index: 50;
@@ -524,6 +650,8 @@
     </div>
     <div class="top-actions" id="top-actions" hidden>
       <span class="pill" id="admin-name"></span>
+      <a class="btn" href="/esp-device-type-prototype.html" target="_blank" rel="noopener"
+         style="text-decoration:none" title="ESP 设备分类 / 类型字典的设计原型，含演示数据，仅供对照">设计原型</a>
       <button class="btn" id="refresh-btn" type="button">刷新</button>
       <button class="btn" id="logout-btn" type="button">退出</button>
     </div>
@@ -952,13 +1080,13 @@
       </datalist>
     </section>
 
-    <!-- ESP 设备分类：每台设备显式选类型 + 绑显示实体，取代后缀推断 -->
+    <!-- ESP 设备分类：一页 = 一台被控设备（页面名 + 显示内容 + 一组按键） -->
     <section id="tab-esp-devices" class="panel" hidden>
       <div class="panel-head">
         <div>
           <h2>ESP 设备分类</h2>
-          <p>给每台 ESP 小屏显式声明「这是哪类设备 + 哪些实体做显示」。服务端按类型字典解析出屏幕四行文本下发，固件保持通用、不认识设备类型。</p>
-          <p class="hint">这样彻底告别靠 entity_id 后缀猜类型导致的串类误判。设备未分类时走通用兜底（domain + state），不会黑屏。</p>
+          <p>一页 = 一台被控设备。每页有自己的页面名、屏幕显示内容和一组按键；设备上按「下一页」整页切换，不用为每种设备重做固件。</p>
+          <p class="hint">显示内容只选「设备类型 + 实体」，四行文字由「设备类型字典」统一生成；按键槽位 1~8 只是逻辑编号，物理 GPIO 在设备本地设置页分配，换接线不用改这里。</p>
         </div>
         <div class="panel-actions">
           <span class="pill" id="espdev-meta">—</span>
@@ -967,9 +1095,31 @@
       </div>
       <div class="dt-layout">
         <div class="card"><h3>ESP 设备</h3><div class="espdev-list" id="espdev-list"><div class="empty">加载中…</div></div></div>
-        <div class="card">
-          <h3 id="espdev-title">分类配置</h3>
-          <div id="espdev-editor"><div class="empty">请选择左侧设备</div></div>
+        <div class="esp-work">
+          <div class="card esp-pages-card">
+            <h3>屏幕页面 <span class="muted" id="espdev-pagecount"></span></h3>
+            <div class="esp-pages" id="espdev-pages"></div>
+          </div>
+          <div class="esp-editor-layout">
+            <div class="card">
+              <h3 id="espdev-title">页面配置</h3>
+              <div id="espdev-editor"><div class="empty">请选择左侧设备</div></div>
+            </div>
+            <div class="card esp-preview-card2">
+              <h3>128×64 实时预览</h3>
+              <div class="esp-preview-wrap">
+                <div class="oled-bezel"><canvas id="espdev-canvas" width="128" height="64"></canvas></div>
+                <div class="esp-preview-meta" id="espdev-preview-meta">—</div>
+                <label class="esp-theme">屏幕色
+                  <select id="espdev-theme">
+                    <option value="blue">蓝光</option>
+                    <option value="white">白光</option>
+                    <option value="yellow">黄光</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1613,7 +1763,9 @@
       } else if (btn.dataset.action === 'parental') {
         editParental(machine);
       } else if (btn.dataset.action === 'esp') {
-        editEspActions(machine);
+        // 直接跳到「ESP 设备分类」Tab 并选中这台设备，统一在页面编辑器里配置。
+        state.espDevEditId = machine.id;
+        activateTab('esp-devices');
       } else if (btn.dataset.action === 'delete') {
         if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
         (async () => {
@@ -1915,13 +2067,19 @@
     }
   }
 
-  /** 已绑定实体集合（来自 machines 的 espActions），用于「只看未绑定」。 */
+  /** 已绑定实体集合（来自各页面的显示绑定与按键），用于「只看未绑定」。 */
   function boundEntityIds() {
     const set = new Set();
     const machines = (state.overview && state.overview.machines) || [];
     for (const machine of machines) {
-      for (const action of machine.espActions || []) {
-        if (action.entityId) set.add(action.entityId);
+      for (const page of machine.espPages || []) {
+        for (const slot of ['main', 's1', 's2']) {
+          const entityId = page.bindings && page.bindings[slot];
+          if (entityId) set.add(entityId);
+        }
+        for (const button of page.buttons || []) {
+          if (button.entityId) set.add(button.entityId);
+        }
       }
     }
     return set;
@@ -2127,7 +2285,9 @@
       dot.className = `dot ${isOn ? 'on' : 'off'}`;
       const stateText = document.createElement('span');
       stateText.className = 'status-text';
-      stateText.textContent = entity.state || '—';
+      // 状态值 + 单位 / 关键属性（current_temperature、brightness…）：
+      // 只看裸 state 分不清 ESP 上屏会显示什么，这里直接给出完整值。
+      stateText.textContent = haStateText(entity);
       // 状态可能是 sensor 的超长属性串，直接完整换行铺开显示。
       const stateWrap = document.createElement('div');
       stateWrap.className = 'ha-state-cell';
@@ -2182,7 +2342,7 @@
   }
 
   /**
-   * 从实体库直接跳到某台 ESP 设备的控制项编辑，并预填该实体。
+   * 从实体库跳到某台 ESP 设备的页面编辑器，并把该实体预填成当前页的一个按键。
    *
    * ESP 小屏设备在 machines 里的 kind 是**空字符串**（不是 'esp'）——
    * 设备表里「ESP 控制」按钮也是按 kind === '' 渲染的，这里口径保持一致。
@@ -2200,7 +2360,7 @@
 
     const note = document.createElement('p');
     note.className = 'field-note';
-    note.textContent = `把「${entity.name}」（${entity.id}）加到哪台 ESP 设备的控制项里？`;
+    note.textContent = `把「${entity.name}」（${entity.id}）加到哪台 ESP 设备的页面里？`;
     wrap.appendChild(note);
 
     const select = document.createElement('select');
@@ -2219,10 +2379,253 @@
       onSave: () => {
         const machine = machines.find((m) => m.id === select.value);
         if (!machine) throw new Error('设备不存在');
-        // 关闭当前弹窗后再打开 ESP 编辑弹窗（openDialog 会复用同一个 root）。
-        setTimeout(() => editEspActions(machine, { entityId: entity.id, name: entity.name }), 0);
+        state.espDevEditId = machine.id;
+        state.espPreset = { deviceId: machine.id, entityId: entity.id, name: entity.name };
+        activateTab('esp-devices');
       },
     });
+  }
+
+  // ------------------------------------------------------------ 实体选择弹窗
+
+  /** HA 常见英文状态 → 中文（只翻译明确枚举值，数值与自定义串原样保留）。 */
+  const HA_STATE_LABELS = {
+    on: '开', off: '关', open: '开', closed: '关', opening: '打开中', closing: '关闭中',
+    unavailable: '离线', unknown: '未知', idle: '空闲', playing: '播放中', paused: '暂停',
+    standby: '待机', heat: '制热', cool: '制冷', auto: '自动', dry: '除湿', fan_only: '送风',
+    heating: '加热中', cooling: '制冷中', home: '在家', not_home: '离家',
+    locked: '已上锁', unlocked: '未上锁', charging: '充电中', docked: '已回充',
+  };
+
+  /**
+   * 实体当前值：state + 单位 + 关键属性。
+   *
+   * ESP 屏幕绑定的常常是属性（当前温度 / 目标温度 / 亮度），只看裸 state
+   * 看不出上屏后会显示什么，所以把常用属性一并列出来。
+   */
+  function haStateText(entity) {
+    if (!entity) return '—';
+    const attrs = entity.attributes || {};
+    const raw = entity.state == null || entity.state === '' ? '' : String(entity.state);
+    const unit = attrs.unit_of_measurement ? String(attrs.unit_of_measurement) : '';
+    let text = HA_STATE_LABELS[raw] || raw || '—';
+    if (unit && /^-?\d+(\.\d+)?$/.test(raw)) text = `${raw} ${unit}`;
+    const extras = [];
+    if (attrs.current_temperature != null && attrs.current_temperature !== '') {
+      extras.push(`当前 ${attrs.current_temperature}°C`);
+    }
+    if (attrs.temperature != null && attrs.temperature !== '') {
+      extras.push(`目标 ${attrs.temperature}°C`);
+    }
+    if (attrs.brightness != null && attrs.brightness !== '') {
+      extras.push(`亮度 ${Math.round(Number(attrs.brightness) / 2.55)}%`);
+    }
+    if (attrs.percentage != null && attrs.percentage !== '') {
+      extras.push(`比例 ${attrs.percentage}%`);
+    }
+    return extras.length ? `${text}（${extras.join(' · ')}）` : text;
+  }
+
+  /**
+   * 实体选择弹窗：按「家庭 → 房间 → 设备」筛选 + 搜索 + 显示当前状态值。
+   *
+   * ESP 的三个显示绑定与按键实体都走这里——只给一个 entity_id 输入框时，
+   * 用户只能靠记 id 猜；这里把归属信息和当前值一起列出来再选。
+   *
+   * @param {object} options
+   * @param {string} options.title 弹窗标题
+   * @param {string} options.value 当前 entity_id（高亮）
+   * @param {boolean} options.actionableOnly 只列有可用动作的实体（按键用）
+   * @param {Function} options.onPick 选中回调 (entity)
+   */
+  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, onPick } = {}) {
+    const root = $('dialog-root');
+    const filters = { home: '', room: '', device: '', keyword: '', onlyActionable: !!actionableOnly };
+    let catalog = state.haEntities;
+
+    root.innerHTML = `
+      <div class="overlay">
+        <div class="card dialog wide ent-pick-dialog" role="dialog" aria-modal="true">
+          <div class="dialog-head">
+            <h3>${esc(title)}</h3>
+            <button class="icon-btn" type="button" data-close>×</button>
+          </div>
+          <div class="dialog-body">
+            <div class="ent-pick-filters">
+              <label>家庭<select data-filter="home"></select></label>
+              <label>房间<select data-filter="room"></select></label>
+              <label>设备<select data-filter="device"></select></label>
+              <label class="ent-pick-search">搜索<input type="search" data-filter="keyword" placeholder="名称 / entity_id" autocomplete="off"></label>
+              <label class="ent-pick-only"><input type="checkbox" data-filter="onlyActionable" ${filters.onlyActionable ? 'checked' : ''}>只看可控制</label>
+              <button class="btn small" type="button" data-refresh>刷新状态</button>
+            </div>
+            <div class="ent-pick-meta"></div>
+            <div class="ent-pick-list"></div>
+          </div>
+          <div class="dialog-foot">
+            <span class="ent-pick-tip">当前：<code>${esc(value || '未选择')}</code></span>
+            <button class="btn" type="button" data-close>取消</button>
+          </div>
+        </div>
+      </div>`;
+
+    const close = () => { root.innerHTML = ''; };
+    root.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
+    const overlay = root.querySelector('.overlay');
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+
+    const homeSel = root.querySelector('[data-filter="home"]');
+    const roomSel = root.querySelector('[data-filter="room"]');
+    const deviceSel = root.querySelector('[data-filter="device"]');
+    const keywordInput = root.querySelector('[data-filter="keyword"]');
+    const onlyBox = root.querySelector('[data-filter="onlyActionable"]');
+    const refreshBtn = root.querySelector('[data-refresh]');
+    const meta = root.querySelector('.ent-pick-meta');
+    const list = root.querySelector('.ent-pick-list');
+
+    const all = () => ((catalog && catalog.entities) || []);
+
+    /** 按「家 / 关键词」过滤：用于推导房间候选。 */
+    function poolForRooms() {
+      const needle = filters.keyword.trim().toLowerCase();
+      return all().filter((entity) => {
+        if (filters.onlyActionable && !(entity.actions && entity.actions.length)) return false;
+        if (filters.home && (entity.home || '未归属家庭') !== filters.home) return false;
+        if (needle) {
+          const hay = `${entity.name} ${entity.id} ${entity.device} ${entity.room} ${entity.areaName}`.toLowerCase();
+          if (!hay.includes(needle)) return false;
+        }
+        return true;
+      });
+    }
+
+    /** 在家 + 房间 + 关键词范围内推导设备候选。 */
+    function poolForDevices() {
+      return poolForRooms().filter((entity) => !filters.room || haEntityRoom(entity) === filters.room);
+    }
+
+    function fillSelect(sel, allLabel, values, current) {
+      const keep = values.includes(current) ? current : '';
+      sel.innerHTML = `<option value="">${esc(allLabel)}</option>`
+        + values.map((v) => `<option value="${esc(v)}" ${v === keep ? 'selected' : ''}>${esc(v)}</option>`).join('');
+      return keep;
+    }
+
+    function renderFilters() {
+      const homeNames = Array.from(new Set(((catalog && catalog.homes) || []).map((item) => item.name)));
+      filters.home = fillSelect(homeSel, '全部家庭', homeNames, filters.home);
+
+      const roomNames = Array.from(new Set(poolForRooms().map((entity) => haEntityRoom(entity))))
+        .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+      filters.room = fillSelect(roomSel, '全部房间', roomNames, filters.room);
+
+      const deviceNames = Array.from(new Set(poolForDevices().map((entity) => entity.device || '未归属设备')))
+        .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+      filters.device = fillSelect(deviceSel, '全部设备', deviceNames, filters.device);
+    }
+
+    function matched() {
+      return poolForDevices().filter((entity) => {
+        if (filters.device && (entity.device || '未归属设备') !== filters.device) return false;
+        return true;
+      }).sort((a, b) => {
+        const key = (e) => `${e.home || ''}|${haEntityRoom(e)}|${e.device || ''}|${e.name || e.id}`;
+        return key(a).localeCompare(key(b), 'zh-CN');
+      });
+    }
+
+    function renderList() {
+      const rows = matched();
+      meta.textContent = catalog
+        ? `${rows.length} 个实体${filters.onlyActionable ? '（可控制）' : ''}${rows.length > 300 ? '，仅显示前 300 条' : ''}`
+        : '实体目录未加载';
+      list.innerHTML = '';
+      if (!catalog) {
+        list.innerHTML = '<div class="ent-pick-empty">实体目录未加载，点「刷新状态」从 HA 拉取</div>';
+        return;
+      }
+      if (!rows.length) {
+        list.innerHTML = '<div class="ent-pick-empty">没有匹配的实体，试试清空筛选或换个关键词</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      for (const entity of rows.slice(0, 300)) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = `ent-pick-row${entity.id === value ? ' current' : ''}`;
+
+        const main = document.createElement('div');
+        main.className = 'ent-pick-main';
+        const name = document.createElement('span');
+        name.className = 'nm';
+        name.textContent = entity.name || entity.id;
+        const state = document.createElement('span');
+        state.className = 'st';
+        state.textContent = haStateText(entity);
+        main.append(name, state);
+
+        const where = document.createElement('div');
+        where.className = 'ent-pick-where';
+        where.textContent = `${entity.home || '未归属家庭'} · ${haEntityRoom(entity)} · ${entity.device || '未归属设备'}`;
+
+        const idText = document.createElement('div');
+        idText.className = 'ent-pick-id';
+        idText.textContent = entity.id;
+
+        row.append(main, where, idText);
+        row.addEventListener('click', () => {
+          if (typeof onPick === 'function') onPick(entity);
+          close();
+        });
+        frag.appendChild(row);
+      }
+      list.appendChild(frag);
+    }
+
+    function renderAll() {
+      renderFilters();
+      renderList();
+    }
+
+    homeSel.addEventListener('change', () => {
+      filters.home = homeSel.value;
+      filters.room = '';
+      filters.device = '';
+      renderAll();
+    });
+    roomSel.addEventListener('change', () => {
+      filters.room = roomSel.value;
+      filters.device = '';
+      renderAll();
+    });
+    deviceSel.addEventListener('change', () => {
+      filters.device = deviceSel.value;
+      renderFilters();
+      renderList();
+    });
+    keywordInput.addEventListener('input', () => {
+      filters.keyword = keywordInput.value;
+      renderAll();
+    });
+    onlyBox.addEventListener('change', () => {
+      filters.onlyActionable = onlyBox.checked;
+      renderAll();
+    });
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      meta.textContent = '正在从 HA 拉取…';
+      try {
+        await loadHaEntities(true);
+        catalog = state.haEntities;
+      } catch (error) {
+        toast('刷新失败：' + error.message, 'error');
+      } finally {
+        refreshBtn.disabled = false;
+        renderAll();
+      }
+    });
+
+    renderAll();
   }
 
   // ------------------------------------------------------------ 实体选择器
@@ -2524,204 +2927,13 @@
     ['run', '执行（script/scene）'],
   ];
 
-  /**
-   * ESP 控制项白名单编辑。
-   *
-   * 这里的「放行」勾选是唯一的开关：未勾选的项不会下发到设备，
-   * 设备按物理按钮时服务端也会拒绝。
-   *
-   * @param {object} machine 目标设备
-   * @param {object} [preset] 预填 {entityId, name}（从实体库跳转过来时用）
-   */
-  async function editEspActions(machine, preset) {
-    // 实体选择器依赖实体目录；没加载过就先拉一次（失败也不阻塞，仍可手填 id）。
-    if (!state.haEntities) {
-      try {
-        await loadHaEntities();
-      } catch (_) {
-        toast('HA 实体目录加载失败，可先手动填写 entity_id', 'error');
-      }
-    }
-
-    const wrap = document.createElement('div');
-    wrap.style.display = 'grid';
-    wrap.style.gap = '12px';
-
-    const note = document.createElement('p');
-    note.className = 'field-note';
-    note.textContent = '只有勾选「放行」的项才会下发给设备。按钮 1~4 对应设备 GPIOn 按键顺序（0 = 仅网页测试）；点「选择」从 HA 实体库里挑，动作会按实体类型自动收窄（避免选了必定失败的组合）。若按键无反应，先点右上角「HA 连接」确认地址与令牌。';
-    wrap.appendChild(note);
-
-    const list = document.createElement('div');
-    list.style.display = 'grid';
-    list.style.gap = '8px';
-    wrap.appendChild(list);
-
-    const draft = (machine.espActions || []).map((item) => ({ ...item }));
-    if (preset && preset.entityId) {
-      // 预填项的初始动作按实体域挑一个真实可用的（按钮域→press、灯→toggle），
-      // 别塞一个该域不支持的 toggle 进去——那等于一上来就配了个必定失败的组合。
-      const presetEntity = ((state.haEntities && state.haEntities.entities) || [])
-        .find((item) => item.id === preset.entityId);
-      const presetActions = presetEntity && presetEntity.actions ? presetEntity.actions : [];
-      draft.push({
-        id: `a${Date.now().toString(36)}`,
-        name: preset.name || '',
-        entityId: preset.entityId,
-        action: presetActions.length ? presetActions[0].action : 'toggle',
-        button: 0,
-        enabled: false,
-      });
-    }
-
-    /**
-     * 按实体域重建动作下拉。
-     * 服务端会按域解析真实 HA 服务（cover 的「开」→ open_cover、lock 的「开」→ lock），
-     * 所以这里只展示该域真实支持的动作；实体不在目录里（手填/已删除）时退回全量。
-     *
-     * 存量配置若配了「该实体不支持」的动作，不静默改掉——保留原值并明确标注，
-     * 免得打开弹窗就悄悄改了用户的配置，同时让用户知道这一项按下会失败。
-     */
-    function refreshActions(action, entity, currentValue) {
-      const allowed = entity && entity.actions && entity.actions.length ? entity.actions : null;
-      const options = allowed
-        ? allowed.map((item) => [item.action, item.label])
-        : ESP_ACTION_LABELS;
-      const previous = currentValue || action.value || 'toggle';
-      const unsupported = !options.some(([value]) => value === previous);
-
-      action.innerHTML = '';
-      // 不支持的旧值排最前并标注——它是当前生效值，用户一眼能看到问题。
-      if (unsupported) {
-        const opt = document.createElement('option');
-        opt.value = previous;
-        opt.textContent = `${previous}（旧值，该实体不支持，按下会失败）`;
-        opt.selected = true;
-        action.appendChild(opt);
-      }
-      for (const [value, label] of options) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        if (value === previous) opt.selected = true;
-        action.appendChild(opt);
-      }
-    }
-
-    function rowNode(item) {
-      const row = document.createElement('div');
-      row.className = 'field-row esp-row';
-
-      const name = document.createElement('input');
-      name.placeholder = '显示名';
-      name.maxLength = 40;
-      name.value = item.name || '';
-
-      const action = document.createElement('select');
-
-      const picker = createEntityPicker({
-        value: item.entityId || '',
-        // 用 action.value 而不是 item.action：用户可能已经改过动作，
-        // 换实体时不该把刚选的动作重置回原始值。
-        onChange: (entity) => refreshActions(action, entity, action.value),
-      });
-      const entity = picker.input;
-
-      // 初始按已存实体收窄动作（存量配置也要看到正确的动作集合）。
-      const initialEntity = picker.getEntity();
-      if (initialEntity) {
-        refreshActions(action, initialEntity, item.action);
-      } else {
-        refreshActions(action, null, item.action);
-      }
-
-      const button = document.createElement('select');
-      [['0', '不绑定'], ['1', '按钮1'], ['2', '按钮2'], ['3', '按钮3'], ['4', '按钮4']]
-        .forEach(([value, label]) => {
-          const opt = document.createElement('option');
-          opt.value = value;
-          opt.textContent = label;
-          if (Number(value) === Number(item.button || 0)) opt.selected = true;
-          button.appendChild(opt);
-        });
-
-      const enabledLabel = document.createElement('label');
-      enabledLabel.className = 'inline-check';
-      const enabled = document.createElement('input');
-      enabled.type = 'checkbox';
-      enabled.checked = item.enabled === true;
-      enabledLabel.appendChild(enabled);
-      enabledLabel.appendChild(document.createTextNode('放行'));
-
-      const del = document.createElement('button');
-      del.className = 'btn small danger';
-      del.type = 'button';
-      del.textContent = '删除';
-      del.addEventListener('click', () => {
-        item.__removed = true;
-        row.remove();
-        picker.dispose();
-      });
-
-      // 布局：上行 = 显示名 / 动作 / 按钮 / 放行 / 删除；
-      // 下行 = 实体选择器 + 说明文字（整行宽度，不参与列宽计算）。
-      row.append(name, action, button, enabledLabel, del);
-      const pickerRow = document.createElement('div');
-      pickerRow.className = 'esp-picker-row';
-      pickerRow.append(picker.root, picker.note);
-      row.appendChild(pickerRow);
-
-      item.__node = { name, entity, action, button, enabled };
-      return row;
-    }
-
-    draft.forEach((item) => list.appendChild(rowNode(item)));
-
-    const add = document.createElement('button');
-    add.className = 'btn small';
-    add.type = 'button';
-    add.textContent = '添加控制项';
-    add.addEventListener('click', () => {
-      const item = {
-        id: `a${Date.now().toString(36)}`,
-        name: '',
-        entityId: '',
-        action: 'toggle',
-        button: 0,
-        enabled: false,
-      };
-      draft.push(item);
-      list.appendChild(rowNode(item));
-    });
-    wrap.appendChild(add);
-
-    openDialog({
-      title: `ESP 控制项 · ${machine.name}`,
-      content: wrap,
-      wide: true,
-      onSave: () => {
-        const actions = draft
-          .filter((item) => !item.__removed)
-          .map((item, index) => {
-            const node = item.__node || {};
-            return {
-              id: item.id || `a${index + 1}`,
-              name: node.name ? node.name.value.trim() : '',
-              entityId: node.entity ? node.entity.value.trim() : '',
-              action: node.action ? node.action.value : 'toggle',
-              button: node.button ? Number(node.button.value) : 0,
-              enabled: !!(node.enabled && node.enabled.checked),
-            };
-          })
-          .filter((item) => item.entityId);
-        if (!actions.length) throw new Error('至少保留一个控制项');
-        return api(`/api/admin/machines/${encodeURIComponent(machine.id)}/esp`, {
-          method: 'PUT',
-          body: JSON.stringify({ actions }),
-        });
-      },
-    });
-  }
+  // 系统动作：不调用 HA，服务端只回执给设备做本地切换（分页）。
+  const ESP_SYS_ACTION_LABELS = [
+    ['next_page', '下一页'],
+    ['prev_page', '上一页'],
+    ['home_page', '回首页'],
+  ];
+  const ESP_SYS_VALUES = new Set(ESP_SYS_ACTION_LABELS.map(([value]) => value));
 
   function editHaConfig() {
     const wrap = document.createElement('div');
@@ -3915,16 +4127,18 @@
   function renderDeviceTypes() {
     const list = $('dt-list');
     if (!list || !state.deviceTypes) return;
-    // 统计每种类型被多少台 ESP 设备使用（用已加载的 espDevices，没有则 0）。
+    // 统计每种类型被多少个屏幕页面使用（一个页面 = 一台被控设备）。
     const usage = {};
     for (const dev of (state.espDevices || [])) {
-      const key = dev.deviceType || '';
-      usage[key] = (usage[key] || 0) + 1;
+      for (const page of (dev.espPages || [])) {
+        const key = page.deviceType || '';
+        usage[key] = (usage[key] || 0) + 1;
+      }
     }
     list.innerHTML = state.deviceTypes.map((t) => {
       const active = t.key === state.dtEditKey ? ' active' : '';
       const cus = t.customized ? '<span class="cus" title="已自定义"></span>' : '';
-      const use = usage[t.key] ? `<span class="use">${usage[t.key]} 台</span>` : '';
+      const use = usage[t.key] ? `<span class="use">${usage[t.key]} 页</span>` : '';
       return `<div class="dt-item${active}" data-key="${esc(t.key)}"><span class="ic">${esc(t.icon)}</span><span>${esc(t.label)}</span>${cus}${use}</div>`;
     }).join('');
     list.querySelectorAll('.dt-item').forEach((el) => {
@@ -4276,7 +4490,50 @@
   });
   $('re-run-test').addEventListener('click', runReTest);
 
-  // ------------------------------------------------------------ ESP 设备分类（每台设备）
+  // ------------------------------------------------------------ ESP 设备分类（一页 = 一台被控设备）
+
+  // 单色屏只有亮/灭两级，这里只切换「亮色」，与实物蓝/白/黄三种屏一致。
+  const ESP_THEMES = {
+    blue: { on: '#6cb6ff' },
+    white: { on: '#ffffff' },
+    yellow: { on: '#ffd23f' },
+  };
+
+  // 常用 HA 动作（带参写法与服务端白名单一致）。当前配置不在列表里时，
+  // 下拉会把原值补在最前面，不会被静默改掉。
+  const ESP_HA_ACTIONS = [
+    ['toggle', '切换'],
+    ['turn_on', '开'],
+    ['turn_off', '关'],
+    ['run', '执行'],
+    ['set_temperature(+0.5)', '温度 +'],
+    ['set_temperature(-0.5)', '温度 −'],
+    ['set_percentage(+25)', '数值 +'],
+    ['set_percentage(-25)', '数值 −'],
+    ['next_effect', '下个效果'],
+    ['press', '触发'],
+  ];
+
+  function espUid(prefix) {
+    return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  function newEspPage(index) {
+    return {
+      id: espUid('p'),
+      name: `页面 ${index + 1}`,
+      icon: '',
+      deviceType: '',
+      bindings: { main: '', s1: '', s2: '' },
+      // 自定义显示模板 + 值替换（留空 = 走设备类型字典）
+      tplMain: '',
+      tplSub: '',
+      valueMap: '',
+      buttons: [],
+      loop: true,
+      idle: 0,
+    };
+  }
 
   async function loadEspDevices(force = false) {
     if (state.espDevices && !force) return state.espDevices;
@@ -4289,7 +4546,8 @@
     }
     state.espDevices = machines.filter((m) => {
       const p = String(m.platform || '').toLowerCase();
-      return p.includes('esp') || String(m.model || '').toLowerCase().includes('oled') || !!m.espActions;
+      return p.includes('esp') || String(m.model || '').toLowerCase().includes('oled')
+        || (m.espPages && m.espPages.length > 0);
     });
     if (!state.espDevices.length && machines.length) state.espDevices = machines.slice(); // 兜底：全列出来也能配
     if (state.espDevices.length && !state.espDevEditId) state.espDevEditId = state.espDevices[0].id;
@@ -4297,18 +4555,13 @@
     return state.espDevices;
   }
 
-  async function loadEspDeviceConfig(id) {
-    const data = await api(`/api/admin/machines/${encodeURIComponent(id)}/esp`);
-    return data;
-  }
-
   function renderEspDevices() {
     const list = $('espdev-list');
     if (!list || !state.espDevices) return;
     list.innerHTML = state.espDevices.map((dev) => {
       const active = dev.id === state.espDevEditId ? ' active' : '';
-      const typeLabel = (state.deviceTypes || []).find((t) => t.key === (dev.deviceType || ''));
-      const tag = typeLabel ? typeLabel.label : '未分类';
+      const pages = dev.espPages || [];
+      const tag = pages.length ? `${pages.length} 页` : '未配置';
       return `<div class="espdev-item${active}" data-id="${esc(dev.id)}"><span>${esc(dev.name || dev.id)}</span><span class="tag">${esc(tag)}</span></div>`;
     }).join('');
     list.querySelectorAll('.espdev-item').forEach((el) => {
@@ -4322,89 +4575,652 @@
   }
 
   let espDevDraft = null;
+
+  function espActivePage() {
+    if (!espDevDraft) return null;
+    return espDevDraft.pages.find((p) => p.id === espDevDraft.activePageId) || espDevDraft.pages[0] || null;
+  }
+
+  /** 实体 id → 实体（带 state/attributes），预览用；目录未加载时为空表。 */
+  function espEntityIndex() {
+    if (state.espEntityIndexSrc === state.haEntities && state.espEntityIndexMap) return state.espEntityIndexMap;
+    const map = new Map();
+    for (const entity of ((state.haEntities && state.haEntities.entities) || [])) map.set(entity.id, entity);
+    state.espEntityIndexSrc = state.haEntities;
+    state.espEntityIndexMap = map;
+    return map;
+  }
+
+  function espTypeInfo(key) {
+    const types = state.espTypes || state.deviceTypes || [];
+    return types.find((t) => t.key === (key || '')) || null;
+  }
+
+  /** 空白行清洗：只由 `--` / `·` / 空白组成的行置空（与服务端 ESP 下发一致）。 */
+  function espCleanLine(value) {
+    const text = String(value == null ? '' : value).trim();
+    if (!text) return '';
+    return text.replace(/--/g, '').replace(/·/g, '').trim() ? text : '';
+  }
+
+  /** 值替换表：`on=开启, off=关闭`（逗号 / 分号 / 换行分隔）。 */
+  function espParseValueMap(text) {
+    const map = new Map();
+    String(text || '').split(/[\n,;，；]+/).forEach((line) => {
+      const m = line.match(/^\s*([^=:：]+?)\s*[=:：]\s*(.*?)\s*$/);
+      if (m && m[1]) map.set(m[1], m[2]);
+    });
+    return map;
+  }
+
+  /** 取实体显示值：优先属性，缺失回落 state；命中值替换表则翻译。 */
+  function espEntityValue(index, map, entityId, attr) {
+    const entity = entityId ? index.get(entityId) : null;
+    if (!entity) return '';
+    const attrs = entity.attributes || {};
+    const raw = (attr && attrs[attr] != null && attrs[attr] !== '')
+      ? String(attrs[attr])
+      : (entity.state != null && entity.state !== '' ? String(entity.state) : '');
+    return map.size && map.has(raw) ? map.get(raw) : raw;
+  }
+
+  /** 渲染 `{main}/{s1}/{s2}/{title}/{domain.entity}` 模板（与服务端同构）。 */
+  function espRenderTemplate(tpl, ctx) {
+    return String(tpl || '')
+      .replace(/\{([^{}]+)\}/g, (all, rawKey) => {
+        const key = rawKey.trim();
+        if (key === 'main') return ctx.main;
+        if (key === 's1') return ctx.s1;
+        if (key === 's2') return ctx.s2;
+        if (key === 'title' || key === '名称') return ctx.title;
+        return ctx.entities[key] || '';
+      })
+      .replace(/[ \t]+/g, ' ')
+      .replace(/--/g, '')
+      .trim();
+  }
+
+  /** 字典副状态：缺失的段整段丢弃，避免 `亮度 80% · --`。 */
+  function espRenderSub(tpl, s1, s2) {
+    const MISSING = '\u0000';
+    return String(tpl || '')
+      .replace('{s1}', s1 || MISSING)
+      .replace('{s2}', s2 || MISSING)
+      .split(/\s*·\s*/)
+      .map((part) => part.trim())
+      .filter((part) => part && !part.includes(MISSING))
+      .join(' · ')
+      .replace(/--/g, '')
+      .trim();
+  }
+
+  /** 预览用：按设备类型字典/自定义模板把绑定实体解析成四行文本。 */
+  function espPreviewLines(page) {
+    const type = espTypeInfo(page.deviceType);
+    const dict = (type && type.dict) || { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}' };
+    const index = espEntityIndex();
+    const map = espParseValueMap(page.valueMap);
+    const b = page.bindings || {};
+    const ctx = {
+      main: espEntityValue(index, map, b.main, dict.mainAttr),
+      s1: espEntityValue(index, map, b.s1, 'state'),
+      s2: espEntityValue(index, map, b.s2, 'state'),
+      title: page.name || '',
+      entities: {},
+    };
+    // 模板里直写的实体 id 也从目录里取值。
+    const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
+    const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
+    let m;
+    while ((m = re.exec(tplAll))) ctx.entities[m[1]] = espEntityValue(index, map, m[1], 'state');
+
+    const mainTxt = page.tplMain
+      ? espRenderTemplate(page.tplMain, ctx)
+      : (ctx.main ? espCleanLine(dict.mainFmt.replace('{v}', ctx.main)) : '');
+    const subTxt = page.tplSub
+      ? espRenderTemplate(page.tplSub, ctx)
+      : espCleanLine(espRenderSub(dict.subTpl, ctx.s1, ctx.s2));
+    const keys = (page.buttons || [])
+      .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
+      .sort((a, b2) => Number(a.slot) - Number(b2.slot))
+      .map((item) => `${item.slot}:${String(item.name || item.label || '').trim()}`)
+      .join('  ');
+    return { title: page.name || '未命名', main: mainTxt, sub: subTxt, keys };
+  }
+
+  function espClip(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let out = text;
+    while (out.length && ctx.measureText(`${out}…`).width > maxWidth) out = out.slice(0, -1);
+    return `${out}…`;
+  }
+
+  function drawEspPreview() {
+    const canvas = $('espdev-canvas');
+    const page = espActivePage();
+    if (!canvas || !espDevDraft || !page) return;
+    const ctx = canvas.getContext('2d');
+    const theme = ESP_THEMES[$('espdev-theme').value] || ESP_THEMES.blue;
+    const on = theme.on;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 128, 64);
+    ctx.fillStyle = on;
+    ctx.textBaseline = 'alphabetic';
+
+    // 顶部系统状态栏：页码 + IP + WiFi（固件固定绘制，不参与页面配置）。
+    const index = espDevDraft.pages.indexOf(page) + 1;
+    ctx.font = '8px monospace';
+    ctx.fillText(`${index}/${espDevDraft.pages.length}`, 3, 9);
+    const dev = (state.espDevices || []).find((d) => d.id === espDevDraft.id) || {};
+    if (dev.ip) ctx.fillText(dev.ip, 34, 9);
+    for (let i = 0; i < 3; i += 1) ctx.fillRect(110 + i * 4, 9 - (3 + i * 2), 2, 3 + i * 2);
+
+    const lines = espPreviewLines(page);
+    ctx.font = '10px "Microsoft YaHei", sans-serif';
+    ctx.fillText(espClip(ctx, lines.title, 122), 3, 22);
+    ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+    ctx.fillText(espClip(ctx, lines.main, 122), 3, 38);
+    ctx.font = '8px "Microsoft YaHei", sans-serif';
+    if (lines.sub) ctx.fillText(espClip(ctx, lines.sub, 122), 3, 50);
+    if (lines.keys) {
+      ctx.font = '8px monospace';
+      ctx.fillText(espClip(ctx, lines.keys, 124), 3, 62);
+    }
+
+    const buttonCount = (page.buttons || []).filter((item) => item.enabled !== false).length;
+    const displayCount = ['main', 's1', 's2'].filter((slot) => page.bindings && page.bindings[slot]).length;
+    $('espdev-preview-meta').innerHTML =
+      `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${displayCount} 行显示<br>超宽文字在设备上按各行节拍滚动（预览只显示首屏）`;
+  }
+
+  function renderEspPages() {
+    const box = $('espdev-pages');
+    if (!box) return;
+    if (!espDevDraft) { box.innerHTML = ''; return; }
+    const pages = espDevDraft.pages;
+    $('espdev-pagecount').textContent = `${pages.length} 页`;
+    box.innerHTML = pages.map((page, index) => `
+      <div class="esp-page-chip${page.id === espDevDraft.activePageId ? ' active' : ''}" data-page="${esc(page.id)}">
+        <span>${esc(page.icon || '·')}</span>
+        <span class="nm">${esc(page.name || '未命名')}</span>
+        <span class="num">${index + 1}</span>
+        <button class="x" type="button" data-del="${esc(page.id)}" title="删除这一页">×</button>
+      </div>`).join('')
+      + '<button class="esp-page-add" type="button" id="espdev-addpage">＋ 添加页面</button>';
+
+    box.querySelectorAll('[data-page]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        if (event.target.closest('[data-del]')) return;
+        espDevDraft.activePageId = el.dataset.page;
+        renderEspPages();
+        renderEspPageEditor();
+      });
+    });
+    box.querySelectorAll('[data-del]').forEach((el) => {
+      el.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const page = espDevDraft.pages.find((p) => p.id === el.dataset.del);
+        if (!page) return;
+        if (!confirm(`删除页面「${page.name || '未命名'}」？该页的显示与按键配置会一起删除。`)) return;
+        espDevDraft.pages = espDevDraft.pages.filter((p) => p.id !== page.id);
+        if (!espDevDraft.pages.length) espDevDraft.pages.push(newEspPage(0));
+        espDevDraft.activePageId = espDevDraft.pages[0].id;
+        renderEspPages();
+        renderEspPageEditor();
+      });
+    });
+    $('espdev-addpage').addEventListener('click', addEspPage);
+  }
+
+  function addEspPage() {
+    if (!espDevDraft) return;
+    const page = newEspPage(espDevDraft.pages.length);
+    espDevDraft.pages.push(page);
+    espDevDraft.activePageId = page.id;
+    renderEspPages();
+    renderEspPageEditor();
+  }
+
+  function renderEspPageEditor() {
+    const host = $('espdev-editor');
+    const page = espActivePage();
+    if (!host) return;
+    if (!espDevDraft || !page) {
+      host.innerHTML = '<div class="empty">请选择左侧设备</div>';
+      return;
+    }
+    $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
+    const types = state.espTypes || [];
+    const typeOpts = ['<option value="">通用兜底（domain + state）</option>']
+      .concat(types.filter((t) => t.key).map((t) =>
+        `<option value="${esc(t.key)}" ${t.key === page.deviceType ? 'selected' : ''}>${esc(t.label || t.key)}</option>`))
+      .join('');
+    const bindInput = (slot, label) =>
+      `<label>${label}<div class="esp-ent-cell">
+        <input data-bind="${slot}" value="${esc((page.bindings && page.bindings[slot]) || '')}" placeholder="entity_id" autocomplete="off">
+        <button class="btn small" type="button" data-bind-pick="${slot}">选择</button>
+      </div></label>`;
+
+    // 设备本机上报的槽位→GPIO。后台只展示，不反向下发；
+    // 槽位 0 显示「—」，本机没启用的槽位显示「未映射」。
+    const pinMap = new Map((espDevDraft.buttons || []).map((item) => [Number(item.slot), Number(item.pin)]));
+    const pinOf = (slot) => {
+      const n = Number(slot);
+      if (!n) return { text: '—', mapped: true };
+      if (pinMap.has(n)) return { text: `GPIO${pinMap.get(n)}`, mapped: true };
+      return { text: '未映射', mapped: false };
+    };
+    const mappingText = pinMap.size
+      ? [...pinMap.entries()].sort((a, b) => a[0] - b[0]).map(([slot, pin]) => `${slot}→GPIO${pin}`).join(' · ')
+      : '设备尚未上报';
+    const missingSlots = [...new Set((page.buttons || [])
+      .filter((item) => item.enabled !== false && Number(item.slot) >= 1 && !pinMap.has(Number(item.slot)))
+      .map((item) => Number(item.slot)))].sort((a, b) => a - b);
+
+    const buttonRow = (button, index) => {
+      const isSys = button.kind === 'sys';
+      const pin = pinOf(button.slot);
+      const actionValue = isSys ? button.action : `${button.action}${button.param ? `(${button.param})` : ''}`;
+      const actionList = isSys ? ESP_SYS_ACTION_LABELS : ESP_HA_ACTIONS;
+      let actionOpts = actionList
+        .map(([value, label]) => `<option value="${value}" ${value === actionValue ? 'selected' : ''}>${label}</option>`)
+        .join('');
+      if (!actionList.some(([value]) => value === actionValue)) {
+        actionOpts = `<option value="${esc(actionValue)}" selected>${esc(actionValue)}</option>${actionOpts}`;
+      }
+      const slotOpts = ['<option value="0">—</option>']
+        .concat(Array.from({ length: 8 }, (_, i) =>
+          `<option value="${i + 1}" ${Number(button.slot) === i + 1 ? 'selected' : ''}>${i + 1}</option>`))
+        .join('');
+      const total = (page.buttons || []).length;
+      return `<tr data-btn="${esc(button.id)}">
+        <td class="slot-cell"><select data-f="slot">${slotOpts}</select></td>
+        <td><span class="pin-badge${pin.mapped ? '' : ' off'}">${esc(pin.text)}</span></td>
+        <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
+        <td><div class="esp-action-cell">
+          <select data-f="kind">
+            <option value="ha" ${isSys ? '' : 'selected'}>HA 动作</option>
+            <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
+          </select>
+          <select data-f="action">${actionOpts}</select>
+        </div></td>
+        <td><div class="esp-ent-cell">
+          <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off" ${isSys ? 'disabled' : ''}>
+          <button class="btn small" type="button" data-pickbtn="${esc(button.id)}" ${isSys ? 'disabled' : ''}>选择</button>
+        </div></td>
+        <td class="ops-cell">
+          <button class="move-btn" type="button" data-upbtn="${esc(button.id)}" title="上移" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button class="move-btn" type="button" data-downbtn="${esc(button.id)}" title="下移" ${index >= total - 1 ? 'disabled' : ''}>↓</button>
+          <button class="del-btn" type="button" data-delbtn="${esc(button.id)}" title="删除">×</button>
+        </td>
+      </tr>`;
+    };
+
+    host.innerHTML = `
+      <div class="esp-section">
+        <h4>① 页面属性</h4>
+        <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
+        <div class="esp-field-row"><label>图标</label><input id="esp-page-icon" maxlength="2" value="${esc(page.icon || '')}" style="width:70px"></div>
+        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。</p>
+      </div>
+      <div class="esp-section">
+        <h4>② 屏幕显示内容 <span class="tag">由设备类型字典生成</span></h4>
+        <div class="esp-field-row"><label>设备类型</label><select id="esp-page-type">${typeOpts}</select></div>
+        <div class="esp-bind-grid">${bindInput('main', '主状态')}${bindInput('s1', '副状态 1')}${bindInput('s2', '副状态 2')}</div>
+        <p class="hint">点「选择」按家庭 / 房间 / 设备筛选实体，弹窗里会显示当前状态值；也可以直接手填 entity_id。四行文字由「设备类型字典」统一解析，home 端与屏幕同时生效。</p>
+        <div class="esp-field-row"><label>主状态模板</label>
+          <div class="esp-ent-cell">
+            <input id="esp-tpl-main" maxlength="120" value="${esc(page.tplMain || '')}" placeholder="例：卧室{switch.bedroom} 走廊{switch.corridor}">
+            <button class="btn small" type="button" data-tpl-pick="main">插入实体</button>
+          </div>
+        </div>
+        <div class="esp-field-row"><label>副状态模板</label>
+          <div class="esp-ent-cell">
+            <input id="esp-tpl-sub" maxlength="120" value="${esc(page.tplSub || '')}" placeholder="例：厨房开关：{switch.kitchen}">
+            <button class="btn small" type="button" data-tpl-pick="sub">插入实体</button>
+          </div>
+        </div>
+        <div class="esp-field-row"><label>值替换</label>
+          <input id="esp-value-map" maxlength="300" value="${esc(String(page.valueMap || '').replace(/\n/g, '，'))}" placeholder="on=开启, off=关闭">
+        </div>
+        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可直接搜家庭/房间/设备。值替换用逗号分隔，缺值的段会自动省略（不会留下 <b>--</b> 或 <b>·</b>）。</p>
+      </div>
+      <div class="esp-section">
+        <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>
+        <div class="esp-map-line">
+          本机按键映射（设备上报）：<b>${esc(mappingText)}</b>
+          <button class="btn small" type="button" id="esp-refresh-pins">刷新引脚</button>
+        </div>
+        ${missingSlots.length ? `<div class="esp-warn">槽位 ${missingSlots.join('、')} 在本机未启用：按下不会触发。请到设备设置页「物理按键槽位」添加或修改 GPIO，或把按键改到已映射的槽位。</div>` : ''}
+        <table class="esp-btn-table">
+          <thead><tr><th>槽位</th><th>板上 GPIO</th><th>按键名称</th><th>行为</th><th>实体</th><th></th></tr></thead>
+          <tbody id="esp-btn-rows">${(page.buttons || []).map(buttonRow).join('')}</tbody>
+        </table>
+        <div class="dt-actions">
+          <button class="btn small" type="button" id="esp-add-btn">＋ 添加按键</button>
+        </div>
+        <p class="hint">「板上 GPIO」来自设备心跳上报的实际槽位映射（后台只读）。显示「未映射」说明本机没启用该槽位，按下不会触发；名称直接用完整文案，屏幕底部提示行放不下会自动滚动。</p>
+      </div>
+      <div class="esp-section">
+        <h4>④ 翻页与安全</h4>
+        <div class="esp-field-row"><label>循环翻页</label>
+          <select id="esp-page-loop">
+            <option value="1" ${page.loop !== false ? 'selected' : ''}>是（末页回到首页）</option>
+            <option value="0" ${page.loop === false ? 'selected' : ''}>否（末页停住）</option>
+          </select>
+        </div>
+        <div class="esp-field-row"><label>空闲返回</label>
+          <select id="esp-page-idle">
+            <option value="0" ${!page.idle ? 'selected' : ''}>不自动返回</option>
+            <option value="60" ${Number(page.idle) === 60 ? 'selected' : ''}>60 秒无操作回首页</option>
+            <option value="300" ${Number(page.idle) === 300 ? 'selected' : ''}>5 分钟无操作回首页</option>
+          </select>
+        </div>
+        <p class="hint">翻页不需要额外硬件：把任意槽位的行为设为「下一页」即可。</p>
+      </div>
+      <div class="dt-actions">
+        <button class="btn primary small" type="button" id="esp-save">保存并下发</button>
+        <button class="btn small" type="button" id="esp-edit-dict">编辑此类型字典 →</button>
+        <span class="hint" style="align-self:center">保存后设备下次心跳自动生效</span>
+      </div>`;
+
+    $('esp-page-name').addEventListener('input', (event) => {
+      page.name = event.target.value;
+      $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
+      renderEspPages();
+    });
+    $('esp-page-icon').addEventListener('input', (event) => {
+      page.icon = event.target.value;
+      renderEspPages();
+    });
+    $('esp-page-type').addEventListener('change', (event) => {
+      page.deviceType = event.target.value;
+      drawEspPreview();
+    });
+    $('esp-tpl-main').addEventListener('input', (event) => {
+      page.tplMain = event.target.value;
+      drawEspPreview();
+    });
+    $('esp-tpl-sub').addEventListener('input', (event) => {
+      page.tplSub = event.target.value;
+      drawEspPreview();
+    });
+    $('esp-value-map').addEventListener('input', (event) => {
+      page.valueMap = event.target.value;
+      drawEspPreview();
+    });
+    // 「插入实体」：在光标处插入 {entity_id}，绑定数量不够时可直接引用任意实体。
+    host.querySelectorAll('[data-tpl-pick]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const which = btn.dataset.tplPick;
+        const input = which === 'main' ? $('esp-tpl-main') : $('esp-tpl-sub');
+        openEntityPicker({
+          title: which === 'main' ? '插入实体到主状态模板' : '插入实体到副状态模板',
+          onPick: (entity) => {
+            const token = `{${entity.id}}`;
+            const start = input.selectionStart == null ? input.value.length : input.selectionStart;
+            const end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
+            input.value = input.value.slice(0, start) + token + input.value.slice(end);
+            const pos = start + token.length;
+            if (which === 'main') page.tplMain = input.value;
+            else page.tplSub = input.value;
+            input.focus();
+            input.setSelectionRange(pos, pos);
+            drawEspPreview();
+          },
+        });
+      });
+    });
+    host.querySelectorAll('[data-bind]').forEach((el) => {
+      el.addEventListener('input', () => {
+        page.bindings[el.dataset.bind] = el.value.trim();
+        drawEspPreview();
+      });
+    });
+    // 「选择」按钮：打开实体弹窗（家庭/房间/设备筛选 + 当前状态值）。
+    const bindLabels = { main: '主状态', s1: '副状态 1', s2: '副状态 2' };
+    host.querySelectorAll('[data-bind-pick]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const slot = btn.dataset.bindPick;
+        openEntityPicker({
+          title: `选择显示实体 · ${bindLabels[slot] || slot}`,
+          value: page.bindings[slot] || '',
+          onPick: (entity) => {
+            page.bindings[slot] = entity.id;
+            renderEspPageEditor();
+          },
+        });
+      });
+    });
+    $('esp-page-loop').addEventListener('change', (event) => {
+      page.loop = event.target.value === '1';
+    });
+    $('esp-page-idle').addEventListener('change', (event) => {
+      page.idle = Number(event.target.value) || 0;
+    });
+    $('esp-add-btn').addEventListener('click', () => {
+      page.buttons.push({
+        id: espUid('b'), name: '', label: '',
+        kind: 'ha', action: 'toggle', param: '',
+        entityId: '', slot: 0, enabled: true,
+      });
+      renderEspPageEditor();
+    });
+    $('esp-refresh-pins').addEventListener('click', refreshEspPins);
+    $('esp-save').addEventListener('click', saveEspPages);
+    $('esp-edit-dict').addEventListener('click', () => {
+      state.dtEditKey = page.deviceType || '';
+      activateTab('device-types');
+    });
+
+    host.querySelectorAll('tr[data-btn]').forEach((tr) => {
+      const button = page.buttons.find((item) => item.id === tr.dataset.btn);
+      if (!button) return;
+      tr.querySelectorAll('[data-f]').forEach((el) => {
+        const field = el.dataset.f;
+        const commit = () => {
+          if (field === 'slot') button.slot = Number(el.value) || 0;
+          else if (field === 'name') button.name = el.value;
+          else if (field === 'entity') {
+            button.entityId = el.value.trim();
+            // 名称留空时，选中已知实体就用它的人类可读名称自动补上。
+            if (!button.name && button.entityId) {
+              const entity = espEntityIndex().get(button.entityId);
+              if (entity && entity.name) {
+                button.name = String(entity.name).slice(0, 40);
+                renderEspPageEditor();
+                return;
+              }
+            }
+          } else if (field === 'kind') {
+            button.kind = el.value === 'sys' ? 'sys' : 'ha';
+            button.action = button.kind === 'sys' ? 'next_page' : 'toggle';
+            button.param = '';
+            button.entityId = '';
+            if (!button.name) button.name = button.kind === 'sys' ? '下一页' : '切换';
+          } else if (field === 'action') {
+            const value = el.value;
+            const isSys = ESP_SYS_VALUES.has(value);
+            const m = value.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
+            button.kind = isSys ? 'sys' : 'ha';
+            button.action = m ? m[1] : value;
+            button.param = !isSys && m && m[2] != null ? m[2] : '';
+            if (isSys) button.entityId = '';
+            if (!button.name && el.selectedIndex >= 0) button.name = el.options[el.selectedIndex].text;
+          }
+          drawEspPreview();
+          if (field === 'kind' || field === 'action') renderEspPageEditor();
+        };
+        el.addEventListener('change', commit);
+        if (field === 'name' || field === 'entity') el.addEventListener('input', commit);
+      });
+      const pick = tr.querySelector('[data-pickbtn]');
+      if (pick) {
+        pick.addEventListener('click', () => {
+          openEntityPicker({
+            title: `选择按键实体${button.name ? ` · ${button.name}` : ''}`,
+            value: button.entityId || '',
+            actionableOnly: true,
+            onPick: (entity) => {
+              button.entityId = entity.id;
+              if (!button.name) button.name = String(entity.name || '').slice(0, 40);
+              renderEspPageEditor();
+            },
+          });
+        });
+      }
+      const del = tr.querySelector('[data-delbtn]');
+      if (del) {
+        del.addEventListener('click', () => {
+          page.buttons = page.buttons.filter((item) => item.id !== button.id);
+          renderEspPageEditor();
+        });
+      }
+      // 上移 / 下移：直接交换数组顺序，不用删掉重填。
+      const move = (offset) => {
+        const from = page.buttons.indexOf(button);
+        const to = from + offset;
+        if (from < 0 || to < 0 || to >= page.buttons.length) return;
+        page.buttons.splice(from, 1);
+        page.buttons.splice(to, 0, button);
+        renderEspPageEditor();
+      };
+      const up = tr.querySelector('[data-upbtn]');
+      if (up) up.addEventListener('click', () => move(-1));
+      const down = tr.querySelector('[data-downbtn]');
+      if (down) down.addEventListener('click', () => move(1));
+    });
+
+    drawEspPreview();
+  }
+
+  /** 只刷新设备上报的槽位→GPIO，不丢当前页未保存的编辑。 */
+  async function refreshEspPins() {
+    if (!espDevDraft) return;
+    try {
+      const cfg = await api(`/api/admin/machines/${encodeURIComponent(espDevDraft.id)}/pages`);
+      espDevDraft.buttons = Array.isArray(cfg.buttons) ? cfg.buttons : [];
+      renderEspPageEditor();
+      toast('已刷新本机引脚映射', 'success');
+    } catch (error) {
+      toast('刷新失败：' + error.message, 'error');
+    }
+  }
+
   async function openEspDevEditor(id) {
     const host = $('espdev-editor');
     host.innerHTML = '<div class="empty">加载中…</div>';
+    $('espdev-pages').innerHTML = '';
+    $('espdev-pagecount').textContent = '';
+    // 实体目录只影响下拉候选；没加载成功也能手填 entity_id。
+    if (!state.haEntities) {
+      try { await loadHaEntities(); } catch (_) { /* 忽略 */ }
+    }
     let cfg;
-    try { cfg = await loadEspDeviceConfig(id); }
-    catch (error) { host.innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; return; }
+    try {
+      cfg = await api(`/api/admin/machines/${encodeURIComponent(id)}/pages`);
+    } catch (error) {
+      host.innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`;
+      return;
+    }
+    state.espTypes = cfg.types || state.deviceTypes || [];
     const dev = state.espDevices.find((d) => d.id === id) || {};
+    const pages = (cfg.pages || []).map((page) => ({
+      id: page.id,
+      name: page.name,
+      icon: page.icon || '',
+      deviceType: page.deviceType || '',
+      bindings: Object.assign({ main: '', s1: '', s2: '' }, page.bindings || {}),
+      tplMain: page.tplMain || '',
+      tplSub: page.tplSub || '',
+      valueMap: page.valueMap || '',
+      buttons: (page.buttons || []).map((button) => ({ ...button })),
+      loop: page.loop !== false,
+      idle: Number(page.idle) || 0,
+    }));
+    if (!pages.length) pages.push(newEspPage(0));
     espDevDraft = {
       id,
-      deviceType: cfg.deviceType || dev.deviceType || '',
-      bindings: cfg.bindings || { main: '', s1: '', s2: '' },
-      actions: cfg.actions || [],
+      name: dev.name || id,
+      pages,
+      activePageId: pages[0].id,
+      // 设备本机上报的槽位→GPIO（read-only），用于在后台显示实际引脚。
+      buttons: Array.isArray(cfg.buttons) ? cfg.buttons : [],
     };
-    $('espdev-title').textContent = `分类配置 · ${dev.name || id}`;
-    const types = state.deviceTypes || cfg.types || [];
-    const typeOpts = types.map((t) => `<option value="${esc(t.key)}" ${t.key === espDevDraft.deviceType ? 'selected' : ''}>${esc(t.label || '通用兜底')}</option>`).join('');
-    const entOpts = ((state.haEntities && state.haEntities.entities) || []).map((e) => `<option value="${esc(e.id)}">${esc(e.name)} · ${esc(e.id)}</option>`).join('');
-    const bindRow = (slot, label) => `<div class="bind-row"><label>${label}</label><select id="eb-${slot}"><option value="">（不绑定）</option>${entOpts}</select></div>`;
-    host.innerHTML = `
-      <div class="espdev-grid">
-        <div class="dt-field">
-          <label>设备类型（显式声明，不靠后缀猜）</label>
-          <select id="eb-type">${typeOpts}</select>
-        </div>
-        <div>
-          <h4>显示实体绑定</h4>
-          <p class="field-note">指定哪个实体做主状态、哪两个做副状态。实体目录未加载时下拉为空，可先到「HA 实体库」页点一次刷新。</p>
-          ${bindRow('main', '主状态')}${bindRow('s1', '副状态 1')}${bindRow('s2', '副状态 2')}
-        </div>
-        <div>
-          <h4>命中的字典规则</h4>
-          <div class="dict-rule" id="eb-rule">—</div>
-        </div>
-        <div class="dt-actions">
-          <button class="btn primary small" id="espdev-save" type="button">保存分类</button>
-          <button class="btn small" id="espdev-edit-dict" type="button">编辑此类型字典 →</button>
-          <button class="btn small" id="espdev-edit-actions" type="button">配置按键动作</button>
-        </div>
-      </div>`;
-    // 预填已保存的绑定
-    for (const slot of ['main', 's1', 's2']) {
-      if (espDevDraft.bindings[slot]) $('eb-' + slot).value = espDevDraft.bindings[slot];
+
+    // 从「HA 实体库 → 绑定到 ESP」跳过来：预填成当前页的一个按键。
+    const preset = state.espPreset;
+    if (preset && preset.deviceId === id) {
+      pages[0].buttons.push({
+        id: espUid('b'),
+        name: preset.name || '',
+        label: preset.name || '',
+        kind: 'ha',
+        action: 'toggle',
+        param: '',
+        entityId: preset.entityId,
+        slot: 0,
+        enabled: true,
+      });
+      state.espPreset = null;
     }
-    const updateRule = () => {
-      const key = $('eb-type').value;
-      const t = types.find((x) => x.key === key);
-      $('eb-rule').innerHTML = t
-        ? `主状态取 <code>${esc(t.dict.mainAttr)}</code> → <code>${esc(t.dict.mainFmt)}</code><br>副状态拼 <code>${esc(t.dict.subTpl)}</code><br>home 标签 <code>${esc(t.dict.homeLabel)}</code> · 步长 <code>${esc(t.dict.step)}</code>`
-        : '—';
-    };
-    $('eb-type').addEventListener('change', updateRule);
-    updateRule();
-    $('espdev-save').addEventListener('click', () => saveEspDevConfig(id));
-    $('espdev-edit-dict').addEventListener('click', () => {
-      state.dtEditKey = $('eb-type').value;
-      activateTab('device-types');
-    });
-    $('espdev-edit-actions').addEventListener('click', () => {
-      // 复用设备状态页里的 ESP 控制项弹窗
-      const devObj = state.espDevices.find((d) => d.id === id);
-      if (devObj && typeof editEspActions === 'function') editEspActions(devObj);
-    });
+
+    $('espdev-title').textContent = `页面配置 · ${espDevDraft.name}`;
+    renderEspPages();
+    renderEspPageEditor();
   }
 
-  async function saveEspDevConfig(id) {
+  async function saveEspPages() {
+    if (!espDevDraft) return;
+    const activeId = espDevDraft.activePageId;
     const payload = {
-      espDisplay: {
-        deviceType: $('eb-type').value,
-        bindings: { main: $('eb-main').value, s1: $('eb-s1').value, s2: $('eb-s2').value },
-      },
-      actions: espDevDraft ? espDevDraft.actions : [],
+      pages: espDevDraft.pages.map((page) => ({
+        id: page.id,
+        name: page.name,
+        icon: page.icon,
+        deviceType: page.deviceType,
+        bindings: page.bindings,
+        tplMain: page.tplMain || '',
+        tplSub: page.tplSub || '',
+        valueMap: page.valueMap || '',
+        loop: page.loop !== false,
+        idle: Number(page.idle) || 0,
+        buttons: (page.buttons || []).map((button) => ({
+          id: button.id,
+          name: button.name || '',
+          // label 仅保留给旧固件协议，值与完整名称一致，不再截短。
+          label: button.name || button.label || '',
+          kind: button.kind === 'sys' ? 'sys' : 'ha',
+          action: button.kind === 'sys'
+            ? button.action
+            : `${button.action}${button.param ? `(${button.param})` : ''}`,
+          entityId: button.kind === 'sys' ? '' : (button.entityId || ''),
+          slot: Number(button.slot) || 0,
+          enabled: button.enabled !== false,
+        })),
+      })),
     };
+    const id = espDevDraft.id;
     try {
-      await api(`/api/admin/machines/${encodeURIComponent(id)}/esp`, { method: 'PUT', body: JSON.stringify(payload) });
-      toast('设备分类已保存', 'success');
-      // 更新本地缓存的分类标签
-      const dev = state.espDevices.find((d) => d.id === id);
-      if (dev) dev.deviceType = payload.espDisplay.deviceType;
-      await loadDeviceTypes(true);
+      await api(`/api/admin/machines/${encodeURIComponent(id)}/pages`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      toast('页面配置已保存，设备下次心跳自动生效', 'success');
       await loadEspDevices(true);
       await openEspDevEditor(id);
-    } catch (error) { toast('保存失败：' + error.message, 'error'); }
+      // 回到保存前选中的页，避免保存后跳回第 1 页。
+      if (espDevDraft && espDevDraft.pages.some((page) => page.id === activeId)) {
+        espDevDraft.activePageId = activeId;
+        renderEspPages();
+        renderEspPageEditor();
+      }
+    } catch (error) {
+      toast('保存失败：' + error.message, 'error');
+    }
   }
+
+  if ($('espdev-theme')) $('espdev-theme').addEventListener('change', drawEspPreview);
 
   // 设备类型字典 / ESP 设备分类的刷新按钮
   if ($('dt-reload')) $('dt-reload').addEventListener('click', () => {

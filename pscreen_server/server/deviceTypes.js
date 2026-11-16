@@ -411,21 +411,37 @@ function resolveDisplay({ deviceType, bindings, states, deviceName, buttonText }
     const s1State = b.s1 ? stateMap[b.s1] : null;
     const s2State = b.s2 ? stateMap[b.s2] : null;
 
+    // 缺失值返回 null（而不是 '--'）：上层据此把整行/整段留白。
+    // 例如副状态只绑了 s1 时，subTpl `{s1} · {s2}` 不能渲染成 `亮度 80% · --`。
     function valueOf(stateObj, attr) {
-        if (!stateObj) return '--';
+        if (!stateObj) return null;
         const attrs = stateObj.attributes || {};
         const v = attrs[attr];
         if (v != null && v !== '') return String(v);
         if (stateObj.state != null && stateObj.state !== '') return String(stateObj.state);
-        return '--';
+        return null;
+    }
+
+    // 用哨兵标记缺失段：按 `·` 切开后，含缺失值的段整段丢弃，
+    // 这样既不会留下 `--`，也不会留下 `·` 或 `目标 °C` 这种半个单位。
+    const MISSING = '\u0000';
+    function renderSub(tpl, s1Value, s2Value) {
+        const text = String(tpl || '')
+            .replace('{s1}', s1Value == null ? MISSING : s1Value)
+            .replace('{s2}', s2Value == null ? MISSING : s2Value);
+        return text.split(/\s*·\s*/)
+            .map((part) => part.trim())
+            .filter((part) => part !== '' && !part.includes(MISSING))
+            .join(' · ')
+            .replace(/--/g, '')
+            .trim();
     }
 
     const mainValue = valueOf(mainState, dict.mainAttr);
-    const s1Value = valueOf(s1State, 'state');
-    const s2Value = valueOf(s2State, 'state');
-
-    const main = dict.mainFmt.replace('{v}', mainValue);
-    const sub = dict.subTpl.replace('{s1}', s1Value).replace('{s2}', s2Value);
+    const main = mainValue == null
+        ? ''
+        : dict.mainFmt.replace('{v}', mainValue).replace(/--/g, '').trim();
+    const sub = renderSub(dict.subTpl, valueOf(s1State, 'state'), valueOf(s2State, 'state'));
     const title = deviceName || '';
     const keys = buttonText || '';
 

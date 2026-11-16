@@ -63,10 +63,12 @@ const MAX_AVATAR_URL_LEN = 512;
 const MAX_MACHINE_NAME = 40;
 const MAX_ALIAS_LENGTH = 40;
 const UNNAMED_DEVICE = '未命名设备';
-// ESP 小屏控制项：单台设备最多配置多少个可控制实体（白名单）。
-// 按钮槽位 1..4 与固件 esp_devices 的 BTN_PINS 顺序一致；0 表示只允许在网页里点。
-const MAX_ESP_ACTIONS = 20;
-const MAX_ESP_BUTTONS = 4;
+// ESP 屏幕页面：一页 = 一台被控设备（屏幕内容 + 一组按键）。
+// 页面数量上限只是防御性约束；按键槽位 1..8 是逻辑编号，物理 GPIO 在
+// 设备本地设置页分配（NVS），后台只引用槽位号，换接线不用改配置。
+const MAX_ESP_PAGES = 12;
+const MAX_ESP_BUTTONS = 8;
+const MAX_ESP_BUTTONS_PER_PAGE = 8;
 const ESP_ENTITY_RE = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i;
 // S5：带参动作与系统动作一并纳入白名单，配合字典里 set_temperature(+0.5) 这类带值写法。
 // 解析时按「动作名(参数)」拆开，动作名必须落在白名单里才放行。
@@ -253,62 +255,207 @@ function normalizeMachineAliases(value) {
     return result;
 }
 
-/**
- * ESP 控制项归一（白名单）。
- *
- * 「不想所有都开放」由这里兜底：只有 `enabled === true` 的项才会下发给设备，
- * 设备按键时服务端也只认已启用的项。非法实体 / 动作直接丢弃，避免把
- * 设备变成任意服务调用器。
- */
-function normalizeEspActions(value) {
-    if (!Array.isArray(value)) return [];
-    const list = [];
-    const seen = new Set();
-    for (const raw of value) {
-        if (!raw || typeof raw !== 'object') continue;
-        // 先判动作：系统动作（翻页等）没有 entityId，不能走下面的实体校验。
-        const rawAction = String(raw.action || 'toggle').trim();
-        const isSys = ESP_SYS_ACTIONS.has(rawAction);
-        const entityId = String(raw.entityId || '').trim().slice(0, 128);
-        if (!isSys && !ESP_ENTITY_RE.test(entityId)) continue;
-        let id = String(raw.id || '').trim();
-        if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `a${list.length + 1}`;
-        while (seen.has(id)) id = `${id}x`;
-        seen.add(id);
-        const name = String(raw.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || rawAction;
-        // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
-        // 拆成 {kind, param}，只按 kind 做白名单校验，参数原样保留给 callHaService。
-        const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
-        const kind = isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
-        const param = m && m[2] != null ? m[2].slice(0, 40) : '';
-        const button = Number(raw.button);
-        list.push({
-            id,
-            name,
-            entityId: isSys ? '' : entityId,
-            action: kind,
-            param,
-            sys: isSys,
-            // 0 = 不绑物理按钮（仅网页/接口测试用）；1..4 对应固件 BTN_PINS 顺序
-            button: Number.isInteger(button) && button >= 1 && button <= MAX_ESP_BUTTONS ? button : 0,
-            enabled: raw.enabled === true,
-        });
-        if (list.length >= MAX_ESP_ACTIONS) break;
-    }
-    return list;
-}
-
-/** ESP 设备的显示绑定：哪个实体做主状态 / 副状态1 / 副状态2。 */
-function normalizeEspDisplay(value) {
-    if (!value || typeof value !== 'object') return { deviceType: '', bindings: { main: '', s1: '', s2: '' } };
-    const deviceType = deviceTypes.typeKeys.has(value.deviceType) ? value.deviceType : '';
-    const src = value.bindings && typeof value.bindings === 'object' ? value.bindings : {};
+/** 显示绑定：哪个实体做主状态 / 副状态1 / 副状态2（格式非法一律置空）。 */
+function normalizeEspBindings(value) {
+    const src = value && typeof value === 'object' ? value : {};
     const bindings = {};
     for (const slot of ['main', 's1', 's2']) {
         const entityId = String(src[slot] || '').trim().slice(0, 128);
         bindings[slot] = ESP_ENTITY_RE.test(entityId) ? entityId : '';
     }
-    return { deviceType, bindings };
+    return bindings;
+}
+
+/** 设备类型 key 只做格式校验，不认识的自定义 key 交给字典层回落。 */
+function normalizeEspTypeKey(value) {
+    const raw = String(value || '').trim();
+    return /^[a-z][a-z0-9_]{0,39}$/i.test(raw) ? raw : '';
+}
+
+/** 自定义模板：单行文案，`|` 是文本协议分隔符，必须挡掉。 */
+function normalizeEspTemplate(value) {
+    return String(value || '')
+        .replace(/[|\r\n]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+}
+
+/** 值替换表：允许多行，`on=开启` / `off=关闭`；只挡掉协议分隔符 `|`。 */
+function normalizeEspValueMap(value) {
+    return String(value || '')
+        .replace(/\r/g, '')
+        .replace(/\|/g, ' ')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 50)
+        .join('\n')
+        .slice(0, 800);
+}
+
+/**
+ * 单个按键归一（白名单）。
+ *
+ * `kind=sys` 是翻页/回首页这类系统动作，不需要实体；`kind=ha` 必须带合法
+ * entity_id，且动作名落在白名单里。非法项直接丢弃，避免把设备变成任意
+ * 服务调用器。`slot=0` 表示只在网页里点，不绑物理按键。
+ */
+function normalizeEspButton(raw, index, usedSlots) {
+    if (!raw || typeof raw !== 'object') return null;
+    // 动作别名：原型里「回首页」写成 home，统一归一到 home_page。
+    const rawActionText = String(raw.action || 'toggle').trim();
+    const rawAction = rawActionText === 'home' ? 'home_page' : rawActionText;
+    const isSys = ESP_SYS_ACTIONS.has(rawAction);
+    const entityId = String(raw.entityId || '').trim().slice(0, 128);
+    if (!isSys && !ESP_ENTITY_RE.test(entityId)) return null;
+    // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
+    // 拆成 {action, param}，只按动作名做白名单校验，参数原样留给 callHaService。
+    const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
+    const action = isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
+    const param = !isSys && m && m[2] != null ? m[2].slice(0, 40) : '';
+    let id = String(raw.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
+    const name = String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || action;
+    // 名称就是屏幕上显示的文字，不再另存「短标签」：底部提示行本来就会按
+    // 自己的节拍滚动，放不下时自动走马灯，不需要提前缩成两个字。
+    // 旧数据里的 label 可能是被截断的短名，这里统一以完整 name 为准。
+    const label = name;
+    const rawSlot = Number(raw.slot == null ? raw.button : raw.slot);
+    let slot = Number.isInteger(rawSlot) && rawSlot >= 1 && rawSlot <= MAX_ESP_BUTTONS ? rawSlot : 0;
+    // 同一页一个槽位只能绑一个动作：重复的自动降级为「仅网页」，避免按键歧义。
+    if (slot && usedSlots && usedSlots.has(slot)) slot = 0;
+    if (slot && usedSlots) usedSlots.add(slot);
+    return {
+        id,
+        name,
+        label,
+        entityId: isSys ? '' : entityId,
+        kind: isSys ? 'sys' : 'ha',
+        action,
+        param,
+        slot,
+        enabled: raw.enabled !== false,
+    };
+}
+
+/** 单页归一：页面名 + 图标 + 显示类型/绑定 + 按键表 + 翻页/空闲策略。 */
+function normalizeEspPage(raw, index) {
+    if (!raw || typeof raw !== 'object') return null;
+    let id = String(raw.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `p${index + 1}`;
+    const name = String(raw.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 20) || `页面 ${index + 1}`;
+    const icon = String(raw.icon || '').trim().slice(0, 2);
+    const buttons = [];
+    const usedSlots = new Set();
+    const seenIds = new Set();
+    const rawButtons = Array.isArray(raw.buttons) ? raw.buttons : [];
+    for (const item of rawButtons) {
+        if (buttons.length >= MAX_ESP_BUTTONS_PER_PAGE) break;
+        const button = normalizeEspButton(item, buttons.length, usedSlots);
+        if (!button) continue;
+        while (seenIds.has(button.id)) button.id = `${button.id}x`;
+        seenIds.add(button.id);
+        buttons.push(button);
+    }
+    const idleRaw = Number(raw.idle);
+    const idle = Number.isFinite(idleRaw) && idleRaw > 0 ? Math.min(Math.round(idleRaw), 3600) : 0;
+    return {
+        id,
+        name,
+        icon,
+        deviceType: normalizeEspTypeKey(raw.deviceType),
+        bindings: normalizeEspBindings(raw.bindings),
+        // 自定义显示模板与值替换：留空则完全走设备类型字典。
+        tplMain: normalizeEspTemplate(raw.tplMain),
+        tplSub: normalizeEspTemplate(raw.tplSub),
+        valueMap: normalizeEspValueMap(raw.valueMap),
+        buttons,
+        loop: raw.loop !== false,
+        idle,
+    };
+}
+
+/**
+ * 旧数据迁移：平铺 espActions（带 page/button）+ 设备级 espDisplay →
+ * 页面数组。只读路径调用，用户无感；下一次保存时落成新结构。
+ */
+function migrateEspActionsToPages(actions, display, deviceName) {
+    const groups = new Map();
+    for (const item of actions) {
+        if (!item || typeof item !== 'object') continue;
+        const page = Number(item.page) || 1;
+        if (!groups.has(page)) groups.set(page, []);
+        groups.get(page).push(item);
+    }
+    const disp = display && typeof display === 'object' ? display : {};
+    const pages = [];
+    for (const [pageNo, items] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+        pages.push({
+            id: `p${pageNo}`,
+            // 第 1 页沿用设备名做标题，保持旧版屏幕的观感；后续页面用通用名。
+            name: pageNo === 1 && deviceName ? deviceName : `页面 ${pageNo}`,
+            icon: '',
+            // 旧的设备级分类/绑定只对第 1 页有意义，其余页保持未分类。
+            deviceType: pageNo === 1 ? normalizeEspTypeKey(disp.deviceType) : '',
+            bindings: pageNo === 1 ? normalizeEspBindings(disp.bindings) : { main: '', s1: '', s2: '' },
+            tplMain: '',
+            tplSub: '',
+            valueMap: '',
+            buttons: items.map((item) => ({
+                id: item.id,
+                name: item.name,
+                label: item.name || item.label || '',
+                kind: item.sys ? 'sys' : 'ha',
+                action: item.action,
+                param: item.param,
+                entityId: item.entityId,
+                slot: item.button || 0,
+                enabled: item.enabled === true,
+            })),
+            loop: true,
+            idle: 0,
+        });
+    }
+    return pages;
+}
+
+/** 设备上报的槽位→GPIO 映射：`[{slot:1,pin:4}]`，只做展示与诊断，不反向下发。 */
+function normalizeEspButtons(value) {
+    if (!Array.isArray(value)) return [];
+    const list = [];
+    const seen = new Set();
+    for (const raw of value) {
+        if (!raw || typeof raw !== 'object') continue;
+        const slot = Number(raw.slot);
+        const pin = Number(raw.pin);
+        if (!Number.isInteger(slot) || slot < 1 || slot > MAX_ESP_BUTTONS) continue;
+        if (!Number.isInteger(pin) || pin < 0 || pin > 48) continue;
+        if (seen.has(slot)) continue;
+        seen.add(slot);
+        list.push({ slot, pin });
+        if (list.length >= MAX_ESP_BUTTONS) break;
+    }
+    return list.sort((a, b) => a.slot - b.slot);
+}
+
+/** 页面数组归一 + 旧数据自动迁移（传了 espPages 就忽略旧字段）。 */
+function normalizeEspPages(value, legacyActions, legacyDisplay, deviceName) {
+    let rawPages = Array.isArray(value) ? value : [];
+    if (!rawPages.length && Array.isArray(legacyActions) && legacyActions.length) {
+        rawPages = migrateEspActionsToPages(legacyActions, legacyDisplay, deviceName);
+    }
+    const pages = [];
+    const seenIds = new Set();
+    for (const raw of rawPages) {
+        if (pages.length >= MAX_ESP_PAGES) break;
+        const page = normalizeEspPage(raw, pages.length);
+        if (!page) continue;
+        while (seenIds.has(page.id)) page.id = `${page.id}x`;
+        seenIds.add(page.id);
+        pages.push(page);
+    }
+    return pages;
 }
 
 /**
@@ -817,10 +964,12 @@ function attachAdmin(app, options = {}) {
             homes,
             // 儿童模式只对电视生效：home / parent 即便带了历史字段也一律置空。
             parental: kind === 'tv' ? parental : null,
-            // ESP 小屏控制白名单（实体 / 动作 / 按钮槽位 / 是否放行）。
-            espActions: normalizeEspActions(machine.espActions),
-            // ESP 显式设备分类 + 显示实体绑定（S2：字典层共用的设备侧字段）。
-            ...normalizeEspDisplay(machine.espDisplay),
+            // ESP 屏幕页面：一页 = 一台被控设备（显示类型/绑定 + 一组按键）。
+            // 旧机器的平铺 espActions / espDisplay 在这里自动迁移，不丢历史配置。
+            espPages: normalizeEspPages(machine.espPages, machine.espActions, machine.espDisplay,
+                nameInfo.nameSet ? nameInfo.name : ''),
+            // 设备本地上报的按键槽位→GPIO（只读展示，后台不反向下发）。
+            espButtons: normalizeEspButtons(machine.espButtons),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -2951,6 +3100,11 @@ function attachAdmin(app, options = {}) {
         if (typeof body.appVersion === 'string' && body.appVersion.trim()) {
             machine.appVersion = body.appVersion.trim().slice(0, 32);
         }
+        // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
+        // 并提示「后台配了槽位但本机没启用」的情况。
+        if (Array.isArray(body.espButtons)) {
+            machine.espButtons = normalizeEspButtons(body.espButtons);
+        }
         if (Array.isArray(body.knownHomes)) {
             machine.knownHomes = body.knownHomes
                 .filter((home) => typeof home === 'string' && home.trim())
@@ -3119,8 +3273,9 @@ function attachAdmin(app, options = {}) {
 
     // ------------------------------------------------------------ ESP 小屏控制
     //
-    // 白名单只由 admin 页维护（machines.json 的 espActions），设备端看不到被
-    // 关掉的项，也无法借接口调用未放行的实体。
+    // 一页 = 一台被控设备：屏幕四行文本 + 一组按键。设备端只认「当前页」，
+    // 后台配置决定每页显示什么、每个槽位按下做什么；物理 GPIO 在设备本地
+    // 设置页分配，不在服务端配置里。
 
     /** 取设备记录并校验存在；无效时已写响应，返回 null。 */
     function espMachineOrFail(req, res, id) {
@@ -3136,43 +3291,182 @@ function attachAdmin(app, options = {}) {
         return machine;
     }
 
+    /** 页码收敛：越界落在本次配置的页数内（设备本地缓存过期时也能返回有效页）。 */
+    function clampEspPage(value, total) {
+        const page = Number(value);
+        if (!Number.isInteger(page) || page < 1) return 1;
+        return page > total ? total : page;
+    }
+
+    /**
+     * 屏幕底部按键提示：`1:空调开关  2:客厅灯`（一页最多 8 个）。
+     * 槽位号与名称之间用中文冒号，按键之间用两个空格分隔——直接拼接
+     * `1空调开关2客厅灯` 在 128px 屏上完全分不清哪里是一个按键。
+     * 这里用**完整名称**，超出一行时由固件按自己的节拍走马灯滚动。
+     */
+    function espKeyHints(buttons) {
+        return buttons
+            .filter((item) => item.enabled && item.slot >= 1)
+            .sort((a, b) => a.slot - b.slot)
+            .map((item) => `${item.slot}:${(item.name || item.label || '').trim()}`)
+            .join('  ');
+    }
+
+    /**
+     * 空白行清洗：只由占位符 `--`、分隔符 `·` 和空白组成的行视为「没有值」。
+     *
+     * 设备类型字典在实体缺状态时会产出 `--` / `-- · --`，直接下发会让
+     * 128×64 屏幕多出一行噪音；这里统一置空，固件遇到空串就不绘制。
+     */
+    function cleanEspDisplayLine(value) {
+        const text = String(value == null ? '' : value).trim();
+        if (!text) return '';
+        return text.replace(/--/g, '').replace(/·/g, '').trim() ? text : '';
+    }
+
+    // 自定义模板里可直接写实体 id：`卧室灯{switch.bedroom_light}`。
+    const ESP_TPL_ENTITY_RE = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
+
+    /** 值替换：`on=开启, off=关闭`（逗号 / 分号 / 换行分隔）。 */
+    function parseEspValueMap(text) {
+        const map = new Map();
+        for (const line of String(text || '').split(/[\n,;，；]+/)) {
+            const m = line.match(/^\s*([^=:：]+?)\s*[=:：]\s*(.*?)\s*$/);
+            if (!m || !m[1]) continue;
+            map.set(m[1], m[2]);
+        }
+        return map;
+    }
+
+    /** 把 HA 状态里的 state 按值替换表翻译（只动 state，温度等属性原样保留）。 */
+    function mapEspStates(states, map) {
+        if (!map.size) return states;
+        const out = {};
+        for (const [id, state] of Object.entries(states || {})) {
+            if (!state || typeof state !== 'object') continue;
+            const next = Object.assign({}, state);
+            if (next.state != null && map.has(String(next.state))) {
+                next.state = map.get(String(next.state));
+            }
+            out[id] = next;
+        }
+        return out;
+    }
+
+    /** 取实体的显示值：优先指定属性，缺失时回落 state，都没有返回空串。 */
+    function espStateValue(stateObj, attr) {
+        if (!stateObj || typeof stateObj !== 'object') return '';
+        const attrs = stateObj.attributes || {};
+        if (attr && attrs[attr] != null && attrs[attr] !== '') return String(attrs[attr]);
+        if (stateObj.state != null && stateObj.state !== '') return String(stateObj.state);
+        return '';
+    }
+
+    /**
+     * 渲染页面自定义模板。
+     *
+     * 占位符：
+     * - `{main}` / `{s1}` / `{s2}`：三个绑定实体的值；
+     * - `{title}` / `{名称}`：页面名；
+     * - `{domain.entity_id}`：任意实体当前 state（可放多个）。
+     * 缺值替换为空串，不留下 `--`。
+     */
+    function renderEspTemplate(tpl, ctx) {
+        return String(tpl || '')
+            .replace(/\{([^{}]+)\}/g, (all, rawKey) => {
+                const key = rawKey.trim();
+                if (key === 'main') return ctx.main;
+                if (key === 's1') return ctx.s1;
+                if (key === 's2') return ctx.s2;
+                if (key === 'title' || key === '名称') return ctx.title;
+                return ctx.entities[key] || '';
+            })
+            .replace(/[ \t]+/g, ' ')
+            .replace(/--/g, '')
+            .trim();
+    }
+
     app.get('/api/device/esp/actions', async (req, res) => {
         const id = safeDeviceId(req.query.deviceId);
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
-        const actions = machine.espActions.filter((item) => item.enabled);
+        const pages = machine.espPages;
+        const pageTotal = Math.max(1, pages.length);
+        const page = clampEspPage(req.query.page, pageTotal);
+        const pageObj = pages[page - 1] || null;
+        const actions = pageObj ? pageObj.buttons.filter((item) => item.enabled) : [];
 
-        // S4：按设备分类 + 显示绑定，读 HA 状态解析出屏幕四行文本。
+        // 按页面绑定的设备类型 + 实体，读 HA 状态解析屏幕四行文本。
         // 令牌留服务端；固件只收纯文本，不认识设备类型。
-        let display = { title: machine.name || '', main: '--', sub: '', keys: '', homeLabel: '当前状态' };
-        try {
-            const bindings = machine.bindings || {};
-            const entityIds = [bindings.main, bindings.s1, bindings.s2].filter(Boolean);
-            const states = entityIds.length ? await haCatalogService.getStates(entityIds) : {};
-            const buttons = actions.filter((item) => item.button >= 1)
-                .sort((a, b) => a.button - b.button)
-                .map((item) => `${item.button}${item.name}`).join(' ');
-            display = Object.assign(display, deviceTypes.resolveDisplay({
-                deviceType: machine.deviceType || '',
-                bindings,
-                states,
-                deviceName: machine.name || '',
-                buttonText: buttons,
-            }));
-        } catch (error) {
-            // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
-            console.warn(`[esp] ${id} 解析显示文本失败，降级:`, error.message);
+        let display = {
+            title: pageObj ? pageObj.name : (machine.name || ''),
+            main: pageObj ? '' : '未配置',
+            sub: pageObj ? '' : '请在 Admin「ESP 设备分类」添加页面',
+            keys: espKeyHints(actions),
+            homeLabel: '当前状态',
+        };
+        if (pageObj) {
+            const bindings = pageObj.bindings || {};
+            const tplMain = pageObj.tplMain || '';
+            const tplSub = pageObj.tplSub || '';
+            // 模板里可直接写 {switch.xxx}，这些实体也要一起取状态。
+            const tplEntityIds = [];
+            const tplAll = `${tplMain} ${tplSub}`;
+            ESP_TPL_ENTITY_RE.lastIndex = 0;
+            let tplMatch;
+            while ((tplMatch = ESP_TPL_ENTITY_RE.exec(tplAll))) tplEntityIds.push(tplMatch[1]);
+            const entityIds = [...new Set([
+                bindings.main, bindings.s1, bindings.s2, ...tplEntityIds,
+            ].filter(Boolean))];
+            if (entityIds.length) {
+                try {
+                    const rawStates = await haCatalogService.getStates(entityIds);
+                    // 值替换（on=开启…）对字典与自定义模板同时生效。
+                    const states = mapEspStates(rawStates, parseEspValueMap(pageObj.valueMap));
+                    const dict = deviceTypes.normalizeDictEntry(pageObj.deviceType || '', null);
+                    const ctx = {
+                        main: espStateValue(states[bindings.main], dict.mainAttr),
+                        s1: espStateValue(states[bindings.s1], 'state'),
+                        s2: espStateValue(states[bindings.s2], 'state'),
+                        title: pageObj.name,
+                        entities: {},
+                    };
+                    for (const entityId of tplEntityIds) {
+                        ctx.entities[entityId] = espStateValue(states[entityId], 'state');
+                    }
+                    const resolved = deviceTypes.resolveDisplay({
+                        deviceType: pageObj.deviceType || '',
+                        bindings,
+                        states,
+                        deviceName: pageObj.name,
+                        buttonText: display.keys,
+                    });
+                    // 自定义模板优先，没填的行仍走设备类型字典。
+                    if (tplMain) resolved.main = renderEspTemplate(tplMain, ctx);
+                    if (tplSub) resolved.sub = renderEspTemplate(tplSub, ctx);
+                    display = Object.assign(display, resolved);
+                } catch (error) {
+                    // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
+                    console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
+                }
+            }
         }
+        // 没有值就留空：`--` / `-- · --` 只在后台预览里提示「未绑定」，
+        // 不上屏，避免 128×64 上多出两行噪音。
+        display.main = cleanEspDisplayLine(display.main);
+        display.sub = cleanEspDisplayLine(display.sub);
 
         // 固件没接 JSON 库，`format=text` 给：
-        // 前 4 行是显示层（DISPLAY|title|main|sub|keys），其后每行一项控制项
-        // button|name|entityId|action|id（旧固件忽略不认识的 DISPLAY 行）。
+        // PAGE|当前页|总页数|循环|空闲秒 → DISPLAY|标题|主状态|副状态|按键提示
+        // → 每行一个按键 slot|名称|名称|entityId|action|id
+        //   （第 2 段保留旧固件的 label 字段，值与完整名称一致）。
         if (String(req.query.format || '') === 'text') {
+            const pageLine = ['PAGE', page, pageTotal, pageObj && pageObj.loop === false ? '0' : '1', (pageObj && pageObj.idle) || 0].join('|');
             const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys].join('|');
-            const lines = actions.map((item) => [item.button, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
-            return res.type('text/plain; charset=utf-8').send([displayLine].concat(lines).join('\n'));
+            const lines = actions.map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
+            return res.type('text/plain; charset=utf-8').send([pageLine, displayLine].concat(lines).join('\n'));
         }
-        return jsonOk(res, { deviceId: id, actions, display });
+        return jsonOk(res, { deviceId: id, page, pageTotal, actions, display });
     });
 
     app.post('/api/device/esp/press', async (req, res) => {
@@ -3180,60 +3474,74 @@ function attachAdmin(app, options = {}) {
         const id = safeDeviceId(body.deviceId);
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
-        const enabled = machine.espActions.filter((item) => item.enabled);
+        const pages = machine.espPages;
         let action = null;
+        let pageNo = 1;
         if (body.actionId) {
-            action = enabled.find((item) => item.id === String(body.actionId)) || null;
+            // 网页「测试」按 actionId 直取，不受页码影响。
+            for (let i = 0; i < pages.length; i += 1) {
+                const found = pages[i].buttons.find((item) => item.enabled && item.id === String(body.actionId));
+                if (found) {
+                    action = found;
+                    pageNo = i + 1;
+                    break;
+                }
+            }
         } else {
-            const button = Number(body.button);
-            if (!Number.isInteger(button) || button < 1) return jsonFail(res, 'button 无效');
-            action = enabled.find((item) => item.button === button) || null;
+            const slot = Number(body.slot == null ? body.button : body.slot);
+            if (!Number.isInteger(slot) || slot < 1) return jsonFail(res, 'slot 无效');
+            pageNo = clampEspPage(body.page, Math.max(1, pages.length));
+            const pageObj = pages[pageNo - 1];
+            action = pageObj
+                ? pageObj.buttons.find((item) => item.enabled && item.slot === slot) || null
+                : null;
         }
-        if (!action) return jsonFail(res, '该按钮未配置控制项，或尚未在后台开启', definds.code.FAILED, 403);
+        if (!action) return jsonFail(res, '该按键未配置动作，或尚未在后台启用', definds.code.FAILED, 403);
 
-        // 系统动作（翻页）：不改 HA，只回执让固件切 currentPage。
-        if (action.sys) {
-            console.log(`[esp] ${id} 按钮${action.button || '-'} → 系统动作 ${action.action}`);
-            return jsonOk(res, { name: action.name, sys: action.action }, '已执行');
+        // 系统动作（翻页/回首页）：不改 HA，只回执让固件本地切页。
+        if (action.kind === 'sys') {
+            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 系统动作 ${action.action}`);
+            return jsonOk(res, { name: action.name, sys: action.action, page: pageNo }, '已执行');
         }
 
         try {
             await callHaService(action.entityId, action.action, action.param);
-            console.log(`[esp] ${id} 按钮${action.button || '-'} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
-            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action, param: action.param }, '已执行');
+            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
+            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action, param: action.param, page: pageNo }, '已执行');
         } catch (error) {
             console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
             return jsonFail(res, `调用 HA 失败：${error.message}`);
         }
     });
 
-    /** admin 页：读取某台 ESP 设备的控制项与 HA 连接状态。 */
-    app.get('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
+    /** admin 页：读取某台 ESP 设备的页面配置 + 可选设备类型。 */
+    app.get('/api/admin/machines/:id/pages', requireAdmin, (req, res) => {
         const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
         if (!machine) return undefined;
         return jsonOk(res, {
-            actions: machine.espActions,
-            deviceType: machine.deviceType,
-            bindings: machine.bindings,
+            pages: machine.espPages,
+            // 设备本机上报的槽位→GPIO，用于后台展示「实际引脚 / 未映射」。
+            buttons: machine.espButtons,
             types: deviceTypeService.list(),
-            ha: haConfigView(),
         });
     });
 
-    /** admin 页：整表保存控制项 + 设备分类/显示绑定（勾选 enabled 才下发）。 */
-    app.put('/api/admin/machines/:id/esp', requireAdmin, (req, res) => {
+    /** admin 页：整表保存页面配置（每页含显示类型/绑定 + 按键表）。 */
+    app.put('/api/admin/machines/:id/pages', requireAdmin, (req, res) => {
         const id = safeDeviceId(req.params.id);
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
         const body = req.body || {};
-        const actions = normalizeEspActions(body.actions);
-        const disp = normalizeEspDisplay(body.espDisplay || body);
+        const pages = normalizeEspPages(body.pages);
         const machines = readMachines();
-        machines[id].espActions = actions;
-        machines[id].espDisplay = disp;
+        machines[id].espPages = pages;
+        // 迁移落盘：旧字段不再保留，避免下次读取又走迁移分支。
+        delete machines[id].espActions;
+        delete machines[id].espDisplay;
         saveMachines(machines);
-        console.log(`[esp] ${id} 控制项已更新：${actions.filter((item) => item.enabled).length}/${actions.length} 开启，类型=${disp.deviceType || '未分类'}`);
-        return jsonOk(res, { actions, ...disp }, '已保存');
+        const buttonCount = pages.reduce((sum, page) => sum + page.buttons.length, 0);
+        console.log(`[esp] ${id} 页面已更新：${pages.length} 页 / ${buttonCount} 个按键`);
+        return jsonOk(res, { pages }, '已保存');
     });
 
     /* ---- 设备类型字典 CRUD（S3）：home 与 ESP 共用的唯一真源 ---- */
@@ -3429,12 +3737,9 @@ function attachAdmin(app, options = {}) {
      */
     app.get('/api/device/device-types', async (req, res) => {
         try {
-            const machines = readMachines();
-            // 显式分类（admin 设备分类 Tab 手选的）优先级高于规则自动判定。
+            // 显式分类属于 ESP 屏幕页面（每页一台被控设备），不再按机器 id 下发；
+            // home 端只用自动分类 + 字典规则，这里保持空表兼容旧字段。
             const manual = {};
-            for (const [id, machine] of Object.entries(machines)) {
-                if (machine.deviceType) manual[id] = machine.deviceType;
-            }
 
             const types = deviceTypeService.list();
             const auto = {};
