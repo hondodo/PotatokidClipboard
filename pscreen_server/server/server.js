@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const compression = require('compression');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -45,6 +46,19 @@ app.use((req, res, next) => {
 
     next();
 });
+
+// gzip 压缩：挂在流量统计之后、业务路由之前。
+// 这样 traffic 统计到的是压缩后实际下行的字节（真实带宽口径）；
+// compression 默认只压 text/*、application/json、*/javascript 等可压缩类型，
+// 已带 Content-Encoding、二进制固件、图片等自动跳过；阈值默认 1KB，小响应不压。
+app.use(compression({
+    threshold: 1024,
+    // 跳过已经是压缩格式的内容（compression 默认已处理，这里显式声明便于维护）
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    },
+}));
 
 // 配置JSON解析中间件
 app.use(express.json({ limit: config.limits.jsonLimit }));

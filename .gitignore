@@ -17,3 +17,5 @@ acl-recovery/
 pscreen_server/datas/
 pscreen_server/uploads/
 pscreen_server/backups/
+.tmp/dev_tv.apk
+.tmp/

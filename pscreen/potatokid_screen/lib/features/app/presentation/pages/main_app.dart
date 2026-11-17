@@ -9,6 +9,7 @@ import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:potatokid_screen/features/app/application/remote_key_dispatcher.dart';
+import 'package:potatokid_screen/features/app/application/touch_back_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
@@ -548,6 +549,9 @@ class MainApp extends StatelessWidget {
     // 同时记录导航壳，供远程 nav 指令切页。
     MainApp.current = navigationShell;
     AppTabController.branchIndex = navigationShell.currentIndex;
+    // 触屏「返回」桥接：非直播页的可点返回按钮复用 [_handleBack]，
+    // 与遥控返回键走同一条分层逻辑，不另写一套返回规则。
+    TouchBackController.instance.attach((BuildContext ctx) => _handleBack(ctx));
     // 屏幕模拟遥控已挂到 Navigator 之上（见 App.builder），拿不到本壳层的
     // context，故把既有的按键入口注册到全局分发器。这里只接线，不改
     // _handleRootKey / _handleLogical / _handleBack，真实遥控行为不受影响。

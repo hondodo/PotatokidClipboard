@@ -6,6 +6,7 @@ import 'package:pscreen_screen/features/time/application/time_style_controller.d
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/time/presentation/components/analog_dial_clock.dart';
 import 'package:potatokid_screen/features/time/presentation/components/flowing_gradient_background.dart';
+import 'package:potatokid_screen/shared/widgets/touch_back_button.dart';
 
 /// 「时间」Tab 页：多样化时钟，三屏共用的流动彩色背景 + 20% 黑蒙层。
 ///
@@ -67,24 +68,38 @@ class _TimePageState extends State<TimePage> {
             },
           ),
         ),
+        // 触屏返回按钮：仅 phone flavor 显示（tv/board 只有遥控返回键）。
+        const Positioned(
+          top: 12,
+          left: 12,
+          child: SafeArea(child: TouchBackButton()),
+        ),
       ],
     );
   }
 
   /// 完整样式：超大时间 + 日期 + 农历 + 星期。
   Widget _full() {
-    final LunarDate? lunar = lunarDateOf(DateTime(_now.year, _now.month, _now.day));
+    final LunarDate? lunar = lunarDateOf(
+      DateTime(_now.year, _now.month, _now.day),
+    );
     final String lunarStr = lunar?.fullCnString ?? '';
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Text(
           _timeFmt.format(_now),
-          style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, letterSpacing: 2),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 120,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2,
+          ),
         ),
         const SizedBox(height: 16),
         Text(
-          '${_dateFmt.format(_now)} $lunarStr ${_weekdayFmt.format(_now)}'.trim(),
+          '${_dateFmt.format(_now)} $lunarStr ${_weekdayFmt.format(_now)}'
+              .trim(),
           style: const TextStyle(color: Colors.white, fontSize: 28),
         ),
       ],
@@ -95,7 +110,12 @@ class _TimePageState extends State<TimePage> {
   Widget _timeOnly() {
     return Text(
       _timeFmt.format(_now),
-      style: const TextStyle(color: Colors.white, fontSize: 150, fontWeight: FontWeight.bold, letterSpacing: 4),
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 150,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 4,
+      ),
     );
   }
 }

@@ -152,5 +152,9 @@
   "capsule_finish_watching": "Finish watching",
   "capsule_exit_app": "Exit app",
   "disclaimer_title": "Disclaimer",
-  "disclaimer_body": "This software only aggregates publicly available internet live streams for playback and does not store or produce any audio or video content. All channel data comes from the internet and the copyright belongs to the original rights holders. If any content infringes your lawful rights, please contact 416049529@qq.com and we will handle it promptly. This software is for personal learning and technical research only; please do not use it for commercial purposes."
+  "disclaimer_body": "This software only aggregates publicly available internet live streams for playback and does not store or produce any audio or video content. All channel data comes from the internet and the copyright belongs to the original rights holders. If any content infringes your lawful rights, please contact 416049529@qq.com and we will handle it promptly. This software is for personal learning and technical research only; please do not use it for commercial purposes.",
+  "touch_hint_longpress_channels": "Long press for the channel list",
+  "touch_hint_back_channels": "Press Back for the channel list",
+  "touch_hint_longpress_menu": "Long press for the menu",
+  "touch_hint_back_menu": "Press Back for the menu"
 }

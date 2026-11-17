@@ -35,13 +35,15 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
       valueListenable: AppUpdateController.instance,
       builder: (BuildContext context, AppUpdateState state, Widget? _) {
         if (!state.showPill) return const SizedBox.shrink();
-        final bool ready = state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing;
+        final bool ready =
+            state.phase == AppUpdatePhase.ready ||
+            state.phase == AppUpdatePhase.installing;
         final double? progress = state.progress;
         final String label = ready
             ? '更新'
             : progress == null
-                ? '更新中'
-                : '${(progress * 100).round()}%';
+            ? '更新中'
+            : '${(progress * 100).round()}%';
         return Actions(
           actions: <Type, Action<Intent>>{
             ActivateIntent: CallbackAction<ActivateIntent>(
@@ -58,64 +60,85 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
               if (mounted) setState(() {});
             },
             child: Builder(
-            builder: (BuildContext context) {
-              final bool focused = _focusNode.hasFocus;
-              return AnimatedScale(
-                scale: focused ? 1.06 : 1.0,
-                duration: const Duration(milliseconds: 120),
-                child: DecoratedBox(
-                  decoration: focused
-                      ? BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          boxShadow: <BoxShadow>[
-                            BoxShadow(
-                              color: Colors.white.withValues(alpha: 0.85),
-                              blurRadius: 14,
-                              spreadRadius: 1.5,
-                            ),
-                          ],
-                        )
-                      : const BoxDecoration(),
-                  child: Material(
-                    color: const Color(0xFF2F6BFF),
-                    borderRadius: BorderRadius.circular(999),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () => handleTvUpdateTap(context, state),
-                      focusColor: Colors.white.withValues(alpha: 0.25),
-                      hoverColor: Colors.white.withValues(alpha: 0.15),
-                      highlightColor: Colors.white.withValues(alpha: 0.3),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            if (ready)
-                              const Icon(Icons.download_rounded, size: 20, color: Colors.white)
-                            else
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white, value: progress),
-                              ),
-                            const SizedBox(width: 8),
-                            Text(label, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
-                            if (ready && !state.forceBlocked) ...<Widget>[
-                              const SizedBox(width: 8),
-                              Container(
-                                width: 9,
-                                height: 9,
-                                decoration: const BoxDecoration(color: Color(0xFFFF4D4F), shape: BoxShape.circle),
+              builder: (BuildContext context) {
+                final bool focused = _focusNode.hasFocus;
+                return AnimatedScale(
+                  scale: focused ? 1.06 : 1.0,
+                  duration: const Duration(milliseconds: 120),
+                  child: DecoratedBox(
+                    decoration: focused
+                        ? BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: Colors.white.withValues(alpha: 0.85),
+                                blurRadius: 14,
+                                spreadRadius: 1.5,
                               ),
                             ],
-                          ],
+                          )
+                        : const BoxDecoration(),
+                    child: Material(
+                      color: const Color(0xFF2F6BFF),
+                      borderRadius: BorderRadius.circular(999),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => handleTvUpdateTap(context, state),
+                        focusColor: Colors.white.withValues(alpha: 0.25),
+                        hoverColor: Colors.white.withValues(alpha: 0.15),
+                        highlightColor: Colors.white.withValues(alpha: 0.3),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 9,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              if (ready)
+                                const Icon(
+                                  Icons.download_rounded,
+                                  size: 20,
+                                  color: Colors.white,
+                                )
+                              else
+                                SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                    value: progress,
+                                  ),
+                                ),
+                              const SizedBox(width: 8),
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (ready && !state.forceBlocked) ...<Widget>[
+                                const SizedBox(width: 8),
+                                Container(
+                                  width: 9,
+                                  height: 9,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF4D4F),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
             ),
           ),
         );
@@ -124,11 +147,15 @@ class _TvUpdatePillState extends State<TvUpdatePill> {
   }
 }
 
-Future<void> handleTvUpdateTap(BuildContext context, AppUpdateState state) async {
+Future<void> handleTvUpdateTap(
+  BuildContext context,
+  AppUpdateState state,
+) async {
   final AppUpdateController controller = AppUpdateController.instance;
   final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
   final bool kid = kidModeOn;
-  if (state.phase != AppUpdatePhase.ready && state.phase != AppUpdatePhase.installing) {
+  if (state.phase != AppUpdatePhase.ready &&
+      state.phase != AppUpdatePhase.installing) {
     // 只换文案与外观，下载触发逻辑不变；儿童模式用遥控口径，不出现「点/点击」。
     messenger?.showSnackBar(
       kid
@@ -158,13 +185,15 @@ Future<void> handleTvUpdateTap(BuildContext context, AppUpdateState state) async
 class CapsuleControlsController {
   CapsuleControlsController._();
 
-  static final CapsuleControlsController instance = CapsuleControlsController._();
+  static final CapsuleControlsController instance =
+      CapsuleControlsController._();
 
   bool Function(LogicalKeyboardKey key)? _handler;
 
   bool handleKey(LogicalKeyboardKey key) => _handler?.call(key) ?? false;
 
-  void attach(bool Function(LogicalKeyboardKey key) handler) => _handler = handler;
+  void attach(bool Function(LogicalKeyboardKey key) handler) =>
+      _handler = handler;
 
   void detach() => _handler = null;
 }
@@ -245,7 +274,8 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
       widget.onClose();
       return true;
     }
-    final bool ok = key == LogicalKeyboardKey.enter ||
+    final bool ok =
+        key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.space ||
@@ -313,20 +343,24 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
           final List<_CapsuleEntry> allActions = <_CapsuleEntry>[
             _CapsuleEntry(
               id: 'test-1',
-              label: (_testOneActive
-                      ? 'capsule_test_one_triggered'
-                      : 'capsule_test_one')
-                  .tr(),
-              icon: _testOneActive ? Icons.check_rounded : Icons.gamepad_outlined,
+              label:
+                  (_testOneActive
+                          ? 'capsule_test_one_triggered'
+                          : 'capsule_test_one')
+                      .tr(),
+              icon: _testOneActive
+                  ? Icons.check_rounded
+                  : Icons.gamepad_outlined,
               active: _testOneActive,
               onActivate: () => _activateTest(1),
             ),
             _CapsuleEntry(
               id: 'test-2',
-              label: (_testTwoActive
-                      ? 'capsule_test_two_triggered'
-                      : 'capsule_test_two')
-                  .tr(),
+              label:
+                  (_testTwoActive
+                          ? 'capsule_test_two_triggered'
+                          : 'capsule_test_two')
+                      .tr(),
               icon: _testTwoActive ? Icons.check_rounded : Icons.tune_rounded,
               active: _testTwoActive,
               onActivate: () => _activateTest(2),
@@ -355,41 +389,41 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
           final List<_CapsuleEntry> actions = allActions
               .where((entry) => entry.isVisible(childMode))
               .toList(growable: false);
-          final List<_CapsuleEntry> tabs = <_CapsuleEntry>[
-                  _CapsuleEntry(
-                    id: 'tab-live',
-                    label: 'capsule_tab_live'.tr(),
-                    icon: Icons.live_tv_rounded,
-                    audience: _CapsuleAudience.parentOnly,
-                    active: widget.currentTab == 0,
-                    onActivate: () => widget.onTabSelected(0),
-                  ),
-                  _CapsuleEntry(
-                    id: 'tab-time',
-                    label: 'time_title'.tr(),
-                    icon: Icons.schedule_rounded,
-                    audience: _CapsuleAudience.parentOnly,
-                    active: widget.currentTab == 1,
-                    onActivate: () => widget.onTabSelected(1),
-                  ),
-                  _CapsuleEntry(
-                    id: 'tab-settings',
-                    label: 'profile_title'.tr(),
-                    icon: Icons.settings_rounded,
-                    audience: _CapsuleAudience.parentOnly,
-                    active: widget.currentTab == 2,
-                    onActivate: () => widget.onTabSelected(2),
-                  ),
-                ]
-              .where((entry) => entry.isVisible(childMode))
-              .toList(growable: false);
+          final List<_CapsuleEntry> tabs =
+              <_CapsuleEntry>[
+                    _CapsuleEntry(
+                      id: 'tab-live',
+                      label: 'capsule_tab_live'.tr(),
+                      icon: Icons.live_tv_rounded,
+                      audience: _CapsuleAudience.parentOnly,
+                      active: widget.currentTab == 0,
+                      onActivate: () => widget.onTabSelected(0),
+                    ),
+                    _CapsuleEntry(
+                      id: 'tab-time',
+                      label: 'time_title'.tr(),
+                      icon: Icons.schedule_rounded,
+                      audience: _CapsuleAudience.parentOnly,
+                      active: widget.currentTab == 1,
+                      onActivate: () => widget.onTabSelected(1),
+                    ),
+                    _CapsuleEntry(
+                      id: 'tab-settings',
+                      label: 'profile_title'.tr(),
+                      icon: Icons.settings_rounded,
+                      audience: _CapsuleAudience.parentOnly,
+                      active: widget.currentTab == 2,
+                      onActivate: () => widget.onTabSelected(2),
+                    ),
+                  ]
+                  .where((entry) => entry.isVisible(childMode))
+                  .toList(growable: false);
           final List<_CapsuleEntry> exitActions = <_CapsuleEntry>[
             _CapsuleEntry(
               id: 'exit-app',
-              label: (childMode
-                      ? 'capsule_finish_watching'
-                      : 'capsule_exit_app')
-                  .tr(),
+              label:
+                  (childMode ? 'capsule_finish_watching' : 'capsule_exit_app')
+                      .tr(),
               icon: Icons.power_settings_new_rounded,
               onActivate: widget.onExitRequested,
             ),
@@ -405,40 +439,47 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
             child: Focus(
               canRequestFocus: false,
               onKeyEvent: _handleKeyEvent,
-              child: ColoredBox(
-                color: childMode
-                    ? KidPalette.mask
-                    : Colors.black.withValues(alpha: 0.68),
-                child: SafeArea(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 20,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          _CapsuleRow(
-                            entries: actions,
-                            nodeOf: _node,
-                            kidMode: childMode,
-                          ),
-                          if (tabs.isNotEmpty) ...<Widget>[
+              // 触屏：点击遮罩空白处关闭功能菜单（等价遥控的返回键 / onClose）。
+              // 胶囊按钮自身的 InkWell 位于更深的子层，会赢得手势竞争，
+              // 因此点胶囊不会误触发关闭。opaque 同时保证不穿透到下层视频区。
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onClose,
+                child: ColoredBox(
+                  color: childMode
+                      ? KidPalette.mask
+                      : Colors.black.withValues(alpha: 0.68),
+                  child: SafeArea(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 20,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            _CapsuleRow(
+                              entries: actions,
+                              nodeOf: _node,
+                              kidMode: childMode,
+                            ),
+                            if (tabs.isNotEmpty) ...<Widget>[
+                              const SizedBox(height: 28),
+                              _CapsuleRow(
+                                entries: tabs,
+                                nodeOf: _node,
+                                kidMode: childMode,
+                              ),
+                            ],
                             const SizedBox(height: 28),
                             _CapsuleRow(
-                              entries: tabs,
+                              entries: exitActions,
                               nodeOf: _node,
                               kidMode: childMode,
                             ),
                           ],
-                          const SizedBox(height: 28),
-                          _CapsuleRow(
-                            entries: exitActions,
-                            nodeOf: _node,
-                            kidMode: childMode,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

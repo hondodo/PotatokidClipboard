@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:potatokid_screen/features/parental/presentation/widgets/device_account_label.dart';
 import 'package:potatokid_screen/features/parental/presentation/widgets/parental_verification_sheet.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
+import 'package:potatokid_screen/shared/widgets/touch_back_button.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
 import 'package:pscreen_screen/core/media/kid_watch_timer_controller.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
@@ -56,46 +57,55 @@ class _ProfileReadonlyPageState extends State<ProfileReadonlyPage> {
         return KidSurface(
           expand: true,
           borderRadius: 0,
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(
-                    Icons.child_care,
-                    size: 72,
-                    color: KidPalette.accent,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '儿童模式已开启',
-                    style: theme.textTheme.headlineSmall
-                        ?.copyWith(color: Colors.white),
-                  ),
-                  const SizedBox(height: 20),
-                  // 逐人已看（分账）：与锁屏页同口径展示单次/当日。
-                  for (final String id in timer.activeChildIds)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        '${_nameOf(parental, id)}：已看 ${_fmt(timer.sessionSecOf(id))}'
-                        '（当日 ${_fmt(timer.dailySecOf(id))}）',
-                        style: theme.textTheme.bodyLarge
-                            ?.copyWith(color: Colors.white70),
+          child: Stack(
+            children: <Widget>[
+              Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.child_care,
+                        size: 72,
+                        color: KidPalette.accent,
                       ),
-                    ),
-                  const SizedBox(height: 24),
-                  KidOutlineButton(
-                    label: '请求解锁',
-                    onPressed: _openVerify,
+                      const SizedBox(height: 16),
+                      Text(
+                        '儿童模式已开启',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      // 逐人已看（分账）：与锁屏页同口径展示单次/当日。
+                      for (final String id in timer.activeChildIds)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '${_nameOf(parental, id)}：已看 ${_fmt(timer.sessionSecOf(id))}'
+                            '（当日 ${_fmt(timer.dailySecOf(id))}）',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 24),
+                      KidOutlineButton(label: '请求解锁', onPressed: _openVerify),
+                      const SizedBox(height: 20),
+                      // 固定显示本机派生账号，多台电视时可确认正在操作哪一台。
+                      const DeviceAccountLabel(color: Colors.white54),
+                    ],
                   ),
-                  const SizedBox(height: 20),
-                  // 固定显示本机派生账号，多台电视时可确认正在操作哪一台。
-                  const DeviceAccountLabel(color: Colors.white54),
-                ],
+                ),
               ),
-            ),
+              // 触屏返回按钮：仅 phone flavor 显示（tv/board 只有遥控返回键）。
+              const Positioned(
+                top: 12,
+                left: 12,
+                child: SafeArea(child: TouchBackButton()),
+              ),
+            ],
           ),
         );
       },

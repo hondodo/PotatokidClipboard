@@ -66,45 +66,30 @@ class _LivePageState extends State<LivePage> {
   /// 当前频道列表（保存 / 恢复上次频道时按序号取频道名）。
   List<IptvChannel> _channels = const <IptvChannel>[];
 
-  /// 是否已尝试恢复上次频道；恢复完成前不写盘，
-  /// 避免频道列表刚加载时的默认第 0 台覆盖已保存的记录。
+  /// 是否已尝试恢复上次频道；恢复完成前 [_channels] 就绪即可恢复。
   bool _restored = false;
-
-  /// 已写入的频道名（去重，避免未切台时重复写盘）。
-  String _savedChannelName = '';
 
   @override
   void initState() {
     super.initState();
     // 进入页面：浮层自动显示并开始倒计时。
     _scheduleHide();
-    LiveChannelController.instance.addListener(_onChannelChanged);
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
-    LiveChannelController.instance.removeListener(_onChannelChanged);
     super.dispose();
   }
 
-  /// 设置存储；widget 测试未初始化 DI 时为 null（跳过持久化，不影响播放）。
+  /// 设置存储；widget 测试未初始化 DI 时为 null（跳过，不影响播放）。
   SettingsStore? get _settingsStore => getIt.isRegistered<SettingsStore>() ? getIt<SettingsStore>() : null;
 
-  /// 选中频道变化（上/下台、列表点选）→ 立即持久化频道名。
-  void _onChannelChanged() {
-    if (!_restored) return;
-    final int index = LiveChannelController.instance.index;
-    if (index < 0 || index >= _channels.length) return;
-    final String name = _channels[index].name;
-    if (name.isEmpty || name == _savedChannelName) return;
-    _savedChannelName = name;
-    final SettingsStore? store = _settingsStore;
-    if (store == null) return;
-    unawaited(store.saveLastLiveChannel(name));
-  }
-
   /// 频道列表就绪后恢复上次观看的频道（按频道名匹配，找不到则保持第 0 台）。
+  ///
+  /// 只负责「读回上次频道」；「记住当前频道」已下沉到播放器提交路径
+  /// （LivePlayerView._openCurrent），与电视端 onPlayCommit 模式一致——
+  /// 这样遥控选台也能落盘，避免下次恢复读回旧频道。
   void _restoreLastChannel() {
     if (_restored || _channels.isEmpty) return;
     _restored = true;
@@ -112,8 +97,6 @@ class _LivePageState extends State<LivePage> {
     if (saved.isEmpty) return;
     final int index = _channels.indexWhere((IptvChannel c) => c.name == saved);
     if (index < 0) return;
-    _savedChannelName = saved;
-    // select 会立即提交播放，正符合「恢复上次频道」的语义。
     LiveChannelController.instance.select(index);
   }
 

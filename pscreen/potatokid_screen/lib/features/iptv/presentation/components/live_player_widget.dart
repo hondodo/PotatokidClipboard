@@ -15,6 +15,7 @@ import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
+import 'package:potatokid_screen/app/app_flavor.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_state.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
@@ -32,8 +33,12 @@ import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart'
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
+import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
+import 'package:potatokid_screen/features/parental/presentation/widgets/parental_select_overlay.dart';
+import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
+import 'package:potatokid_screen/features/iptv/presentation/components/touch_gesture_layer.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
@@ -625,6 +630,97 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     _hideChannelPanel();
   }
 
+  // ---------------------------------------------------------------------------
+  // 触屏手势（平行输入适配器，见 docs/tv-touch-control-plan.md）
+  // 以下回调只调用现有控制器/现有方法，与遥控链路共用同一真值源，
+  // 不新增任何 KeyEvent 处理，遥控行为不受影响。
+  // ---------------------------------------------------------------------------
+
+  /// 触屏手势门控：「全屏 / 频道信息 / 频道列表」层、且无任何更高优先级覆盖层时才允许。
+  /// 频道列表层**只放行长按**（继续下潜到功能菜单），单击与滑动在该层被回调层禁用，
+  /// 避免与频道列表自身的滚动 / 点选冲突（列表在层级上更靠上，点选本就不受影响）。
+  /// 与 `_handleLogical` 的覆盖层优先级保持一致（ConfirmDialog / 选人 / 锁屏 / 消息）。
+  bool _touchEnabled(AppState state) {
+    final HomeRemoteLayer layer = state.homeRemoteLayer;
+    if (layer != HomeRemoteLayer.fullscreen &&
+        layer != HomeRemoteLayer.channelInfo &&
+        layer != HomeRemoteLayer.channelList) {
+      return false;
+    }
+    return !ConfirmDialog.isShowing &&
+        !ParentalSelectOverlay.gateVisible &&
+        !MessageOverlayController.instance.visible &&
+        !KidWatchTimerController.instance.locked;
+  }
+
+  /// pointer down 时二次确认（防止两次 build 之间覆盖层状态变化）。
+  bool _touchShouldAccept() {
+    if (!mounted) return false;
+    return _touchEnabled(context.read<AppBloc>().state);
+  }
+
+  /// 单击：切换频道信息 OSD。频道信息层 → 收起；否则 → 显示。
+  void _touchToggleInfo() {
+    if (!_touchShouldAccept()) return;
+    final HomeRemoteLayer layer = context.read<AppBloc>().state.homeRemoteLayer;
+    if (layer == HomeRemoteLayer.channelInfo) {
+      HomeNowPlayingController.instance.hideChannelPanel();
+    } else {
+      HomeNowPlayingController.instance.showChannelInfo();
+    }
+  }
+
+  /// 触屏长按：按当前交互层决定目标（全屏/频道信息 → 频道列表；
+  /// 频道列表 → 功能菜单）。分层规则见 [touchLongPressTargetFor]。
+  void _touchLongPress() {
+    if (!_touchShouldAccept()) return;
+    final HomeRemoteLayer layer = context.read<AppBloc>().state.homeRemoteLayer;
+    switch (touchLongPressTargetFor(layer)) {
+      case TouchLongPressTarget.channelPanel:
+        HomeNowPlayingController.instance.showChannelPanel();
+      case TouchLongPressTarget.capsuleMenu:
+        _touchOpenCapsuleMenu();
+      case TouchLongPressTarget.none:
+        break;
+    }
+  }
+
+  /// 长按递进第二级：在「频道列表」层再长按 → 进入功能菜单（胶囊 Mask）。
+  ///
+  /// 与遥控返回链第三步同构（`MainApp._handleBack` 中 channelList → capsuleControls），
+  /// 复用同一批控制器与同一个 `homeRemoteLayer` 真值源，遥控行为不受影响。
+  /// 顺序与遥控一致：先收起频道面板（内部会置 fullscreen），再置 capsuleControls。
+  void _touchOpenCapsuleMenu() {
+    if (!_touchShouldAccept()) return;
+    if (context.read<AppBloc>().state.homeRemoteLayer !=
+        HomeRemoteLayer.channelList) {
+      return;
+    }
+    HomeNowPlayingController.instance.hideChannelPanel();
+    context.read<AppBloc>().add(
+      const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls),
+    );
+  }
+
+  /// 频道列表层专用：单击 / 滑动不做任何事，避免与列表滚动、点选冲突。
+  void _touchNoop() {}
+
+  /// 左上角操作提示：告诉用户当前层「下一步怎么走」。
+  ///
+  /// - `phone` / `board`（有触屏）：提示长按；
+  /// - `tv`（电视 / 盒子，只有遥控）：提示按返回键——遥控端的逐层返回链
+  ///   对新用户并不自明，这句提示就是它的引导。
+  ///
+  /// 只在「频道信息」「频道列表」两层出现：这两层之后都有下一步动作，
+  /// 全屏层没有需要提示的下一步。
+  String? _touchHintFor(HomeRemoteLayer layer) {
+    final String key = touchHintKeyForLayer(
+      layer,
+      remoteOnly: AppFlavorConfig.flavor == AppFlavor.tv,
+    );
+    return key.isEmpty ? null : key.tr();
+  }
+
   Future<void> _openChannel(int index, {bool force = false}) async {
     if (_appExiting) return;
     if (index < 0 || index >= widget.channels.length) return;
@@ -1132,6 +1228,40 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
               );
             },
           ),
+          // 触屏手势层：叠加在视频之上、频道条之下。translucent 命中，
+          // 只在全屏/频道信息/频道列表层且无覆盖层时启用；门控见 _touchEnabled。
+          // 所有动作复用现有控制器单例，与遥控同一真值源，遥控行为零影响。
+          // 长按递进：全屏/频道信息层长按 → 呼出频道列表；频道列表层长按 → 功能菜单。
+          BlocBuilder<AppBloc, AppState>(
+            buildWhen: (previous, current) =>
+                previous.homeRemoteLayer != current.homeRemoteLayer,
+            builder: (context, state) {
+              // 频道列表层：只保留长按，单击与滑动交还给列表自身。
+              final bool inChannelList =
+                  state.homeRemoteLayer == HomeRemoteLayer.channelList;
+              return Positioned.fill(
+                child: TouchGestureLayer(
+                  enabled: _touchEnabled(state),
+                  shouldAccept: _touchShouldAccept,
+                  onTap: inChannelList ? _touchNoop : _touchToggleInfo,
+                  onSwipeUp: inChannelList
+                      ? _touchNoop
+                      : () => _channelController.previous(),
+                  onSwipeDown: inChannelList
+                      ? _touchNoop
+                      : () => _channelController.next(),
+                  onSwipeLeft: inChannelList
+                      ? _touchNoop
+                      : () =>
+                            HomeNowPlayingController.instance.switchSource(-1),
+                  onSwipeRight: inChannelList
+                      ? _touchNoop
+                      : () => HomeNowPlayingController.instance.switchSource(1),
+                  onLongPress: _touchLongPress,
+                ),
+              );
+            },
+          ),
           // 音频节目（广播台）没有画面，纯黑底上居中显示收音机图标 + 频道名。
           // 不可交互（IgnorePointer），不影响遥控器按键与频道条。
           Positioned.fill(
@@ -1218,7 +1348,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                       previous.homeRemoteLayer != current.homeRemoteLayer,
                   // 频道列表 / 快捷胶囊菜单占用右侧时隐藏，避免压住它们。
                   builder: (context, state) =>
-                      state.showChannels || state.homeRemoteLayer == HomeRemoteLayer.capsuleControls
+                      state.showChannels ||
+                          state.homeRemoteLayer ==
+                              HomeRemoteLayer.capsuleControls
                       ? const SizedBox.shrink()
                       : const _LiveUpdateIndicator(),
                 ),
@@ -1227,6 +1359,21 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           // 数字键直选频道时的回显：左上角显示已按下的数字（`1`/`12`/`123`），
           // 号码超出范围时改显示提示文案，让用户随时知道自己按到了第几号。
           const Positioned(left: 24, top: 84, child: _ChannelNumberOverlay()),
+          // 左上角操作提示：告诉用户下一步怎么走（长按 / 返回键，按 flavor 区分）。
+          // 纯展示：IgnorePointer 不拦指针，自身无可聚焦节点，不影响遥控焦点链。
+          BlocBuilder<AppBloc, AppState>(
+            buildWhen: (previous, current) =>
+                previous.homeRemoteLayer != current.homeRemoteLayer,
+            builder: (context, state) {
+              final String? hint = _touchHintFor(state.homeRemoteLayer);
+              if (hint == null) return const SizedBox.shrink();
+              return Positioned(
+                left: 24,
+                top: 24,
+                child: IgnorePointer(child: _TouchHintBanner(text: hint)),
+              );
+            },
+          ),
           // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
           ValueListenableBuilder<String?>(
             valueListenable: _toastNameVN,
@@ -1246,19 +1393,32 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
               }
               // 儿童模式：深蓝渐变 + 暖黄/浅蓝；普通模式：深蓝面板 + 品牌蓝层级文字。
               final bool kid = kidModeOn;
-              final Color tipsColor = kid ? KidPalette.softBlue : Colors.white54;
+              final Color tipsColor = kid
+                  ? KidPalette.softBlue
+                  : Colors.white54;
               final Color sourceColor = kid ? textColor : Colors.white70;
               return Positioned(
                 left: 16,
                 bottom: 24,
                 child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: kid ? 20 : 18, vertical: kid ? 14 : 12),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: kid ? 20 : 18,
+                    vertical: kid ? 14 : 12,
+                  ),
                   decoration: BoxDecoration(
-                    gradient: kid ? KidPalette.dialog : AdultPalette.panelGradient,
+                    gradient: kid
+                        ? KidPalette.dialog
+                        : AdultPalette.panelGradient,
                     borderRadius: BorderRadius.circular(kid ? 20 : 16),
-                    border: Border.all(color: kid ? Colors.white24 : Colors.white12),
+                    border: Border.all(
+                      color: kid ? Colors.white24 : Colors.white12,
+                    ),
                     boxShadow: const <BoxShadow>[
-                      BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6)),
+                      BoxShadow(
+                        color: Color(0x66000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 6),
+                      ),
                     ],
                   ),
                   child: Column(
@@ -1279,7 +1439,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                   style: TextStyle(
                                     color: textColor,
                                     fontSize: kid ? 16 : 18,
-                                    fontWeight: kid ? FontWeight.normal : FontWeight.w600,
+                                    fontWeight: kid
+                                        ? FontWeight.normal
+                                        : FontWeight.w600,
                                   ),
                                 ),
                                 Text(
@@ -1386,7 +1548,9 @@ class _ChannelNumberOverlay extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
             // 普通模式沿用浮层的深蓝面板，与信息卡/列表统一。
-            color: kid ? Colors.black.withValues(alpha: 0.65) : AdultPalette.panel.withValues(alpha: 0.85),
+            color: kid
+                ? Colors.black.withValues(alpha: 0.65)
+                : AdultPalette.panel.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(12),
             border: kid ? null : Border.all(color: Colors.white12),
           ),
@@ -1524,9 +1688,16 @@ class _AudioNowPlaying extends StatelessWidget {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.white.withValues(alpha: 0.08),
-                          border: Border.all(color: KidPalette.softBlue.withValues(alpha: 0.45), width: 2),
+                          border: Border.all(
+                            color: KidPalette.softBlue.withValues(alpha: 0.45),
+                            width: 2,
+                          ),
                         ),
-                        child: Icon(Icons.radio_rounded, size: iconSize, color: KidPalette.accent),
+                        child: Icon(
+                          Icons.radio_rounded,
+                          size: iconSize,
+                          color: KidPalette.accent,
+                        ),
                       )
                     else
                       Icon(
@@ -1553,7 +1724,9 @@ class _AudioNowPlaying extends StatelessWidget {
                         sourceTips,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: kid ? KidPalette.softBlue : Colors.white.withValues(alpha: 0.7),
+                          color: kid
+                              ? KidPalette.softBlue
+                              : Colors.white.withValues(alpha: 0.7),
                           fontSize: tipsSize,
                         ),
                       ),
@@ -1636,7 +1809,10 @@ class _EqualizerBarsState extends State<_EqualizerBars>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _EqualizerBarsPainter(animation: _controller, color: widget.color),
+      painter: _EqualizerBarsPainter(
+        animation: _controller,
+        color: widget.color,
+      ),
     );
   }
 }
@@ -1845,7 +2021,9 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
   /// 只在「就绪 / 安装中」计时；离开就绪态（如重新下载）时重新武装。
   void _syncReadyVisibility() {
     final AppUpdateState state = AppUpdateController.instance.state;
-    final bool ready = state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing;
+    final bool ready =
+        state.phase == AppUpdatePhase.ready ||
+        state.phase == AppUpdatePhase.installing;
     if (!ready) {
       _hideTimer?.cancel();
       _hideTimer = null;
@@ -1853,7 +2031,9 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
       _hidden = false;
       return;
     }
-    final DateTime deadline = _readyHideAt ??= DateTime.now().add(_readyVisibleDuration);
+    final DateTime deadline = _readyHideAt ??= DateTime.now().add(
+      _readyVisibleDuration,
+    );
     final Duration left = deadline.difference(DateTime.now());
     if (left <= Duration.zero) {
       _hidden = true;
@@ -1875,7 +2055,9 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
     if (!update.showPill || update.forceBlocked) {
       return const SizedBox.shrink();
     }
-    final bool ready = update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing;
+    final bool ready =
+        update.phase == AppUpdatePhase.ready ||
+        update.phase == AppUpdatePhase.installing;
     if (ready && _hidden) {
       return const SizedBox.shrink();
     }
@@ -1883,7 +2065,9 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
     final int percent = ((update.progress ?? 0) * 100).round();
     final Color accent = kid ? KidPalette.accent : AdultPalette.selection;
 
-    final String? title = ready ? (kid ? 'kid_update_title_ready'.tr() : 'live_update_ready_title'.tr()) : null;
+    final String? title = ready
+        ? (kid ? 'kid_update_title_ready'.tr() : 'live_update_ready_title'.tr())
+        : null;
     final String line;
     if (ready) {
       line = kid ? 'kid_capsule_back_hint'.tr() : 'live_update_ready_hint'.tr();
@@ -1891,8 +2075,12 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
       line = 'live_update_failed'.tr();
     } else {
       line = kid
-          ? 'kid_capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'})
-          : 'capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'});
+          ? 'kid_capsule_download_progress'.tr(
+              namedArgs: <String, String>{'__PROGRESS__': '$percent'},
+            )
+          : 'capsule_download_progress'.tr(
+              namedArgs: <String, String>{'__PROGRESS__': '$percent'},
+            );
     }
 
     return IgnorePointer(
@@ -1901,11 +2089,17 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
           constraints: const BoxConstraints(maxWidth: 320),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: kid ? KidPalette.capsule : AdultPalette.panel.withValues(alpha: 0.9),
+            color: kid
+                ? KidPalette.capsule
+                : AdultPalette.panel.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: kid ? Colors.white24 : Colors.white12),
             boxShadow: const <BoxShadow>[
-              BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 4)),
+              BoxShadow(
+                color: Color(0x66000000),
+                blurRadius: 14,
+                offset: Offset(0, 4),
+              ),
             ],
           ),
           child: Row(
@@ -1915,12 +2109,20 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
               if (ready)
                 Icon(Icons.download_done_rounded, size: 18, color: accent)
               else if (failed)
-                Icon(Icons.error_outline_rounded, size: 18, color: Colors.white70)
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 18,
+                  color: Colors.white70,
+                )
               else
                 SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, value: update.progress, color: accent),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    value: update.progress,
+                    color: accent,
+                  ),
                 ),
               const SizedBox(width: 10),
               Flexible(
@@ -1931,7 +2133,11 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
                     if (title != null) ...<Widget>[
                       Text(
                         title,
-                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 2),
                     ],
@@ -1940,7 +2146,9 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
                       style: TextStyle(
                         color: title == null ? Colors.white : Colors.white70,
                         fontSize: title == null ? 14 : 12,
-                        fontWeight: title == null ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: title == null
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                         height: 1.25,
                       ),
                     ),
@@ -1952,5 +2160,95 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
         ),
       ),
     );
+  }
+}
+
+/// 左上角操作提示条：半透明圆角胶囊 + 白字。
+///
+/// 纯展示层：不可点击、不可聚焦，不参与遥控焦点遍历；
+/// 命中测试由外层的 `IgnorePointer` 关闭，避免挡住触屏手势层。
+class _TouchHintBanner extends StatelessWidget {
+  const _TouchHintBanner({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xCC161D2C),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.info_outline_rounded,
+            color: Colors.white70,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 触屏长按在不同交互层的目标动作。
+enum TouchLongPressTarget {
+  /// 呼出频道列表（全屏 / 频道信息层）。
+  channelPanel,
+
+  /// 进入功能菜单（频道列表层）——长按逐进的第二级。
+  capsuleMenu,
+
+  /// 无动作（功能菜单层本身）。
+  none,
+}
+
+/// 触屏长按在给定交互层应触发的动作。
+///
+/// 抽成顶层纯函数，便于单测覆盖「长按逐进」的分层规则，
+/// 避免这条规则只存在于 widget 内部而无法回归。
+TouchLongPressTarget touchLongPressTargetFor(HomeRemoteLayer layer) {
+  switch (layer) {
+    case HomeRemoteLayer.fullscreen:
+    case HomeRemoteLayer.channelInfo:
+      return TouchLongPressTarget.channelPanel;
+    case HomeRemoteLayer.channelList:
+      return TouchLongPressTarget.capsuleMenu;
+    case HomeRemoteLayer.capsuleControls:
+      return TouchLongPressTarget.none;
+  }
+}
+
+/// 当前交互层对应的操作提示文案 key（空串表示不提示）。
+///
+/// [remoteOnly] 为 true（`tv` flavor，只有遥控）时提示「按返回键」，
+/// 否则（`phone` / `board`，有触屏）提示「长按」。
+String touchHintKeyForLayer(
+  HomeRemoteLayer layer, {
+  required bool remoteOnly,
+}) {
+  switch (layer) {
+    case HomeRemoteLayer.channelInfo:
+      return remoteOnly
+          ? 'touch_hint_back_channels'
+          : 'touch_hint_longpress_channels';
+    case HomeRemoteLayer.channelList:
+      return remoteOnly ? 'touch_hint_back_menu' : 'touch_hint_longpress_menu';
+    case HomeRemoteLayer.fullscreen:
+    case HomeRemoteLayer.capsuleControls:
+      return '';
   }
 }

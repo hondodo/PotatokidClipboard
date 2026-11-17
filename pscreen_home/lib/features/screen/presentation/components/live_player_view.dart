@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pscreen_home/core/di/injection.dart';
+import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/utils/app_settings.dart';
 import 'package:pscreen_screen/core/utils/device_credentials.dart';
@@ -328,7 +329,16 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     if (!mounted) return;
     final int index = LiveChannelController.instance.index;
     if (index < 0 || index >= widget.channels.length) return;
-    if (widget.channels[index].sources.isEmpty) return;
+    final IptvChannel channel = widget.channels[index];
+    if (channel.sources.isEmpty) return;
+    // 记住当前频道：与电视端 `onPlayCommit → _rememberCurrentChannel` 同一时机。
+    // 所有切台路径（遥控 _channel / UI 点选 / 数字键 / 上下台 / 恢复）最终都会
+    // 走 onPlayCommit → _openCurrent，因此在这里写盘可保证「播的即记的」，
+    // 不受 LivePage 生命周期 / _restored 门禁影响——修复遥控选台没落盘、
+    // 随后被 _restoreLastChannel 读回旧频道而「跳频道」的问题。
+    if (channel.name.isNotEmpty && Injection.isRegistered<SettingsStore>()) {
+      unawaited(Injection.get<SettingsStore>().saveLastLiveChannel(channel.name));
+    }
     _retry.resetForChannel(0);
     // 换台期间抑制旧流残留的 error/completed 干扰（与电视端一致）。
     _retry.setBusy(true);

@@ -152,5 +152,9 @@
   "capsule_finish_watching": "结束观看",
   "capsule_exit_app": "退出应用",
   "disclaimer_title": "免责声明",
-  "disclaimer_body": "本软件仅聚合网络公开直播源用于播放，不存储、不制作任何音视频内容；所有频道数据均来自互联网，版权归原权利人所有。若相关内容侵犯了您的合法权益，请通过 416049529@qq.com 告知，我们将及时处理。本软件仅供个人学习与技术研究，请勿用于商业用途。"
+  "disclaimer_body": "本软件仅聚合网络公开直播源用于播放，不存储、不制作任何音视频内容；所有频道数据均来自互联网，版权归原权利人所有。若相关内容侵犯了您的合法权益，请通过 416049529@qq.com 告知，我们将及时处理。本软件仅供个人学习与技术研究，请勿用于商业用途。",
+  "touch_hint_longpress_channels": "长按弹出频道列表",
+  "touch_hint_back_channels": "按返回键显示频道列表",
+  "touch_hint_longpress_menu": "长按弹出菜单",
+  "touch_hint_back_menu": "按返回键显示菜单"
 }

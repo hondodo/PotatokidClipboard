@@ -31,6 +31,7 @@ import 'package:pscreen_screen/features/remote/application/bloc/remote_login_blo
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_event.dart';
 import 'package:pscreen_screen/features/remote/application/bloc/remote_login_state.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:potatokid_screen/shared/widgets/touch_back_button.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:restart_app/restart_app.dart';
 
@@ -43,11 +44,12 @@ const List<(Locale, String)> _supportedLanguages = <(Locale, String)>[
 ];
 
 /// 主题的可选值（labelKey 对应翻译文案，mode 对应 [ThemeMode]）
-const List<({String labelKey, ThemeMode mode})> _themeOptions = <({String labelKey, ThemeMode mode})>[
-  (labelKey: 'theme_system', mode: ThemeMode.system),
-  (labelKey: 'theme_light', mode: ThemeMode.light),
-  (labelKey: 'theme_dark', mode: ThemeMode.dark),
-];
+const List<({String labelKey, ThemeMode mode})> _themeOptions =
+    <({String labelKey, ThemeMode mode})>[
+      (labelKey: 'theme_system', mode: ThemeMode.system),
+      (labelKey: 'theme_light', mode: ThemeMode.light),
+      (labelKey: 'theme_dark', mode: ThemeMode.dark),
+    ];
 
 /// 「我的」Tab 页面：面向 TV 遥控器操作的设置页。
 ///
@@ -115,14 +117,19 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 天气城市的可选项：首项空串代表「自动」（IP 反查），
   /// 其余为 `.env` 中 `WEATHER_CITIES` 配置的城市名。
-  static List<String> get _weatherCityOptions => <String>['', ...AppConfig.weatherCities];
+  static List<String> get _weatherCityOptions => <String>[
+    '',
+    ...AppConfig.weatherCities,
+  ];
 
   /// 天气城市选项的展示文案：空串为「自动」，其余直接显示城市名。
-  static String _weatherCityLabel(String city) => city.isEmpty ? 'weather_city_auto'.tr() : city;
+  static String _weatherCityLabel(String city) =>
+      city.isEmpty ? 'weather_city_auto'.tr() : city;
 
   /// 定时关闭选项的展示文案：null 为「关闭」，其余显示「N 分钟」。
-  static String _sleepTimerLabel(int? minutes) =>
-      minutes == null ? 'common_off'.tr() : 'sleep_timer_minutes'.tr(args: <String>['$minutes']);
+  static String _sleepTimerLabel(int? minutes) => minutes == null
+      ? 'common_off'.tr()
+      : 'sleep_timer_minutes'.tr(args: <String>['$minutes']);
 
   /// 刷新状态文案：null=空闲，非空=「刷新中…」/「已刷新」/「刷新失败」。
   final ValueNotifier<String?> _refreshMsg = ValueNotifier<String?>(null);
@@ -147,7 +154,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Timer? _cityApplyTimer;
 
   /// 各设置行的 GlobalKey：用于「选中行滚动入屏」。
-  final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(ProfileFocusController.rowCount, (_) => GlobalKey<State>());
+  final List<GlobalKey> _rowKeys = List<GlobalKey>.generate(
+    ProfileFocusController.rowCount,
+    (_) => GlobalKey<State>(),
+  );
 
   int _prevRow = 0;
   bool _prevFocused = false;
@@ -218,7 +228,12 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       final BuildContext? ctx = _rowKeys[c.row].currentContext;
       if (ctx == null) return;
-      Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
     });
   }
 
@@ -264,7 +279,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // 2) 重启应用；失败则退出程序。
     try {
-      final RestartResult result = await Restart.restartApp(mode: RestartMode.process, forceKill: true);
+      final RestartResult result = await Restart.restartApp(
+        mode: RestartMode.process,
+        forceKill: true,
+      );
       Injection.get<LogService>().info(
         '[ProfilePage] 重置：重启结果 success=${result.success} '
         'mode=${result.mode.name} code=${result.code} message=${result.message}',
@@ -288,7 +306,9 @@ class _ProfilePageState extends State<ProfilePage> {
       done.future.then((bool ok) {
         if (!mounted) return;
         _refreshing = false;
-        _refreshMsg.value = ok ? 'settings_refresh_done'.tr() : 'settings_refresh_failed'.tr();
+        _refreshMsg.value = ok
+            ? 'settings_refresh_done'.tr()
+            : 'settings_refresh_failed'.tr();
         // 几秒后恢复空闲，便于再次操作。
         Timer(const Duration(seconds: 2), () {
           if (mounted && !_refreshing) _refreshMsg.value = null;
@@ -303,13 +323,17 @@ class _ProfilePageState extends State<ProfilePage> {
     switch (row) {
       case 0: // 主题
         final AppState state = context.read<AppBloc>().state;
-        final int idx = _themeOptions.indexWhere((t) => t.mode == state.themeMode);
+        final int idx = _themeOptions.indexWhere(
+          (t) => t.mode == state.themeMode,
+        );
         final int val = idx < 0 ? 0 : idx;
         final int next = (val + delta).clamp(0, _themeOptions.length - 1);
         context.read<AppBloc>().add(ChangeThemeMode(_themeOptions[next].mode));
         break;
       case 1: // 语言
-        final int idx = _supportedLanguages.indexWhere((l) => context.locale == l.$1);
+        final int idx = _supportedLanguages.indexWhere(
+          (l) => context.locale == l.$1,
+        );
         final int val = idx < 0 ? 0 : idx;
         final int next = (val + delta).clamp(0, _supportedLanguages.length - 1);
         context.setLocale(_supportedLanguages[next].$1);
@@ -380,52 +404,114 @@ class _ProfilePageState extends State<ProfilePage> {
       onKeyEvent: _handlePageKey,
       child: ColoredBox(
         color: scheme.surface,
-        child: ListenableBuilder(
-          listenable: ProfileFocusController.instance,
-          builder: (context, _) {
-            final ProfileFocusController c = ProfileFocusController.instance;
-            final bool inContent = c.focused;
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
-              children: <Widget>[
-                KeyedSubtree(key: _rowKeys[0], child: _buildThemeRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[1], child: _buildLanguageRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[2], child: _buildRemoteRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[3], child: _buildHwdecRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[4], child: _buildAspectRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[5], child: _buildWeatherCityRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_sleepTimerRow], child: _buildSleepTimerRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_backgroundPlaybackRow], child: _buildBackgroundPlaybackRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_refreshRow], child: _buildRefreshRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_removeInvalidRow], child: _buildRemoveInvalidRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_copyInvalidRow], child: _buildCopyInvalidRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_resetRow], child: _buildResetRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_remoteRow], child: _buildRemoteLoginRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_versionRow], child: _buildVersionRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_weatherSourceRow], child: _buildWeatherSourceRow(inContent, c)),
-                const SizedBox(height: 12),
-                KeyedSubtree(key: _rowKeys[_disclaimerRow], child: _buildDisclaimerRow(inContent, c)),
-                const SizedBox(height: 20),
-                // 固定展示本机派生账号（只读），便于多台电视时确认操作对象。
-                const DeviceAccountLabel(color: Colors.white38, textAlign: TextAlign.left),
-                const SizedBox(height: 8),
-              ],
-            );
-          },
+        child: Stack(
+          children: <Widget>[
+            ListenableBuilder(
+              listenable: ProfileFocusController.instance,
+              builder: (context, _) {
+                final ProfileFocusController c =
+                    ProfileFocusController.instance;
+                final bool inContent = c.focused;
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
+                  children: <Widget>[
+                    KeyedSubtree(
+                      key: _rowKeys[0],
+                      child: _buildThemeRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[1],
+                      child: _buildLanguageRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[2],
+                      child: _buildRemoteRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[3],
+                      child: _buildHwdecRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[4],
+                      child: _buildAspectRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[5],
+                      child: _buildWeatherCityRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_sleepTimerRow],
+                      child: _buildSleepTimerRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_backgroundPlaybackRow],
+                      child: _buildBackgroundPlaybackRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_refreshRow],
+                      child: _buildRefreshRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_removeInvalidRow],
+                      child: _buildRemoveInvalidRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_copyInvalidRow],
+                      child: _buildCopyInvalidRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_resetRow],
+                      child: _buildResetRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_remoteRow],
+                      child: _buildRemoteLoginRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_versionRow],
+                      child: _buildVersionRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_weatherSourceRow],
+                      child: _buildWeatherSourceRow(inContent, c),
+                    ),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(
+                      key: _rowKeys[_disclaimerRow],
+                      child: _buildDisclaimerRow(inContent, c),
+                    ),
+                    const SizedBox(height: 20),
+                    // 固定展示本机派生账号（只读），便于多台电视时确认操作对象。
+                    const DeviceAccountLabel(
+                      color: Colors.white38,
+                      textAlign: TextAlign.left,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                );
+              },
+            ),
+            // 触屏返回按钮：仅 phone flavor 显示（tv/board 只有遥控返回键）。
+            const Positioned(
+              top: 12,
+              left: 12,
+              child: SafeArea(child: TouchBackButton()),
+            ),
+          ],
         ),
       ),
     );
@@ -434,7 +520,9 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildThemeRow(bool inContent, ProfileFocusController c) {
     return BlocBuilder<AppBloc, AppState>(
       builder: (context, state) {
-        final int idx = _themeOptions.indexWhere((t) => t.mode == state.themeMode);
+        final int idx = _themeOptions.indexWhere(
+          (t) => t.mode == state.themeMode,
+        );
         final int val = idx < 0 ? 0 : idx;
         return _SettingRow(
           highlighted: inContent && c.row == 0,
@@ -443,6 +531,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: val > 0,
           canStepRight: val < _themeOptions.length - 1,
           onTap: () => c.select(0),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(0);
             c.step(-1);
@@ -457,7 +546,9 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildLanguageRow(bool inContent, ProfileFocusController c) {
-    final int idx = _supportedLanguages.indexWhere((l) => context.locale == l.$1);
+    final int idx = _supportedLanguages.indexWhere(
+      (l) => context.locale == l.$1,
+    );
     final int val = idx < 0 ? 0 : idx;
     return _SettingRow(
       highlighted: inContent && c.row == 1,
@@ -466,6 +557,7 @@ class _ProfilePageState extends State<ProfilePage> {
       canStepLeft: val > 0,
       canStepRight: val < _supportedLanguages.length - 1,
       onTap: () => c.select(1),
+      onTapAction: () => c.step(1),
       onStepLeft: () {
         c.select(1);
         c.step(-1);
@@ -489,6 +581,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: isOn,
           canStepRight: !isOn,
           onTap: () => c.select(2),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(2);
             c.step(-1);
@@ -514,6 +607,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: isOn,
           canStepRight: !isOn,
           onTap: () => c.select(3),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(3);
             c.step(-1);
@@ -541,6 +635,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: val > 0,
           canStepRight: val < options.length - 1,
           onTap: () => c.select(4),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(4);
             c.step(-1);
@@ -570,6 +665,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: val > 0,
           canStepRight: val < options.length - 1,
           onTap: () => c.select(5),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(5);
             c.step(-1);
@@ -601,6 +697,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: val > 0,
           canStepRight: val < options.length - 1,
           onTap: () => c.select(_sleepTimerRow),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(_sleepTimerRow);
             c.step(-1);
@@ -629,6 +726,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: isOn,
           canStepRight: !isOn,
           onTap: () => c.select(_backgroundPlaybackRow),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(_backgroundPlaybackRow);
             c.step(-1);
@@ -655,6 +753,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: false,
           canStepRight: !busy,
           onTap: () => c.select(_refreshRow),
+          onTapAction: _refreshChannels,
           onStepLeft: () => c.select(_refreshRow),
           onStepRight: () {
             c.select(_refreshRow);
@@ -680,6 +779,7 @@ class _ProfilePageState extends State<ProfilePage> {
           canStepLeft: isOn,
           canStepRight: !isOn,
           onTap: () => c.select(_removeInvalidRow),
+          onTapAction: () => c.step(1),
           onStepLeft: () {
             c.select(_removeInvalidRow);
             c.step(-1);
@@ -708,10 +808,8 @@ class _ProfilePageState extends State<ProfilePage> {
         canStepLeft: false,
         canStepRight: false,
         // 触摸/点击行即复制；遥控器按 OK 走 [ProfileFocusController.activate]。
-        onTap: () {
-          c.select(_copyInvalidRow);
-          _copyInvalidSources();
-        },
+        onTap: () => c.select(_copyInvalidRow),
+        onTapAction: _copyInvalidSources,
         onStepLeft: () => c.select(_copyInvalidRow),
         onStepRight: () => c.select(_copyInvalidRow),
       ),
@@ -733,7 +831,9 @@ class _ProfilePageState extends State<ProfilePage> {
     await Clipboard.setData(ClipboardData(text: urls.join('\n')));
     if (!mounted) return;
     log.info('[ProfilePage] 已复制 ${urls.length} 个失效地址到剪贴板');
-    _showCopyMsg('settings_copy_invalid_done'.tr(args: <String>['${urls.length}']));
+    _showCopyMsg(
+      'settings_copy_invalid_done'.tr(args: <String>['${urls.length}']),
+    );
   }
 
   /// 显示复制结果提示，2 秒后恢复空闲（与「刷新频道」的提示节奏一致）。
@@ -757,6 +857,7 @@ class _ProfilePageState extends State<ProfilePage> {
       canStepLeft: false,
       canStepRight: !_resetting,
       onTap: () => c.select(_resetRow),
+      onTapAction: _resetAll,
       onStepLeft: () => c.select(_resetRow),
       onStepRight: () {
         c.select(_resetRow);
@@ -785,11 +886,11 @@ class _ProfilePageState extends State<ProfilePage> {
           label: 'settings_remote'.tr(),
           value: value,
           canStepLeft: false,
-          canStepRight: AppConfig.enableChangeAccount ? state.status != RemoteLoginStatus.notConfigured : true,
-          onTap: () {
-            c.select(_remoteRow);
-            _beginInlineEdit(_remoteRow);
-          },
+          canStepRight: AppConfig.enableChangeAccount
+              ? state.status != RemoteLoginStatus.notConfigured
+              : true,
+          onTap: () => c.select(_remoteRow),
+          onTapAction: () => _beginInlineEdit(_remoteRow),
           onStepLeft: () => c.select(_remoteRow),
           onStepRight: () {
             c.select(_remoteRow);
@@ -815,7 +916,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   /// 行内输入编辑态的焦点节点，按行号取（未配置的行返回 null）。
-  FocusNode? _focusNodeOf(int row) => row == _remoteRow ? _remoteInputFocusNode : null;
+  FocusNode? _focusNodeOf(int row) =>
+      row == _remoteRow ? _remoteInputFocusNode : null;
 
   /// 进入行内输入编辑态：各行为自己的输入框装文本，下一帧聚焦弹出输入法。
   void _beginInlineEdit(int row) {
@@ -882,7 +984,8 @@ class _ProfilePageState extends State<ProfilePage> {
     // 避免与下方远程编辑态的 OK/返回分支抢占焦点输入。
     if (MessageOverlayController.instance.visible) {
       MessageOverlayController.instance.onAnyKey();
-      final bool isBack = key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack;
+      final bool isBack =
+          key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack;
       if (isBack) {
         MessageOverlayController.instance.handleBack();
         return KeyEventResult.handled;
@@ -898,9 +1001,13 @@ class _ProfilePageState extends State<ProfilePage> {
         return KeyEventResult.handled;
       }
       if (MessageOverlayController.instance.detail) {
-        final bool isArrow = key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown;
+        final bool isArrow =
+            key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowDown;
         if (isArrow) {
-          MessageOverlay.scrollDetail(key == LogicalKeyboardKey.arrowUp ? -1 : 1);
+          MessageOverlay.scrollDetail(
+            key == LogicalKeyboardKey.arrowUp ? -1 : 1,
+          );
           return KeyEventResult.handled;
         }
       }
@@ -937,8 +1044,14 @@ class _ProfilePageState extends State<ProfilePage> {
       onSubmit: _submitInlineEdit,
       readOnly: true,
       obscureText: false,
-      child: (remoteState.status == RemoteLoginStatus.loggedIn && remoteState.account.isNotEmpty)
-          ? QrImageView(data: remoteState.account, size: 120, backgroundColor: Colors.white)
+      child:
+          (remoteState.status == RemoteLoginStatus.loggedIn &&
+              remoteState.account.isNotEmpty)
+          ? QrImageView(
+              data: remoteState.account,
+              size: 120,
+              backgroundColor: Colors.white,
+            )
           : null,
     );
   }
@@ -976,11 +1089,13 @@ class _ProfilePageState extends State<ProfilePage> {
         final String? latest = update.result?.latest?.version;
         String value = base;
         if (update.result?.hasUpdate == true && latest != null) {
-          if (update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing) {
+          if (update.phase == AppUpdatePhase.ready ||
+              update.phase == AppUpdatePhase.installing) {
             value = '$base · 可更新 v$latest（按 OK 安装）';
           } else if (update.phase == AppUpdatePhase.downloading) {
             final double? progress = update.progress;
-            value = '$base · 更新下载中${progress == null ? '' : ' ${(progress * 100).round()}%'}';
+            value =
+                '$base · 更新下载中${progress == null ? '' : ' ${(progress * 100).round()}%'}';
           } else if (update.phase == AppUpdatePhase.failed) {
             value = '$base · 更新下载失败（按 OK 重试）';
           } else {
@@ -993,8 +1108,8 @@ class _ProfilePageState extends State<ProfilePage> {
           value: value,
           canStepLeft: false,
           canStepRight: false,
-          onTap: () {
-            c.select(_versionRow);
+          onTap: () => c.select(_versionRow),
+          onTapAction: () {
             // 触摸等同 OK：有更新时直接走升级动作（已就绪→安装，否则催下载）。
             if (update.result?.hasUpdate == true) {
               unawaited(_handleVersionAction());
@@ -1014,14 +1129,19 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _handleVersionAction() async {
     final AppUpdateController controller = AppUpdateController.instance;
     final AppUpdateState state = controller.state;
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
 
     void toast(String text) {
       if (!mounted) return;
-      messenger?.showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
+      messenger?.showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
     }
 
-    if (state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing) {
+    if (state.phase == AppUpdatePhase.ready ||
+        state.phase == AppUpdatePhase.installing) {
       final bool started = await controller.install();
       if (!started) toast('无法拉起系统安装器，请检查「安装未知应用」权限');
       return;
@@ -1044,7 +1164,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 选此入口而非占位页直开：不占 16 行焦点结构与 rowCount（阶段 4 约束），
   /// 复用既有 settings sheet 路由（原为无调用方的孤儿路由）。
   void _openParentalDebug() {
-    Injection.get<AppRouter>().pushSettingsSheet(const SettingsSheetParams(from: 'profile_version_long_press'));
+    Injection.get<AppRouter>().pushSettingsSheet(
+      const SettingsSheetParams(from: 'profile_version_long_press'),
+    );
   }
 
   /// 「天气数据来源」行：只读说明行。
@@ -1081,6 +1203,7 @@ class _SettingRow extends StatelessWidget {
     required this.onTap,
     required this.onStepLeft,
     required this.onStepRight,
+    this.onTapAction,
     this.onLongPress,
     this.wrapValue = false,
   });
@@ -1090,9 +1213,19 @@ class _SettingRow extends StatelessWidget {
   final String value;
   final bool canStepLeft;
   final bool canStepRight;
+
+  /// 聚焦回调（仅移动 [ProfileFocusController] 焦点，保持原样，遥控零影响）。
   final VoidCallback onTap;
+
   final VoidCallback onStepLeft;
   final VoidCallback onStepRight;
+
+  /// 触屏「整行点击」执行的等价动作（P1 触屏改造）。
+  ///
+  /// 为 null 时整行点击只聚焦（只读行、以及原本 onTap 已含动作的行）。
+  /// 非 null 时整行点击 = [onTap] 聚焦 + 本动作；动作内容复用遥控同款
+  /// `_stepRow`/`_onActivateRow` 路径，绝不新增第二套改值逻辑。
+  final VoidCallback? onTapAction;
 
   /// 长按回调（可选；「版本」行借此打开儿童模式调试入口，不影响焦点/步进）。
   final VoidCallback? onLongPress;
@@ -1106,40 +1239,71 @@ class _SettingRow extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
+      // 整行触屏点击：先聚焦（保持原行为），再执行等价动作（若有）。
+      // 二者都走既有回调，遥控的 OK/左右键路径完全不经过这里，零影响。
+      onTap: onTapAction == null
+          ? onTap
+          : () {
+              onTap();
+              onTapAction!();
+            },
       onLongPress: onLongPress,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: highlighted ? scheme.primaryContainer.withValues(alpha: 0.30) : Colors.transparent,
+          color: highlighted
+              ? scheme.primaryContainer.withValues(alpha: 0.30)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: highlighted ? scheme.primary : Colors.transparent, width: 2),
+          border: Border.all(
+            color: highlighted ? scheme.primary : Colors.transparent,
+            width: 2,
+          ),
         ),
         child: Row(
-          crossAxisAlignment: wrapValue ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+          crossAxisAlignment: wrapValue
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
           children: <Widget>[
             Text(
               label,
-              style: textTheme.titleMedium?.copyWith(color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant),
+              style: textTheme.titleMedium?.copyWith(
+                color: highlighted ? scheme.onSurface : scheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
-                crossAxisAlignment: wrapValue ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                crossAxisAlignment: wrapValue
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
                 children: <Widget>[
-                  if (canStepLeft) _StepIcon(icon: Icons.chevron_left, color: accent, onTap: onStepLeft),
+                  if (canStepLeft)
+                    _StepIcon(
+                      icon: Icons.chevron_left,
+                      color: accent,
+                      onTap: onStepLeft,
+                    ),
                   Flexible(
                     child: Text(
                       value,
                       textAlign: wrapValue ? TextAlign.start : TextAlign.right,
                       maxLines: wrapValue ? null : 1,
                       overflow: wrapValue ? null : TextOverflow.ellipsis,
-                      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: accent),
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: accent,
+                      ),
                     ),
                   ),
-                  if (canStepRight) _StepIcon(icon: Icons.chevron_right, color: accent, onTap: onStepRight),
+                  if (canStepRight)
+                    _StepIcon(
+                      icon: Icons.chevron_right,
+                      color: accent,
+                      onTap: onStepRight,
+                    ),
                 ],
               ),
             ),
@@ -1152,7 +1316,11 @@ class _SettingRow extends StatelessWidget {
 
 /// 步进指示图标（< 或 >），触摸/点击也可直接步进。
 class _StepIcon extends StatelessWidget {
-  const _StepIcon({required this.icon, required this.color, required this.onTap});
+  const _StepIcon({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 
   final IconData icon;
   final Color color;
@@ -1220,7 +1388,10 @@ class _InlineEditFrame extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Text(label, style: textTheme.titleMedium?.copyWith(color: scheme.onSurface)),
+              Text(
+                label,
+                style: textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: TextField(
@@ -1231,8 +1402,15 @@ class _InlineEditFrame extends StatelessWidget {
                   textCapitalization: TextCapitalization.none,
                   autocorrect: false,
                   obscureText: obscureText,
-                  style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: scheme.primary),
-                  decoration: InputDecoration(hintText: hintText, isDense: true, border: InputBorder.none),
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: scheme.primary,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    isDense: true,
+                    border: InputBorder.none,
+                  ),
                   onSubmitted: (_) => onSubmit(),
                 ),
               ),
@@ -1250,7 +1428,8 @@ class _InlineEditFrame extends StatelessWidget {
               ],
             ],
           ),
-          if (child != null) Padding(padding: const EdgeInsets.only(top: 8), child: child),
+          if (child != null)
+            Padding(padding: const EdgeInsets.only(top: 8), child: child),
         ],
       ),
     );

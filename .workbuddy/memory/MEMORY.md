@@ -19,6 +19,12 @@
 ## 关键约定
 - 设备型号：WS 握手上报一次，取不到返回空串；禁止 Process.run 调 ps（闪黑框），用 FFI 注册表/sysfs；`device_info_plus ^13.3.0` + `win32_registry ^3.0.3`。
 - parent APK：`flutter build apk --debug --flavor parent --dart-define=APP_FLAVOR=parent`（两个参数缺一不可）。
+- **触屏只跑 `phone` flavor（2026-11-17 用户明确）**：`tv` flavor = 电视/电视盒子，**无触屏、只有遥控**；触屏方案验证与装机一律用
+  `flutter build apk --debug --flavor phone --dart-define=APP_FLAVOR=phone`，装 `app-arm64-v8a-phone-debug.apk`
+  （包名 `screen.potatokid.tools.phone`，与 tv 包共存不冲突；启动 `screen.potatokid.tools.phone/.MainActivity`）。
+- **装机必须核对 md5**：无 flavor 的 `app-debug.apk` 是引入 flavor 前的**历史残留**（2026-11-05 构建），
+  其 applicationId 仍是 `screen.potatokid.tools`（与 tv flavor **同包名**），覆盖安装后**静默跑旧代码**——
+  这是"改了没生效/看到旧界面"的元凶。装完务必 `md5sum` 与目标产物对齐，并查 `versionName` 是否等于 pubspec 的 `version:`。
 - 我的页目标设备联动：`parental_mine_tab.dart` / `parental_unlock_section.dart`；断言设备名用 `findsWidgets`；变更前同步 `docs/parent-app-redesign-prototype.html`。
 - adb：Git Bash 加 `MSYS_NO_PATHCONV=1`；install/pull 本地路径用 Windows 反斜杠。USB R58M349S90M 当前登录 m10s。
 
