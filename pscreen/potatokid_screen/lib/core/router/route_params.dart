@@ -24,6 +24,23 @@ class HomeDetailParams extends RouteParams {
       );
 }
 
+/// 录制回放参数
+class RecordingPlaybackParams extends RouteParams {
+  const RecordingPlaybackParams({required this.uri, required this.title});
+
+  final String uri;
+  final String title;
+
+  @override
+  Map<String, dynamic> toMap() => <String, dynamic>{'uri': uri, 'title': title};
+
+  factory RecordingPlaybackParams.fromMap(Map<String, dynamic> map) =>
+      RecordingPlaybackParams(
+        uri: (map['uri'] as String?) ?? '',
+        title: (map['title'] as String?) ?? '',
+      );
+}
+
 /// 设置弹层参数
 class SettingsSheetParams extends RouteParams {
   const SettingsSheetParams({this.from});

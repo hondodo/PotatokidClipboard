@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_home/features/screen/presentation/pages/live_page.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 
 /// 全局直播宿主：挂在 Navigator 之上，负责全屏 / 应用内悬浮小窗的布局。
 ///
@@ -58,6 +60,16 @@ class _LiveStageHostState extends State<LiveStageHost>
     if (!widget.controller.isActive) return false;
     widget.controller.close();
     return true;
+  }
+
+  /// 退后台 / 锁屏即停录（本期不支持后台录制）。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(RecordingController.instance.stopOnExit());
+    }
   }
 
   @override

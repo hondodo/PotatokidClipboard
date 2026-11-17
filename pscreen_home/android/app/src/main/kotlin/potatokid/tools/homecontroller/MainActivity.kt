@@ -38,8 +38,12 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "potatokid/volume"
     private val UPDATER_CHANNEL = "potatokid/updater"
 
+    /** 录制存储（SAF 选目录 / 空间检测 / 分片写入）。 */
+    private val recordingStorage = RecordingStorageChannel(this)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        recordingStorage.attach(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 val audio = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -176,6 +180,12 @@ class MainActivity : FlutterActivity() {
             } catch (e: Exception) {
                 // DRM 不可用时，交由共享层使用本地兜底值。
             }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!recordingStorage.onActivityResult(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data)
         }
     }
 

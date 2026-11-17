@@ -18,6 +18,8 @@ import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 
@@ -225,14 +227,38 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   @override
   void didUpdateWidget(covariant LivePlayerView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.channels.length != widget.channels.length) {
-      ChannelInfoProvider.instance.setChannels(widget.channels);
-      LiveChannelController.instance.setCount(widget.channels.length);
+    if (_sameChannels(oldWidget.channels, widget.channels)) return;
+    ChannelInfoProvider.instance.setChannels(widget.channels);
+    LiveChannelController.instance.setCount(widget.channels.length);
+    // 后台改列表顺序 / 缓存列表被网络列表替换：按「正在播放的频道名」把
+    // 选中序号校准回同一个频道，避免停留在旧序号导致高亮/数字键/播放错位。
+    // 这里不主动重开流：home 的播放流由 onPlayCommit 驱动，列表替换本身
+    // 不改变「正在播的频道」，重开反而会打断播放。
+    LiveChannelController.instance.relocateByName(
+      widget.channels.map((IptvChannel c) => c.name).toList(),
+    );
+  }
+
+  /// 两个频道列表是否内容一致（名称 + 源列表逐一比较）。
+  /// 长度相同但顺序/源变化也算不同——这类重排同样需要按频道名校准序号。
+  bool _sameChannels(List<IptvChannel> a, List<IptvChannel> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      final IptvChannel x = a[i];
+      final IptvChannel y = b[i];
+      if (x.name != y.name) return false;
+      if (x.sources.length != y.sources.length) return false;
+      for (int j = 0; j < x.sources.length; j++) {
+        if (x.sources[j] != y.sources[j]) return false;
+      }
     }
+    return true;
   }
 
   @override
   void dispose() {
+    // home 端退出是「返回主页」，播放器 dispose 即离页 → 静默停录保存。
+    unawaited(RecordingController.instance.stopOnExit());
     HomeNowPlayingController.instance.onSwitchSource = null;
     LiveChannelController.instance.onPlayCommit.removeListener(_openCurrent);
     _playingSub?.cancel();
@@ -339,6 +365,8 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     if (channel.name.isNotEmpty && Injection.isRegistered<SettingsStore>()) {
       unawaited(Injection.get<SettingsStore>().saveLastLiveChannel(channel.name));
     }
+    // 记录身份锚点：列表重排/替换时据此把序号校准回同一个频道。
+    LiveChannelController.instance.setPlayingName(channel.name);
     _retry.resetForChannel(0);
     // 换台期间抑制旧流残留的 error/completed 干扰（与电视端一致）。
     _retry.setBusy(true);
@@ -359,6 +387,18 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     final int idx = sourceIndex.clamp(0, channel.sources.length - 1);
     String url = channel.sources[idx];
     if (url.isEmpty) return;
+    // 录制上报原始源（relay 改写之前，方案 D-3）。
+    // reload（一级看门狗同源重载）signature 不变、录制继续；auto（首次/换源/重试）
+    // 真换源时由 provider 停录保播放。
+    RecordingSourceProvider.instance.report(
+      RecordingSource(
+        channelName: channel.name,
+        originalUrl: url,
+        sourceIndex: idx,
+        sources: channel.sources,
+        origin: isReload ? RecordingSourceOrigin.reload : RecordingSourceOrigin.auto,
+      ),
+    );
     // 云端 HLS 中转（`.env` 的 `REPLY_SOURCE`，与电视端同源配置）：非空且
     // 源域名命中服务端下发的中转白名单（/api/allow_reply_host，见 RelayPolicy）
     // 时才改写为「中转前缀 + urlencode(源地址)」，未命中则直连播放。
@@ -407,7 +447,20 @@ class _LivePlayerViewState extends State<LivePlayerView> {
     if (index < 0 || index >= widget.channels.length) return;
     final int total = widget.channels[index].sources.length;
     if (total == 0) return;
+    final IptvChannel channel = widget.channels[index];
     final int next = (_retry.sourceIndex + delta + total) % total;
+    // 录制中手动切源拦截（D-11）：被拒则整段不执行，不换源、不弹提示。
+    // 提示由 controller.onEvent 注册方（live_page）统一处理。
+    final bool allowed = RecordingSourceProvider.instance.report(
+      RecordingSource(
+        channelName: channel.name,
+        originalUrl: channel.sources[next],
+        sourceIndex: next,
+        sources: channel.sources,
+        origin: RecordingSourceOrigin.manual,
+      ),
+    );
+    if (!allowed) return;
     _retry.setSource(next);
     _retry.setBusy(true);
     unawaited(_openSource(next).whenComplete(() => _retry.setBusy(false)));

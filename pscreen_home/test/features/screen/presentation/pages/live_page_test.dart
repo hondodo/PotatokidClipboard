@@ -26,6 +26,25 @@ class _FakeIptvRepository implements IptvRepository {
       );
 }
 
+/// 滚动用例专用：频道足够多，列表才有可滚动空间。
+class _ManyChannelsRepo implements IptvRepository {
+  @override
+  Future<FinalChannelsPayload?> fetchFinalChannels({String? version}) async {
+    return FinalChannelsPayload(
+      version: 'test-many',
+      updatedAt: 0,
+      channels: List<IptvChannel>.generate(
+        40,
+        (int i) => IptvChannel(
+          name: '频道 ${i + 1}',
+          sources: <String>['http://example.com/$i.m3u8'],
+        ),
+      ),
+      protectedSources: const <String>[],
+    );
+  }
+}
+
 /// 搭起 [LivePage] 并加载频道，直到首个频道出现在右侧浮层列表里。
 Future<void> _pumpLivePage(
   WidgetTester tester, {
@@ -158,6 +177,47 @@ void main() {
 
     // 再走 3 秒（距点频道 11 秒 > 10 秒）→ 自动隐藏。
     await tester.pump(const Duration(seconds: 3));
+    expect(find.byType(ListView), findsNothing);
+  });
+
+  testWidgets('显示期间滑动频道列表会重置 10 秒计时（滚动也算操作）', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final IptvBloc bloc = IptvBloc(repository: _ManyChannelsRepo());
+    addTearDown(bloc.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BlocProvider<IptvBloc>.value(
+          value: bloc,
+          child: LivePage(enablePlayer: false),
+        ),
+      ),
+    );
+    bloc.add(const LoadIptv());
+    for (int i = 0; i < 40 && find.byType(ListView).evaluate().isEmpty; i++) {
+      await tester.pump();
+    }
+    expect(find.byType(ListView), findsOneWidget);
+
+    // 走过 8 秒（未到 10 秒），浮层仍在显示。
+    await tester.pump(const Duration(seconds: 8));
+    expect(find.byType(ListView), findsOneWidget);
+
+    // 用户持续滑动列表：应重置隐藏计时；drag 跨多行，不应被当成点选切台。
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(LiveChannelController.instance.index, 0);
+
+    // 距滑动仅 3 秒：修复前累计 11.5 秒已隐藏，修复后应仍在。
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.byType(ListView), findsOneWidget, reason: '滑动列表后 10 秒计时应重置');
+
+    // 再走 8 秒（距上次滑动 11.5 秒）→ 自动隐藏。
+    await tester.pump(const Duration(seconds: 8));
     expect(find.byType(ListView), findsNothing);
   });
 

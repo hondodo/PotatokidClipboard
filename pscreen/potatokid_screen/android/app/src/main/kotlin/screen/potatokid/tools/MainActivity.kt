@@ -21,11 +21,15 @@ class MainActivity : FlutterActivity() {
     private val APP_CHANNEL = "potatokid/app"
     private val UPDATER_CHANNEL = "potatokid/updater"
 
+    /** 录制存储（SAF 选目录 / 空间检测 / 分片写入）。 */
+    private val recordingStorage = RecordingStorageChannel(this)
+
     /** Widevine 的 UUID：MediaDrm 设备唯一 ID 只在 Widevine 下可取。 */
     private val WIDEVINE_UUID = UUID(-0x121074568629b532L, -0x5c37d8232ae2de13L)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        recordingStorage.attach(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 val audio = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -186,6 +190,12 @@ class MainActivity : FlutterActivity() {
             } catch (e: Throwable) {
                 // 释放失败忽略
             }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!recordingStorage.onActivityResult(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data)
         }
     }
 }

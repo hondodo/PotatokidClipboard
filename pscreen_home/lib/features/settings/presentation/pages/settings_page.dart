@@ -22,6 +22,7 @@ import 'package:pscreen_home/features/connection/application/bloc/connection_sta
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/remote_control/core/control_log.dart';
 import 'package:pscreen_home/features/settings/presentation/widgets/realtime_status_section.dart';
+import 'package:pscreen_home/features/settings/presentation/widgets/recording_settings_section.dart';
 import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
@@ -837,6 +838,8 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 10),
           const RealtimeStatusSection(),
+          // 录制设置 + 录制文件（存储位置 / 空间 / 回放）。
+          const RecordingSettingsSection(),
           // 关于 / 版本：展示当前版本 + 更新状态（非强更可一直忽略）。
           const SizedBox(height: 24),
           ValueListenableBuilder<AppUpdateState>(

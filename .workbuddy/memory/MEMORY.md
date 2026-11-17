@@ -27,6 +27,7 @@
   这是"改了没生效/看到旧界面"的元凶。装完务必 `md5sum` 与目标产物对齐，并查 `versionName` 是否等于 pubspec 的 `version:`。
 - 我的页目标设备联动：`parental_mine_tab.dart` / `parental_unlock_section.dart`；断言设备名用 `findsWidgets`；变更前同步 `docs/parent-app-redesign-prototype.html`。
 - adb：Git Bash 加 `MSYS_NO_PATHCONV=1`；install/pull 本地路径用 Windows 反斜杠。USB R58M349S90M 当前登录 m10s。
+- **后台播放只在桌面端（Windows/Ubuntu/macOS）开放（2026-11-17 用户明确）**：桌面窗口失焦（lifecycle hidden/inactive）不算真后台，儿童模式闸门解除应照常恢复出声；移动端（Android/iOS）按真实生命周期，退后台不偷播。判定用 `defaultTargetPlatform` in [windows, linux, macOS]（`live_player_widget.dart` 的 `_allowBackgroundPlayback`）。
 
 ## HA / ESP（2026-11-16）
 - HA 取数铁律：WS auth token 在顶层；`/api/states` 无 area/device → 走 WS 注册表；area 无层级，家名按区域名首个空格切。
@@ -37,3 +38,11 @@
 - 设备字典共用已落地（2026-11-16）：服务端 `server/deviceTypes.js`（唯一真源，覆盖层 `datas/admin/deviceTypes.json`）+ admin 两顶层 Tab「设备类型字典/ESP 设备分类」+ 公开读 `/api/device/device-types`。home 端 `features/home/domain/models/device_type_dictionary.dart` 的 `isExplicitlyOtherType()` 注入 13 个 Summary 的 tryBuild 消歧（首页静态 `active` 由 `DeviceTypeStore.refresh` 设置）；取数仍直连 HA WS。带参动作 `set_temperature(+0.5)` 等在 `callHaService` 算好值下发。
 - 固件 `potatokid_esp.ino` 已改 `oled-2.0`：`drawScreen` 四行 + 顶栏真实 IP + 分速跑马灯 + 反白块 + DISPLAY 协议 + sys 翻页；arduino-cli 编译通过（flash 61%/RAM 15%），未真机烧录。编译命令见 README（fqbn `esp32:esp32:esp32s3:...PartitionScheme=no_fs`）。实施计划/进度 `docs/esp-device-dict-rollout-plan.md`（23/23 完成）。
 - 原型：`docs/esp-screen-{admin,display}-prototype.html`、`docs/esp-device-type-prototype.html`。
+
+## 直播录制（2026-11-17）
+- 方案文档 `docs/tv-recording-plan.md`；纯 Dart 下载 HLS 分片拼 .ts（不用 ffmpeg，用户怕盒子卡），与 relay 无关。录原始源（relay 改写前），前台边看边录、切台/退出/退后台自动停，parentOnly。
+- **核心在共享包** `packages/pscreen_screen/lib/features/iptv/application/recording/`（hls_playlist / recording_controller / recording_source_provider / recording_sink / recording_platform / recording_storage / recording_library_controller）；共享包无 UI 层，controller 不发 SnackBar/不持 context，靠 ValueNotifier + onEvent。
+- 切源三级策略：manual 拦截、reload（同 URL）放行、auto（看门狗换源）停录保播放；signature = 频道名+源索引+源列表（防动态 token 误判）；切台（频道名变）任何 origin 都放行停录。
+- **存储**：默认 app 私有目录；SAF 选目录（U 盘/SD）经两端原生 `RecordingStorageChannel.kt`（通道 `potatokid/recording`，framework DocumentsContract + StatFs，无新依赖）。空间检测录前+每分片查，低于阈值（AppSettings 可配，默认 512MB）发 lowSpace 停录；单文件默认 2GB。
+- **入口**：TV 胶囊「录制中心」→ 路由 /recording + /recording/playback（不占我的页 16 行焦点链）；home 设置页内嵌 RecordingSettingsSection + RecordingPlaybackPage。home 无 i18n 文案硬编码。
+- 两端各 1 个 RecordingStorageChannel.kt + MainActivity attach/onActivityResult 转发。编译验证：`./gradlew.bat :app:compileTvDebugKotlin`（TV）/ `:app:compileBoardDebugKotlin`（home），有 SDK，跨盘 Kotlin 缓存告警非错误。

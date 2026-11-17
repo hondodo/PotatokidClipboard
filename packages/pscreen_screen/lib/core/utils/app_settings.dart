@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_platform.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 
 /// 应用级设置持久化（全局单例）。
@@ -33,6 +34,13 @@ class AppSettings {
   static const String _keyRemoteAccount = 'app_remote_account_v1';
   static const String _keyRemotePassword = 'app_remote_password_v1';
   static const String _keyDisplayName = 'app_display_name_v1';
+
+  // 录制存储配置
+  static const String _keyRecordingLocation = 'app_recording_location_v1';
+  static const String _keyRecordingSafUri = 'app_recording_saf_uri_v1';
+  static const String _keyRecordingSafName = 'app_recording_saf_name_v1';
+  static const String _keyRecordingMaxMb = 'app_recording_max_mb_v1';
+  static const String _keyRecordingLowSpaceMb = 'app_recording_low_space_mb_v1';
 
   /// 家长端自定义登录名（claim 成功后写入）。
   ///
@@ -85,6 +93,19 @@ class AppSettings {
   /// 家长端 claim 口令；**空串表示回落到原有默认口令**。
   String _claimedPassword = '';
 
+  /// 录制存储位置：默认 app 内部。
+  RecordingLocation _recordingLocation = RecordingLocation.internal;
+
+  /// SAF 自定义目录的持久授权 URI 与展示名。
+  String _recordingSafUri = '';
+  String _recordingSafName = '';
+
+  /// 单文件上限（MB），默认 2GB。
+  int _recordingMaxFileMb = 2048;
+
+  /// 低空间阈值（MB），默认 512MB。
+  int _recordingLowSpaceMb = 512;
+
   ThemeMode get themeMode => _themeMode;
   bool get showFloatingRemote => _showFloatingRemote;
 
@@ -119,6 +140,12 @@ class AppSettings {
   /// 家长端 claim 口令：空串表示回落到原有默认口令。
   /// 仅 parent flavor 开启 claim 闸门后生效。
   String get claimedPassword => _claimedPassword;
+
+  RecordingLocation get recordingLocation => _recordingLocation;
+  String get recordingCustomUri => _recordingSafUri;
+  String get recordingCustomDisplayName => _recordingSafName;
+  int get recordingMaxFileMb => _recordingMaxFileMb;
+  int get recordingLowSpaceMb => _recordingLowSpaceMb;
 
   /// 从 SharedPreferences 加载所有设置（仅首次调用时真正读取）。
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -159,6 +186,15 @@ class AppSettings {
       _displayName = prefs.getString(_keyDisplayName) ?? '';
       _claimedAccount = prefs.getString(_keyClaimedAccount) ?? '';
       _claimedPassword = prefs.getString(_keyClaimedPassword) ?? '';
+      // 录制存储配置
+      _recordingLocation = RecordingLocation.values.firstWhere(
+        (RecordingLocation e) => e.name == prefs.getString(_keyRecordingLocation),
+        orElse: () => RecordingLocation.internal,
+      );
+      _recordingSafUri = prefs.getString(_keyRecordingSafUri) ?? '';
+      _recordingSafName = prefs.getString(_keyRecordingSafName) ?? '';
+      _recordingMaxFileMb = prefs.getInt(_keyRecordingMaxMb) ?? 2048;
+      _recordingLowSpaceMb = prefs.getInt(_keyRecordingLowSpaceMb) ?? 512;
     } catch (_) {
       // 读取失败则使用默认值。
     }
@@ -264,6 +300,45 @@ class AppSettings {
   }
 
   /// 保存账号展示名（空串表示清除，回落显示账号 id）。
+  /// 保存录制存储位置；custom 时同时写入 SAF URI 与展示名。
+  Future<void> setRecordingLocation(
+    RecordingLocation location, {
+    String uri = '',
+    String displayName = '',
+  }) async {
+    _recordingLocation = location;
+    if (location == RecordingLocation.custom) {
+      _recordingSafUri = uri;
+      _recordingSafName = displayName;
+    } else {
+      _recordingSafUri = '';
+      _recordingSafName = '';
+    }
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyRecordingLocation, location.name);
+      await prefs.setString(_keyRecordingSafUri, _recordingSafUri);
+      await prefs.setString(_keyRecordingSafName, _recordingSafName);
+    } catch (_) {}
+  }
+
+  Future<void> setRecordingMaxFileMb(int mb) async {
+    _recordingMaxFileMb = mb;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_keyRecordingMaxMb, mb);
+    } catch (_) {}
+  }
+
+  Future<void> setRecordingLowSpaceMb(int mb) async {
+    _recordingLowSpaceMb = mb;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_keyRecordingLowSpaceMb, mb);
+    } catch (_) {}
+  }
+
+
   Future<void> setDisplayName(String name) async {
     _displayName = name.trim();
     try {

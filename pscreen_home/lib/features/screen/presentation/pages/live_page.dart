@@ -10,6 +10,8 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 
 /// 直播页：播放器铺满整个 body，频道列表是 [Stack] 上层的右侧浮层。
@@ -74,12 +76,59 @@ class _LivePageState extends State<LivePage> {
     super.initState();
     // 进入页面：浮层自动显示并开始倒计时。
     _scheduleHide();
+    // 录制事件（切源被拒 / 已保存 / 不支持 / 失败）由本页统一提示（D-9）。
+    RecordingController.instance.onEvent = _handleRecordingEvent;
   }
 
   @override
   void dispose() {
+    if (RecordingController.instance.onEvent == _handleRecordingEvent) {
+      RecordingController.instance.onEvent = null;
+    }
     _hideTimer?.cancel();
     super.dispose();
+  }
+
+  /// 录制事件 → 中文 SnackBar（home 端无 i18n，文案硬编码中文）。
+  void _handleRecordingEvent(RecordingEventData event) {
+    if (!mounted) return;
+    String? message;
+    switch (event.type) {
+      case RecordingEvent.started:
+        message = '正在录制 ${event.channelName}';
+      case RecordingEvent.saved:
+        message = '已保存 ${event.channelName} 的录制';
+      case RecordingEvent.unsupported:
+        message = '该频道加密，无法录制';
+      case RecordingEvent.failed:
+        message = '录制失败，已保存部分内容';
+      case RecordingEvent.switchBlocked:
+        message = '录制中不能切换信号源，请先停止录制';
+      case RecordingEvent.sourceSwitched:
+        message = '信号源已自动切换，录制已保存';
+      case RecordingEvent.lowSpace:
+        message = '存储空间不足，录制已停止';
+      case RecordingEvent.duplicate:
+        return; // 互斥由按钮状态体现，不重复弹提示。
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  /// 录制按钮点击：切换开始/停止。当前源取播放器上报的原始源。
+  Future<void> _toggleRecording() async {
+    final RecordingController controller = RecordingController.instance;
+    if (controller.isRecording) {
+      await controller.stop();
+      return;
+    }
+    final RecordingSource? source = RecordingSourceProvider.instance.current;
+    if (source == null) {
+      controller.onEvent?.call(const RecordingEventData(RecordingEvent.failed));
+      return;
+    }
+    await controller.start(source);
   }
 
   /// 设置存储；widget 测试未初始化 DI 时为 null（跳过，不影响播放）。
@@ -237,6 +286,8 @@ class _LivePageState extends State<LivePage> {
                   // 定时关闭倒计时：直播页没有 AppBar，单独挂在左上角
                   // （返回按钮右侧），且不跟随频道浮层自动隐藏。
                   Positioned(top: 12, left: _fullscreen ? 64 : 12, child: const LiveSleepTimerBadge()),
+                  // 录制中角标（左下角频道名上方）：纯展示，不拦手势。
+                  Positioned(left: 12, bottom: 64, child: _HomeRecordingIndicator()),
                   // 全屏模式左上角返回按钮：AppBar 已隐藏，仍可退出直播页回主控页。
                   if (_fullscreen)
                     Positioned(
@@ -271,6 +322,7 @@ class _LivePageState extends State<LivePage> {
                           fullscreen: _fullscreen,
                           onToggleFullscreen: _toggleFullscreen,
                           onFloat: widget.onFloat,
+                          onToggleRecording: _toggleRecording,
                         ),
                       ),
                     ),
@@ -281,7 +333,7 @@ class _LivePageState extends State<LivePage> {
                       bottom: 12,
                       right: 12,
                       width: _listWidth,
-                      child: _ChannelListPanel(channels: channels, onSelect: _scheduleHide),
+                      child: _ChannelListPanel(channels: channels, onInteract: _scheduleHide),
                     ),
                 ],
               ],
@@ -357,6 +409,42 @@ class _CachedListNotice extends StatelessWidget {
   }
 }
 
+/// 录制中角标（红点 + mm:ss）：纯展示，IgnorePointer 不拦手势。
+class _HomeRecordingIndicator extends StatelessWidget {
+  const _HomeRecordingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<RecordingState>(
+      valueListenable: RecordingController.instance.state,
+      builder: (context, state, _) {
+        if (!state.isRecording) return const SizedBox.shrink();
+        final int s = state.elapsed.inSeconds;
+        final String mmss =
+            '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+        return IgnorePointer(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xCC1A1A1A),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0x66FF5252)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.fiber_manual_record, color: Color(0xFFFF5252), size: 13),
+                const SizedBox(width: 6),
+                Text('录制中 $mmss', style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// 左下角当前频道名（始终显示）。
 class _ChannelNameBadge extends StatelessWidget {
   const _ChannelNameBadge({required this.channels, this.compact = false});
@@ -405,6 +493,7 @@ class _ChannelSwitchControls extends StatelessWidget {
     required this.fullscreen,
     required this.onToggleFullscreen,
     this.onFloat,
+    this.onToggleRecording,
   });
 
   /// 有操作时回调（用于重置自动隐藏计时）。
@@ -418,6 +507,9 @@ class _ChannelSwitchControls extends StatelessWidget {
 
   /// 缩小成应用内悬浮小窗；为空时不显示按钮（单独使用 LivePage 的测试）。
   final VoidCallback? onFloat;
+
+  /// 开始/停止录制（由 LivePage 注入）。
+  final VoidCallback? onToggleRecording;
 
   @override
   Widget build(BuildContext context) {
@@ -468,6 +560,25 @@ class _ChannelSwitchControls extends StatelessWidget {
               onInteract();
             },
           ),
+          // 录制按钮：状态实时刷新图标/提示色，点击开始/停止当前频道录制。
+          // 悬浮小窗（floating==true）不渲染本控制区，故不会显示此按钮。
+          ValueListenableBuilder<RecordingState>(
+            valueListenable: RecordingController.instance.state,
+            builder: (context, recording, _) => IconButton(
+              tooltip: recording.isRecording ? '停止录制' : '开始录制',
+              iconSize: 36,
+              color: recording.isRecording ? const Color(0xFFFF5252) : Colors.white,
+              icon: Icon(
+                recording.isRecording
+                    ? Icons.stop_circle_outlined
+                    : Icons.fiber_manual_record,
+              ),
+              onPressed: () {
+                onToggleRecording?.call();
+                onInteract();
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -479,13 +590,15 @@ class _ChannelSwitchControls extends StatelessWidget {
 /// 上/下台或点选改变的是共享的 [LiveChannelController.index]，这里监听它：
 /// - 列表随之滚动，保证当前频道始终可见（恢复上次频道时也会定位）；
 /// - 高亮当前频道（白字加粗 + 播放标记 + 底色）。
+/// 用户点选或滑动列表都会调用 [onInteract] 重置外层浮层的自动隐藏计时；
+/// 程序化滚动（_scrollToSelected 的 jumpTo/animateTo）不算用户操作。
 class _ChannelListPanel extends StatefulWidget {
-  const _ChannelListPanel({required this.channels, required this.onSelect});
+  const _ChannelListPanel({required this.channels, required this.onInteract});
 
   final List<IptvChannel> channels;
 
-  /// 点选频道后的回调（用于重置自动隐藏计时）。
-  final VoidCallback onSelect;
+  /// 用户操作（点选频道 / 滑动列表）后的回调（用于重置自动隐藏计时）。
+  final VoidCallback onInteract;
 
   @override
   State<_ChannelListPanel> createState() => _ChannelListPanelState();
@@ -544,61 +657,76 @@ class _ChannelListPanelState extends State<_ChannelListPanel> {
       color: Colors.black.withValues(alpha: 0.6),
       borderRadius: BorderRadius.circular(12),
       clipBehavior: Clip.antiAlias,
-      child: ListView.builder(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemExtent: _itemExtent,
-        itemCount: widget.channels.length,
-        itemBuilder: (BuildContext context, int index) {
-          final IptvChannel channel = widget.channels[index];
-          final bool selected = index == current;
-          // 序号从 1 开始，按频道总数的位数左侧补零（与电视端频道条一致）。
-          final int total = widget.channels.length;
-          final int numberWidth = total <= 1 ? 1 : total.toString().length;
-          return ListTile(
-            dense: true,
-            // 序号列（右对齐、等宽数字），便于对照台号直选。
-            leading: SizedBox(
-              width: 34,
-              child: Text(
-                (index + 1).toString().padLeft(numberWidth, '0'),
-                maxLines: 1,
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  color: selected ? Colors.white : Colors.white60,
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-                  fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+      // 用户滑动列表（手指拖动 / 滚轮 / 惯性）也算「有操作」，同样重置
+      // 外层 10 秒自动隐藏计时；_scrollToSelected 的程序化定位不触发。
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScrollNotification,
+        child: ListView.builder(
+          controller: _scroll,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemExtent: _itemExtent,
+          itemCount: widget.channels.length,
+          itemBuilder: (BuildContext context, int index) {
+            final IptvChannel channel = widget.channels[index];
+            final bool selected = index == current;
+            // 序号从 1 开始，按频道总数的位数左侧补零（与电视端频道条一致）。
+            final int total = widget.channels.length;
+            final int numberWidth = total <= 1 ? 1 : total.toString().length;
+            return ListTile(
+              dense: true,
+              // 序号列（右对齐、等宽数字），便于对照台号直选。
+              leading: SizedBox(
+                width: 34,
+                child: Text(
+                  (index + 1).toString().padLeft(numberWidth, '0'),
+                  maxLines: 1,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.white60,
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
-            ),
-            title: Text(
-              channel.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.white70,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              title: Text(
+                channel.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white70,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                ),
               ),
-            ),
-            subtitle: channel.group == null || channel.group!.isEmpty
-                ? null
-                : Text(
-                    channel.group!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: selected ? Colors.white70 : Colors.white38),
-                  ),
-            trailing: selected ? const Icon(Icons.play_arrow_rounded, size: 20, color: Colors.white) : null,
-            selected: selected,
-            selectedTileColor: Colors.white24,
-            onTap: () {
-              LiveChannelController.instance.select(index);
-              widget.onSelect();
-            },
-          );
-        },
+              subtitle: channel.group == null || channel.group!.isEmpty
+                  ? null
+                  : Text(
+                      channel.group!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: selected ? Colors.white70 : Colors.white38),
+                    ),
+              trailing: selected ? const Icon(Icons.play_arrow_rounded, size: 20, color: Colors.white) : null,
+              selected: selected,
+              selectedTileColor: Colors.white24,
+              onTap: () {
+                LiveChannelController.instance.select(index);
+                widget.onInteract();
+              },
+            );
+          },
+        ),
       ),
     );
+  }
+
+  /// 用户滚动列表时重置外层的自动隐藏计时；程序化定位不算用户操作。
+  bool _onScrollNotification(ScrollNotification notification) {
+    final bool userDriven =
+        notification is UserScrollNotification ||
+        (notification is ScrollUpdateNotification && notification.dragDetails != null);
+    if (userDriven) widget.onInteract();
+    // 返回 false：通知继续向上冒泡，不影响其它监听者。
+    return false;
   }
 }

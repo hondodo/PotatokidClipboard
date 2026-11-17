@@ -30,15 +30,19 @@ import 'package:pscreen_screen/features/iptv/application/live_channel_controller
 import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/reporting_service.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
 import 'package:pscreen_screen/features/msg/application/message_overlay_controller.dart';
 import 'package:potatokid_screen/features/parental/presentation/widgets/parental_select_overlay.dart';
 import 'package:potatokid_screen/shared/widgets/confirm_dialog.dart';
+import 'package:potatokid_screen/shared/widgets/tv_design_viewport.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/channel_bar.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/direction_widget.dart';
 import 'package:potatokid_screen/features/iptv/presentation/components/touch_gesture_layer.dart';
+import 'package:potatokid_screen/features/iptv/presentation/components/recording_indicator.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 import 'package:pscreen_screen/features/time/domain/lunar_calendar.dart';
 import 'package:potatokid_screen/features/weather/presentation/widgets/weather_days_panel.dart';
@@ -385,6 +389,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (_appExiting) return;
     final bool gate = _pauseGateActive();
     if (gate == _lastPauseGate) return;
+    final KidWatchTimerController timer = KidWatchTimerController.instance;
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 暂停闸门 $_lastPauseGate -> $gate '
+      '(locked=${timer.locked}, selectionPending=${timer.selectionPending}, '
+      'lockedPaused=$_lockedPaused, playing=${_player?.state.playing ?? false})',
+    );
     _lastPauseGate = gate;
     if (gate) {
       _pauseForLock();
@@ -394,21 +404,100 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   }
 
   void _pauseForLock() {
+    // 闸门要求暂停就记下标记，不能只在「此刻正在播放」时才记：
+    // 音频源开流/缓冲期间 playing=false，漏记的话解除闸门时
+    // _resumeFromLock 会直接返回，之后不会再有任何恢复契机（只能换台重开）。
+    _lockedPaused = true;
     final Player? p = _player;
     if (p == null) return;
-    if (p.state.playing) {
-      _lockedPaused = true;
-      unawaited(p.pause());
-    }
+    final bool playing = p.state.playing;
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 闸门暂停 playing=$playing buffering=${p.state.buffering}',
+    );
+    if (playing) unawaited(p.pause());
   }
 
+  /// 后台播放只在桌面端（Windows/Ubuntu/macOS）开放：桌面窗口失焦
+  /// （lifecycle hidden/inactive）不算真后台，闸门解除时照常恢复出声；
+  /// 移动端（Android/iOS）仍按真实生命周期判断，避免退到后台偷播。
+  bool get _allowBackgroundPlayback =>
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+
   void _resumeFromLock() {
-    if (_appExiting) return;
-    if (!_lockedPaused) return;
-    // 闸门仍成立或仍在后台：保持暂停，等回前台/闸门解除后再恢复（不能先清标记）。
-    if (_pauseGateActive() || _appInBackground) return;
+    if (_appExiting) {
+      Injection.get<LogService>().info('[LivePlayerWidget] 闸门恢复跳过：正在退出');
+      return;
+    }
+    if (!_lockedPaused) {
+      Injection.get<LogService>().info('[LivePlayerWidget] 闸门恢复跳过：无暂停标记');
+      return;
+    }
+    final AppLifecycleState? lifecycle = WidgetsBinding.instance.lifecycleState;
+    final bool reallyBackground = _allowBackgroundPlayback
+        ? false
+        : lifecycle == AppLifecycleState.paused ||
+            lifecycle == AppLifecycleState.hidden ||
+            lifecycle == AppLifecycleState.detached ||
+            (lifecycle == null && _appInBackground);
+
+    // 闸门仍成立或确实还在后台：保持暂停，等回前台/闸门解除后再恢复（不能先清标记）。
+    if (_pauseGateActive() || reallyBackground) {
+      final KidWatchTimerController timer = KidWatchTimerController.instance;
+      Injection.get<LogService>().info(
+        '[LivePlayerWidget] 闸门恢复延后 gate=${_pauseGateActive()} '
+        'locked=${timer.locked} selectionPending=${timer.selectionPending} '
+        'background=$_appInBackground lifecycle=$lifecycle allowBg=$_allowBackgroundPlayback',
+      );
+      return;
+    }
     _lockedPaused = false;
+    Injection.get<LogService>().info(
+      '[LivePlayerWidget] 闸门恢复播放 playing=${_player?.state.playing ?? false} '
+      'allowBg=$_allowBackgroundPlayback',
+    );
     unawaited(_player?.play());
+    // 录制一次性事件（切源被拒 / 已保存 / 不支持 / 失败）由宿主弹提示（D-9）。
+    RecordingController.instance.onEvent = _handleRecordingEvent;
+  }
+
+  /// 录制事件 → SnackBar。文案走 i18n，儿童模式用 kidSnackBar。
+  void _handleRecordingEvent(RecordingEventData event) {
+    if (!mounted) return;
+    String message;
+    switch (event.type) {
+      case RecordingEvent.started:
+        message = 'record_started'.tr(
+          namedArgs: <String, String>{'__NAME__': event.channelName},
+        );
+      case RecordingEvent.saved:
+        message = 'record_saved'.tr(
+          namedArgs: <String, String>{'__NAME__': event.channelName},
+        );
+      case RecordingEvent.unsupported:
+        message = 'record_unsupported'.tr();
+      case RecordingEvent.failed:
+        message = 'record_failed'.tr();
+      case RecordingEvent.switchBlocked:
+        message = 'record_switch_blocked'.tr();
+      case RecordingEvent.sourceSwitched:
+        message = 'record_source_switched'.tr();
+      case RecordingEvent.lowSpace:
+        message = 'record_low_space'.tr();
+      case RecordingEvent.duplicate:
+        return; // 互斥由胶囊按钮状态体现，不重复弹提示。
+    }
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      kidModeOn
+          ? kidSnackBar(message, duration: const Duration(seconds: 2))
+          : SnackBar(
+              content: Text(message),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+    );
   }
 
   @override
@@ -416,7 +505,15 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     super.didUpdateWidget(oldWidget);
     if (!_sameChannels(oldWidget.channels, widget.channels)) {
       _syncChannels();
-      _openChannel(_channelController.index, force: true);
+      // 后台改了列表顺序 / 缓存列表被网络列表替换：按「正在播放的频道名」
+      // 把选中序号校准回同一个频道，再重开——否则会停留在旧序号而跳到别的台。
+      _channelController.relocateByName(
+        widget.channels.map((IptvChannel c) => c.name).toList(),
+      );
+      _openChannel(
+        _channelController.index.clamp(0, widget.channels.isEmpty ? 0 : widget.channels.length - 1),
+        force: true,
+      );
     }
   }
 
@@ -488,6 +585,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       return;
     }
     _appInBackground = true;
+    // 退后台 / 锁屏即停录保存（本期不支持后台录制）。
+    unawaited(RecordingController.instance.stopOnExit());
     // 儿童模式锁屏 / 选人页等待期间：即使开了「后台播放」也不允许后台继续出声。
     if (_pauseGateActive()) _pauseForLock();
   }
@@ -727,6 +826,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final bool changed = index != _currentIndex;
     if (!force && !changed) return;
     _currentIndex = index;
+    // 记录正在开播的频道名作为身份锚点：列表重排时据此把序号校准回同一个台。
+    _channelController.setPlayingName(widget.channels[index].name);
     // 换台是全新一轮试源：源序号回 0、退避从 1 秒重新起算，
     // 并推进世代号，让退避中的过期回退自动作废。
     _retry.resetForChannel(0);
@@ -924,6 +1025,18 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     _watchdog.arm();
     try {
       String source = channel.sources[idx];
+      // 录制上报原始源（relay 改写之前，方案 D-3）：只在此处与 relay 解耦。
+      // 一级看门狗原地重载沿用同一 URL → reload（signature 不变，录制继续）；
+      // 首次起播 / 二级看门狗换源 / 失败重试 → auto（真换源则停录保播放）。
+      RecordingSourceProvider.instance.report(
+        RecordingSource(
+          channelName: channel.name,
+          originalUrl: source,
+          sourceIndex: idx,
+          sources: channel.sources,
+          origin: isReload ? RecordingSourceOrigin.reload : RecordingSourceOrigin.auto,
+        ),
+      );
       // 测试特定地址
       // source = 'http://r.jdshipin.com/CkuBd';
 
@@ -949,6 +1062,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       // 暂停闸门成立时打开新流（启动恢复频道/切源）：开完立即暂停，避免出声。
       if (_pauseGateActive()) {
         _lockedPaused = true;
+        // 与边沿状态同步：这条路径独立于 listener 把播放暂停，若不同步
+        // _lastPauseGate，闸门解除时 _onKidLockChanged 会因「状态没变」早退，
+        // 之后不再恢复（只能换台重开才有声）。
+        _lastPauseGate = true;
+        Injection.get<LogService>().info(
+          '[LivePlayerWidget] 新流打开时闸门暂停，同步 _lastPauseGate=true',
+        );
         await _player?.pause();
       }
     } catch (e) {
@@ -1026,8 +1146,22 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final IptvChannel? channel = _currentChannel();
     if (channel == null || channel.sources.isEmpty) return;
     final int n = channel.sources.length;
+    final int next = (_currentSource + delta + n) % n;
+    // 录制中手动切源拦截（方案 D-11）：先上报候选新源，被拒则整段不执行，
+    // 不换源、不 setSource、不弹频道 Toast，UI 保持原源高亮。
+    // 提示由 controller.onEvent 的 switch_blocked 事件交给宿主弹出。
+    final bool allowed = RecordingSourceProvider.instance.report(
+      RecordingSource(
+        channelName: channel.name,
+        originalUrl: channel.sources[next],
+        sourceIndex: next,
+        sources: channel.sources,
+        origin: RecordingSourceOrigin.manual,
+      ),
+    );
+    if (!allowed) return;
     // 手动换源是用户主动重试：换源 + 本轮退避清零，并作废退避中的过期回退。
-    _retry.setSource((_currentSource + delta + n) % n);
+    _retry.setSource(next);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)',
     );
@@ -1050,6 +1184,8 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   Future<void> _stopForAppExit() async {
     if (_appExiting) return;
     _appExiting = true;
+    // 退出时静默停止并保存已录部分（不弹提示，进程即将结束）。
+    unawaited(RecordingController.instance.stopOnExit());
     _openSeq++;
     _retry.setBusy(true);
     _toastTimer?.cancel();
@@ -1147,6 +1283,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   @override
   void dispose() {
     AppExitController.instance.detachPlaybackCleanup();
+    if (RecordingController.instance.onEvent == _handleRecordingEvent) {
+      RecordingController.instance.onEvent = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     KidWatchTimerController.instance.removeListener(_onKidLockChanged);
     _channelController.removeListener(_onChannelSelected);
@@ -1371,6 +1510,24 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                 left: 24,
                 top: 24,
                 child: IgnorePointer(child: _TouchHintBanner(text: hint)),
+              );
+            },
+          ),
+          // 录制中角标（右下角）：纯展示、不拦手势/焦点。频道列表或胶囊菜单
+          // 占用时隐藏，避免遮挡。使用 ValueListenableBuilder 局部刷新。
+          BlocBuilder<AppBloc, AppState>(
+            buildWhen: (previous, current) =>
+                previous.showChannels != current.showChannels ||
+                previous.homeRemoteLayer != current.homeRemoteLayer,
+            builder: (context, state) {
+              if (state.showChannels ||
+                  state.homeRemoteLayer == HomeRemoteLayer.capsuleControls) {
+                return const SizedBox.shrink();
+              }
+              return const Positioned(
+                right: 16,
+                bottom: 76,
+                child: RecordingIndicator(),
               );
             },
           ),
@@ -1666,7 +1823,7 @@ class _AudioNowPlaying extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 960),
+                constraints: BoxConstraints(maxWidth: TvDesignViewport.designSize.width),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[

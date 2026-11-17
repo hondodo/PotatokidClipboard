@@ -1,9 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
 import 'package:pscreen_screen/core/update/app_update_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 
 /// 电视端右上角的蓝色「更新」胶囊（圆角 + 下载图标 + 百分比）。
 ///
@@ -224,8 +228,6 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
   List<List<_CapsuleEntry>> _rows = const <List<_CapsuleEntry>>[];
   int _row = 0;
   int _column = 0;
-  bool _testOneActive = false;
-  bool _testTwoActive = false;
 
   FocusNode _node(String id) =>
       _nodes.putIfAbsent(id, () => FocusNode(debugLabel: 'capsule-$id'));
@@ -264,12 +266,40 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
   void _requestCurrent() {
     if (_rows.isEmpty) return;
     _row = _row.clamp(0, _rows.length - 1);
+    if (_rows[_row].isEmpty) return;
     _column = _column.clamp(0, _rows[_row].length - 1);
     _node(_rows[_row][_column].id).requestFocus();
   }
 
+  /// 录制按钮：切换开始/停止。当前源取播放器上报的 originalUrl（relay 改写前）。
+  Future<void> _toggleRecording() async {
+    final RecordingController controller = RecordingController.instance;
+    if (controller.isRecording) {
+      await controller.stop();
+      return;
+    }
+    final RecordingSource? source = RecordingSourceProvider.instance.current;
+    if (source == null) {
+      // 播放页尚未上报源（起播前）：无法录制，走失败提示。
+      controller.onEvent?.call(
+        const RecordingEventData(RecordingEvent.failed),
+      );
+      return;
+    }
+    await controller.start(source);
+  }
+
+  /// mm:ss 时长文案。
+  String _formatRecordingTime(Duration d) {
+    final int s = d.inSeconds;
+    return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
   bool _handleLogicalKey(LogicalKeyboardKey key) {
     if (!widget.visible || _rows.isEmpty) return false;
+    _row = _row.clamp(0, _rows.length - 1);
+    if (_rows[_row].isEmpty) return false;
+    _column = _column.clamp(0, _rows[_row].length - 1);
     if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       widget.onClose();
       return true;
@@ -308,63 +338,19 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
         : KeyEventResult.ignored;
   }
 
-  void _activateTest(int number) {
-    setState(() {
-      if (number == 1) {
-        _testOneActive = !_testOneActive;
-      } else {
-        _testTwoActive = !_testTwoActive;
-      }
-    });
-    // 测试胶囊是遥控触发链路的探针，文案与触发保持不变，只统一提示条外观。
-    final String message = 'capsule_test_ok_message'.tr(
-      namedArgs: <String, String>{'__NUMBER__': '$number'},
-    );
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      kidModeOn
-          ? kidSnackBar(message, duration: const Duration(seconds: 2))
-          : SnackBar(
-              content: Text(message),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 2),
-            ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!widget.visible) return const SizedBox.shrink();
-    return ListenableBuilder(
+    // 录制按钮的 label/图标随 RecordingState 实时刷新（时长 mm:ss）。
+    return ValueListenableBuilder<RecordingState>(
+      valueListenable: RecordingController.instance.state,
+      builder: (context, recording, _) => ListenableBuilder(
       listenable: ParentalStateController.instance,
       builder: (context, _) => ValueListenableBuilder<AppUpdateState>(
         valueListenable: AppUpdateController.instance,
         builder: (context, update, _) {
           final bool childMode = ParentalStateController.instance.enabled;
           final List<_CapsuleEntry> allActions = <_CapsuleEntry>[
-            _CapsuleEntry(
-              id: 'test-1',
-              label:
-                  (_testOneActive
-                          ? 'capsule_test_one_triggered'
-                          : 'capsule_test_one')
-                      .tr(),
-              icon: _testOneActive
-                  ? Icons.check_rounded
-                  : Icons.gamepad_outlined,
-              active: _testOneActive,
-              onActivate: () => _activateTest(1),
-            ),
-            _CapsuleEntry(
-              id: 'test-2',
-              label:
-                  (_testTwoActive
-                          ? 'capsule_test_two_triggered'
-                          : 'capsule_test_two')
-                      .tr(),
-              icon: _testTwoActive ? Icons.check_rounded : Icons.tune_rounded,
-              active: _testTwoActive,
-              onActivate: () => _activateTest(2),
-            ),
             if (update.showPill)
               _CapsuleEntry(
                 id: 'update',
@@ -385,6 +371,34 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
                     : Icons.downloading_rounded,
                 onActivate: () => handleTvUpdateTap(context, update),
               ),
+            // 录制当前频道（家长可见，儿童模式隐藏）。label 随状态刷新。
+            _CapsuleEntry(
+              id: 'record',
+              label: recording.isRecording
+                  ? 'capsule_recording_stop'.tr(
+                      namedArgs: <String, String>{
+                        '__T__': _formatRecordingTime(recording.elapsed),
+                      },
+                    )
+                  : 'capsule_record_start'.tr(),
+              icon: recording.isRecording
+                  ? Icons.stop_circle_outlined
+                  : Icons.fiber_manual_record,
+              active: recording.isRecording,
+              audience: _CapsuleAudience.parentOnly,
+              onActivate: () => _toggleRecording(),
+            ),
+            // 录制中心（存储设置 + 录制列表），家长可见。
+            _CapsuleEntry(
+              id: 'recording-center',
+              label: 'recording_center_title'.tr(),
+              icon: Icons.video_library_outlined,
+              audience: _CapsuleAudience.parentOnly,
+              onActivate: () {
+                widget.onClose();
+                Injection.get<AppRouter>().pushRecordingSheet();
+              },
+            ),
           ];
           final List<_CapsuleEntry> actions = allActions
               .where((entry) => entry.isVisible(childMode))
@@ -429,7 +443,7 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
             ),
           ];
           _rows = <List<_CapsuleEntry>>[
-            actions,
+            if (actions.isNotEmpty) actions,
             if (tabs.isNotEmpty) tabs,
             exitActions,
           ];
@@ -459,11 +473,12 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            _CapsuleRow(
-                              entries: actions,
-                              nodeOf: _node,
-                              kidMode: childMode,
-                            ),
+                            if (actions.isNotEmpty)
+                              _CapsuleRow(
+                                entries: actions,
+                                nodeOf: _node,
+                                kidMode: childMode,
+                              ),
                             if (tabs.isNotEmpty) ...<Widget>[
                               const SizedBox(height: 28),
                               _CapsuleRow(
@@ -488,6 +503,7 @@ class _CapsuleControlsOverlayState extends State<CapsuleControlsOverlay> {
             ),
           );
         },
+      ),
       ),
     );
   }

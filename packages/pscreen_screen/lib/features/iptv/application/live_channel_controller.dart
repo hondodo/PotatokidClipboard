@@ -30,6 +30,12 @@ class LiveChannelController extends ChangeNotifier {
   int _index = 0;
   int _count = 0;
 
+  /// 当前播放频道的「身份」（频道名）。同名频道在数据层已合并，name 可作唯一标识。
+  ///
+  /// 仅用于频道列表变化（后台重排 / 缓存→网络替换）时把 [_index] 校准回同一个频道，
+  /// 避免「序号不变、但那个序号已经是别的台」。播放器在开流提交时写入。
+  String? _playingName;
+
   /// 待提交播放的定时器（长按连切时被不断重置）。
   Timer? _commitTimer;
 
@@ -41,6 +47,9 @@ class LiveChannelController extends ChangeNotifier {
 
   /// 频道总数（由 LivePlayerWidget 在频道加载后设置）。
   int get count => _count;
+
+  /// 当前正在播放的频道名（身份锚点），列表变化时据此重定位。
+  String? get playingName => _playingName;
 
   /// 播放提交通知：`LivePlayerWidget` 监听它，收到后才真正 open 新源。
   Listenable get onPlayCommit => _playCommit;
@@ -69,6 +78,35 @@ class LiveChannelController extends ChangeNotifier {
     _index = value;
     notifyListeners();
     _commitNow();
+  }
+
+  /// 记录当前真正开播的频道名（身份锚点）。
+  ///
+  /// 由播放器在开流提交时调用。刻意**不** notifyListeners：这只是给
+  /// [relocateByName] 用的内部锚点，不驱动界面刷新或换源。
+  void setPlayingName(String? name) {
+    _playingName = (name == null || name.isEmpty) ? null : name;
+  }
+
+  /// 频道列表变化（后台重排 / 缓存→网络替换）后，把序号校准回「同一个频道」。
+  ///
+  /// [names] 是新列表的频道名，顺序与新列表一致；按 [_playingName] 找到新序号。
+  /// - 找到且与当前序号不同：只更新 [_index]，**不**通知、不提交播放——调用方随后
+  ///   会因列表变化重建界面；静默是为了不触发「选中」监听弹出频道提示/toast。
+  /// - 找不到（频道已从列表移除）：保持当前序号，由 [setCount] 夹到合法范围，
+  ///   让播放器回落到该位置的频道。
+  ///
+  /// 调用顺序：先 [setCount]（新的 [_count]）再调本方法。
+  /// 返回 true 表示序号被改动过。
+  bool relocateByName(List<String> names) {
+    final String? playing = _playingName;
+    if (playing == null || playing.isEmpty || names.isEmpty) return false;
+    final int found = names.indexOf(playing);
+    if (found < 0) return false;
+    final int clamped = found.clamp(0, _count == 0 ? found : _count - 1);
+    if (clamped == _index) return false;
+    _index = clamped;
+    return true;
   }
 
   void _step(int delta) {

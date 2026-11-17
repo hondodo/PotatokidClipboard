@@ -12,4 +12,6 @@ class RouteNames {
 
   // 弹层页面
   static const String settingsSheet = '/settings';
+  static const String recordingSheet = '/recording';
+  static const String recordingPlayback = '/recording/playback';
 }

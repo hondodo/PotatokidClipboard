@@ -321,7 +321,7 @@
       border-radius: 9px; padding: 8px 12px; font-size: 12.5px; cursor: pointer;
     }
     .esp-page-add:hover { color: var(--accent); border-color: rgba(95,211,196,.55); }
-    .esp-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 12px; align-items: start; }
+    .esp-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
     /* 左栏卡片必须允许收缩到网格轨道宽度，否则表格内容会顶穿到右侧 sticky 预览卡底下 */
     .esp-editor-layout > .card { min-width: 0; padding-left: 14px; padding-right: 14px; }
     /* ESP 页其余卡片只有左右贴边：只补左右，上下保持原样 */
@@ -415,15 +415,17 @@
       color: #fcd34d; font-size: 11.5px;
     }
     .esp-preview-card2 { position: sticky; top: 14px; }
-    .esp-preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    /* 预览区尽量紧凑：标题小一号，屏幕按 2 倍显示，腾出宽度给中间表单 */
+    .esp-preview-card2 > h3 { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; }
+    .esp-preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 7px; }
     .oled-bezel {
-      background: #05080b; border: 6px solid #1d2732; border-radius: 12px; padding: 10px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.6), inset 0 0 0 1px #2b3948;
+      background: #05080b; border: 3px solid #1d2732; border-radius: 8px; padding: 3px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.6), inset 0 0 0 1px #2b3948;
     }
-    .oled-bezel canvas { display: block; width: 384px; height: 192px; image-rendering: pixelated; background: #000; border-radius: 2px; }
-    .esp-preview-meta { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.7; }
+    .oled-bezel canvas { display: block; width: 256px; height: 128px; image-rendering: pixelated; background: #000; border-radius: 2px; }
+    .esp-preview-meta { font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.55; }
     .esp-preview-meta b { color: var(--accent); }
-    .esp-theme { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+    .esp-theme { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
     .esp-theme select { width: auto; }
     .esp-empty-pages { font-size: 12.5px; color: var(--muted); padding: 14px 0; line-height: 1.7; }
 

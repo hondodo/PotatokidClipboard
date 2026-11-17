@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 /// 为整棵 TV 界面提供稳定的设计坐标系。
 ///
-/// 固定尺寸、字号和间距都以 720x405 为基准统一缩放；非 16:9 设备通过扩展
+/// 固定尺寸、字号和间距都以 [designSize] 为基准统一缩放；非 16:9 设备通过扩展
 /// 逻辑宽度或高度利用完整屏幕，不拉伸、不裁切，也不产生黑边。
 class TvDesignViewport extends StatelessWidget {
   const TvDesignViewport({super.key, required this.child});
@@ -30,7 +30,7 @@ class TvDesignViewport extends StatelessWidget {
         final double scale = math.min(actual.width / designSize.width, actual.height / designSize.height);
         if (!scale.isFinite || scale <= 0) return child;
 
-        // 例如 4:3 屏会得到 720x540 的逻辑画布；所有固定尺寸仍按统一
+        // 例如 4:3 屏会得到 960x720 的逻辑画布；所有固定尺寸仍按统一
         // 比例显示，多出的高度则交给页面的响应式布局使用。
         final Size logicalSize = Size(actual.width / scale, actual.height / scale);
         final double textScale = media.textScaler.scale(1).clamp(1.0, 1.2);

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:pscreen_screen/core/parental/child_avatar.dart';
 import 'package:pscreen_screen/core/parental/parental_config.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
+import 'package:potatokid_screen/shared/widgets/tv_design_viewport.dart';
 
 import 'parental_verification_sheet.dart';
 
@@ -274,7 +275,12 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
                 final double rawW = rowCards > 0 ? (80.0 + 220.0 * rowCards + 20.0 * (rowCards - 1)) : 80.0;
                 final double wScale = vw / (rawW * 1.15);
 
-                final double viewScale = math.min(vh / 540.0, vw / 960.0);
+                // 视口基准跟随全局设计坐标系（TvDesignViewport.designSize），
+                // 避免这里写死 960x540 后与全局基准调整脱节。
+                final double viewScale = math.min(
+                  vh / TvDesignViewport.designSize.height,
+                  vw / TvDesignViewport.designSize.width,
+                );
 
                 final double scale = math.min(math.min(hScale, wScale), viewScale).clamp(0.4, 1.4);
                 _layoutScale = scale;
@@ -295,7 +301,7 @@ class ParentalSelectOverlayState extends State<ParentalSelectOverlay> {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final List<ChildProfile> children = config.children;
 
-    // 所有尺寸都从 1080p 基准按 scale 缩放。
+    // 所有尺寸都按选人页自身基准（baseTotalH=780 / 卡片 220×300）乘以 scale。
     final double padH = 40 * scale;
     final double padV = 32 * scale;
     final double titleFont = 44 * scale;

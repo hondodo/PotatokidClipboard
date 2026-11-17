@@ -6,6 +6,8 @@ import 'package:potatokid_screen/features/app/presentation/pages/main_app.dart';
 import 'package:potatokid_screen/features/home/presentation/pages/home_detail_page.dart';
 import 'package:potatokid_screen/features/home/presentation/pages/home_page.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
+import 'package:potatokid_screen/features/recording/presentation/pages/recording_playback_page.dart';
+import 'package:potatokid_screen/features/recording/presentation/pages/recording_sheet_page.dart';
 import 'package:potatokid_screen/features/settings/presentation/pages/settings_sheet_page.dart';
 import 'package:potatokid_screen/features/time/presentation/pages/time_page.dart';
 
@@ -120,6 +122,26 @@ class AppRouter {
           );
         },
       ),
+      GoRoute(
+        path: RouteNames.recordingSheet,
+        name: RouteNames.recordingSheet,
+        pageBuilder: (context, state) => _buildSheetPage(
+          state: state,
+          child: const RecordingSheetPage(),
+        ),
+      ),
+      GoRoute(
+        path: RouteNames.recordingPlayback,
+        name: RouteNames.recordingPlayback,
+        builder: (context, state) {
+          final params = state.extra is RecordingPlaybackParams
+              ? state.extra! as RecordingPlaybackParams
+              : RecordingPlaybackParams.fromMap(
+                  (state.extra as Map<String, dynamic>?) ?? <String, dynamic>{},
+                );
+          return RecordingPlaybackPage(uri: params.uri, title: params.title);
+        },
+      ),
     ];
   }
 
@@ -204,4 +226,9 @@ class AppRouter {
 
   Future<void> pushSettingsSheet(SettingsSheetParams params) =>
       push(RouteNames.settingsSheet, extra: params);
+
+  Future<void> pushRecordingSheet() => push(RouteNames.recordingSheet);
+
+  Future<void> pushRecordingPlayback(RecordingPlaybackParams params) =>
+      push(RouteNames.recordingPlayback, extra: params);
 }
