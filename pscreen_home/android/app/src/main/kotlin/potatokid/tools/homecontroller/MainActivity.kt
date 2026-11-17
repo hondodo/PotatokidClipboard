@@ -105,7 +105,13 @@ class MainActivity : FlutterActivity() {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
                             result.error("invalid_arguments", "安装包路径为空", null)
-                        } else if (!packageManager.canRequestPackageInstalls()) {
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                            !packageManager.canRequestPackageInstalls()
+                        ) {
+                            // Android 8+ 才有「安装未知应用」开关；低版本（rk3288 等
+                            // Android 5.x 盒子）没有该方法，直接调用会抛
+                            // NoSuchMethodError 把进程打崩（表现为点更新后应用退出、
+                            // 安装器不弹出），必须按 SDK_INT 判断。
                             // 未授予「安装未知应用」：跳系统授权页；返回 false 让
                             // Dart 侧保持 ready（不误报 installing），用户授权后
                             // 回来再点「更新」即可正常安装。
