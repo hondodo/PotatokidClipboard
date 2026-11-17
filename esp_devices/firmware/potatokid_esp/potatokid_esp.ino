@@ -59,7 +59,11 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 // oled-2.6：心跳/拉配置/查 OTA 移到后台 FreeRTOS 任务，主循环不再被 HTTP 阻塞
 //           （消除约每分钟一次的卡顿）；主/副状态没有值时留白，不显示 `--`。
 // oled-2.7：按键动作成功后约 0.7 秒自动拉一次显示，状态即时刷新，不用等 60 秒心跳。
-static const char *APP_VER             = "oled-2.7";
+// oled-2.8：翻页本地化——全部页面缓存进 RAM，翻页键不再发 HTTP，按下即出内容；
+//           空闲时后台预取未缓存的页，进入某页后再异步刷新最新状态。
+// oled-2.9：即时刷新只发一个请求（不再顺带心跳/查版本），穿透网络下状态更新更快；
+//           心跳 60 秒、OTA 检查 5 分钟各自独立计时。
+static const char *APP_VER             = "oled-2.9";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -84,6 +88,7 @@ uint32_t lostSince = 0;
 uint32_t toastUntil = 0;
 String btnLabel[MAX_BTN + 1];   // 短标签（屏幕底部提示条用）
 String btnName[MAX_BTN + 1];    // 完整名称（按键反馈 / 设置页展示）
+String btnAction[MAX_BTN + 1];  // 服务端动作名：next_page/prev_page 等系统动作在固件本地执行
 int btnCount = sizeof(DEFAULT_BTN_PINS) / sizeof(DEFAULT_BTN_PINS[0]);
 int btnPins[MAX_BTN] = {4, 5, 6, -1, -1, -1, -1, -1};
 struct BtnState { bool down; uint32_t changedAt; };
@@ -100,11 +105,13 @@ struct NetSnapshot {
   bool fwKnown;        // 本次成功查询了服务端固件版本
   bool hasDisplay;     // 收到 DISPLAY 行（主状态可能为空 = 正常留白）
   int pageCount, pageIndex, currentPage;
+  int requestedPage;   // 本次请求的页码（用于区分「预取」与「当前页刷新」）
   bool pageLoop;
   int idleSeconds;
   String title, main, sub, keys;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
+  String action[MAX_BTN + 1];
   bool fwAvailable;
   String fwVersion, fwNotes;
   uint32_t fwSize;
@@ -114,6 +121,7 @@ NetSnapshot netPending;
 volatile bool netEnabled = false;   // 注册成功后才开始周期拉取
 volatile uint32_t netRefreshAt = 0; // 到点后立即拉一次（0 = 无排队；按键执行后延迟刷新）
 volatile int  netPage = 1;          // 后台任务要拉的页码
+volatile bool netBusy = false;      // 任务正在请求中（预取别重复排队同一页）
 
 // ---- 屏幕四行内容（服务端按设备类型字典下发，固件只管显示）----
 // 顶栏固定：页码 + 真实 IP（WiFi.localIP，拿到前留空）+ WiFi 信号格。
@@ -133,6 +141,22 @@ int currentPage = 1;
 bool pageLoop = true;
 int  idleSeconds = 0;
 uint32_t lastActionAt = 0;
+
+// ---- 页面缓存（本地翻页）----
+// 翻页原本要「POST 按键 → 再 GET 新页」两次网络往返，等 1~3 秒。
+// 页面内容只有四行文本 + 按键表，很小；把所有页缓存在 RAM 里，
+// 按下翻页键直接本地绘制（零等待），再由后台拉一次最新状态做微调。
+static const int PAGE_CACHE_MAX = 12;
+struct PageCache {
+  bool valid;
+  int pageCount;
+  bool pageLoop;
+  String title, main, sub, keys;
+  String label[MAX_BTN + 1];
+  String name[MAX_BTN + 1];
+  String action[MAX_BTN + 1];
+};
+PageCache pageCache[PAGE_CACHE_MAX];
 
 // 单色屏：实物有蓝光/白光/黄光三种。灰阶不存在，只有亮/灭两级；
 // 层次靠字号 + 留白 + 反白块。这里用 U8G2 的像素翻转实现「反白」强调。
@@ -439,9 +463,10 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
   snap.pageCount = 1;
   snap.pageIndex = 1;
   snap.currentPage = page;
+  snap.requestedPage = page;
   snap.pageLoop = true;
   snap.idleSeconds = 0;
-  for (int i = 0; i <= MAX_BTN; i++) { snap.label[i] = ""; snap.name[i] = ""; }
+  for (int i = 0; i <= MAX_BTN; i++) { snap.label[i] = ""; snap.name[i] = ""; snap.action[i] = ""; }
   if (WiFi.status() != WL_CONNECTED) return false;
   if (deviceId.isEmpty()) buildDeviceId();
   String text;
@@ -487,6 +512,9 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
     if (slot >= 1 && slot <= MAX_BTN) {
       snap.label[slot] = fieldAt(line, 1);
       snap.name[slot]  = fieldAt(line, 2);
+      // action 段用于识别系统动作（next_page/prev_page/home_page），
+      // 固件据此本地翻页，不再走按键 HTTP 请求。
+      snap.action[slot] = fieldAt(line, 4);
     }
   }
   snap.hasDisplay = gotDisplay;
@@ -580,6 +608,26 @@ void onButtonPress(int slot) {
   if (deviceId.isEmpty()) buildDeviceId();
   lastActionAt = millis();
   Serial.printf("[btn] slot %d pressed (page %d)\n", slot, currentPage);
+
+  // 系统动作（翻页/回首页）完全在本地执行：不占用网络，按下即出内容。
+  // 服务端随每页下发 action 段（next_page/prev_page/home_page），这里直接读缓存切页。
+  const String act = btnAction[slot];
+  if (act == "next_page" || act == "prev_page" || act == "home_page") {
+    int target = currentPage;
+    if (act == "next_page") {
+      if (currentPage < pageCount) target = currentPage + 1;
+      else if (pageLoop) target = 1;
+    } else if (act == "prev_page") {
+      if (currentPage > 1) target = currentPage - 1;
+      else if (pageLoop) target = pageCount;
+    } else {
+      target = 1;
+    }
+    Serial.printf("[btn] %s: %d -> %d\n", act.c_str(), currentPage, target);
+    if (target != currentPage) switchPageLocal(target);
+    return;
+  }
+
   String shown = btnName[slot].length() ? btnName[slot] : (btnLabel[slot].length() ? btnLabel[slot] : "sending...");
   oledToast(String("Slot ") + slot, shown);
   String body = "{\"deviceId\":\"" + deviceId + "\",\"slot\":" + String(slot)
@@ -587,24 +635,21 @@ void onButtonPress(int slot) {
   String resp = pressAction(body);
   bool ok = resp.indexOf("\"code\":0") >= 0;
 
-  // 系统动作（翻页/回首页）——服务端回执里带 sys=next_page/prev_page/home_page。
-  // loop=false 时末页按「下一页」停住（不再绕回第 1 页）。
-  if (resp.indexOf("next_page") >= 0) {
-    if (currentPage < pageCount) currentPage += 1;
-    else if (pageLoop) currentPage = 1;
-    requestPage(currentPage);
-    drawMain();
-    return;
-  } else if (resp.indexOf("prev_page") >= 0) {
-    if (currentPage > 1) currentPage -= 1;
-    else if (pageLoop) currentPage = pageCount;
-    requestPage(currentPage);
-    drawMain();
-    return;
-  } else if (resp.indexOf("home_page") >= 0) {
-    currentPage = 1;
-    requestPage(currentPage);
-    drawMain();
+  // 兜底：老固件缓存里没有 action 段时，仍按服务端回执切页（本地执行）。
+  if (resp.indexOf("next_page") >= 0 || resp.indexOf("prev_page") >= 0
+      || resp.indexOf("home_page") >= 0) {
+    int target = currentPage;
+    if (resp.indexOf("next_page") >= 0) {
+      if (currentPage < pageCount) target = currentPage + 1;
+      else if (pageLoop) target = 1;
+    } else if (resp.indexOf("prev_page") >= 0) {
+      if (currentPage > 1) target = currentPage - 1;
+      else if (pageLoop) target = pageCount;
+    } else {
+      target = 1;
+    }
+    toastUntil = 0;
+    if (target != currentPage) switchPageLocal(target);
     return;
   }
 
@@ -655,6 +700,59 @@ void requestPage(int page) {
   netRefreshAt = millis();
 }
 
+/**
+ * 本地切页：有缓存就直接画出来（零等待），随后后台再拉一次最新状态微调。
+ * 翻页键不再走按键 HTTP，按下即出内容。
+ */
+void switchPageLocal(int target) {
+  if (target < 1) target = 1;
+  if (target > pageCount) target = pageCount;
+  if (target > PAGE_CACHE_MAX) target = PAGE_CACHE_MAX;
+  currentPage = target;
+  pageIndex = target;
+  PageCache &c = pageCache[target - 1];
+  if (c.valid) {
+    scrTitle = c.title;
+    scrMain  = c.main;
+    scrSub   = c.sub;
+    scrKeys  = c.keys;
+    haveDisplay = true;
+    for (int i = 0; i <= MAX_BTN; i++) {
+      btnLabel[i]  = c.label[i];
+      btnName[i]   = c.name[i];
+      btnAction[i] = c.action[i];
+    }
+    pageLoop = c.pageLoop;
+    drawMain();
+  } else {
+    // 该页还没缓存（首次翻到）：先给页码反馈，不等 HTTP 返回。
+    drawScreen(String("第 ") + target + "/" + pageCount + " 页", "加载中...", "", "", false);
+  }
+  requestPage(target);   // 后台补最新数据
+}
+
+/**
+ * 空闲时预取还没缓存的页：翻页几乎总是命中缓存。
+ * 有排队请求、或刚按过键时不抢网络（按键后的刷新优先）。
+ */
+void schedulePrefetch() {
+  static uint32_t lastPrefetchAt = 0;
+  if (!netEnabled || WiFi.status() != WL_CONNECTED) return;
+  if (netRefreshAt != 0 || netBusy) return;         // 已有排队/正在请求
+  if (millis() - lastActionAt < 4000) return;       // 操作期间不预取
+  if (millis() - lastPrefetchAt < 400) return;      // 节流
+  if (pageCount < 2) return;
+  int limit = pageCount > PAGE_CACHE_MAX ? PAGE_CACHE_MAX : pageCount;
+  for (int p = 1; p <= limit; p++) {
+    if (pageCache[p - 1].valid) continue;
+    netPage = p;
+    netRefreshAt = millis();
+    lastPrefetchAt = millis();
+    Serial.printf("[prefetch] page %d\n", p);
+    return;
+  }
+}
+
 /** 把任务解析好的快照发布到共享槽位（任务侧调用，只写 netPending）。 */
 void publishSnapshot(NetSnapshot &snap) {
   if (!netMux) return;
@@ -680,21 +778,44 @@ void applyNetSnapshot() {
   if (!dirty) return;
 
   if (snap.valid) {
-    scrTitle = snap.title;
-    scrMain  = snap.main;
-    scrSub   = snap.sub;
-    scrKeys  = snap.keys;
-    haveDisplay = snap.hasDisplay;
-    for (int i = 0; i <= MAX_BTN; i++) {
-      btnLabel[i] = snap.label[i];
-      btnName[i]  = snap.name[i];
+    // 不论这一页是不是当前页，先入缓存：预取回来的邻页也要留着给本地翻页用。
+    if (snap.currentPage >= 1 && snap.currentPage <= PAGE_CACHE_MAX) {
+      PageCache &c = pageCache[snap.currentPage - 1];
+      c.valid = true;
+      c.pageCount = snap.pageCount;
+      c.pageLoop  = snap.pageLoop;
+      c.title = snap.title;
+      c.main  = snap.main;
+      c.sub   = snap.sub;
+      c.keys  = snap.keys;
+      for (int i = 0; i <= MAX_BTN; i++) {
+        c.label[i]  = snap.label[i];
+        c.name[i]   = snap.name[i];
+        c.action[i] = snap.action[i];
+      }
     }
-    pageCount   = snap.pageCount;
-    pageIndex   = snap.pageIndex;
-    currentPage = snap.currentPage;
-    netPage     = currentPage;
-    pageLoop    = snap.pageLoop;
-    idleSeconds = snap.idleSeconds;
+    // 只有「请求的就是当前页」（或服务端把页号收敛到当前页）时才更新屏幕；
+    // 预取的其它页只入缓存，不抢当前显示。
+    if (snap.requestedPage == currentPage || snap.currentPage == currentPage) {
+      scrTitle = snap.title;
+      scrMain  = snap.main;
+      scrSub   = snap.sub;
+      scrKeys  = snap.keys;
+      haveDisplay = snap.hasDisplay;
+      for (int i = 0; i <= MAX_BTN; i++) {
+        btnLabel[i] = snap.label[i];
+        btnName[i]  = snap.name[i];
+        btnAction[i] = snap.action[i];
+      }
+      pageCount   = snap.pageCount;
+      pageIndex   = snap.pageIndex;
+      currentPage = snap.currentPage;
+      pageLoop    = snap.pageLoop;
+      idleSeconds = snap.idleSeconds;
+    }
+    // 预取完成后把任务拉回当前页：心跳只刷新用户正在看的那一页。
+    // 若有新的刷新请求在排队（requestPage/schedulePrefetch），不要覆盖页码。
+    if (netRefreshAt == 0) netPage = currentPage;
   }
 
   if (snap.fwKnown) {
@@ -721,21 +842,34 @@ void applyNetSnapshot() {
 
 /** 后台任务：心跳 / 拉配置 / 查固件，全部不占用主循环的绘制时间。 */
 void netTask(void *) {
-  uint32_t lastCycle = 0;
+  uint32_t lastHeartbeat = 0;
+  uint32_t lastFwCheck = 0;
+  static const uint32_t FW_CHECK_MS = 5UL * 60UL * 1000UL;  // OTA 检查 5 分钟一次
   for (;;) {
     // 到点刷新：翻页是立即，按键动作后延迟 ~0.7 秒等 HA 状态机更新。
     // 用有符号差值比较，millis() 回绕也不会漏触发。
     bool refresh = netRefreshAt != 0 && (int32_t)(millis() - netRefreshAt) >= 0;
-    if (refresh) netRefreshAt = 0;
-    if (netEnabled && WiFi.status() == WL_CONNECTED
-        && (refresh || millis() - lastCycle >= REPORT_MS)) {
-      lastCycle = millis();
+    bool heartbeatDue = millis() - lastHeartbeat >= REPORT_MS;
+    if (netEnabled && WiFi.status() == WL_CONNECTED && (refresh || heartbeatDue)) {
+      // 先清排队标志，避免主循环在这轮请求期间重复排队同一页。
+      if (refresh) netRefreshAt = 0;
+      netBusy = true;
       int page = netPage;
-      reportToServer(false);
+      // 心跳按 60 秒节奏上报；翻页/按键后的即时刷新只拉页面，
+      // 省掉穿透链路上每个请求几百毫秒的往返，状态显示更快。
+      if (heartbeatDue) {
+        reportToServer(false);
+        lastHeartbeat = millis();
+      }
       NetSnapshot snap;
       snap.valid = fetchActionsInto(page, snap);
-      snap.fwKnown = checkFirmwareInto(snap);
+      // 固件版本检查不影响显示，按 5 分钟自己走，不搭每次刷新的便车。
+      if (millis() - lastFwCheck >= FW_CHECK_MS) {
+        snap.fwKnown = checkFirmwareInto(snap);
+        lastFwCheck = millis();
+      }
       if (snap.valid || snap.fwKnown) publishSnapshot(snap);
+      netBusy = false;
     }
     vTaskDelay(pdMS_TO_TICKS(200));   // 轮询刷新请求的粒度
   }
@@ -1225,14 +1359,14 @@ void loop() {
 
   // 应用后台任务刚拉到的配置（非阻塞；没有新数据时立刻返回）。
   applyNetSnapshot();
+  // 空闲时把还没缓存的页补齐，之后翻页全部命中本地缓存。
+  schedulePrefetch();
 
   // 空闲回首页（页面级配置）：超过 idleSeconds 没有按键就回到第 1 页。
   if (idleSeconds > 0 && currentPage != 1
       && millis() - lastActionAt > (uint32_t)idleSeconds * 1000UL) {
-    currentPage = 1;
     lastActionAt = millis();
-    requestPage(currentPage);
-    drawMain();
+    switchPageLocal(1);
   }
 
   // 自动更新：排队时间到且仍在线才写 Flash（失败后由冷却期避免死循环）

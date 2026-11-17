@@ -207,7 +207,7 @@
     const subTxt = page.tplSub
       ? espRenderTemplate(page.tplSub, ctx)
       : espCleanLine(espRenderSub(dict.subTpl, ctx.s1, ctx.s2));
-    const keys = (page.buttons || [])
+    let keys = (page.buttons || [])
       .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
       .sort((a, b2) => Number(a.slot) - Number(b2.slot))
       .map((item) => {
