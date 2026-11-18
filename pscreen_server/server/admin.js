@@ -355,6 +355,21 @@ function normalizeEspScreen(value) {
     return { onSeconds };
 }
 
+/**
+ * 人体感应状态（设备上报 pir: 0/1）。
+ * lastEnterAt / lastLeaveAt 只在状态跳变时刷新，避免每次心跳都把时间改成「刚刚」。
+ * 未接感应或老固件从来不上报时返回 null，后台显示「未接」。
+ */
+function normalizeEspPresence(value) {
+    if (!value || typeof value !== 'object') return null;
+    return {
+        present: value.present === true,
+        lastEnterAt: Number(value.lastEnterAt) || 0,
+        lastLeaveAt: Number(value.lastLeaveAt) || 0,
+        updatedAt: Number(value.updatedAt) || 0,
+    };
+}
+
 /** 设备类型 key 只做格式校验，不认识的自定义 key 交给字典层回落。 */
 function normalizeEspTypeKey(value) {
     const raw = String(value || '').trim();
@@ -1203,6 +1218,8 @@ function attachAdmin(app, options = {}) {
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
             espScreen: normalizeEspScreen(machine.espScreen),
+            // 人体感应状态（设备上报）：后台只读展示。
+            espPresence: normalizeEspPresence(machine.espPresence),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -3341,6 +3358,23 @@ function attachAdmin(app, options = {}) {
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
             machine.espButtons = normalizeEspButtons(body.espButtons);
+        }
+        // 人体感应状态：固件在 0/1 跳变时会立刻发一次心跳。
+        // 只在跳变时刷新进入/离开时间，普通心跳只更新 updatedAt。
+        const pirRaw = body.pir;
+        if (pirRaw === 0 || pirRaw === 1 || pirRaw === '0' || pirRaw === '1') {
+            const present = Number(pirRaw) === 1;
+            const prev = normalizeEspPresence(machine.espPresence);
+            machine.espPresence = {
+                present,
+                lastEnterAt: present
+                    ? ((prev && prev.present) ? prev.lastEnterAt : now)
+                    : ((prev && prev.lastEnterAt) || 0),
+                lastLeaveAt: present
+                    ? ((prev && prev.lastLeaveAt) || 0)
+                    : ((prev && !prev.present) ? prev.lastLeaveAt : now),
+                updatedAt: now,
+            };
         }
         if (Array.isArray(body.knownHomes)) {
             machine.knownHomes = body.knownHomes

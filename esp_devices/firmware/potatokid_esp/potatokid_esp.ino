@@ -67,7 +67,9 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 //           人离开后按后台下发的秒数熄屏；屏灭期间只保留心跳，不拉页面。
 // oled-3.1：按键/感应引脚加白名单（26~37 = Flash/PSRAM），NVS 里的旧非法值
 //           启动时自动忽略；修复误填 GPIO35 导致开机卡在 Booting 的问题。
-static const char *APP_VER             = "oled-3.1";
+// oled-3.2：人体感应状态上报——有人/无人跳变时立即发一次心跳（不等 60 秒），
+//           后台显示「有人 / 无人 + 最近进入/离开时间」。
+static const char *APP_VER             = "oled-3.2";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -472,6 +474,8 @@ void reportToServer(bool isRegister) {
   }
   body += ",\"appVersion\":\"" + String(APP_VER) + "\"";
   body += ",\"rssi\":" + String(WiFi.RSSI());
+  // 人体感应状态（1=有人 / 0=无人）：未接感应时不上报，后台保持「未知」。
+  if (pirPin >= 0) body += ",\"pir\":" + String(pirPresent ? 1 : 0);
   // 上报本机槽位→GPIO 映射：后台据此显示实际引脚，并提示未映射的槽位。
   body += ",\"espButtons\":[";
   bool firstBtn = true;
@@ -773,11 +777,17 @@ void sleepScreen() {
 
 // 人在地感应：高电平 = 有人。持续有人就不断刷新 lastPresenceAt，
 // 计时永远从「最后一次检测到人」开始，人走后才会熄屏。
+// 同时把 0/1 跳变标记为待上报，后台立刻能看到「有人进入 / 人已离开」。
 void pollPir() {
   if (pirPin < 0) return;
-  if (digitalRead(pirPin) == HIGH) {
+  bool present = digitalRead(pirPin) == HIGH;
+  if (present) {
     lastPresenceAt = millis();
     wakeScreen();
+  }
+  if (present != pirPresent) {
+    pirPresent = present;
+    pirReportPending = true;
   }
 }
 
@@ -935,27 +945,33 @@ void applyNetSnapshot() {
 void netTask(void *) {
   uint32_t lastHeartbeat = 0;
   uint32_t lastFwCheck = 0;
+  uint32_t pirRetryAt = 0;
   static const uint32_t FW_CHECK_MS = 5UL * 60UL * 1000UL;  // OTA 检查 5 分钟一次
   for (;;) {
     // 到点刷新：翻页是立即，按键动作后延迟 ~0.7 秒等 HA 状态机更新。
     // 用有符号差值比较，millis() 回绕也不会漏触发。
     bool refresh = netRefreshAt != 0 && (int32_t)(millis() - netRefreshAt) >= 0;
     bool heartbeatDue = millis() - lastHeartbeat >= REPORT_MS;
-    if (netEnabled && WiFi.status() == WL_CONNECTED && (refresh || heartbeatDue)) {
+    // 人体感应跳变：不等心跳立刻上报一次；失败 5 秒后重试。
+    bool pirDue = pirReportPending && (int32_t)(millis() - pirRetryAt) >= 0;
+    if (netEnabled && WiFi.status() == WL_CONNECTED && (refresh || heartbeatDue || pirDue)) {
       // 先清排队标志，避免主循环在这轮请求期间重复排队同一页。
       if (refresh) netRefreshAt = 0;
       netBusy = true;
       int page = netPage;
       // 心跳按 60 秒节奏上报；翻页/按键后的即时刷新只拉页面，
       // 省掉穿透链路上每个请求几百毫秒的往返，状态显示更快。
-      if (heartbeatDue) {
+      if (heartbeatDue || pirDue) {
         reportToServer(false);
         lastHeartbeat = millis();
+        if (srvOk) pirReportPending = false;
+        else if (pirDue) pirRetryAt = millis() + 5000;
       }
       NetSnapshot snap;
       // 屏灭期间只保心跳（后台在线判定 90 秒），不拉页面：
       // 感应到人时 wakeScreen() 会排队一次立即刷新，醒来后内容照样是最新的。
-      if (!screenOff) snap.valid = fetchActionsInto(page, snap);
+      // 单纯上报感应状态时也不必拉页面。
+      if (!screenOff && (refresh || heartbeatDue)) snap.valid = fetchActionsInto(page, snap);
       // 固件版本检查不影响显示，按 5 分钟自己走，不搭每次刷新的便车。
       if (millis() - lastFwCheck >= FW_CHECK_MS) {
         snap.fwKnown = checkFirmwareInto(snap);
@@ -1433,7 +1449,10 @@ void setup() {
 
   // 人体感应输入：模块 OUT 是推挽输出，不需要上拉。
   // 上电先把「最后有人在」记为当前时间，避免刚开机就按旧的 0 熄屏。
-  if (pirPin >= 0) pinMode(pirPin, INPUT);
+  if (pirPin >= 0) {
+    pinMode(pirPin, INPUT);
+    pirPresent = digitalRead(pirPin) == HIGH;
+  }
   lastPresenceAt = millis();
 
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。

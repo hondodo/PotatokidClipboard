@@ -74,11 +74,17 @@
   function renderEspDevices() {
     const list = $('espdev-list');
     if (!list || !state.espDevices) return;
+    const fmtTime = (ts) => (ts ? new Date(ts).toLocaleTimeString('zh-CN', { hour12: false }) : '—');
     list.innerHTML = state.espDevices.map((dev) => {
       const active = dev.id === state.espDevEditId ? ' active' : '';
       const pages = dev.espPages || [];
       const tag = pages.length ? `${pages.length} 页` : '未配置';
-      return `<div class="espdev-item${active}" data-id="${esc(dev.id)}"><span>${esc(dev.name || dev.id)}</span><span class="tag">${esc(tag)}</span></div>`;
+      // 人体感应：固件在状态跳变时立即上报，这里只读展示。
+      const pir = dev.espPresence;
+      const pirTag = pir
+        ? `<span class="tag" title="最近进入 ${fmtTime(pir.lastEnterAt)} · 最近离开 ${fmtTime(pir.lastLeaveAt)}">${pir.present ? '有人' : '无人'}</span>`
+        : '';
+      return `<div class="espdev-item${active}" data-id="${esc(dev.id)}"><span>${esc(dev.name || dev.id)}</span><span>${pirTag}<span class="tag">${esc(tag)}</span></span></div>`;
     }).join('');
     list.querySelectorAll('.espdev-item').forEach((el) => {
       el.addEventListener('click', async () => {
