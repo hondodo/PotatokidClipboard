@@ -19,3 +19,5 @@ pscreen_server/uploads/
 pscreen_server/backups/
 .tmp/dev_tv.apk
 .tmp/
+# 一次性运维脚本（常含后台 session cookie，禁止入库）
+.tmp_*.sh
