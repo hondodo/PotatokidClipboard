@@ -60,6 +60,12 @@ const ARTIFACTS = [
   { file: `app-arm64-v8a-${FLAVOR}-release.apk`, abi: 'arm64-v8a' },
   { file: `app-armeabi-v7a-${FLAVOR}-release.apk`, abi: 'armeabi-v7a' },
 ].filter((a) => ONLY_ABIS.length === 0 || ONLY_ABIS.includes(a.abi));
+
+// Flutter `--split-per-abi` 会给每个架构的 APK 加 versionCode 偏移
+// （armeabi-v7a +1000 / arm64-v8a +2000 / x86_64 +4000），客户端上报的是
+// APK 实际 versionCode。服务端 track 的 build 必须与之同号，否则永远判不出更新。
+const ABI_BUILD_OFFSET = { 'armeabi-v7a': 1000, 'arm64-v8a': 2000, x86_64: 4000 };
+const buildOf = (abi) => BUILD + (ABI_BUILD_OFFSET[abi] || 0);
 const NOTES = process.env.YUNTU_NOTES
   || (IS_TV
     ? '电视端：选人页暂停播放与计时；题库变更即时刷新；D-01 冲突保护。'
@@ -183,22 +189,23 @@ async function main() {
     if (!(app.platforms || []).includes('apk')) throw new Error('应用未包含 apk 平台');
   }
 
-  // 3. 检查 build 冲突
+  // 3. 检查 build 冲突（按各 ABI 实际 versionCode 比较）
   const rel = await curl('GET', `${ADMIN_BASE}/api/admin/apps/${APP_ID}/releases?platform=${PLATFORM}`);
   requireOk(rel, '获取版本列表');
   const items = (rel.json && rel.json.data && rel.json.data.items) || [];
-  const conflicts = items.filter((r) => r.build === BUILD);
-  if (conflicts.length) {
-    console.log(`已存在 build=${BUILD} 的版本：${conflicts.map((r) => `${r.abi || 'universal'}(${r.status})`).join(', ')}`);
-  }
 
   // 4. 上传每个 ABI 轨
   for (const art of ARTIFACTS) {
+    const build = buildOf(art.abi);
     const filePath = path.join(APK_DIR, art.file);
     if (!fs.existsSync(filePath)) throw new Error(`文件不存在：${filePath}`);
-    if (conflicts.some((r) => (r.abi || 'universal') === art.abi)) {
-      console.log(`⊘ ${art.abi}: build=${BUILD} 已存在，跳过`);
-      continue;
+    const conflicts = items.filter((r) => r.build === build);
+    if (conflicts.length) {
+      console.log(`已存在 build=${build} 的版本：${conflicts.map((r) => `${r.abi || 'universal'}(${r.status})`).join(', ')}`);
+      if (conflicts.some((r) => (r.abi || 'universal') === art.abi)) {
+        console.log(`⊘ ${art.abi}: build=${build} 已存在，跳过`);
+        continue;
+      }
     }
     const size = fs.statSync(filePath).size;
     const sha = await sha256File(filePath);
@@ -213,7 +220,7 @@ async function main() {
         size,
         sha256: sha,
         version: VERSION,
-        build: BUILD,
+        build,
         pubspecBuildConfirmed: true,
         notes: NOTES,
       },
@@ -267,7 +274,7 @@ async function main() {
       timeout: 60,
     });
     requireOk(publish, `${art.abi} publish`);
-    console.log(`  ✓ 已发布 ${art.abi} build=${BUILD} forceUpdate=${FORCE}`);
+    console.log(`  ✓ 已发布 ${art.abi} build=${build} forceUpdate=${FORCE}`);
   }
 
   console.log('\n✅ 上传发布完成。请到 100.83.142.107 上验证查询接口：');
