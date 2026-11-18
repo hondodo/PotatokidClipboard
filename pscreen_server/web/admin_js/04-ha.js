@@ -532,9 +532,12 @@
         const name = document.createElement('span');
         name.className = 'nm';
         name.textContent = entity.__remoteBadge ? `[${entity.__remoteBadge}] ${entity.name || entity.id}` : (entity.name || entity.id);
+        name.title = name.textContent;
         const state = document.createElement('span');
         state.className = 'st';
         state.textContent = haStateText(entity);
+        // 长状态（sensor 原始串可能有几百字符）在列表里省略显示，hover 看全值。
+        state.title = state.textContent;
         main.append(name, state);
 
         const where = document.createElement('div');

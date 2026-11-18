@@ -605,9 +605,11 @@
     .ent-pick-row:last-child { border-bottom: 0; }
     .ent-pick-row:hover { background: rgba(95, 211, 196, .1); }
     .ent-pick-row.current { background: rgba(95, 211, 196, .16); }
-    .ent-pick-row .ent-pick-main { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
-    .ent-pick-row .nm { font-size: 12.5px; font-weight: 600; }
-    .ent-pick-row .st { font-size: 11.5px; color: var(--accent); white-space: nowrap; }
+    /* 名称优先占位；状态值（可能是几百字符的 sensor state）截断省略，
+       否则 nowrap 的长状态会把名称挤成一个字一行，还撑出横向滚动条。 */
+    .ent-pick-row .ent-pick-main { display: flex; gap: 8px; align-items: baseline; }
+    .ent-pick-row .nm { font-size: 12.5px; font-weight: 600; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ent-pick-row .st { font-size: 11.5px; color: var(--accent); white-space: nowrap; flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
     .ent-pick-row .ent-pick-where { font-size: 11px; color: var(--muted); }
     .ent-pick-row .ent-pick-id {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
