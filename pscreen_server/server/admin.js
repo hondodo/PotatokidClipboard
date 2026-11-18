@@ -342,6 +342,19 @@ function normalizeEspSlotNames(value) {
     return out;
 }
 
+/**
+ * 熄屏配置（设备级）：人体感应亮屏后，人离开多少秒熄屏。
+ * 0 = 常亮；上限 30 分钟，避免误填超大值导致屏幕永不熄。
+ */
+function normalizeEspScreen(value) {
+    const raw = value && typeof value === 'object' ? value : {};
+    const seconds = Number(raw.onSeconds);
+    const onSeconds = Number.isFinite(seconds) && seconds > 0
+        ? Math.min(Math.round(seconds), 1800)
+        : 0;
+    return { onSeconds };
+}
+
 /** 设备类型 key 只做格式校验，不认识的自定义 key 交给字典层回落。 */
 function normalizeEspTypeKey(value) {
     const raw = String(value || '').trim();
@@ -1188,6 +1201,8 @@ function attachAdmin(app, options = {}) {
             espButtons: normalizeEspButtons(machine.espButtons),
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
+            // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
+            espScreen: normalizeEspScreen(machine.espScreen),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
@@ -3803,14 +3818,17 @@ function attachAdmin(app, options = {}) {
         display.sub = cleanEspDisplayLine(display.sub);
 
         // 固件没接 JSON 库，`format=text` 给：
-        // PAGE|当前页|总页数|循环|空闲秒 → DISPLAY|标题|主状态|副状态|按键提示
+        // PAGE|当前页|总页数|循环|空闲秒 → SCREEN|熄屏秒
+        // → DISPLAY|标题|主状态|副状态|按键提示
         // → 每行一个按键 slot|名称|名称|entityId|action|id
         //   （第 2 段保留旧固件的 label 字段，值与完整名称一致）。
         if (String(req.query.format || '') === 'text') {
             const pageLine = ['PAGE', page, pageTotal, pageObj && pageObj.loop === false ? '0' : '1', (pageObj && pageObj.idle) || 0].join('|');
+            // 熄屏秒数（设备级）：固件据此在人离开后熄屏，0 = 常亮。
+            const screenLine = ['SCREEN', normalizeEspScreen(machine.espScreen).onSeconds].join('|');
             const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys].join('|');
             const lines = actions.map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
-            return res.type('text/plain; charset=utf-8').send([pageLine, displayLine].concat(lines).join('\n'));
+            return res.type('text/plain; charset=utf-8').send([pageLine, screenLine, displayLine].concat(lines).join('\n'));
         }
         return jsonOk(res, { deviceId: id, page, pageTotal, actions, display });
     });
@@ -3959,6 +3977,8 @@ function attachAdmin(app, options = {}) {
             buttons: machine.espButtons,
             // 槽位显示名（1..8），屏幕底部提示与后台表格共用。
             slotNames: machine.espSlotNames || {},
+            // 熄屏（人体感应）：人离开后多少秒熄屏，0 = 常亮。
+            screen: normalizeEspScreen(machine.espScreen),
             types: deviceTypeService.list(),
         });
     });
@@ -3975,6 +3995,10 @@ function attachAdmin(app, options = {}) {
         // 槽位显示名是设备级配置；老后台没传时保留原值。
         if (body.slotNames !== undefined) {
             machines[id].espSlotNames = normalizeEspSlotNames(body.slotNames);
+        }
+        // 熄屏（人体感应）也是设备级配置；没传时保留原值。
+        if (body.screen !== undefined) {
+            machines[id].espScreen = normalizeEspScreen(body.screen);
         }
         // 迁移落盘：旧字段不再保留，避免下次读取又走迁移分支。
         delete machines[id].espActions;

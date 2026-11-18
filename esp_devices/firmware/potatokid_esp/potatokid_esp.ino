@@ -63,7 +63,11 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 //           空闲时后台预取未缓存的页，进入某页后再异步刷新最新状态。
 // oled-2.9：即时刷新只发一个请求（不再顺带心跳/查版本），穿透网络下状态更新更快；
 //           心跳 60 秒、OTA 检查 5 分钟各自独立计时。
-static const char *APP_VER             = "oled-2.9";
+// oled-3.0：人体感应熄屏——OUT 接 GPIO（本机设置页配置），有人时亮屏，
+//           人离开后按后台下发的秒数熄屏；屏灭期间只保留心跳，不拉页面。
+// oled-3.1：按键/感应引脚加白名单（26~37 = Flash/PSRAM），NVS 里的旧非法值
+//           启动时自动忽略；修复误填 GPIO35 导致开机卡在 Booting 的问题。
+static const char *APP_VER             = "oled-3.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -108,6 +112,7 @@ struct NetSnapshot {
   int requestedPage;   // 本次请求的页码（用于区分「预取」与「当前页刷新」）
   bool pageLoop;
   int idleSeconds;
+  int screenOnSec;     // 人离开后熄屏秒数（0 = 常亮），来自 SCREEN 行
   String title, main, sub, keys;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
@@ -163,6 +168,18 @@ PageCache pageCache[PAGE_CACHE_MAX];
 // 0=蓝 1=白 2=黄 由 NVS 保存，蓝屏/白屏/黄屏硬件本身发光色不同，固件绘制一致。
 int screenColor = 0;
 
+// ---- 人体感应熄屏 ----
+// 模块 VCC 接 3V3、GND 共地、OUT 接下面这个 GPIO（NVS cfg.pir，-1 = 未接）。
+// 人来时 OUT 为高电平；固件每次读到高电平都把「最后有人在」的时间刷新，
+// 因此人持续在就一直亮屏，直到人走后才开始按 screenOnSec 倒计时。
+int pirPin = -1;
+int screenOnSec = 0;          // 服务端 SCREEN 行下发：人离开后多少秒熄屏（0 = 常亮）
+volatile bool screenOff = false;
+uint32_t lastPresenceAt = 0;
+// 人体感应状态上报：只在 0/1 跳变时发一次心跳，后台不必等 60 秒轮询。
+bool pirPresent = false;
+volatile bool pirReportPending = false;
+
 // OTA：服务端发布的版本与本地 APP_VER 不同即提示可升级
 bool fwAvailable = false;
 String fwVersion;
@@ -177,6 +194,29 @@ uint32_t otaTriedAt = 0;
 static const uint32_t OTA_RETRY_MS = 30UL * 60UL * 1000UL;
 
 /* ---------------- OLED ---------------- */
+
+/**
+ * 本板可用作按键 / 人体感应的 GPIO 白名单。
+ *
+ * ESP32-S3（16MB Flash + 8MB OPI PSRAM）上这些脚被硬件占用，配成输入会直接死机：
+ * - 26~32：Flash；
+ * - 33~37：OPI PSRAM（本板 PSRAM=opi，最容易误填的就是这一段）；
+ * - 19/20：USB；0/3/45/46：启动脚；8/9：OLED I2C。
+ * 存进 NVS 的旧值也要过这一层，避免升级后把设备带进重启循环。
+ */
+static bool pinUsable(int pin) {
+  if (pin < 0 || pin > 48) return false;
+  if (pin >= 26 && pin <= 37) return false;
+  if (pin == 0 || pin == 3 || pin == 19 || pin == 20 || pin == 45 || pin == 46) return false;
+  if (pin == PIN_SDA || pin == PIN_SCL) return false;
+  return true;
+}
+
+// 4~13 已接本机按键与 OLED I2C（8/9 上面已挡），人体感应脚不允许落在这段，
+// 避免和按键抢线；可用的是 14~18 / 21 / 38~42 / 47 / 48。
+static bool pinUsableForPir(int pin) {
+  return pinUsable(pin) && !(pin >= 4 && pin <= 13);
+}
 
 // 西文等宽：6x10 字体一行约 21 字符。保留给系统提示（英文/数字）。
 String fit(const String &s) {
@@ -252,7 +292,7 @@ void drawStatusBar() {
 // 主屏（E1/E2/E3/E4）：顶栏 + 标题 + 主状态 + 副状态 + 按键提示，四行分速滚动。
 // 统一用 wqy12（12px，含 ASCII 字形），中英文都能画；字号 + 留白 + 反白分层。
 void drawScreen(const String &title, const String &main, const String &sub, const String &keys, bool abnormal) {
-  if (!oledOk) return;
+  if (!oledOk || screenOff) return;
   u8g2.clearBuffer();
   drawStatusBar();
 
@@ -333,6 +373,13 @@ void loadCreds() {
   screenColor = prefs.getInt("color", 0);   // E4：0=蓝 1=白 2=黄（仅记录色别，绘制三色通用）
   if (screenColor < 0 || screenColor > 2) screenColor = 0;
   autoUpdate = prefs.getBool("auto", false);
+  // 人体感应 OUT 引脚：-1 = 未接。旧的非法值（例如误填 33~37）一律忽略，
+  // 否则 pinMode 会动到 PSRAM，设备开机就卡死。
+  pirPin = prefs.getInt("pir", -1);
+  if (!pinUsableForPir(pirPin)) {
+    if (pirPin >= 0) Serial.printf("[pir] NVS 里的 GPIO%d 不可用（PSRAM/Flash/按键段），已忽略\n", pirPin);
+    pirPin = -1;
+  }
   prefs.end();
   if (serverBase.isEmpty()) serverBase = DEFAULT_SERVER_BASE;
 
@@ -346,7 +393,7 @@ void loadCreds() {
     int fallback = i < (int)(sizeof(DEFAULT_BTN_PINS) / sizeof(DEFAULT_BTN_PINS[0])) ? DEFAULT_BTN_PINS[i] : -1;
     String key = "p" + String(i + 1);
     btnPins[i] = prefs.getInt(key.c_str(), fallback);
-    if (btnPins[i] < -1 || btnPins[i] > 48) btnPins[i] = -1;
+    if (!pinUsable(btnPins[i])) btnPins[i] = -1;
   }
   prefs.end();
 
@@ -466,6 +513,7 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
   snap.requestedPage = page;
   snap.pageLoop = true;
   snap.idleSeconds = 0;
+  snap.screenOnSec = 0;
   for (int i = 0; i <= MAX_BTN; i++) { snap.label[i] = ""; snap.name[i] = ""; snap.action[i] = ""; }
   if (WiFi.status() != WL_CONNECTED) return false;
   if (deviceId.isEmpty()) buildDeviceId();
@@ -495,6 +543,13 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
       snap.currentPage = cur;  // 服务端会按实际页数收敛，避免页被删后卡在空页
       snap.pageLoop = loopText != "0";
       if (idleText.length()) snap.idleSeconds = idleText.toInt();
+      continue;
+    }
+    // 熄屏：SCREEN|秒 —— 设备级配置，人离开后多少秒熄屏（0 = 常亮）。
+    // 老服务端不下发这一行，保持 0，行为与以前一致。
+    if (line.startsWith("SCREEN|")) {
+      int sec = fieldAt(line, 1).toInt();
+      snap.screenOnSec = sec > 0 ? sec : 0;
       continue;
     }
     // 显示层：DISPLAY|title|main|sub|keys —— 服务端按字典解析好的四行。
@@ -607,6 +662,9 @@ void runOta() {
 void onButtonPress(int slot) {
   if (deviceId.isEmpty()) buildDeviceId();
   lastActionAt = millis();
+  // 屏灭时按键也要能看到反馈：先亮屏并把「最后有人在」的计时重新拉满。
+  lastPresenceAt = millis();
+  wakeScreen();
   Serial.printf("[btn] slot %d pressed (page %d)\n", slot, currentPage);
 
   // 系统动作（翻页/回首页）完全在本地执行：不占用网络，按下即出内容。
@@ -676,6 +734,7 @@ void pollButtons() {
 }
 
 void drawMain() {
+  if (screenOff) return;   // 熄屏期间不往面板写数据，等感应到人再恢复
   if (fwAvailable) {
     // 有更新时优先提示：自动更新会自己装，否则引导用户打开本机设置页
     drawScreen("Update ready", String("cur ") + APP_VER, String("new ") + fwVersion,
@@ -689,6 +748,36 @@ void drawMain() {
   } else {
     drawScreen("WiFi connected", ssid, WiFi.localIP().toString(),
                (srvOk ? "srv ok " : "srv fail ") + String(WiFi.RSSI()) + "dBm", false);
+  }
+}
+
+/* ---------------- 人体感应熄屏 ---------------- */
+
+// 亮屏：真正写面板前把 screenOff 清掉；顺手排队一次刷新，唤醒时内容最新。
+void wakeScreen() {
+  if (!screenOff) return;
+  screenOff = false;
+  if (oledOk) u8g2.setPowerSave(0);
+  drawMain();
+  netRefreshAt = millis();
+  Serial.println("[screen] wake");
+}
+
+// 熄屏：面板进 power save（SH1106 关显示，功耗从 ~18mA 降到 ~1mA 以内）。
+void sleepScreen() {
+  if (screenOff || !oledOk) return;
+  screenOff = true;
+  u8g2.setPowerSave(1);
+  Serial.println("[screen] off");
+}
+
+// 人在地感应：高电平 = 有人。持续有人就不断刷新 lastPresenceAt，
+// 计时永远从「最后一次检测到人」开始，人走后才会熄屏。
+void pollPir() {
+  if (pirPin < 0) return;
+  if (digitalRead(pirPin) == HIGH) {
+    lastPresenceAt = millis();
+    wakeScreen();
   }
 }
 
@@ -737,6 +826,7 @@ void switchPageLocal(int target) {
  */
 void schedulePrefetch() {
   static uint32_t lastPrefetchAt = 0;
+  if (screenOff) return;   // 熄屏时不预取，省掉无意义的请求
   if (!netEnabled || WiFi.status() != WL_CONNECTED) return;
   if (netRefreshAt != 0 || netBusy) return;         // 已有排队/正在请求
   if (millis() - lastActionAt < 4000) return;       // 操作期间不预取
@@ -812,6 +902,7 @@ void applyNetSnapshot() {
       currentPage = snap.currentPage;
       pageLoop    = snap.pageLoop;
       idleSeconds = snap.idleSeconds;
+      screenOnSec = snap.screenOnSec;
     }
     // 预取完成后把任务拉回当前页：心跳只刷新用户正在看的那一页。
     // 若有新的刷新请求在排队（requestPage/schedulePrefetch），不要覆盖页码。
@@ -862,7 +953,9 @@ void netTask(void *) {
         lastHeartbeat = millis();
       }
       NetSnapshot snap;
-      snap.valid = fetchActionsInto(page, snap);
+      // 屏灭期间只保心跳（后台在线判定 90 秒），不拉页面：
+      // 感应到人时 wakeScreen() 会排队一次立即刷新，醒来后内容照样是最新的。
+      if (!screenOff) snap.valid = fetchActionsInto(page, snap);
       // 固件版本检查不影响显示，按 5 分钟自己走，不搭每次刷新的便车。
       if (millis() - lastFwCheck >= FW_CHECK_MS) {
         snap.fwKnown = checkFirmwareInto(snap);
@@ -878,7 +971,7 @@ void netTask(void *) {
 // 跑马灯节拍（E3）：~10fps 推进各行相位，只在有超长文本被滚动时才重绘，
 // 避免整屏高频刷新拖慢 I2C / 心跳 / 按键轮询。相位 = 时间 × 15px/s × 各行倍率。
 void tickMarquee() {
-  if (!oledOk) return;
+  if (!oledOk || screenOff) return;
   static uint32_t lastTickMs = 0;
   uint32_t now = millis();
   if (now - lastTickMs < 100) return;         // ~10fps
@@ -1072,13 +1165,17 @@ String pageSettings(const String &listText, const String &err) {
          + String(btnPins[i] >= 0 ? btnPins[i] : -1) + "'></td></tr>";
   }
   h += "</table>";
+  h += "<div class='tip' style='margin-top:12px'>人体感应：VCC→<b>3V3</b>，GND→GND，OUT→下面填的 GPIO。<br>"
+       "有人时 OUT 输出高电平，屏幕立即亮起；人持续在就一直亮，人离开后按后台设置的秒数熄屏。</div>";
+  h += "<label>人体感应 OUT GPIO（-1 = 未接，屏幕常亮）</label>";
+  h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
   h += "<button class='mini' type='button' onclick='addSlot()' style='margin-top:8px'>＋ 添加槽位</button>";
   h += "<button type='submit'>保存按键映射并重启</button></form>";
-  h += "<div class='tip'>避开 GPIO26~32（Flash 占用）以及 0/45/46（启动脚）。"
-       "建议 4/5/6/7/10~18/21/33~42/47/48。</div>";
+  h += "<div class='tip'>避开 GPIO4~13（本机按键 + OLED I2C）、26~37（Flash / PSRAM）、"
+       "0/3/19/20/45/46（USB / 启动脚）。人体感应建议 14~18/21/38~42/47/48。</div>";
   h += "<script>function addSlot(){var ins=document.querySelectorAll('.pin');"
        "var used={};for(var i=0;i<ins.length;i++){if(ins[i].value!=='-1'&&ins[i].value!=='')used[ins[i].value]=1;}"
-       "var cand=[4,5,6,7,10,11,12,13,14,15,16,17,18,21,33,34,35,36,37,38,39,40,41,42,43,44,47,48];"
+       "var cand=[14,15,16,17,18,21,38,39,40,41,42,47,48];"
        "for(var j=0;j<ins.length;j++){if(ins[j].value==='-1'||ins[j].value===''){"
        "for(var k=0;k<cand.length;k++){if(!used[cand[k]]){ins[j].value=cand[k];return;}}}}"
        "alert('槽位已满');}</script>";
@@ -1180,7 +1277,7 @@ void setupServer() {
       bool valid = false;
       if (raw.length() && raw != "-1") {
         pin = raw.toInt();
-        valid = pin >= 0 && pin <= 48;
+        valid = pinUsable(pin);
       }
       // 同一 GPIO 只能绑一个槽位，避免两个槽位抢同一颗按键。
       if (valid) {
@@ -1198,6 +1295,23 @@ void setupServer() {
     }
     prefs.end();
     Serial.printf("[btn] 槽位映射已保存：%d 个\n", maxSlot);
+
+    // 人体感应 OUT 引脚（设备级）：空 / -1 = 未接；与任一按键脚冲突时也视为未接。
+    String pirRaw = server.hasArg("pir") ? server.arg("pir") : String();
+    pirRaw.trim();
+    int pir = -1;
+    if (pirRaw.length() && pirRaw != "-1") {
+      int pin = pirRaw.toInt();
+      if (pinUsableForPir(pin)) {
+        bool clash = false;
+        for (int i = 0; i < MAX_BTN; i++) if (pins[i] == pin) clash = true;
+        if (!clash) pir = pin;
+      }
+    }
+    prefs.begin("cfg", false);
+    prefs.putInt("pir", pir);
+    prefs.end();
+    Serial.printf("[pir] 人体感应 GPIO: %d\n", pir);
     server.send(200, "text/html; charset=utf-8",
                 "<meta charset='utf-8'><h3>已保存，设备正在重启…</h3>");
     delay(1200);
@@ -1317,6 +1431,11 @@ void setup() {
     buttons[i].changedAt = 0;
   }
 
+  // 人体感应输入：模块 OUT 是推挽输出，不需要上拉。
+  // 上电先把「最后有人在」记为当前时间，避免刚开机就按旧的 0 熄屏。
+  if (pirPin >= 0) pinMode(pirPin, INPUT);
+  lastPresenceAt = millis();
+
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。
   netMux = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
@@ -1356,6 +1475,14 @@ void loop() {
 
   lostSince = 0;
   pollButtons();
+
+  // 人体感应：有人立即亮屏并刷新计时；人走后按服务端给的秒数熄屏。
+  // 没接感应（pirPin=-1）或后台设为常亮（screenOnSec=0）时这里什么都不做。
+  pollPir();
+  if (pirPin >= 0 && screenOnSec > 0 && !screenOff
+      && millis() - lastPresenceAt > (uint32_t)screenOnSec * 1000UL) {
+    sleepScreen();
+  }
 
   // 应用后台任务刚拉到的配置（非阻塞；没有新数据时立刻返回）。
   applyNetSnapshot();

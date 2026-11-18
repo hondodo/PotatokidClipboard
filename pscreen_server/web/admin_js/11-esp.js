@@ -476,6 +476,8 @@
 
     // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」代替「1:空调开关」。
     const slotNames = (espDevDraft && espDevDraft.slotNames) || {};
+    // 熄屏秒数（设备级）：0 = 常亮。
+    const screenOnSec = Number((espDevDraft.screen || {}).onSeconds) || 0;
     // 只列出实际用到的槽位（本机已映射 + 各页面按键），没有时给 1~4 方便先起名。
     const usedSlots = new Set();
     (espDevDraft.buttons || []).forEach((item) => {
@@ -647,7 +649,17 @@
             <option value="300" ${Number(page.idle) === 300 ? 'selected' : ''}>5 分钟无操作回首页</option>
           </select>
         </div>
-        <p class="hint">翻页不需要额外硬件：把任意槽位的行为设为「下一页」即可。</p>
+        <div class="esp-field-row"><label>熄屏（人体感应）</label>
+          <select id="esp-screen-on">
+            <option value="0" ${!screenOnSec ? 'selected' : ''}>常亮（不熄屏）</option>
+            <option value="30" ${screenOnSec === 30 ? 'selected' : ''}>人离开后 30 秒熄屏</option>
+            <option value="60" ${screenOnSec === 60 ? 'selected' : ''}>人离开后 1 分钟熄屏</option>
+            <option value="120" ${screenOnSec === 120 ? 'selected' : ''}>人离开后 2 分钟熄屏</option>
+            <option value="300" ${screenOnSec === 300 ? 'selected' : ''}>人离开后 5 分钟熄屏</option>
+          </select>
+        </div>
+        <p class="hint">翻页不需要额外硬件：把任意槽位的行为设为「下一页」即可。<br>
+        熄屏需要设备本机设置页填「人体感应 OUT GPIO」：有人时亮屏，人持续在就一直亮，人离开后按这里选的秒数熄屏；熄屏期间只保心跳、不拉页面，唤醒时立刻刷新。</p>
       </div>
       <div class="dt-actions">
         <button class="btn primary small" type="button" id="esp-save">保存并下发</button>
@@ -769,6 +781,10 @@
     });
     $('esp-page-idle').addEventListener('change', (event) => {
       page.idle = Number(event.target.value) || 0;
+    });
+    $('esp-screen-on').addEventListener('change', (event) => {
+      // 设备级：保存在 draft 上，随页面一起提交；不随切换页面丢失。
+      espDevDraft.screen = { onSeconds: Number(event.target.value) || 0 };
     });
     $('esp-add-btn').addEventListener('click', () => {
       page.buttons.push({
@@ -959,6 +975,8 @@
       buttons: Array.isArray(cfg.buttons) ? cfg.buttons : [],
       // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」。
       slotNames: Object.assign({}, cfg.slotNames || {}),
+      // 熄屏秒数（设备级）：0 = 常亮。
+      screen: Object.assign({ onSeconds: 0 }, cfg.screen || {}),
     };
 
     // 从「HA 实体库 → 绑定到 ESP」跳过来：预填成当前页的一个按键。
@@ -989,6 +1007,8 @@
     const payload = {
       // 槽位显示名是设备级配置，和页面一起保存。
       slotNames: espDevDraft.slotNames || {},
+      // 熄屏秒数（设备级）：0 = 常亮。
+      screen: { onSeconds: Number((espDevDraft.screen || {}).onSeconds) || 0 },
       pages: espDevDraft.pages.map((page) => ({
         id: page.id,
         name: page.name,
