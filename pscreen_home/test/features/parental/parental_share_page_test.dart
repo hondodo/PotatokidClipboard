@@ -67,6 +67,7 @@ ParentalActions _actions({
   return ParentalActions(
     reload: () async {},
     saveConfig: (_) async {},
+    saveDeviceSettings: (_) async {},
     unlock: (_) async {},
     openDeviceManager: () async {},
     openLoginExisting: () async {},

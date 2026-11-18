@@ -13,6 +13,7 @@ import 'package:pscreen_screen/core/network/realtime_channel.dart';
 ParentalActions _stubActions() => ParentalActions(
       reload: () async {},
       saveConfig: (_) async {},
+      saveDeviceSettings: (_) async {},
       unlock: (_) async {},
       openDeviceManager: () async {},
       openLoginExisting: () async {},
@@ -89,6 +90,7 @@ void main() {
     final ParentalActions actions = ParentalActions(
       reload: () async {},
       saveConfig: (_) async {},
+      saveDeviceSettings: (_) async {},
       unlock: (_) async {},
       openDeviceManager: () async {},
       openLoginExisting: () async {},
@@ -162,6 +164,7 @@ void main() {
     final ParentalActions actions = ParentalActions(
       reload: () async {},
       saveConfig: (_) async {},
+      saveDeviceSettings: (_) async {},
       unlock: (_) async {},
       openDeviceManager: () async {},
       openLoginExisting: () async {},
@@ -285,6 +288,7 @@ void main() {
     final ParentalActions actions = ParentalActions(
       reload: () async {},
       saveConfig: (_) async {},
+      saveDeviceSettings: (_) async {},
       unlock: (_) async {},
       openDeviceManager: () async {},
       openLoginExisting: () async {},
