@@ -3690,6 +3690,8 @@ function attachAdmin(app, options = {}) {
             const bindings = pageObj.bindings || {};
             const tplMain = pageObj.tplMain || '';
             const tplSub = pageObj.tplSub || '';
+            // 主/副状态模板拼成一段，供令牌解析与实体收集共用。
+            const tplAll = `${tplMain} ${tplSub}`;
             // 模板里可直接写 {switch.xxx} / {climate.xxx.temperature}，这些实体也要一起取状态。
             const tplTokens = parseEspTemplateTokens(tplAll);
             const tplEntityIds = tplTokens.map((token) => token.baseId);
