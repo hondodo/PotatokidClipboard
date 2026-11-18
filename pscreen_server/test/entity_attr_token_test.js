@@ -33,7 +33,8 @@ function loadHa() {
       skip[0],
       prio[0],
       extractFunction(haSource, 'haAttributeTokens'),
-      'this.api = { attrTokens: haAttributeTokens };',
+      extractFunction(haSource, 'haAttributeHits'),
+      'this.api = { attrTokens: haAttributeTokens, attrHits: haAttributeHits };',
     ].join('\n'),
     sandbox,
   );
@@ -132,6 +133,46 @@ ok('灯：亮度优先', () => {
     attributes: { brightness: 180, color_temp_kelvin: 4000, friendly_name: '灯' },
   }).map((t) => t.attr);
   assert.strictEqual(attrs[0], 'brightness');
+});
+
+console.log('\nhaAttributeHits（搜索框按属性名/属性值检索）：');
+
+ok('搜 current_ 能命中 current_temperature（线上就是搜不到这条）', () => {
+  const hits = plain(api.attrHits(climate, 'current_'));
+  const attrs = hits.map((t) => t.attr);
+  assert.ok(attrs.includes('current_temperature'), '应命中 current_temperature');
+  const cur = hits.find((t) => t.attr === 'current_temperature');
+  assert.strictEqual(cur.value, '25.9');
+});
+
+ok('搜 temperature 能带出目标温度 27（不是独立实体也能搜到）', () => {
+  const hits = plain(api.attrHits(climate, 'temperature'));
+  const target = hits.find((t) => t.attr === 'temperature');
+  assert.ok(target, '应命中 temperature');
+  assert.strictEqual(target.value, '27');
+});
+
+ok('搜属性值 27 也能命中目标温度', () => {
+  const hits = plain(api.attrHits(climate, '27'));
+  assert.ok(hits.some((t) => t.attr === 'temperature' && t.value === '27'));
+});
+
+ok('大小写与前后空格不敏感', () => {
+  assert.strictEqual(plain(api.attrHits(climate, '  Temperature ')).length > 0, true);
+});
+
+ok('空关键词不产生命中（避免每次渲染都塞一堆标签）', () => {
+  assert.deepStrictEqual(plain(api.attrHits(climate, '')), []);
+  assert.deepStrictEqual(plain(api.attrHits(climate, '   ')), []);
+  assert.deepStrictEqual(plain(api.attrHits(climate, null)), []);
+});
+
+ok('limit 限制返回条数', () => {
+  assert.strictEqual(plain(api.attrHits(climate, 'temp', 1)).length, 1);
+});
+
+ok('无匹配属性返回空数组', () => {
+  assert.deepStrictEqual(plain(api.attrHits(climate, 'zzz_not_exist')), []);
 });
 
 console.log(`\n${passed} 项全部通过`);

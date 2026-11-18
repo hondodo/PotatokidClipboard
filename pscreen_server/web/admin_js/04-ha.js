@@ -399,8 +399,40 @@
   };
 
   /**
+   * 常用属性的中文别名——`temperature` 直译没人看得懂，用户找的是「27」。
+   * 未收录的属性仍显示原属性名，不做猜测。
+   */
+  const HA_ATTR_LABEL = {
+    temperature: '设定温度',
+    current_temperature: '当前温度',
+    current_humidity: '当前湿度',
+    humidity: '设定湿度',
+    hvac_action: '运行状态',
+    fan_mode: '风速',
+    fan_speed: '吸力档位',
+    swing_mode: '扫风',
+    brightness: '亮度',
+    color_temp_kelvin: '色温',
+    current_position: '开合度',
+    current_tilt_position: '翻转度',
+    media_title: '播放内容',
+    app_name: '应用',
+    source: '信号源',
+    volume_level: '音量',
+    battery_level: '电量',
+    wind_speed: '风速',
+    pressure: '气压',
+    mode: '模式',
+    status: '状态',
+  };
+
+  /** 属性展示名：有中文别名用别名，否则用属性名本身。 */
+  function haAttrLabel(attr) {
+    return HA_ATTR_LABEL[String(attr || '')] || String(attr || '');
+  }
+
+  /**
    * 实体可上屏的属性候选，供模板插入 `{entity.attr}` 用。
-   *
    * 温度这类值在 HA 里是 climate 实体的 attributes（`temperature` 是目标温度），
    * 不是独立实体，所以实体列表里选不到——这里把它们列出来直接点选。
    * 只收标量属性（跳过数组/对象与元信息），空数组表示没有值得单独显示的属性。
@@ -426,6 +458,25 @@
       push(key);
     });
     return picked;
+  }
+
+  /**
+   * 按关键词筛出实体的属性候选（属性名或属性值命中即可）。
+   *
+   * 目标温度在 HA 里是 climate 的属性而不是实体，只搜实体字段永远搜不到，
+   * 所以选择器的搜索框也要走这里。
+   *
+   * @param {object} entity HA 实体
+   * @param {string} needle 关键词（大小写不敏感）
+   * @param {number} limit >0 时只取前 N 个，0 表示不限
+   * @returns {Array<{attr: string, value: string}>}
+   */
+  function haAttributeHits(entity, needle, limit = 0) {
+    const q = String(needle == null ? '' : needle).trim().toLowerCase();
+    if (!q) return [];
+    const hits = haAttributeTokens(entity).filter((token) =>
+      token.attr.toLowerCase().includes(q) || token.value.toLowerCase().includes(q));
+    return limit > 0 ? hits.slice(0, limit) : hits;
   }
 
   /**
@@ -464,7 +515,7 @@
               <label>家庭<select data-filter="home"></select></label>
               <label>房间<select data-filter="room"></select></label>
               <label>设备<select data-filter="device"></select></label>
-              <label class="ent-pick-search">搜索<input type="search" data-filter="keyword" placeholder="名称 / entity_id" autocomplete="off"></label>
+              <label class="ent-pick-search">搜索<input type="search" data-filter="keyword" placeholder="${withAttributes ? '名称 / entity_id / 属性名' : '名称 / entity_id'}" autocomplete="off"></label>
               <label class="ent-pick-only"><input type="checkbox" data-filter="onlyActionable" ${filters.onlyActionable ? 'checked' : ''}>只看可控制</label>
               <button class="btn small" type="button" data-refresh>刷新状态</button>
             </div>
@@ -502,6 +553,19 @@
     // 主目录（HA 实体）+ 附加实体（遥控状态等虚拟实体），统一参与筛选/搜索/列表。
     const all = () => [...((catalog && catalog.entities) || []), ...(extraEntities || [])];
 
+    // 属性检索缓存：`temperature=27 27` 这样的可搜串，只在需要挑属性时构建。
+    // 目标温度、亮度这类值挂在实体属性上，搜实体列表本身永远搜不到，必须一起搜。
+    const attrHayCache = new Map();
+    function attrHay(entity) {
+      if (!withAttributes || !entity) return '';
+      let hay = attrHayCache.get(entity.id);
+      if (hay == null) {
+        hay = haAttributeTokens(entity).map((t) => `${t.attr}=${t.value} ${t.attr}`).join(' ').toLowerCase();
+        attrHayCache.set(entity.id, hay);
+      }
+      return hay;
+    }
+
     /** 按「家 / 关键词」过滤：用于推导房间候选。 */
     function poolForRooms() {
       const needle = filters.keyword.trim().toLowerCase();
@@ -510,7 +574,7 @@
         if (filters.home && (entity.home || '未归属家庭') !== filters.home) return false;
         if (needle) {
           const hay = `${entity.name} ${entity.id} ${entity.device} ${entity.room} ${entity.areaName}`.toLowerCase();
-          if (!hay.includes(needle)) return false;
+          if (!hay.includes(needle) && !attrHay(entity).includes(needle)) return false;
         }
         return true;
       });
@@ -599,7 +663,8 @@
         main.className = 'ent-pick-main';
         const name = document.createElement('span');
         name.className = item.attr ? 'nm ent-pick-attr-name' : 'nm ent-pick-attr-state';
-        name.textContent = item.attr || '实体状态（state）';
+        name.textContent = item.attr ? haAttrLabel(item.attr) : '实体状态（state）';
+        name.title = item.attr || 'state';
         const st = document.createElement('span');
         st.className = 'st';
         st.textContent = item.value;
@@ -624,6 +689,7 @@
       const hasCatalog = !!catalog || !!(extraEntities && extraEntities.length);
       meta.textContent = hasCatalog
         ? `${rows.length} 个实体${filters.onlyActionable ? '（可控制）' : ''}${rows.length > 300 ? '，仅显示前 300 条' : ''}`
+          + (withAttributes ? '。可搜属性名（如 temperature），点绿色标签直接插入该属性' : '')
         : '实体目录未加载';
       list.innerHTML = '';
       if (!hasCatalog) {
@@ -661,7 +727,35 @@
         idText.className = 'ent-pick-id';
         idText.textContent = entity.id;
 
-        row.append(main, where, idText);
+        // 搜到属性名/属性值时（例如搜 temperature 想找 27.0），把命中的属性直接摆出来，
+        // 点一下插入 `{entity.attr}`——省掉「先点实体、再点属性」两步。
+        const needle = filters.keyword.trim().toLowerCase();
+        let attrRow = null;
+        if (withAttributes && needle) {
+          const hits = haAttributeHits(entity, needle, 4);
+          if (hits.length) {
+            attrRow = document.createElement('div');
+            attrRow.className = 'ent-pick-attrs';
+            for (const hit of hits) {
+              const chip = document.createElement('span');
+              chip.className = 'ent-pick-attr-chip';
+              chip.dataset.attr = hit.attr;
+              chip.textContent = `${haAttrLabel(hit.attr)} ${hit.value}`;
+              chip.title = `插入 {${entity.id}.${hit.attr}}`;
+              // 父级是整行按钮，chip 必须吞掉点击，否则会退回「选中实体」分支。
+              chip.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (typeof onPick === 'function') onPick(Object.assign({}, entity, { attr: hit.attr }));
+                close();
+              });
+              attrRow.appendChild(chip);
+            }
+          }
+        }
+
+        row.append(main);
+        if (attrRow) row.appendChild(attrRow);
+        row.append(where, idText);
         row.addEventListener('click', () => pickEntity(entity));
         frag.appendChild(row);
       }

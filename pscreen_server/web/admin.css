@@ -623,6 +623,14 @@
     }
     .ent-pick-attr-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 500; }
     .ent-pick-attr-state { color: var(--muted-2); }
+    /* 搜索命中属性的快捷标签：点一下直接插入 {entity.attr} */
+    .ent-pick-attrs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .ent-pick-attr-chip {
+      padding: 2px 7px; border-radius: 5px; font-size: 11px; line-height: 1.5;
+      border: 1px solid rgba(95, 211, 196, .5); background: rgba(95, 211, 196, .1);
+      color: var(--accent); cursor: pointer; white-space: nowrap;
+    }
+    .ent-pick-attr-chip:hover { background: var(--accent); color: #06231f; }
     .ent-pick-empty { padding: 26px 12px; text-align: center; color: var(--muted); font-size: 12px; }
     .ent-pick-tip { margin-right: auto; font-size: 11px; color: var(--muted); }
     .ent-pick-tip code { color: var(--accent); font-size: 11px; }
