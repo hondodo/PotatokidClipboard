@@ -30,6 +30,7 @@ import 'package:pscreen_screen/features/iptv/application/live_channel_controller
 import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/hls_local_proxy.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
@@ -462,6 +463,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     RecordingController.instance.onEvent = _handleRecordingEvent;
     // 录制分片下载/写入耗时与补片诊断接到统一日志，与播放器卡顿日志同一出口，便于对表。
     RecordingController.instance.onDiagnostic =
+        (String message) => Injection.get<LogService>().info(message);
+    // 本地代理命中/回退诊断同样接入统一日志。
+    HlsLocalProxy.instance.onDiagnostic =
         (String message) => Injection.get<LogService>().info(message);
   }
 
@@ -1060,10 +1064,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
         if (devId.isNotEmpty) source = '$source&dev=$devId';
       }
 
+      // 进程内本地代理：把最终地址（relay 改写后或原始直连）交给代理，
+      // 播放器改为 open 本地地址，录制从同一缓存取流 —— 外网只拉一路。
+      // 代理启动/绑定失败时 prepare 原样返回 finalUrl，回退直连不影响播放。
+      final String openUrl = await HlsLocalProxy.instance.prepare(source);
+      if (_appExiting) return;
       Injection.get<LogService>().info(
-        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) $source',
+        '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) '
+        '${openUrl == source ? source : '$source -> 本地代理'}',
       );
-      await _player?.open(Media(source));
+      await _player?.open(Media(openUrl));
       _reportPlayback('play_start');
       // 暂停闸门成立时打开新流（启动恢复频道/切源）：开完立即暂停，避免出声。
       if (_pauseGateActive()) {
@@ -1192,6 +1202,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     _appExiting = true;
     // 退出时静默停止并保存已录部分（不弹提示，进程即将结束）。
     unawaited(RecordingController.instance.stopOnExit());
+    unawaited(HlsLocalProxy.instance.stop());
     _openSeq++;
     _retry.setBusy(true);
     _toastTimer?.cancel();
@@ -1293,6 +1304,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       RecordingController.instance.onEvent = null;
     }
     RecordingController.instance.onDiagnostic = null;
+    HlsLocalProxy.instance.onDiagnostic = null;
     WidgetsBinding.instance.removeObserver(this);
     KidWatchTimerController.instance.removeListener(_onKidLockChanged);
     _channelController.removeListener(_onChannelSelected);
@@ -1390,19 +1402,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                   enabled: _touchEnabled(state),
                   shouldAccept: _touchShouldAccept,
                   onTap: inChannelList ? _touchNoop : _touchToggleInfo,
-                  onSwipeUp: inChannelList
-                      ? _touchNoop
-                      : () => _channelController.previous(),
-                  onSwipeDown: inChannelList
-                      ? _touchNoop
-                      : () => _channelController.next(),
-                  onSwipeLeft: inChannelList
-                      ? _touchNoop
-                      : () =>
-                            HomeNowPlayingController.instance.switchSource(-1),
-                  onSwipeRight: inChannelList
-                      ? _touchNoop
-                      : () => HomeNowPlayingController.instance.switchSource(1),
+                  // 2026-11-18 用户要求：关闭滑动换台/换源。触屏下滑是查看系统栏的
+                  // 系统手势，接了换台回调会误切频道，严重影响使用。四向滑动统一
+                  // 置空（识别为 swipe 后不动作，也不会误触发单击 OSD）；
+                  // 单击 OSD、长按呼出频道列表保持不变。
+                  onSwipeUp: _touchNoop,
+                  onSwipeDown: _touchNoop,
+                  onSwipeLeft: _touchNoop,
+                  onSwipeRight: _touchNoop,
                   onLongPress: _touchLongPress,
                 ),
               );

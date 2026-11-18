@@ -6,7 +6,12 @@
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "R58M349S90M"
+            "deviceId": "R58M349S90M",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
         },
         {
             "name": "potatokid_screen MiTV AZFU0 (Debug)",

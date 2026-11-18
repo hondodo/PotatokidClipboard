@@ -18,6 +18,7 @@ import 'package:pscreen_screen/features/iptv/application/media_kind_probe.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_retry_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/playback_watchdog.dart';
 import 'package:pscreen_screen/features/iptv/application/relay_policy.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/hls_local_proxy.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
@@ -259,6 +260,7 @@ class _LivePlayerViewState extends State<LivePlayerView> {
   void dispose() {
     // home 端退出是「返回主页」，播放器 dispose 即离页 → 静默停录保存。
     unawaited(RecordingController.instance.stopOnExit());
+    unawaited(HlsLocalProxy.instance.stop());
     HomeNowPlayingController.instance.onSwitchSource = null;
     LiveChannelController.instance.onPlayCommit.removeListener(_openCurrent);
     _playingSub?.cancel();
@@ -430,7 +432,11 @@ class _LivePlayerViewState extends State<LivePlayerView> {
 
       /// 直播真的很小声，只能调整到120，可能出现爆音；遥控的音量指的是改系统全局，不要将遥控的音量接入到这里修改
       _player.setVolume(120);
-      await _player.open(Media(url));
+      // 进程内本地代理：最终地址交给代理，播放器 open 本地地址，录制从同一
+      // 缓存取流（外网只拉一路）。失败时 prepare 原样返回，回退直连。
+      final String openUrl = await HlsLocalProxy.instance.prepare(url);
+      if (!mounted) return;
+      await _player.open(Media(openUrl));
       _report('play_start', index: index);
     } catch (_) {
       // 打开失败由 error 流 / 看门狗进入重试；不向上抛，避免卡住状态机的 busy 位。

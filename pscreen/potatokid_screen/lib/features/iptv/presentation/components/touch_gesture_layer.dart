@@ -11,11 +11,13 @@ import 'package:flutter/material.dart';
 /// - [enabled] 由宿主按「交互层 + 覆盖层」计算；[shouldAccept] 在每次按下时二次确认，
 ///   覆盖层 widget 自身的 opaque 命中 + 这两道门控共同保证不穿透误操作。
 ///
-/// 手势约定（2026-11-17 已定稿）：
+/// 手势约定（2026-11-17 定稿；2026-11-18 调整）：
 /// - 单击：切换频道信息 OSD；
-/// - 上滑（手指由下往上，dy<0）：上一台 previous；下滑（dy>0）：下一台 next；
-/// - 左滑：切上一源 switchSource(-1)；右滑：切下一源 switchSource(+1)；
-/// - 长按（500ms）：呼出频道列表。
+/// - 长按（500ms）：呼出频道列表；
+/// - 四向滑动（上/下/左/右）：**2026-11-18 起宿主已关闭换台/换源**——触屏下滑是
+///   查看系统栏的系统手势，误触会切频道，严重影响使用。直播间接线处四个
+///   onSwipe* 回调统一置 `_touchNoop`。本层仍保留滑动识别能力（识别为 swipe
+///   后不触发 tap），只是宿主不再绑定业务动作；单击、长按不受影响。
 class TouchGestureLayer extends StatefulWidget {
   const TouchGestureLayer({
     super.key,

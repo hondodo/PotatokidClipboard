@@ -7,10 +7,12 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/core/parental/parental_state_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/hls_local_proxy.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/hls_playlist.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_platform.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_sink.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_storage.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/stream_continuity_guard.dart';
 
 /// 源上报来源：决定切源时录制如何处理（方案 D-11 / D-12 / D-13）。
 enum RecordingSourceOrigin {
@@ -179,11 +181,11 @@ class RecordingController {
   /// 低空间阈值；可用空间低于此值时停止并保存（<=0 或探测失败时跳过）。
   final int lowSpaceBytes;
 
-  /// 单次 poll 最多下载的分片数。
+  /// 单次 poll 最多下载的分片数（保留构造参数以兼容调用方）。
   ///
-  /// 直播录制落后时若一口气补齐整窗，会瞬间占用大量带宽与播放器抢流，
-  /// 反而把播放拖进 buffer stall。限制每次最多拿 2 片，跳过过旧内容，
-  /// 优先跟上直播边缘；落后多时录制会丢少量中间片段，但播放稳定。
+  /// 自本地代理落地后不再用于「跳过旧片」：跳片会主动丢弃中间内容，
+  /// 是回放「一跳一跳」的直接原因之一。现在始终下载全部落后分片，
+  /// 宁可录制落后也不丢片；带宽争用已由本地代理的缓存合并解决。
   final int maxSegmentsPerPoll;
 
   /// 诊断日志回调（可选）：宿主接到自己的 LogService，日志格式与播放日志一致。
@@ -214,6 +216,12 @@ class RecordingController {
   int _bytes = 0;
   int _consecutiveFailures = 0;
   DateTime? _startedAt;
+
+  /// 录制连续性闸门：拦截重复分片、检测会话归零（PCR 断崖）。
+  final SegmentQualityGate _gate = SegmentQualityGate();
+
+  /// 文件名去重后缀：同一秒因会话归零另起新文件时递增，避免覆盖。
+  int _fileSeq = 0;
 
   bool get isRecording => state.value.isRecording;
   RecordingSource? get recordingSource => _recordingSource;
@@ -312,6 +320,8 @@ class RecordingController {
     _bytes = 0;
     _consecutiveFailures = 0;
     _startedAt = _now();
+    _gate.reset();
+    _fileSeq = 0;
     _set(
       RecordingState(
         status: RecordingStatus.recording,
@@ -329,15 +339,54 @@ class RecordingController {
       await stop(event: RecordingEvent.failed);
       return false;
     }
+    // 首片过闸门：登记字节指纹与 PCR 基准（首片不可能重复/归零）。
+    final GateDecision firstDecision = _gate.evaluate(firstBytes);
     await _appendBytes(firstBytes);
     firstSw.stop();
     _lastSegmentUrl = last.toString();
-    _diag('首分片 ${firstBytes.length}B，下载+写入 ${firstSw.elapsedMilliseconds}ms');
+    final String firstPcrLabel = firstDecision.pcrTicks != null
+        ? '${(firstDecision.pcrTicks! / 90000).toStringAsFixed(1)}s'
+        : 'n/a';
+    _diag('首分片 ${firstBytes.length}B，下载+写入 ${firstSw.elapsedMilliseconds}ms '
+        'pcr=$firstPcrLabel');
 
     final int intervalSeconds = playlist.targetDuration > 0 ? playlist.targetDuration : 4;
     _pollTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) => unawaited(_poll()));
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     return true;
+  }
+
+  /// 会话归零（relay 换 sid，PCR 从 0 重启）时：保存当前文件，另起新文件
+  /// 继续录制，保持录制状态不变。每个文件内部时间戳单调，回放不再断崖。
+  Future<void> _rotateFile() async {
+    final RecordingSource? source = _recordingSource;
+    final RecordingSink? oldSink = _sink;
+    if (source == null) return;
+
+    try {
+      await oldSink?.close();
+    } catch (_) {}
+
+    _fileSeq += 1;
+    final String base = _buildFileName(source.channelName, _now());
+    // 同秒多次归零时加 _2 / _3 后缀，避免覆盖。
+    final String fileName = _fileSeq > 1
+        ? base.replaceFirst(RegExp(r'\.ts$'), '_$_fileSeq.ts')
+        : base;
+    try {
+      final RecordingSink newSink = await _storage.createSink(fileName);
+      if (newSink is LocalFileSink) await newSink.open();
+      if (newSink is SafStreamSink) await newSink.open();
+      _sink = newSink;
+      _bytes = 0;
+      // 不重置闸门：归零片已 evaluate，其 PCR 正是新文件的单调基准；
+      // 字节指纹跨文件保留，可拦截整窗重下带来的重复片。
+      _lastSegmentUrl = null;
+      _diag('会话归零：已保存并另起新文件 $fileName（录制继续，PCR 单调）');
+    } catch (_) {
+      _diag('会话归零：另起新文件失败，原文件已保存，停止录制');
+      await stop(event: RecordingEvent.failed);
+    }
   }
 
   /// 停止录制。[event] 指定完成事件（默认 saved）；[silent] 用于退出场景不发提示。
@@ -411,8 +460,9 @@ class RecordingController {
     if (playlist.segments.isEmpty) return;
 
     // 以「上次下载的分片 URL」为锚点：找到它在最新窗口的位置，下载其后的新分片。
-    // 找不到（窗口已滑走）则从头算，随后由 maxSegmentsPerPoll 限制补下载量，
-    // 避免落后时一次性补整窗、瞬间抢走播放器带宽（正反馈式卡顿）。
+    // 找不到（窗口已滑走 / relay 换 sid）则从头算。本地代理已合并播放与录制的
+    // 下载，补整窗不再抢带宽，因此不再跳片——录制宁可落后也不丢中间内容。
+    // 重复分片由 [SegmentQualityGate] 按字节指纹拦截，不会写进文件。
     int start = 0;
     if (_lastSegmentUrl != null) {
       final int idx = playlist.segments.indexWhere((Uri u) => u.toString() == _lastSegmentUrl);
@@ -425,15 +475,8 @@ class RecordingController {
       _tick();
       return;
     }
-    if (pendingAll > maxSegmentsPerPoll) {
-      final int skipped = pendingAll - maxSegmentsPerPoll;
-      start = playlist.segments.length - maxSegmentsPerPoll;
-      _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 落后 $pendingAll 片，'
-          '跳过 $skipped 片旧片，仅取最新 $maxSegmentsPerPoll 片');
-    } else {
-      _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 新片 $pendingAll 片 '
-          'window=${playlist.segments.length}');
-    }
+    _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 待取 $pendingAll 片 '
+          'window=${playlist.segments.length} anchor=${idxOf(_lastSegmentUrl, playlist)}');
 
     try {
       for (int i = start; i < playlist.segments.length; i++) {
@@ -443,13 +486,28 @@ class RecordingController {
         final List<int>? bytes = await _downloadSegment(segment);
         fetchSw.stop();
         if (bytes == null) return; // 已按连续失败计数处理
+
+        // 连续性闸门：重复片跳过；归零片正常写入后另起新文件。
+        final GateDecision decision = _gate.evaluate(bytes);
+        if (!decision.write) {
+          _lastSegmentUrl = segment.toString();
+          _diag('分片 ${i - start + 1}/$pendingAll 重复片跳过 '
+              '${bytes.length}B url=$segment');
+          continue;
+        }
+
+        // 归零片属于新会话：先另起新文件，再把它写进新文件（成为新文件首片）。
+        // 这样旧文件在归零前干净收尾，新文件从归零片起 PCR 单调。
+        if (decision.pcrReset) await _rotateFile();
+
         final Stopwatch writeSw = Stopwatch()..start();
         await _appendBytes(bytes);
         writeSw.stop();
         _lastSegmentUrl = segment.toString();
-        _diag('分片 ${i - start + 1}/${playlist.segments.length - start} '
-            '${bytes.length}B 下载=${fetchSw.elapsedMilliseconds}ms '
-            '写入=${writeSw.elapsedMilliseconds}ms 累计=$_bytes');
+        _diag('分片 ${i - start + 1}/$pendingAll ${bytes.length}B '
+            '下载=${fetchSw.elapsedMilliseconds}ms 写入=${writeSw.elapsedMilliseconds}ms '
+            '累计=$_bytes gate=${decision.reason}');
+
         if (_bytes >= maxFileBytes) {
           await stop(); // 到软上限，保存
           return;
@@ -468,6 +526,10 @@ class RecordingController {
       _recordFailure();
     }
   }
+
+  /// 诊断用：锚点在窗口中的索引（-1 表示已滑走）。
+  static int idxOf(String? lastUrl, HlsPlaylist playlist) =>
+      lastUrl == null ? -1 : playlist.segments.indexWhere((Uri u) => u.toString() == lastUrl);
 
   /// 单分片下载，失败重试 2 次（共 3 次）。返回 null 表示三次都失败。
   Future<List<int>?> _downloadSegment(Uri url) async {
@@ -537,9 +599,24 @@ class RecordingController {
     return parsePlaylist(await _fetchPlaylistText(variant), variant);
   }
 
-  Future<String> _fetchPlaylistText(Uri url) => _fetchText?.call(url) ?? _defaultFetchText(_defaultDio, url);
+  /// 拉取 playlist：注入 fetch 优先（单测）；否则进程内本地代理可用时走代理
+  /// 缓存（与播放器共用同一份下载），再否则回落默认 Dio 直连。
+  Future<String> _fetchPlaylistText(Uri url) {
+    final Future<String> Function(Uri url)? injected = _fetchText;
+    if (injected != null) return injected(url);
+    final HlsLocalProxy proxy = HlsLocalProxy.instance;
+    if (proxy.isUsable) return proxy.fetchPlaylistText(url);
+    return _defaultFetchText(_defaultDio, url);
+  }
 
-  Future<List<int>> _fetchSegmentBytes(Uri url) => _fetchBytes?.call(url) ?? _defaultFetchBytes(_defaultDio, url);
+  /// 拉取分片：优先级同 [_fetchPlaylistText]。
+  Future<List<int>> _fetchSegmentBytes(Uri url) {
+    final Future<List<int>> Function(Uri url)? injected = _fetchBytes;
+    if (injected != null) return injected(url);
+    final HlsLocalProxy proxy = HlsLocalProxy.instance;
+    if (proxy.isUsable) return proxy.fetchSegmentBytes(url);
+    return _defaultFetchBytes(_defaultDio, url);
+  }
 
   static Future<String> _defaultFetchText(Dio dio, Uri url) async {
     final Response<String> response = await dio.get<String>(

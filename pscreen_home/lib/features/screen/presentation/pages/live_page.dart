@@ -12,6 +12,7 @@ import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_event.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_state.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/hls_local_proxy.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
@@ -83,6 +84,8 @@ class _LivePageState extends State<LivePage> {
     // 录制分片下载/写入耗时与补片诊断接到统一日志，与播放器卡顿日志同一出口。
     RecordingController.instance.onDiagnostic =
         (String message) => Injection.get<LogService>().info(message);
+    HlsLocalProxy.instance.onDiagnostic =
+        (String message) => Injection.get<LogService>().info(message);
   }
 
   @override
@@ -91,6 +94,7 @@ class _LivePageState extends State<LivePage> {
       RecordingController.instance.onEvent = null;
     }
     RecordingController.instance.onDiagnostic = null;
+    HlsLocalProxy.instance.onDiagnostic = null;
     _hideTimer?.cancel();
     super.dispose();
   }
