@@ -78,6 +78,49 @@ const ESP_ACTION_KINDS = new Set([
     'select_option', 'number_set', 'brightness', 'press', 'next_effect', 'next_option',
 ]);
 const ESP_SYS_ACTIONS = new Set(['next_page', 'prev_page', 'home_page']);
+// 遥控设备（中控 / 电视）：一页绑定一台设备，按键从该设备的能力表里挑命令。
+// 命令名与 TV 端 MessageCommandExecutor 对齐；参数按 args 描述由后台生成输入，
+// 服务端只认这里登记过的命令，避免把任意字符串投给对端。
+// kind 为空 = 中控与电视都支持；home / tv 表示只对对应设备类型出现。
+const REMOTE_COMMANDS = [
+    {
+        cmd: 'nav', label: '切换页面', args: [{
+            key: 'page', label: '页面', type: 'enum', options: [
+                { value: 'home', label: '主页' },
+                { value: 'live', label: '直播' },
+                { value: 'weather', label: '天气' },
+                { value: 'settings', label: '设置' },
+                { value: 'screensaver', label: '屏保' },
+            ],
+        }],
+    },
+    { cmd: 'volume_up', label: '音量 +' },
+    { cmd: 'volume_down', label: '音量 -' },
+    { cmd: 'mute', label: '静音' },
+    { cmd: 'channel_next', label: '频道 +' },
+    { cmd: 'channel_prev', label: '频道 -' },
+    { cmd: 'switch_source', label: '切换播放源' },
+    {
+        cmd: 'channel_digit', label: '数字选台', args: [
+            { key: 'digit', label: '数字', type: 'number', min: 0, max: 9 },
+        ],
+    },
+    { cmd: 'channel_digit_resolve', label: '立即跳台' },
+    {
+        cmd: 'channel', label: '指定频道', args: [
+            { key: 'name', label: '频道名', type: 'text' },
+        ],
+    },
+    {
+        cmd: 'sleep_timer', label: '定时关闭', args: [
+            { key: 'minutes', label: '分钟', type: 'number', min: 0, max: 720 },
+        ],
+    },
+    { cmd: 'live_float', label: '直播悬浮', kind: 'home' },
+];
+const REMOTE_CMD_MAP = new Map(REMOTE_COMMANDS.map((item) => [item.cmd, item]));
+// 页面绑定的目标设备主键（machines.json 的 key）。
+const REMOTE_TARGET_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 // 客户端包名 → 设备类型。中控（home）不参与儿童模式与家长绑定，只有电视
 // （tv）可作为家长管控对象；家长端（parent）只是控制端，也不是管控对象，
 // 但同样上报心跳、走实时通道、可遥控电视。
@@ -347,13 +390,19 @@ function normalizeEspButton(raw, index, usedSlots) {
     const rawActionText = String(raw.action || 'toggle').trim();
     const rawAction = rawActionText === 'home' ? 'home_page' : rawActionText;
     const isSys = ESP_SYS_ACTIONS.has(rawAction);
-    const entityId = String(raw.entityId || '').trim().slice(0, 128);
-    if (!isSys && !ESP_ENTITY_RE.test(entityId)) return null;
+    // 遥控动作：命令必须登记在 REMOTE_COMMANDS 里，实体字段留空。
+    const isRemote = raw.kind === 'remote';
+    const remoteSpec = isRemote ? REMOTE_CMD_MAP.get(rawAction) : null;
+    if (isRemote && !remoteSpec) return null;
+    const entityId = isRemote ? '' : String(raw.entityId || '').trim().slice(0, 128);
+    if (!isSys && !isRemote && !ESP_ENTITY_RE.test(entityId)) return null;
     // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
     // 拆成 {action, param}，只按动作名做白名单校验，参数原样留给 callHaService。
     const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
-    const action = isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
-    const param = !isSys && m && m[2] != null ? m[2].slice(0, 40) : '';
+    const action = isRemote ? remoteSpec.cmd
+        : isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
+    const param = isRemote ? normalizeRemoteParam(remoteSpec, raw.param)
+        : (!isSys && m && m[2] != null ? m[2].slice(0, 40) : '');
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
     const name = String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || action;
@@ -370,13 +419,75 @@ function normalizeEspButton(raw, index, usedSlots) {
         id,
         name,
         label,
-        entityId: isSys ? '' : entityId,
-        kind: isSys ? 'sys' : 'ha',
+        entityId: isSys || isRemote ? '' : entityId,
+        kind: isRemote ? 'remote' : (isSys ? 'sys' : 'ha'),
         action,
         param,
         slot,
         enabled: raw.enabled !== false,
     };
+}
+
+/**
+ * 遥控命令参数归一：只有带 args 的命令才保留参数。
+ *
+ * - enum：必须落在 options 里，非法值回落到第一项；
+ * - number：取整并夹在 [min,max] 内，非法值取 min（通常 0）；
+ * - text：原样保留（去首尾空白、截 40 字），交给客户端按频道名匹配。
+ * 其余命令一律返回空串，避免把脏参数投给对端。
+ */
+function normalizeRemoteParam(spec, value) {
+    const arg = spec && spec.args && spec.args[0];
+    if (!arg) return '';
+    const raw = String(value == null ? '' : value).trim().slice(0, 40);
+    if (arg.type === 'number') {
+        const num = Number(raw);
+        const min = Number.isFinite(arg.min) ? arg.min : 0;
+        const max = Number.isFinite(arg.max) ? arg.max : 999;
+        const safe = Number.isFinite(num) ? Math.min(max, Math.max(min, Math.round(num))) : min;
+        return String(safe);
+    }
+    if (arg.type === 'text') return raw;
+    const values = (arg.options || []).map((item) => item.value);
+    if (values.includes(raw)) return raw;
+    return values[0] || '';
+}
+
+/** 目标设备的实体 id：`remote.<设备主键>`（点号换成下划线，符合模板占位符格式）。 */
+function remoteEntityId(deviceId) {
+    return `remote.${String(deviceId || '').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase()}`;
+}
+
+/** 按设备类型过滤能力表：kind 为空的命令两类设备都支持。 */
+function remoteCapabilities(kind) {
+    return REMOTE_COMMANDS
+        .filter((item) => !item.kind || item.kind === kind)
+        .map((item) => ({
+            cmd: item.cmd,
+            label: item.label,
+            args: item.args || [],
+        }));
+}
+
+/** 遥控命令信封：与 home/TV 端 EnvelopeBuilder 的 cmd 帧一致。 */
+function remoteCommandArgs(action) {
+    const spec = REMOTE_CMD_MAP.get(action.action);
+    const arg = spec && spec.args && spec.args[0];
+    if (!arg || action.param === '' || action.param == null) return {};
+    return { [arg.key]: arg.type === 'number' ? Number(action.param) : action.param };
+}
+
+/** 实时状态摘要：模板 `{remote.xxx}` 显示「珠江台 音量20」。 */
+function remoteStateText(state) {
+    if (!state || typeof state !== 'object') return '';
+    const scene = state.scene && typeof state.scene === 'object' ? state.scene : null;
+    const sceneName = scene ? (scene.name || scene.title || scene.channel || '') : '';
+    const volume = state.volume != null ? state.volume
+        : (state.playback && state.playback.volume != null ? state.playback.volume : null);
+    const parts = [];
+    if (sceneName) parts.push(String(sceneName));
+    if (volume != null && Number.isFinite(Number(volume))) parts.push(`音量${Number(volume)}`);
+    return parts.join(' ');
 }
 
 /** 单页归一：页面名 + 图标 + 显示类型/绑定 + 按键表 + 翻页/空闲策略。 */
@@ -411,6 +522,10 @@ function normalizeEspPage(raw, index) {
         tplSub: normalizeEspTemplate(raw.tplSub),
         valueMap: normalizeEspValueMap(raw.valueMap),
         entityValueMap: normalizeEspEntityValueMap(raw.entityValueMap),
+        // 绑定的遥控设备（中控/电视主键）；空串 = 这页仍是普通 HA 页面。
+        remoteTarget: REMOTE_TARGET_RE.test(String(raw.remoteTarget || '').trim())
+            ? String(raw.remoteTarget).trim()
+            : '',
         buttons,
         loop: raw.loop !== false,
         idle,
@@ -444,6 +559,7 @@ function migrateEspActionsToPages(actions, display, deviceName) {
             tplSub: '',
             valueMap: '',
             entityValueMap: '',
+            remoteTarget: '',
             buttons: items.map((item) => ({
                 id: item.id,
                 name: item.name,
@@ -816,6 +932,14 @@ function attachAdmin(app, options = {}) {
     const pushDeviceConfig = typeof options.pushDeviceConfig === 'function'
         ? options.pushDeviceConfig
         : () => {};
+    // 遥控命令投递：按设备通信账号推 cmd 帧，返回送达的连接数（未注入时为 0）。
+    const pushRemoteCommand = typeof options.pushRemoteCommand === 'function'
+        ? options.pushRemoteCommand
+        : () => 0;
+    // 遥控设备实时状态（场景/音量），模板 `{remote.xxx}` 用；未注入时为空。
+    const remoteStateOf = typeof options.remoteState === 'function'
+        ? options.remoteState
+        : () => null;
     // 上传镜像转发实例（forward.js）；未注入时状态接口降级为不可用。
     const forward = options.forward || null;
 
@@ -3485,40 +3609,63 @@ function attachAdmin(app, options = {}) {
                 bindings.main, bindings.s1, bindings.s2, ...tplEntityIds,
             ].filter(Boolean))];
             if (entityIds.length) {
-                try {
-                    const rawStates = await haCatalogService.getStates(entityIds);
-                    // 值替换（全局 + 按实体）对字典与自定义模板同时生效。
-                    const states = mapEspStates(
-                        rawStates,
-                        parseEspValueMap(pageObj.valueMap),
-                        parseEspEntityValueMap(pageObj.entityValueMap),
-                    );
-                    const dict = deviceTypes.normalizeDictEntry(pageObj.deviceType || '', null);
-                    const ctx = {
-                        main: espStateValue(states[bindings.main], dict.mainAttr),
-                        s1: espStateValue(states[bindings.s1], 'state'),
-                        s2: espStateValue(states[bindings.s2], 'state'),
-                        title: pageObj.name,
-                        entities: {},
-                    };
-                    for (const entityId of tplEntityIds) {
-                        ctx.entities[entityId] = espStateValue(states[entityId], 'state');
+                // `remote.*` 是遥控设备的实体 id，状态来自本地实时缓存，不查 HA。
+                const remoteIds = entityIds.filter((eid) => eid.startsWith('remote.'));
+                const haIds = entityIds.filter((eid) => !eid.startsWith('remote.'));
+                const dict = deviceTypes.normalizeDictEntry(pageObj.deviceType || '', null);
+                const ctx = {
+                    main: '',
+                    s1: '',
+                    s2: '',
+                    title: pageObj.name,
+                    entities: {},
+                };
+                if (haIds.length) {
+                    try {
+                        const rawStates = await haCatalogService.getStates(haIds);
+                        // 值替换（全局 + 按实体）对字典与自定义模板同时生效。
+                        const states = mapEspStates(
+                            rawStates,
+                            parseEspValueMap(pageObj.valueMap),
+                            parseEspEntityValueMap(pageObj.entityValueMap),
+                        );
+                        ctx.main = espStateValue(states[bindings.main], dict.mainAttr);
+                        ctx.s1 = espStateValue(states[bindings.s1], 'state');
+                        ctx.s2 = espStateValue(states[bindings.s2], 'state');
+                        for (const entityId of tplEntityIds) {
+                            if (remoteIds.includes(entityId)) continue;
+                            ctx.entities[entityId] = espStateValue(states[entityId], 'state');
+                        }
+                        const resolved = deviceTypes.resolveDisplay({
+                            deviceType: pageObj.deviceType || '',
+                            bindings,
+                            states,
+                            deviceName: pageObj.name,
+                            buttonText: display.keys,
+                        });
+                        display = Object.assign(display, resolved);
+                    } catch (error) {
+                        // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
+                        console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
                     }
-                    const resolved = deviceTypes.resolveDisplay({
-                        deviceType: pageObj.deviceType || '',
-                        bindings,
-                        states,
-                        deviceName: pageObj.name,
-                        buttonText: display.keys,
-                    });
-                    // 自定义模板优先，没填的行仍走设备类型字典。
-                    if (tplMain) resolved.main = renderEspTemplate(tplMain, ctx);
-                    if (tplSub) resolved.sub = renderEspTemplate(tplSub, ctx);
-                    display = Object.assign(display, resolved);
-                } catch (error) {
-                    // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
-                    console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
                 }
+                if (remoteIds.length) {
+                    const machines = readMachines();
+                    const byEntity = new Map();
+                    for (const item of Object.values(machines)) {
+                        if (item.kind !== 'home' && item.kind !== 'tv') continue;
+                        byEntity.set(remoteEntityId(item.id), item);
+                    }
+                    for (const entityId of remoteIds) {
+                        const target = byEntity.get(entityId);
+                        ctx.entities[entityId] = target
+                            ? remoteStateText(remoteStateOf(target.commAccount || ''))
+                            : '';
+                    }
+                }
+                // 自定义模板优先，没填的行仍走设备类型字典。
+                if (tplMain) display.main = renderEspTemplate(tplMain, ctx);
+                if (tplSub) display.sub = renderEspTemplate(tplSub, ctx);
             }
         }
         // 没有值就留空：`--` / `-- · --` 只在后台预览里提示「未绑定」，
@@ -3547,6 +3694,7 @@ function attachAdmin(app, options = {}) {
         const pages = machine.espPages;
         let action = null;
         let pageNo = 1;
+        let pageObj = null;
         if (body.actionId) {
             // 网页「测试」按 actionId 直取，不受页码影响。
             for (let i = 0; i < pages.length; i += 1) {
@@ -3554,6 +3702,7 @@ function attachAdmin(app, options = {}) {
                 if (found) {
                     action = found;
                     pageNo = i + 1;
+                    pageObj = pages[i];
                     break;
                 }
             }
@@ -3561,7 +3710,7 @@ function attachAdmin(app, options = {}) {
             const slot = Number(body.slot == null ? body.button : body.slot);
             if (!Number.isInteger(slot) || slot < 1) return jsonFail(res, 'slot 无效');
             pageNo = clampEspPage(body.page, Math.max(1, pages.length));
-            const pageObj = pages[pageNo - 1];
+            pageObj = pages[pageNo - 1] || null;
             action = pageObj
                 ? pageObj.buttons.find((item) => item.enabled && item.slot === slot) || null
                 : null;
@@ -3574,6 +3723,43 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, { name: action.name, sys: action.action, page: pageNo }, '已执行');
         }
 
+        // 遥控动作（中控/电视）：不走 HA，按账号把 cmd 帧投给页面绑定的设备。
+        if (action.kind === 'remote') {
+            const targetId = pageObj && pageObj.remoteTarget;
+            if (!targetId) return jsonFail(res, '该页面还没绑定遥控设备，请先在后台选择');
+            const machines = readMachines();
+            const target = machines[targetId];
+            if (!target) return jsonFail(res, '绑定的遥控设备已不存在，请重新选择');
+            if (target.kind !== 'home' && target.kind !== 'tv') return jsonFail(res, '绑定的设备不是中控或电视');
+            // 命令必须在该设备类型的能力表里（防止换绑后残留了一个不支持的命令）。
+            if (!remoteCapabilities(target.kind).some((item) => item.cmd === action.action)) {
+                return jsonFail(res, `${target.name || '目标设备'} 不支持「${action.action}」，请重新选择命令`);
+            }
+            const account = target.commAccount || '';
+            if (!account) return jsonFail(res, '目标设备缺少通信账号，请让它重新连接一次');
+            const lastSeen = Number(target.lastSeen) || 0;
+            if (!lastSeen || nowMs() - lastSeen > MACHINE_ONLINE_MS) {
+                return jsonFail(res, `${target.name || '目标设备'} 离线，暂时不能遥控`);
+            }
+            const frame = {
+                t: 'msg',
+                from: 'esp-remote',
+                to: account,
+                body: JSON.stringify({ t: 'cmd', name: action.action, args: remoteCommandArgs(action) }),
+                ts: nowMs(),
+            };
+            const delivered = pushRemoteCommand(account, frame) || 0;
+            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 遥控 ${targetId} ${action.action}${action.param ? `(${action.param})` : ''} delivered=${delivered}`);
+            return jsonOk(res, {
+                name: action.name,
+                remote: action.action,
+                param: action.param,
+                target: targetId,
+                delivered,
+                page: pageNo,
+            }, delivered ? '已执行' : '已发送（目标设备暂无在线连接）');
+        }
+
         try {
             await callHaService(action.entityId, action.action, action.param);
             console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
@@ -3582,6 +3768,36 @@ function attachAdmin(app, options = {}) {
             console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
             return jsonFail(res, `调用 HA 失败：${error.message}`);
         }
+    });
+
+    /**
+     * admin：遥控设备目录（中控 / 电视）。
+     *
+     * 把 machines.json 里的 home/tv 记录映射成「一台设备一个实体」：
+     * `entityId = remote.<设备主键>`，附带能力表与实时状态。
+     * ESP 页面绑定 remoteTarget 后，按键就能从 capabilities 里挑命令。
+     */
+    app.get('/api/admin/remote/devices', requireAdmin, (req, res) => {
+        const machines = readMachines();
+        const devices = [];
+        for (const machine of Object.values(machines)) {
+            if (machine.kind !== 'home' && machine.kind !== 'tv') continue;
+            const account = machine.commAccount || '';
+            devices.push({
+                entityId: remoteEntityId(machine.id),
+                deviceId: machine.id,
+                account,
+                name: machine.nameSet ? machine.name : (machine.kind === 'home' ? '中控屏' : '电视'),
+                kind: machine.kind,
+                online: Boolean(machine.lastSeen) && nowMs() - machine.lastSeen <= MACHINE_ONLINE_MS,
+                lastSeen: machine.lastSeen || 0,
+                home: machine.currentHome || (machine.homes && machine.homes[0]) || '',
+                state: remoteStateText(remoteStateOf(account)),
+                capabilities: remoteCapabilities(machine.kind),
+            });
+        }
+        devices.sort((a, b) => (Number(b.online) - Number(a.online)) || a.name.localeCompare(b.name));
+        return jsonOk(res, { devices });
     });
 
     /** admin 页：读取某台 ESP 设备的页面配置 + 可选设备类型。 */

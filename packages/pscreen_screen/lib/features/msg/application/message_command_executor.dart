@@ -212,8 +212,11 @@ class MessageCommandExecutor {
     if (args == null) return false;
     final dynamic byName = args['name'];
     if (byName is String && byName.isNotEmpty) {
+      // 精确匹配但忽略大小写：`cctv-5+` 与 `CCTV-5+` 视为同一台。
+      // normalizeChannelName 先统一 CCTV/CETV 前缀，再转小写比较（中文不受影响）。
+      final String target = normalizeChannelName(byName).toLowerCase();
       final int idx = channelInfo.channels.indexWhere(
-        (c) => normalizeChannelName(c.name) == normalizeChannelName(byName),
+        (c) => normalizeChannelName(c.name).toLowerCase() == target,
       );
       if (idx < 0) return false;
       liveChannel.select(idx);

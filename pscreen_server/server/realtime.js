@@ -1452,6 +1452,13 @@ function attachRealtime(httpServer, options = {}) {
     });
 
     console.log(`[realtime] WebSocket 网关已挂载: ${wsPath} (剪贴板推送: ${clipboardPath})`);
+    /** 某账号最近一次上报的设备状态（TV 场景/音量等）。 */
+    function stateOf(account) {
+        const target = String(account || '').trim();
+        if (!target) return null;
+        return states.get(target) || null;
+    }
+
     /** 向某个账号的全部在线连接推帧（别名变更后只通知改名者自己）。 */
     function pushToAccount(account, payload) {
         const target = String(account || '').trim();
@@ -1472,6 +1479,7 @@ function attachRealtime(httpServer, options = {}) {
         pushClipboard,
         pushToDevice,
         pushToAccount,
+        stateOf,
         eventsFor,
         eventsForAccounts,
     };

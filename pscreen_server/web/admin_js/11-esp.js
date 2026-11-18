@@ -37,6 +37,8 @@
       tplSub: '',
       valueMap: '',
       entityValueMap: '',
+      // 绑定的遥控设备（中控/电视主键）；空串 = 普通 HA 页面。
+      remoteTarget: '',
       buttons: [],
       loop: true,
       idle: 0,
@@ -87,6 +89,33 @@
   function espActivePage() {
     if (!espDevDraft) return null;
     return espDevDraft.pages.find((p) => p.id === espDevDraft.activePageId) || espDevDraft.pages[0] || null;
+  }
+
+  /** 遥控设备目录（中控/电视）：一设备一实体，含能力表与实时状态。 */
+  async function loadEspRemoteDevices(force = false) {
+    if (state.espRemoteDevices && !force) return state.espRemoteDevices;
+    try {
+      const data = await api('/api/admin/remote/devices');
+      state.espRemoteDevices = data.devices || [];
+    } catch (error) {
+      state.espRemoteDevices = [];
+    }
+    return state.espRemoteDevices;
+  }
+
+  function espRemoteDeviceOf(deviceId) {
+    if (!deviceId) return null;
+    return (state.espRemoteDevices || []).find((item) => item.deviceId === deviceId) || null;
+  }
+
+  /** 遥控命令的默认参数：枚举取第一项，数字取最小值（通常 0），文本留空。 */
+  function espDefaultRemoteParam(cap) {
+    const arg = cap && cap.args && cap.args[0];
+    if (!arg) return '';
+    if (arg.type === 'number') return String(arg.min == null ? 0 : arg.min);
+    if (arg.type === 'text') return '';
+    const first = (arg.options || [])[0];
+    return first ? first.value : '';
   }
 
   /** 实体 id → 实体（带 state/attributes），预览用；目录未加载时为空表。 */
@@ -196,8 +225,14 @@
     // 模板里直写的实体 id 也从目录里取值。
     const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
     const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
+    const remotes = new Map((state.espRemoteDevices || []).map((item) => [item.entityId, item]));
     let m;
     while ((m = re.exec(tplAll))) {
+      if (m[1].startsWith('remote.')) {
+        const dev = remotes.get(m[1]);
+        ctx.entities[m[1]] = dev ? (dev.state || '') : '';
+        continue;
+      }
       ctx.entities[m[1]] = espEntityValue(index, map, entityMaps, m[1], 'state');
     }
 
@@ -367,14 +402,40 @@
 
     const buttonRow = (button, index) => {
       const isSys = button.kind === 'sys';
+      const isRemote = button.kind === 'remote';
       const pin = pinOf(button.slot);
-      const actionValue = isSys ? button.action : `${button.action}${button.param ? `(${button.param})` : ''}`;
-      const actionList = isSys ? ESP_SYS_ACTION_LABELS : ESP_HA_ACTIONS;
+      const remoteDev = isRemote ? espRemoteDeviceOf(page.remoteTarget) : null;
+      const remoteSpec = isRemote && remoteDev
+        ? (remoteDev.capabilities || []).find((item) => item.cmd === button.action)
+        : null;
+      const actionValue = isSys || isRemote
+        ? button.action
+        : `${button.action}${button.param ? `(${button.param})` : ''}`;
+      const actionList = isSys ? ESP_SYS_ACTION_LABELS
+        : isRemote ? (remoteDev ? (remoteDev.capabilities || []).map((item) => [item.cmd, item.label]) : [])
+          : ESP_HA_ACTIONS;
       let actionOpts = actionList
         .map(([value, label]) => `<option value="${value}" ${value === actionValue ? 'selected' : ''}>${label}</option>`)
         .join('');
       if (!actionList.some(([value]) => value === actionValue)) {
         actionOpts = `<option value="${esc(actionValue)}" selected>${esc(actionValue)}</option>${actionOpts}`;
+      }
+      // 遥控按键的「实体」列换成命令参数：枚举出下拉，数字出输入框。
+      const arg = remoteSpec && remoteSpec.args && remoteSpec.args[0];
+      let paramCell;
+      if (isRemote) {
+        if (!remoteSpec) {
+          paramCell = `<span class="hint">${page.remoteTarget ? '请选择命令' : '请先绑定遥控设备'}</span>`;
+        } else if (!arg) {
+          paramCell = '<span class="hint">无需参数</span>';
+        } else if (arg.type === 'enum') {
+          paramCell = `<select data-f="param">${(arg.options || []).map((opt) =>
+            `<option value="${esc(opt.value)}" ${opt.value === button.param ? 'selected' : ''}>${esc(opt.label)}</option>`).join('')}</select>`;
+        } else if (arg.type === 'text') {
+          paramCell = `<input data-f="param" type="text" value="${esc(button.param || '')}" maxlength="40" placeholder="${esc(arg.label || '参数')}">`;
+        } else {
+          paramCell = `<input data-f="param" type="number" value="${esc(button.param || '')}" min="${esc(arg.min == null ? '' : arg.min)}" max="${esc(arg.max == null ? '' : arg.max)}" placeholder="${esc(arg.label || '参数')}">`;
+        }
       }
       const slotOpts = ['<option value="0">—</option>']
         .concat(Array.from({ length: 8 }, (_, i) =>
@@ -389,14 +450,15 @@
         <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
         <td><div class="esp-action-cell">
           <select data-f="kind">
-            <option value="ha" ${isSys ? '' : 'selected'}>HA 动作</option>
+            <option value="ha" ${!isSys && !isRemote ? 'selected' : ''}>HA 动作</option>
+            <option value="remote" ${isRemote ? 'selected' : ''} ${page.remoteTarget ? '' : 'disabled'}>设备遥控</option>
             <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
           </select>
           <select data-f="action">${actionOpts}</select>
         </div></td>
-        <td><div class="esp-ent-cell">
-          <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off" ${isSys ? 'disabled' : ''}>
-          <button class="btn small" type="button" data-pickbtn="${esc(button.id)}" ${isSys ? 'disabled' : ''}>选择</button>
+        <td><div class="esp-ent-cell">${isRemote ? paramCell : isSys ? '<span class="hint">无需参数</span>' : `
+          <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off">
+          <button class="btn small" type="button" data-pickbtn="${esc(button.id)}">选择</button>`}
         </div></td>
         <td class="ops-cell">
           <button class="move-btn" type="button" data-upbtn="${esc(button.id)}" title="上移" ${index === 0 ? 'disabled' : ''}>↑</button>
@@ -406,12 +468,24 @@
       </tr>`;
     };
 
+    const remoteOpts = ['<option value="">不绑定（普通 HA 页面）</option>']
+      .concat((state.espRemoteDevices || []).map((dev) => {
+        const kindText = dev.kind === 'home' ? '中控' : '电视';
+        return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === page.remoteTarget ? 'selected' : ''}>${esc(dev.name)}（${kindText}${dev.online ? '' : ' · 离线'}）</option>`;
+      })).join('');
+
+    const boundRemote = espRemoteDeviceOf(page.remoteTarget);
+    const remoteHint = boundRemote
+      ? `当前绑定「${esc(boundRemote.name)}」，模板里可写 <b>{${esc(boundRemote.entityId)}}</b> 显示它的场景/音量。`
+      : '';
+
     host.innerHTML = `
       <div class="esp-section">
         <h4>① 页面属性</h4>
         <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
         <div class="esp-field-row"><label>图标</label><input id="esp-page-icon" maxlength="2" value="${esc(page.icon || '')}" style="width:70px"></div>
-        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。</p>
+        <div class="esp-field-row"><label>遥控设备</label><select id="esp-page-remote">${remoteOpts}</select></div>
+        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。选中「遥控设备」后，本页按键可选「设备遥控」，命令从该设备能力表里挑（主页/直播/音量/频道…）；不绑定就是普通 HA 页面。${remoteHint}</p>
       </div>
       <div class="esp-section">
         <h4>② 屏幕显示内容 <span class="tag">由设备类型字典生成</span></h4>
@@ -498,6 +572,11 @@
     $('esp-page-type').addEventListener('change', (event) => {
       page.deviceType = event.target.value;
       drawEspPreview();
+    });
+    // 页面绑定遥控设备：绑定后按键才能选「设备遥控」，已有遥控按键保持不变。
+    $('esp-page-remote').addEventListener('change', (event) => {
+      page.remoteTarget = event.target.value;
+      renderEspPageEditor();
     });
     $('esp-tpl-main').addEventListener('input', (event) => {
       page.tplMain = event.target.value;
@@ -631,26 +710,48 @@
               }
             }
           } else if (field === 'kind') {
-            button.kind = el.value === 'sys' ? 'sys' : 'ha';
-            button.action = button.kind === 'sys' ? 'next_page' : 'toggle';
+            const kind = el.value === 'sys' ? 'sys' : el.value === 'remote' ? 'remote' : 'ha';
+            button.kind = kind;
             button.param = '';
             button.entityId = '';
-            if (!button.name) button.name = button.kind === 'sys' ? '下一页' : '切换';
+            if (kind === 'sys') {
+              button.action = 'next_page';
+              if (!button.name) button.name = '下一页';
+            } else if (kind === 'remote') {
+              const dev = espRemoteDeviceOf(page.remoteTarget);
+              const cap = dev && (dev.capabilities || [])[0];
+              button.action = cap ? cap.cmd : '';
+              button.param = espDefaultRemoteParam(cap);
+              if (!button.name && cap) button.name = cap.label;
+            } else {
+              button.action = 'toggle';
+              if (!button.name) button.name = '切换';
+            }
           } else if (field === 'action') {
             const value = el.value;
-            const isSys = ESP_SYS_VALUES.has(value);
-            const m = value.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
-            button.kind = isSys ? 'sys' : 'ha';
-            button.action = m ? m[1] : value;
-            button.param = !isSys && m && m[2] != null ? m[2] : '';
-            if (isSys) button.entityId = '';
-            if (!button.name && el.selectedIndex >= 0) button.name = el.options[el.selectedIndex].text;
+            if (button.kind === 'remote') {
+              const dev = espRemoteDeviceOf(page.remoteTarget);
+              const cap = dev && (dev.capabilities || []).find((item) => item.cmd === value);
+              button.action = value;
+              button.param = espDefaultRemoteParam(cap);
+              if (!button.name && cap) button.name = cap.label;
+            } else {
+              const isSys = ESP_SYS_VALUES.has(value);
+              const m = value.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
+              button.kind = isSys ? 'sys' : 'ha';
+              button.action = m ? m[1] : value;
+              button.param = !isSys && m && m[2] != null ? m[2] : '';
+              if (isSys) button.entityId = '';
+              if (!button.name && el.selectedIndex >= 0) button.name = el.options[el.selectedIndex].text;
+            }
+          } else if (field === 'param') {
+            button.param = el.value;
           }
           drawEspPreview();
           if (field === 'kind' || field === 'action') renderEspPageEditor();
         };
         el.addEventListener('change', commit);
-        if (field === 'name' || field === 'entity') el.addEventListener('input', commit);
+        if (field === 'name' || field === 'entity' || field === 'param') el.addEventListener('input', commit);
       });
       const pick = tr.querySelector('[data-pickbtn]');
       if (pick) {
@@ -714,6 +815,8 @@
     if (!state.haEntities) {
       try { await loadHaEntities(); } catch (_) { /* 忽略 */ }
     }
+    // 遥控设备目录（中控/电视）同理：加载失败时不显示遥控选项，不影响 HA 配置。
+    try { await loadEspRemoteDevices(true); } catch (_) { /* 忽略 */ }
     let cfg;
     try {
       cfg = await api(`/api/admin/machines/${encodeURIComponent(id)}/pages`);
@@ -733,6 +836,7 @@
       tplSub: page.tplSub || '',
       valueMap: page.valueMap || '',
       entityValueMap: page.entityValueMap || '',
+      remoteTarget: page.remoteTarget || '',
       buttons: (page.buttons || []).map((button) => ({ ...button })),
       loop: page.loop !== false,
       idle: Number(page.idle) || 0,
@@ -787,6 +891,7 @@
         tplSub: page.tplSub || '',
         valueMap: page.valueMap || '',
         entityValueMap: page.entityValueMap || '',
+        remoteTarget: page.remoteTarget || '',
         loop: page.loop !== false,
         idle: Number(page.idle) || 0,
         buttons: (page.buttons || []).map((button) => ({
@@ -794,11 +899,13 @@
           name: button.name || '',
           // label 仅保留给旧固件协议，值与完整名称一致，不再截短。
           label: button.name || button.label || '',
-          kind: button.kind === 'sys' ? 'sys' : 'ha',
-          action: button.kind === 'sys'
-            ? button.action
-            : `${button.action}${button.param ? `(${button.param})` : ''}`,
-          entityId: button.kind === 'sys' ? '' : (button.entityId || ''),
+          kind: button.kind === 'sys' ? 'sys' : button.kind === 'remote' ? 'remote' : 'ha',
+          action: button.kind === 'remote' ? button.action
+            : button.kind === 'sys'
+              ? button.action
+              : `${button.action}${button.param ? `(${button.param})` : ''}`,
+          param: button.param || '',
+          entityId: button.kind === 'ha' ? (button.entityId || '') : '',
           slot: Number(button.slot) || 0,
           enabled: button.enabled !== false,
         })),

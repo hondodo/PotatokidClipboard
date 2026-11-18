@@ -2115,6 +2115,10 @@ const adminHandle = attachAdmin(app, {
     pushDeviceConfig: (deviceId, payload) => realtimeHandle?.pushToDevice(deviceId, payload),
     // 家长私有别名变更后只推给改名者自己的连接（别名不可跨家长泄露）。
     pushAlias: (account, payload) => realtimeHandle?.pushToAccount(account, payload),
+    // ESP 按键遥控：把 cmd 帧投给中控/电视的在线连接（按通信账号）。
+    pushRemoteCommand: (account, payload) => realtimeHandle?.pushToAccount(account, payload) || 0,
+    // 遥控设备实时状态（场景/音量），供 ESP 模板 `{remote.xxx}` 使用。
+    remoteState: (account) => realtimeHandle?.stateOf(account) || null,
     // /api/admin/traffic 查询用
     traffic,
     // /api/admin/forward/status 查询用（上传镜像转发统计）
