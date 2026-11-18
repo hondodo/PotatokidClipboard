@@ -69,7 +69,9 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 //           启动时自动忽略；修复误填 GPIO35 导致开机卡在 Booting 的问题。
 // oled-3.2：人体感应状态上报——有人/无人跳变时立即发一次心跳（不等 60 秒），
 //           后台显示「有人 / 无人 + 最近进入/离开时间」。
-static const char *APP_VER             = "oled-3.2";
+// oled-3.3：修「亮屏后正文变空白、只剩顶栏页码/IP」——NetSnapshot 标量补默认值，
+//           感应上报不再顺延 60 秒心跳计时（否则定时拉页面永远不触发）。
+static const char *APP_VER             = "oled-3.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -106,22 +108,26 @@ BtnState buttons[MAX_BTN];
 // 现在由独立任务负责网络，loop 只绘制与轮询按键：
 // - 任务把结果写进自己的 NetSnapshot，再加锁发布到 netPending；
 // - loop 在 applyNetSnapshot() 里把快照搬进全局变量并重绘，String 不会跨任务撕裂。
+// 注意：所有标量必须有默认值。任务里是 `NetSnapshot snap;` 局部变量，
+// 默认初始化不会清零标量——而 String 成员每轮都会构造为空串。
+// 少了默认值就会出现「state 沿用上一轮的真值、文本却是空串」的假快照，
+// 发布出去会把屏幕正文刷成空白（只剩顶栏页码/IP）。oled-3.3 修的就是这个。
 struct NetSnapshot {
-  bool valid;          // 本次拿到了有效的页面/按键/显示数据
-  bool fwKnown;        // 本次成功查询了服务端固件版本
-  bool hasDisplay;     // 收到 DISPLAY 行（主状态可能为空 = 正常留白）
-  int pageCount, pageIndex, currentPage;
-  int requestedPage;   // 本次请求的页码（用于区分「预取」与「当前页刷新」）
-  bool pageLoop;
-  int idleSeconds;
-  int screenOnSec;     // 人离开后熄屏秒数（0 = 常亮），来自 SCREEN 行
+  bool valid = false;         // 本次拿到了有效的页面/按键/显示数据
+  bool fwKnown = false;       // 本次成功查询了服务端固件版本
+  bool hasDisplay = false;    // 收到 DISPLAY 行（主状态可能为空 = 正常留白）
+  int pageCount = 1, pageIndex = 1, currentPage = 1;
+  int requestedPage = 0;      // 本次请求的页码（用于区分「预取」与「当前页刷新」）
+  bool pageLoop = true;
+  int idleSeconds = 0;
+  int screenOnSec = 0;        // 人离开后熄屏秒数（0 = 常亮），来自 SCREEN 行
   String title, main, sub, keys;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
   String action[MAX_BTN + 1];
-  bool fwAvailable;
+  bool fwAvailable = false;
   String fwVersion, fwNotes;
-  uint32_t fwSize;
+  uint32_t fwSize = 0;
 };
 SemaphoreHandle_t netMux = nullptr;
 NetSnapshot netPending;
@@ -963,7 +969,10 @@ void netTask(void *) {
       // 省掉穿透链路上每个请求几百毫秒的往返，状态显示更快。
       if (heartbeatDue || pirDue) {
         reportToServer(false);
-        lastHeartbeat = millis();
+        // 只有「到点的 60 秒心跳」才顺延计时。感应跳变的即时上报不算心跳，
+        // 否则 PIR 抖动时每几秒报一次，60 秒的心跳（也是唯一的定时拉页面时机）
+        // 会被无限顺延，屏幕内容就再也不会自动刷新。
+        if (heartbeatDue) lastHeartbeat = millis();
         if (srvOk) pirReportPending = false;
         else if (pirDue) pirRetryAt = millis() + 5000;
       }
