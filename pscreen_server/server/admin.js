@@ -159,6 +159,17 @@ function isTvMachine(machine) {
     return machineKind(machine) === 'tv';
 }
 
+/**
+ * ESP 小屏设备：固件上报 platform=esp32*，或配置过 OLED 型号 / ESP 页面。
+ * 判定口径与 admin 设备列表的筛选保持一致（见 web/admin_js/11-esp.js）。
+ */
+function isEspMachine(machine) {
+    const platform = String((machine && machine.platform) || '').toLowerCase();
+    const model = String((machine && machine.model) || '').toLowerCase();
+    return platform.includes('esp') || model.includes('oled')
+        || (Array.isArray(machine.espPages) && machine.espPages.length > 0);
+}
+
 
 // 禁看时段条目格式 `HH:MM-HH:MM`（与 Flutter 端 QuietHour.tryParse 对齐，从严校验）。
 const PARENTAL_QUIET_HOURS_RE = /^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -2120,6 +2131,28 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, buildOverview(req.adminUser));
         } catch (error) {
             console.error('[admin] 读取概览失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 轻量人体感应状态：admin 设备列表高频轮询专用。
+     *
+     * 上游固件在 PIR 电平跳变时立刻发心跳（不受 60 秒心跳影响），所以链路本身
+     * 是秒级的；界面的滞后完全取决于这个轮询间隔。走 buildOverview 太重
+     * （整机列表 + 页面配置），这里只回 id + espPresence。
+     */
+    app.get('/api/admin/esp/presence', requireParentOperator, (req, res) => {
+        try {
+            const devices = Object.values(readMachines())
+                .filter((machine) => isEspMachine(machine))
+                .map((machine) => ({
+                    id: machine.id,
+                    espPresence: normalizeEspPresence(machine.espPresence),
+                }));
+            return jsonOk(res, { devices });
+        } catch (error) {
+            console.error('[admin] 读取感应状态失败:', error);
             return jsonFail(res, error.message);
         }
     });

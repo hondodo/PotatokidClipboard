@@ -297,7 +297,9 @@
     .espdev-item .espdev-tags { display: flex; align-items: center; gap: 6px; margin-left: auto; }
     .espdev-item .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.06); }
     .espdev-item .tag.pir-on { background: rgba(86, 214, 154, .18); color: #7fe0b0; }
-    .espdev-item .espdev-pir { flex: 0 0 100%; font-size: 11px; line-height: 1.5; color: var(--muted); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .espdev-item .espdev-pir { flex: 0 0 100%; font-size: 11px; line-height: 1.55; color: var(--muted); opacity: .8; white-space: normal; word-break: break-word; }
+    .espdev-item .espdev-pir .pir-seg { display: inline-block; white-space: nowrap; }
+    .espdev-item .espdev-pir .pir-sep { margin: 0 3px; opacity: .5; }
     .espdev-grid { display: grid; gap: 12px; }
     .bind-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin-bottom: 9px; }
     .bind-row > label { font-size: 12px; color: var(--muted); }
