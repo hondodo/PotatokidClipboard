@@ -71,20 +71,70 @@
     return state.espDevices;
   }
 
+  let espPresenceTimer = null;
+
+  const espPad2 = (n) => String(n).padStart(2, '0');
+
+  /** 感应时间：当天只显示时分秒，跨天补 MM-DD，避免把「昨天 23:57」读成今天。 */
+  function espClock(ts) {
+    const ms = Number(ts) || 0;
+    if (!ms) return '—';
+    const d = new Date(ms);
+    const now = new Date();
+    const sameDay = d.getFullYear() === now.getFullYear()
+      && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    const hms = `${espPad2(d.getHours())}:${espPad2(d.getMinutes())}:${espPad2(d.getSeconds())}`;
+    return sameDay ? hms : `${espPad2(d.getMonth() + 1)}-${espPad2(d.getDate())} ${hms}`;
+  }
+
+  function espAgo(ts) {
+    const ms = Number(ts) || 0;
+    if (!ms) return '';
+    const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (sec < 60) return `${sec} 秒前`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min} 分钟前`;
+    const hour = Math.floor(min / 60);
+    if (hour < 24) return `${hour} 小时前`;
+    return `${Math.floor(hour / 24)} 天前`;
+  }
+
+  /**
+   * 人体感应摘要：有人时以「进入」为主，无人时以「离开」为主，另一个时间跟在后面。
+   * 时间只在 0/1 跳变时刷新（服务端保证），所以「离开 xx」就是人走后那一刻。
+   */
+  function espPresenceLine(pir) {
+    if (!pir) return '';
+    const enter = pir.lastEnterAt ? `进入 ${espClock(pir.lastEnterAt)}` : '';
+    const leave = pir.lastLeaveAt ? `离开 ${espClock(pir.lastLeaveAt)}` : '';
+    const main = pir.present ? enter : leave;
+    const other = pir.present ? leave : enter;
+    const ago = pir.present ? espAgo(pir.lastEnterAt) : espAgo(pir.lastLeaveAt);
+    if (!main) return pir.present ? '已上报有人（无进入时间）' : '还没有人进入过';
+    return `${main}（${ago}）${other ? ` · ${other}` : ''}`;
+  }
+
   function renderEspDevices() {
     const list = $('espdev-list');
     if (!list || !state.espDevices) return;
-    const fmtTime = (ts) => (ts ? new Date(ts).toLocaleTimeString('zh-CN', { hour12: false }) : '—');
     list.innerHTML = state.espDevices.map((dev) => {
       const active = dev.id === state.espDevEditId ? ' active' : '';
       const pages = dev.espPages || [];
       const tag = pages.length ? `${pages.length} 页` : '未配置';
-      // 人体感应：固件在状态跳变时立即上报，这里只读展示。
+      // 人体感应：固件只在 0/1 跳变时立即上报，服务端存最近一次跳变时间。
       const pir = dev.espPresence;
       const pirTag = pir
-        ? `<span class="tag" title="最近进入 ${fmtTime(pir.lastEnterAt)} · 最近离开 ${fmtTime(pir.lastLeaveAt)}">${pir.present ? '有人' : '无人'}</span>`
+        ? `<span class="tag${pir.present ? ' pir-on' : ''}">${pir.present ? '有人' : '无人'}</span>`
         : '';
-      return `<div class="espdev-item${active}" data-id="${esc(dev.id)}"><span>${esc(dev.name || dev.id)}</span><span>${pirTag}<span class="tag">${esc(tag)}</span></span></div>`;
+      const pirLine = espPresenceLine(pir);
+      const pirTitle = pir
+        ? `最近进入 ${espClock(pir.lastEnterAt)} · 最近离开 ${espClock(pir.lastLeaveAt)} · 状态更新 ${espClock(pir.updatedAt)}`
+        : '设备未接感应或还没上报过';
+      return `<div class="espdev-item${active}" data-id="${esc(dev.id)}">`
+        + `<span class="espdev-name">${esc(dev.name || dev.id)}</span>`
+        + `<span class="espdev-tags">${pirTag}<span class="tag">${esc(tag)}</span></span>`
+        + `<span class="espdev-pir" title="${esc(pirTitle)}">${pirLine ? esc(pirLine) : '感应未上报'}</span>`
+        + '</div>';
     }).join('');
     list.querySelectorAll('.espdev-item').forEach((el) => {
       el.addEventListener('click', async () => {
@@ -94,6 +144,31 @@
       });
     });
     $('espdev-meta').textContent = `${state.espDevices.length} 台 ESP 设备`;
+    ensureEspPresencePolling();
+  }
+
+  /**
+   * 感应状态轮询：只看列表可见时跑，切到别的标签页自动空转返回。
+   * 30 秒一次——「x 分钟前」这种相对时间本来就是这个粒度，没必要更密。
+   */
+  async function refreshEspPresence() {
+    const list = $('espdev-list');
+    if (!list || !state.espDevices || list.offsetParent === null) return;
+    const data = await api('/api/admin/overview');
+    state.overview = data;
+    const machines = data.machines || [];
+    for (const dev of state.espDevices) {
+      const fresh = machines.find((item) => item.id === dev.id);
+      if (fresh) dev.espPresence = fresh.espPresence;
+    }
+    renderEspDevices();
+  }
+
+  function ensureEspPresencePolling() {
+    if (espPresenceTimer) return;
+    espPresenceTimer = setInterval(() => {
+      refreshEspPresence().catch(() => {}); // 瞬时失败不打扰，下一轮再说
+    }, 30000);
   }
 
   let espDevDraft = null;

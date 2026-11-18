@@ -289,10 +289,15 @@
     .dt-field input, .dt-field select { width: 100%; box-sizing: border-box; }
     .dt-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
     .espdev-list { display: flex; flex-direction: column; gap: 4px; max-height: 640px; overflow: auto; }
-    .espdev-item { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
+    .espdev-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
     .espdev-item:hover { background: rgba(255, 255, 255, .04); color: var(--text); }
     .espdev-item.active { background: rgba(139, 124, 246, .13); border-color: rgba(139, 124, 246, .38); color: var(--text); }
-    .espdev-item .tag { margin-left: auto; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.06); }
+    /* 名称占第一行左侧，标签靠右成组；感应时间单独占第二行整行。 */
+    .espdev-item .espdev-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .espdev-item .espdev-tags { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+    .espdev-item .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.06); }
+    .espdev-item .tag.pir-on { background: rgba(86, 214, 154, .18); color: #7fe0b0; }
+    .espdev-item .espdev-pir { flex: 0 0 100%; font-size: 11px; line-height: 1.5; color: var(--muted); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .espdev-grid { display: grid; gap: 12px; }
     .bind-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center; margin-bottom: 9px; }
     .bind-row > label { font-size: 12px; color: var(--muted); }
