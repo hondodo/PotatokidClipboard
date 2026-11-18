@@ -24,9 +24,11 @@ const execFileP = promisify(execFile);
 
 const ADMIN_USER = process.env.YUNTU_ADMIN_USER;
 const ADMIN_PASS = process.env.YUNTU_ADMIN_PASS;
+// 支持直接注入已签名的 admin cookie（免用户名密码登录）；无 cookie 时仍走原登录逻辑。
+const ADMIN_COOKIE = process.env.YUNTU_ADMIN_COOKIE || '';
 const FORCE = process.env.YUNTU_FORCE_UPDATE === '1';
-if (!ADMIN_USER || !ADMIN_PASS) {
-  console.error('需要提供环境变量 YUNTU_ADMIN_USER 和 YUNTU_ADMIN_PASS');
+if (!ADMIN_COOKIE && (!ADMIN_USER || !ADMIN_PASS)) {
+  console.error('需要提供 YUNTU_ADMIN_COOKIE，或 YUNTU_ADMIN_USER 与 YUNTU_ADMIN_PASS');
   process.exit(2);
 }
 
@@ -41,9 +43,11 @@ const BUILD = Number(process.env.YUNTU_BUILD || 10);
 const CHUNK = 8 * 1024 * 1024;
 
 // 支持发布家长端（parent flavor）与电视端（tv flavor）；按 appId 推导产物名。
-const IS_TV = APP_ID.includes('screen-tv');
+// YUNTU_FLAVOR 可显式覆盖（用于 phone 等无法从 appId 自动推导的 flavor）。
+const IS_TV = APP_ID.includes('screen-');
 const IS_BOARD = APP_ID.includes('-board');
-const FLAVOR = IS_TV ? 'tv' : IS_BOARD ? 'board' : 'parent';
+const FLAVOR = process.env.YUNTU_FLAVOR
+  || (IS_TV ? APP_ID.replace('potatokid-screen-', '') : IS_BOARD ? 'board' : 'parent');
 const APK_DIR = process.env.YUNTU_APK_DIR
   || `/home/honghao/codes/PotatokidClipboard/${IS_TV ? 'pscreen/potatokid_screen' : 'pscreen_home'}/build/app/outputs/flutter-apk`;
 // 可用 YUNTU_ABIS 只发布指定架构（逗号分隔），如 armeabi-v7a 可省掉 120MB 通用包。
@@ -80,6 +84,7 @@ async function curl(method, url, opts = {}) {
     args.push('--cookie-jar', cookieJar, '--cookie', cookieJar);
   }
   const headers = [];
+  if (ADMIN_COOKIE) headers.push(`Cookie: ${ADMIN_COOKIE}`);
   if (opts.json !== undefined) headers.push('Content-Type: application/json');
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
     headers.push('X-Admin-Request: 1');
@@ -98,9 +103,21 @@ async function curl(method, url, opts = {}) {
   }
   args.push(url);
   let stdout;
+  let lastExecErr = null;
+  // 公网直连偶发 Connection reset：对连接层失败整体重试，业务错误（有 HTTP code）不重试。
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const r = await execFileP('curl', args, { env, maxBuffer: 300 * 1024 * 1024 });
+      stdout = r.stdout;
+      lastExecErr = null;
+      break;
+    } catch (e) {
+      lastExecErr = e;
+      if (attempt < 4) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
   try {
-    const r = await execFileP('curl', args, { env, maxBuffer: 300 * 1024 * 1024 });
-    stdout = r.stdout;
+    if (lastExecErr) throw lastExecErr;
   } finally {
     if (opts._tmp) { try { fs.unlinkSync(opts._tmp); } catch (_) { /* ignore */ } }
   }
@@ -132,12 +149,16 @@ async function main() {
   console.log(`目标：yuntu ${ADMIN_BASE} / 应用 ${APP_ID} / build=${BUILD} / 强制更新=${FORCE}`);
   console.log(`cookieJar=${cookieJar}`);
 
-  // 1. 登录
-  const login = await curl('POST', `${ADMIN_BASE}/api/admin/login`, {
-    json: { username: ADMIN_USER, password: ADMIN_PASS },
-  });
-  requireOk(login, '登录');
-  console.log('✓ 登录成功');
+  // 1. 登录（注入 cookie 时跳过）
+  if (ADMIN_COOKIE) {
+    console.log('✓ 使用注入的 admin cookie（跳过登录）');
+  } else {
+    const login = await curl('POST', `${ADMIN_BASE}/api/admin/login`, {
+      json: { username: ADMIN_USER, password: ADMIN_PASS },
+    });
+    requireOk(login, '登录');
+    console.log('✓ 登录成功');
+  }
 
   // 2. 应用是否存在
   const apps = await curl('GET', `${ADMIN_BASE}/api/admin/apps`);
