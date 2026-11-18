@@ -314,6 +314,16 @@ function normalizeEspBindings(value) {
 }
 
 /**
+ * 屏幕字库只覆盖 GB2312 + ASCII：把常见的排版符号折成等价 ASCII。
+ * 例如从手机输入法打出的「温度 −」用的是 U+2212（数学减号），不在字库里会显示成空白。
+ */
+function normalizeEspOnscreenText(value) {
+    return String(value || '')
+        .replace(/[\u2212\u2010-\u2015\uff0d]/g, '-')
+        .replace(/\uff0b/g, '+');
+}
+
+/**
  * 槽位显示名：`{ "1": "蓝色按钮", "2": "红色按钮" }`。
  *
  * 槽位号是设备上的物理按键编号，后台和屏幕提示默认只显示数字；
@@ -326,7 +336,7 @@ function normalizeEspSlotNames(value) {
     for (const [rawSlot, rawName] of Object.entries(value)) {
         const slot = Number(rawSlot);
         if (!Number.isInteger(slot) || slot < 1 || slot > MAX_ESP_BUTTONS) continue;
-        const name = String(rawName == null ? '' : rawName).trim().slice(0, 16);
+        const name = normalizeEspOnscreenText(String(rawName == null ? '' : rawName).trim().slice(0, 16));
         if (name) out[String(slot)] = name;
     }
     return out;
@@ -413,7 +423,7 @@ function normalizeEspButton(raw, index, usedSlots) {
                 || String(raw.param || '').trim().slice(0, 40));
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
-    const name = String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || action;
+    const name = normalizeEspOnscreenText(String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40)) || entityId || action;
     // 名称就是屏幕上显示的文字，不再另存「短标签」：底部提示行本来就会按
     // 自己的节拍滚动，放不下时自动走马灯，不需要提前缩成两个字。
     // 旧数据里的 label 可能是被截断的短名，这里统一以完整 name 为准。
