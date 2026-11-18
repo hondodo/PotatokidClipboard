@@ -21,6 +21,12 @@
     ['press', '触发'],
   ];
 
+  // 需要参数的动作：选了它却没填参数，HA 会直接 400，所以行内补一个参数输入框。
+  const ESP_HA_PARAM_ACTIONS = new Set([
+    'set_temperature', 'set_operation_mode', 'set_hvac_mode', 'set_percentage',
+    'select_option', 'number_set', 'brightness', 'next_effect', 'next_option',
+  ]);
+
   function espUid(prefix) {
     return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   }
@@ -525,6 +531,8 @@
           paramCell = `<input data-f="param" type="number" value="${esc(button.param || '')}" min="${esc(arg.min == null ? '' : arg.min)}" max="${esc(arg.max == null ? '' : arg.max)}" placeholder="${esc(arg.label || '参数')}">`;
         }
       }
+      // 需要参数的 HA 动作（如 set_temperature）必须显式填值，否则 HA 会 400。
+      const needsHaParam = !isSys && !isRemote && ESP_HA_PARAM_ACTIONS.has(button.action);
       const slotOpts = ['<option value="0">—</option>']
         .concat(Array.from({ length: 8 }, (_, i) =>
           `<option value="${i + 1}" ${Number(button.slot) === i + 1 ? 'selected' : ''}>${i + 1}</option>`))
@@ -544,6 +552,10 @@
           </select>
           ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="本按键要控制的中控/电视"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
           <select data-f="action">${actionOpts}</select>
+          ${needsHaParam ? `<input data-f="param" class="esp-ha-param" value="${esc(button.param || '')}"
+            placeholder="参数：+0.5 / -0.5 / 制冷"
+            title="该动作必须填参数，否则 HA 会拒绝"
+            style="margin-top:6px;${button.param ? '' : 'border-color:rgba(248,113,113,.65);'}">` : ''}
         </div></td>
         <td><div class="esp-ent-cell">${isRemote ? paramCell : isSys ? '<span class="hint">无需参数</span>' : `
           <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off">

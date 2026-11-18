@@ -406,7 +406,11 @@ function normalizeEspButton(raw, index, usedSlots) {
     const action = isRemote ? remoteSpec.cmd
         : isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
     const param = isRemote ? normalizeRemoteParam(remoteSpec, raw.param)
-        : (!isSys && m && m[2] != null ? m[2].slice(0, 40) : '');
+        : isSys ? ''
+            // 优先用动作串里的 `(+0.5)`；没有括号时回落到独立 param 字段，
+            // 兼容「动作选 set_temperature、参数单独填」的配置。
+            : ((m && m[2] != null ? m[2].slice(0, 40) : '')
+                || String(raw.param || '').trim().slice(0, 40));
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
     const name = String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || entityId || action;
@@ -1282,6 +1286,10 @@ function attachAdmin(app, options = {}) {
 
         const body = { entity_id: entityId };
         const paramKey = HA_PARAM_KEYS[action];
+        // 带参动作必须有参数：缺了直接报可读错误，别把半截请求丢给 HA 换 400。
+        if (paramKey && !param) {
+            throw new Error(`「${action}」需要参数（例如 +0.5 / 制冷），请在后台该按键的「参数」里填写`);
+        }
         if (paramKey && param) {
             let value = param;
             // 相对值：+0.5 / -25 —— 读当前属性算好绝对值，服务端 clamp 交给 HA 域自身。
