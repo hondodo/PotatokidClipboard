@@ -380,6 +380,54 @@
     return extras.length ? `${text}（${extras.join(' · ')}）` : text;
   }
 
+  /** 属性候选里要跳过的元信息（对「上屏显示」没有意义）。 */
+  const HA_ATTR_SKIP = new Set([
+    'friendly_name', 'icon', 'supported_features', 'device_class',
+    'unit_of_measurement', 'editable', 'entity_id', 'attribution',
+    'restored', 'assumed_state', 'state_class', 'device_id',
+  ]);
+
+  /** 按域把最常上屏的属性排在前面（其余标量属性按名称顺序追加）。 */
+  const HA_ATTR_PRIORITY = {
+    climate: ['current_temperature', 'temperature', 'current_humidity', 'humidity', 'hvac_action', 'fan_mode', 'swing_mode'],
+    light: ['brightness', 'color_temp_kelvin', 'color_temp'],
+    cover: ['current_position', 'current_tilt_position'],
+    media_player: ['media_title', 'app_name', 'source', 'volume_level'],
+    weather: ['temperature', 'humidity', 'wind_speed', 'pressure'],
+    vacuum: ['battery_level', 'fan_speed', 'status'],
+    humidifier: ['current_humidity', 'humidity', 'mode'],
+  };
+
+  /**
+   * 实体可上屏的属性候选，供模板插入 `{entity.attr}` 用。
+   *
+   * 温度这类值在 HA 里是 climate 实体的 attributes（`temperature` 是目标温度），
+   * 不是独立实体，所以实体列表里选不到——这里把它们列出来直接点选。
+   * 只收标量属性（跳过数组/对象与元信息），空数组表示没有值得单独显示的属性。
+   *
+   * @returns {Array<{attr: string, value: string}>}
+   */
+  function haAttributeTokens(entity) {
+    const attrs = (entity && entity.attributes) || {};
+    const domain = String((entity && entity.id) || '').split('.')[0];
+    const picked = [];
+    const seen = new Set();
+    const push = (key) => {
+      if (seen.has(key)) return;
+      const raw = attrs[key];
+      if (raw == null || raw === '') return;
+      if (typeof raw === 'object') return; // 数组 / 对象不适合直接上屏
+      seen.add(key);
+      picked.push({ attr: key, value: String(raw) });
+    };
+    (HA_ATTR_PRIORITY[domain] || []).forEach(push);
+    Object.keys(attrs).sort().forEach((key) => {
+      if (HA_ATTR_SKIP.has(key)) return;
+      push(key);
+    });
+    return picked;
+  }
+
   /**
    * 实体选择弹窗：按「家庭 → 房间 → 设备」筛选 + 搜索 + 显示当前状态值。
    *
@@ -390,9 +438,11 @@
    * @param {string} options.title 弹窗标题
    * @param {string} options.value 当前 entity_id（高亮）
    * @param {boolean} options.actionableOnly 只列有可用动作的实体（按键用）
-   * @param {Function} options.onPick 选中回调 (entity)
+   * @param {boolean} options.withAttributes 选中实体后先让其挑属性，用于插入
+   *        `{entity.attr}` 令牌（温度、亮度这类属性不是独立实体，列表里选不到）
+   * @param {Function} options.onPick 选中回调 (entity)；启用了属性时可能带 entity.attr
    */
-  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick } = {}) {
+  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick, withAttributes = false } = {}) {
     const root = $('dialog-root');
     const filters = { home: '', room: '', device: '', keyword: '', onlyActionable: !!actionableOnly };
     let catalog = state.haEntities;
@@ -506,6 +556,69 @@
       });
     }
 
+    /** 选中实体：需要挑属性时先展开属性列表，否则直接回调。 */
+    function pickEntity(entity) {
+      if (withAttributes) {
+        const tokens = haAttributeTokens(entity);
+        if (tokens.length) {
+          renderAttributeChooser(entity, tokens);
+          return;
+        }
+      }
+      if (typeof onPick === 'function') onPick(entity);
+      close();
+    }
+
+    /**
+     * 属性选择：把列表换成「实体状态 + 各标量属性」，点选即插入对应令牌。
+     * 目标是 `{climate.xxx.temperature}` 这类属性令牌——属性不是实体，列表里选不到。
+     */
+    function renderAttributeChooser(entity, tokens) {
+      meta.textContent = '';
+      list.innerHTML = '';
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'btn small ent-pick-back';
+      back.textContent = '← 返回实体列表';
+      back.addEventListener('click', () => renderList());
+      list.appendChild(back);
+
+      const head = document.createElement('div');
+      head.className = 'ent-pick-attr-head';
+      head.textContent = `${entity.name || entity.id} · 选择要插入的值`;
+      list.appendChild(head);
+
+      const items = [{ attr: '', value: haStateText(entity) }].concat(tokens);
+      const frag = document.createDocumentFragment();
+      for (const item of items) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'ent-pick-row';
+        row.dataset.attr = item.attr || '';
+        const main = document.createElement('div');
+        main.className = 'ent-pick-main';
+        const name = document.createElement('span');
+        name.className = item.attr ? 'nm ent-pick-attr-name' : 'nm ent-pick-attr-state';
+        name.textContent = item.attr || '实体状态（state）';
+        const st = document.createElement('span');
+        st.className = 'st';
+        st.textContent = item.value;
+        st.title = item.value;
+        main.append(name, st);
+        const tok = document.createElement('div');
+        tok.className = 'ent-pick-id';
+        tok.textContent = item.attr ? `{${entity.id}.${item.attr}}` : `{${entity.id}}`;
+        row.append(main, tok);
+        row.addEventListener('click', () => {
+          const picked = item.attr ? Object.assign({}, entity, { attr: item.attr }) : entity;
+          if (typeof onPick === 'function') onPick(picked);
+          close();
+        });
+        frag.appendChild(row);
+      }
+      list.appendChild(frag);
+    }
+
     function renderList() {
       const rows = matched();
       const hasCatalog = !!catalog || !!(extraEntities && extraEntities.length);
@@ -549,10 +662,7 @@
         idText.textContent = entity.id;
 
         row.append(main, where, idText);
-        row.addEventListener('click', () => {
-          if (typeof onPick === 'function') onPick(entity);
-          close();
-        });
+        row.addEventListener('click', () => pickEntity(entity));
         frag.appendChild(row);
       }
       list.appendChild(frag);

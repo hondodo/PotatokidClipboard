@@ -615,6 +615,14 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 10.5px; color: var(--muted-2); word-break: break-all;
     }
+    /* 属性选择：从实体列表二级展开，用于插入 {entity.attr} 令牌 */
+    .ent-pick-back { margin: 8px 10px; }
+    .ent-pick-attr-head {
+      padding: 4px 10px 8px; font-size: 11.5px; color: var(--muted);
+      border-bottom: 1px solid rgba(34, 48, 63, .5);
+    }
+    .ent-pick-attr-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 500; }
+    .ent-pick-attr-state { color: var(--muted-2); }
     .ent-pick-empty { padding: 26px 12px; text-align: center; color: var(--muted); font-size: 12px; }
     .ent-pick-tip { margin-right: auto; font-size: 11px; color: var(--muted); }
     .ent-pick-tip code { color: var(--accent); font-size: 11px; }

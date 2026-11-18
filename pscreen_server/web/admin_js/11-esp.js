@@ -692,8 +692,11 @@
           title: which === 'main' ? '插入实体到主状态模板' : '插入实体到副状态模板',
           quickTokens: espRemoteQuickTokens(page),
           extraEntities: espRemoteStatusEntities(),
+          // 温度、亮度这类值在 HA 里是实体的属性而不是独立实体，列表里选不到，
+          // 所以这里允许选中实体后再挑一个属性，插入 `{domain.entity.attr}`。
+          withAttributes: true,
           onPick: (entity) => {
-            const token = `{${entity.id}}`;
+            const token = entity.attr ? `{${entity.id}.${entity.attr}}` : `{${entity.id}}`;
             const start = input.selectionStart == null ? input.value.length : input.selectionStart;
             const end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
             input.value = input.value.slice(0, start) + token + input.value.slice(end);
