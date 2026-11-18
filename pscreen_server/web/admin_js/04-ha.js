@@ -689,7 +689,7 @@
       const hasCatalog = !!catalog || !!(extraEntities && extraEntities.length);
       meta.textContent = hasCatalog
         ? `${rows.length} 个实体${filters.onlyActionable ? '（可控制）' : ''}${rows.length > 300 ? '，仅显示前 300 条' : ''}`
-          + (withAttributes ? '。可搜属性名（如 temperature），点绿色标签直接插入该属性' : '')
+          + (withAttributes ? '。绿色标签是该实体可上屏的属性（如目标温度），点一下即插入' : '')
         : '实体目录未加载';
       list.innerHTML = '';
       if (!hasCatalog) {
@@ -727,16 +727,23 @@
         idText.className = 'ent-pick-id';
         idText.textContent = entity.id;
 
-        // 搜到属性名/属性值时（例如搜 temperature 想找 27.0），把命中的属性直接摆出来，
-        // 点一下插入 `{entity.attr}`——省掉「先点实体、再点属性」两步。
-        const needle = filters.keyword.trim().toLowerCase();
+        // 属性常驻展示：温度、亮度这类值不是独立实体，只看实体名根本发现不了。
+        // 有关键词时优先摆命中的属性；没命中（例如直接搜实体 id）也要给出默认几个，
+        // 否则用户只能手动拼 {domain.entity.attr}。
         let attrRow = null;
-        if (withAttributes && needle) {
-          const hits = haAttributeHits(entity, needle, 4);
-          if (hits.length) {
+        if (withAttributes) {
+          const needle = filters.keyword.trim().toLowerCase();
+          let tokens = needle ? haAttributeHits(entity, needle, 4) : [];
+          if (tokens.length < 4) {
+            const rest = haAttributeTokens(entity)
+              .filter((token) => !tokens.some((hit) => hit.attr === token.attr))
+              .slice(0, 4 - tokens.length);
+            tokens = tokens.concat(rest);
+          }
+          if (tokens.length) {
             attrRow = document.createElement('div');
             attrRow.className = 'ent-pick-attrs';
-            for (const hit of hits) {
+            for (const hit of tokens) {
               const chip = document.createElement('span');
               chip.className = 'ent-pick-attr-chip';
               chip.dataset.attr = hit.attr;
