@@ -240,7 +240,25 @@
     return map.size && map.has(raw) ? map.get(raw) : raw;
   }
 
-  /** 渲染 `{main}/{s1}/{s2}/{title}/{domain.entity}` 模板（与服务端同构）。 */
+  /**
+   * 抽出模板里的实体令牌，支持可选第三段属性：
+   * `{climate.bed}` → baseId=climate.bed, attr=state
+   * `{climate.bed.temperature}` → baseId=climate.bed, attr=temperature
+   * key 是 ctx.entities 的查找键（与 {token} 原文一致）。
+   * 与服务端 admin.js 的 parseEspTemplateTokens 同构。
+   */
+  function espTemplateTokens(text) {
+    const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)(?:\.([a-z0-9_]+))?\}/gi;
+    const out = [];
+    let m;
+    while ((m = re.exec(String(text || '')))) {
+      const attr = m[2] || 'state';
+      out.push({ baseId: m[1], attr, key: attr === 'state' ? m[1] : `${m[1]}.${attr}` });
+    }
+    return out;
+  }
+
+  /** 渲染 `{main}/{s1}/{s2}/{title}/{domain.entity[.attr]}` 模板（与服务端同构）。 */
   function espRenderTemplate(tpl, ctx) {
     return String(tpl || '')
       .replace(/\{([^{}]+)\}/g, (all, rawKey) => {
@@ -298,12 +316,10 @@
       else if (!rm[3]) ctx.entities[rm[1]] = dev ? (dev.state || '') : '';
       else ctx.entities[rm[1]] = '';
     }
-    // 其余 HA 实体（排除已被上面处理的 remote.*）照旧取 state。
-    const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
-    let m;
-    while ((m = re.exec(tplAll))) {
-      if (m[1].startsWith('remote.')) continue;
-      ctx.entities[m[1]] = espEntityValue(index, map, entityMaps, m[1], 'state');
+    // 其余 HA 实体（排除已被上面处理的 remote.*），支持可选第三段属性。
+    for (const token of espTemplateTokens(tplAll)) {
+      if (token.baseId.startsWith('remote.')) continue;
+      ctx.entities[token.key] = espEntityValue(index, map, entityMaps, token.baseId, token.attr);
     }
 
     const mainTxt = page.tplMain

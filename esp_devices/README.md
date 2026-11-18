@@ -186,6 +186,25 @@ cp firmware/potatokid_esp/secrets.h.example firmware/potatokid_esp/secrets.h
 > 动作与 HA 服务的对应：`toggle → <domain>.toggle`、`turn_on → <domain>.turn_on`、`turn_off → <domain>.turn_off`、
 > `run → <domain>.turn_on`（用于 script / scene）。窗帘这类需要 `open_cover/close_cover` 的实体，建议在 HA 里建 script 后用「执行」。
 
+### 显示模板占位符
+
+「ESP 设备分类 → 页面 → 主状态/副状态模板」里可写以下令牌，前端预览与服务端下发用同一套解析：
+
+| 令牌 | 取值 |
+|---|---|
+| `{main}` / `{s1}` / `{s2}` | 三个绑定实体（按设备类型字典的属性） |
+| `{title}` / `{名称}` | 页面名 |
+| `{domain.entity_id}` | 该实体的 state，如 `{switch.bedroom}` |
+| `{domain.entity_id.attr}` | 该实体的指定属性，缺失时回落 state，如 `{climate.bed.temperature}` |
+
+属性段让 128×64 屏能同时显示当前值与目标值，例如空调：
+
+```
+{climate.xiaomi_cn_735376016_m9} 当前{climate.xiaomi_cn_735376016_m9.current_temperature}° 目标{climate.xiaomi_cn_735376016_m9.temperature}°
+```
+
+超宽由固件按各行节拍走马灯滚动；预览只显示首屏。遥控设备的三段令牌 `{remote.<设备id>.<字段>}` 仍走本地实时状态，不查 HA。
+
 ## 9. 控制真实设备（继电器）
 
 GPIO 只有 3.3V / 几 mA，只能给信号，不能直接带负载。常规做法：

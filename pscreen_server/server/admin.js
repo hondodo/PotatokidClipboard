@@ -3567,8 +3567,25 @@ function attachAdmin(app, options = {}) {
         return text.replace(/--/g, '').replace(/·/g, '').trim() ? text : '';
     }
 
-    // 自定义模板里可直接写实体 id：`卧室灯{switch.bedroom_light}`。
-    const ESP_TPL_ENTITY_RE = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
+    // 自定义模板里可直接写实体 id 或属性：
+    // `卧室灯{switch.bedroom_light}`、`当前{climate.bed.current_temperature}`。
+    const ESP_TPL_TOKEN_RE = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)(?:\.([a-z0-9_]+))?\}/gi;
+
+    /**
+     * 抽出模板里的实体令牌（含可选第三段属性），供取状态与渲染共用。
+     * key 与 `{token}` 原文一致，renderEspTemplate 直接查 ctx.entities[key]。
+     * 与前端 11-esp.js 的 espTemplateTokens 同构。
+     */
+    function parseEspTemplateTokens(text) {
+        const out = [];
+        ESP_TPL_TOKEN_RE.lastIndex = 0;
+        let m;
+        while ((m = ESP_TPL_TOKEN_RE.exec(String(text || '')))) {
+            const attr = m[2] || 'state';
+            out.push({ baseId: m[1], attr, key: attr === 'state' ? m[1] : `${m[1]}.${attr}` });
+        }
+        return out;
+    }
 
     /** 值替换：`on=开启, off=关闭`（逗号 / 分号 / 换行分隔）。 */
     function parseEspValueMap(text) {
@@ -3631,6 +3648,8 @@ function attachAdmin(app, options = {}) {
      * - `{main}` / `{s1}` / `{s2}`：三个绑定实体的值；
      * - `{title}` / `{名称}`：页面名；
      * - `{domain.entity_id}`：任意实体当前 state（可放多个）。
+     * - `{domain.entity_id.attr}`：该实体的指定属性（如 temperature/current_temperature），
+     *   属性缺失时回落 state；同名属性不存在时不影响其它占位符。
      * 缺值替换为空串，不留下 `--`。
      */
     function renderEspTemplate(tpl, ctx) {
@@ -3671,12 +3690,9 @@ function attachAdmin(app, options = {}) {
             const bindings = pageObj.bindings || {};
             const tplMain = pageObj.tplMain || '';
             const tplSub = pageObj.tplSub || '';
-            // 模板里可直接写 {switch.xxx}，这些实体也要一起取状态。
-            const tplEntityIds = [];
-            const tplAll = `${tplMain} ${tplSub}`;
-            ESP_TPL_ENTITY_RE.lastIndex = 0;
-            let tplMatch;
-            while ((tplMatch = ESP_TPL_ENTITY_RE.exec(tplAll))) tplEntityIds.push(tplMatch[1]);
+            // 模板里可直接写 {switch.xxx} / {climate.xxx.temperature}，这些实体也要一起取状态。
+            const tplTokens = parseEspTemplateTokens(tplAll);
+            const tplEntityIds = tplTokens.map((token) => token.baseId);
             // 三段式遥控标签 `{remote.xxx.channel}`：把基础实体 id 也纳入取状态，
             // 但主正则只匹配两段，这里单独收集（去重在下面统一做）。
             REMOTE_TPL_TOKEN_RE.lastIndex = 0;
@@ -3705,17 +3721,23 @@ function attachAdmin(app, options = {}) {
                     try {
                         const rawStates = await haCatalogService.getStates(haIds);
                         // 值替换（全局 + 按实体）对字典与自定义模板同时生效。
-                        const states = mapEspStates(
-                            rawStates,
-                            parseEspValueMap(pageObj.valueMap),
-                            parseEspEntityValueMap(pageObj.entityValueMap),
-                        );
+                        const globalMap = parseEspValueMap(pageObj.valueMap);
+                        const entityMap = parseEspEntityValueMap(pageObj.entityValueMap);
+                        const states = mapEspStates(rawStates, globalMap, entityMap);
                         ctx.main = espStateValue(states[bindings.main], dict.mainAttr);
                         ctx.s1 = espStateValue(states[bindings.s1], 'state');
                         ctx.s2 = espStateValue(states[bindings.s2], 'state');
-                        for (const entityId of tplEntityIds) {
-                            if (remoteIds.includes(entityId)) continue;
-                            ctx.entities[entityId] = espStateValue(states[entityId], 'state');
+                        for (const token of tplTokens) {
+                            if (remoteIds.includes(token.baseId) || token.baseId.startsWith('remote.')) continue;
+                            let value = espStateValue(states[token.baseId], token.attr);
+                            // 属性也走值替换，与前端 espEntityValue 同构；
+                            // state 已在 mapEspStates 里翻译过，避免二次替换。
+                            if (token.attr !== 'state') {
+                                const own = entityMap.get(token.baseId);
+                                if (own && own.has(value)) value = own.get(value);
+                                else if (globalMap.has(value)) value = globalMap.get(value);
+                            }
+                            ctx.entities[token.key] = value;
                         }
                         const resolved = deviceTypes.resolveDisplay({
                             deviceType: pageObj.deviceType || '',
