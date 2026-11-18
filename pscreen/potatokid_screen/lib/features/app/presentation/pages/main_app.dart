@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:potatokid_screen/core/di/injection.dart';
+import 'package:potatokid_screen/core/router/app_router.dart';
+import 'package:potatokid_screen/core/router/route_names.dart';
 import 'package:potatokid_screen/features/app/application/app_tab_controller.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_bloc.dart';
 import 'package:potatokid_screen/features/app/application/bloc/app_event.dart';
@@ -19,6 +22,7 @@ import 'package:potatokid_screen/features/parental/presentation/widgets/parental
 import 'package:potatokid_screen/features/parental/presentation/widgets/parental_select_overlay.dart';
 import 'package:potatokid_screen/features/profile/application/profile_focus_controller.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_page.dart';
+import 'package:potatokid_screen/features/recording/presentation/pages/recording_sheet_page.dart';
 import 'package:potatokid_screen/features/profile/presentation/pages/profile_readonly_page.dart';
 import 'package:potatokid_screen/features/update/presentation/update_pill.dart';
 import 'package:pscreen_screen/features/time/application/time_style_controller.dart';
@@ -69,6 +73,53 @@ class MainApp extends StatelessWidget {
     );
   }
 
+  /// 覆盖路由遥控的**唯一集中入口**：按当前路由判断一次，转发到页面原子操作。
+  ///
+  /// 设计约束（用户明确）：遥控逻辑不散落到各页面 / 独立 controller / 路由包装，
+  /// 全部集中在这里的 if 分支。新增覆盖页只加一个分支。
+  /// 返回键不放这里——它与系统返回共用 [_handleBack]，在那里按路由 pop。
+  bool _handleOverlayRoute(BuildContext context, LogicalKeyboardKey key) {
+    final AppRouter router = Injection.get<AppRouter>();
+
+    // 录制中心页：当前最上层路由为 /recording 且页面已注册桥接。
+    if (RecordingSheetPage.isActive &&
+        router.isCurrentRouteName(RouteNames.recordingSheet)) {
+      // 返回键交给统一的返回链：_handleBack 里按路由 pop 掉本页。
+      if (key == LogicalKeyboardKey.escape ||
+          key == LogicalKeyboardKey.goBack) {
+        return _handleBack(context);
+      }
+      final bool ok =
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.gameButtonA;
+      if (ok) {
+        RecordingSheetPage.onActivate?.call();
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowUp ||
+          key == LogicalKeyboardKey.arrowDown) {
+        RecordingSheetPage.onMoveFocus?.call(
+          key == LogicalKeyboardKey.arrowUp ? -1 : 1,
+        );
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight) {
+        RecordingSheetPage.onStepValue?.call(
+          key == LogicalKeyboardKey.arrowLeft ? -1 : 1,
+        );
+        return true;
+      }
+      // 菜单键等其余键吞掉，不穿透到底层直播页。
+      return true;
+    }
+
+    return false;
+  }
+
   /// 返回键分层处理：返回 true 表示已消费（不再弹退出确认）。
   ///
   /// 顺序与根处理器一致：确认弹窗/消息浮层/选人页/锁屏 → 行内编辑 →
@@ -100,6 +151,21 @@ class MainApp extends StatelessWidget {
     final int now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastHomeBackAt < _sameBackWindowMs) return true;
     _lastHomeBackAt = now;
+
+    // 覆盖路由（录制中心 / 回放页等）：返回键 pop 掉最上层覆盖页，
+    // 不走底层分支返回链。统一按「当前路由」判断，逐层返回：
+    // 回放页 → 录制中心 → 直播。与页面返回按钮直接 pop 行为一致。
+    final AppRouter overlayRouter = Injection.get<AppRouter>();
+    final bool onRecording =
+        RecordingSheetPage.isActive &&
+        overlayRouter.isCurrentRouteName(RouteNames.recordingSheet);
+    final bool onPlayback =
+        overlayRouter.isCurrentRouteName(RouteNames.recordingPlayback);
+    if (onRecording || onPlayback) {
+      // 回放页的方向键/OK 仍交给它自己的播放器控件；这里只处理返回。
+      if (overlayRouter.canPop()) overlayRouter.pop();
+      return true;
+    }
 
     // 系统返回可能不产生键盘事件，不能只依赖 Mask 的 Focus.onKeyEvent。
     // 胶囊页是返回链的最后一站：关闭 Mask（直播页连同频道面板）回到全屏，
@@ -306,6 +372,12 @@ class MainApp extends StatelessWidget {
       }
       return true; // 吞掉其余按键
     }
+
+    // ── 覆盖路由的集中遥控分发（唯一入口）─────────────────────────
+    // 录制中心等以 push 叠在导航壳之上的页面：在这里按「当前路由」判断一次，
+    // 再转发给页面暴露的原子操作。页面自身不写任何按键判断。
+    // 新增覆盖页只需在此加一个分支，不必改根处理器多处、也不用独立 controller。
+    if (_handleOverlayRoute(context, key)) return true;
 
     final AppState state = context.read<AppBloc>().state;
     final int cur = navigationShell.currentIndex;

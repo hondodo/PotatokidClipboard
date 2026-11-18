@@ -27,12 +27,17 @@ class LocalFileSink implements RecordingSink {
   RandomAccessFile? _raf;
 
   Future<void> open() async {
-    _raf ??= file.openSync(mode: FileMode.append);
+    // 异步打开：避免录制启动时占用 UI isolate。
+    _raf ??= await file.open(mode: FileMode.append);
   }
 
   @override
   Future<void> append(List<int> bytes) async {
-    _raf?.writeFromSync(bytes);
+    // 异步写盘：同步 writeFromSync 会在慢盘 / U 盘场景阻塞 Dart UI 线程，
+    // 与播放器缓冲争抢同一条主线程，是录制期间播放卡顿的可疑来源之一。
+    final RandomAccessFile? raf = _raf;
+    if (raf == null) return;
+    await raf.writeFrom(bytes);
   }
 
   @override

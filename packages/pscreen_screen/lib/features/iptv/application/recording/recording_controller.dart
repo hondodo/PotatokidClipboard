@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -134,7 +135,9 @@ class RecordingController {
     this.retryDelay = const Duration(milliseconds: 300),
     int? maxFileBytes,
     this.lowSpaceBytes = 512 * 1024 * 1024, // 512MB 低空间阈值
-  })  : _defaultDio = dio ??
+    int? maxSegmentsPerPoll,
+  })  : maxSegmentsPerPoll = maxSegmentsPerPoll ?? 2,
+        _defaultDio = dio ??
             Dio(
               BaseOptions(
                 connectTimeout: const Duration(seconds: 15),
@@ -175,6 +178,27 @@ class RecordingController {
 
   /// 低空间阈值；可用空间低于此值时停止并保存（<=0 或探测失败时跳过）。
   final int lowSpaceBytes;
+
+  /// 单次 poll 最多下载的分片数。
+  ///
+  /// 直播录制落后时若一口气补齐整窗，会瞬间占用大量带宽与播放器抢流，
+  /// 反而把播放拖进 buffer stall。限制每次最多拿 2 片，跳过过旧内容，
+  /// 优先跟上直播边缘；落后多时录制会丢少量中间片段，但播放稳定。
+  final int maxSegmentsPerPoll;
+
+  /// 诊断日志回调（可选）：宿主接到自己的 LogService，日志格式与播放日志一致。
+  /// 未设置时回落到 dart:developer.log（name='Recording'）。
+  void Function(String message)? onDiagnostic;
+
+  void _diag(String message) {
+    final String line = '[Recording] $message';
+    final void Function(String message)? sink = onDiagnostic;
+    if (sink != null) {
+      sink(line);
+      return;
+    }
+    developer.log(line, name: 'Recording');
+  }
 
   final ValueNotifier<RecordingState> state = ValueNotifier<RecordingState>(const RecordingState());
 
@@ -298,6 +322,7 @@ class RecordingController {
 
     // 从最后一个分片开始（"正在观看"从此刻起），不回录已有内容。
     final Uri last = playlist.segments.last;
+    final Stopwatch firstSw = Stopwatch()..start();
     final List<int>? firstBytes = await _downloadSegment(last);
     if (firstBytes == null) {
       // 首个分片都拉不到 → 视为失败，保留空文件由调用方决定清理。
@@ -305,7 +330,9 @@ class RecordingController {
       return false;
     }
     await _appendBytes(firstBytes);
+    firstSw.stop();
     _lastSegmentUrl = last.toString();
+    _diag('首分片 ${firstBytes.length}B，下载+写入 ${firstSw.elapsedMilliseconds}ms');
 
     final int intervalSeconds = playlist.targetDuration > 0 ? playlist.targetDuration : 4;
     _pollTimer = Timer.periodic(Duration(seconds: intervalSeconds), (_) => unawaited(_poll()));
@@ -351,6 +378,14 @@ class RecordingController {
     }
   }
 
+  /// 桌面端（Windows/Linux/macOS）窗口失焦 / 最小化只是 lifecycle 的
+  /// inactive/hidden，并非真后台，录制应继续跑完；移动端（Android/iOS）
+  /// 退后台会被系统冻结网络与文件写入，必须停录保存。
+  static bool get keepRecordingInBackground =>
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+
   /// 退出 / 离页：静默停止并保存，不弹提示。
   Future<void> stopOnExit() => stop(silent: true);
 
@@ -364,6 +399,7 @@ class RecordingController {
   Future<void> _poll() async {
     if (!isRecording || _mediaPlaylistUrl == null) return;
     HlsPlaylist playlist;
+    final Stopwatch playlistSw = Stopwatch()..start();
     try {
       final String text = await _fetchPlaylistText(_mediaPlaylistUrl!);
       playlist = parsePlaylist(text, _mediaPlaylistUrl!);
@@ -371,23 +407,49 @@ class RecordingController {
       _recordFailure();
       return;
     }
+    playlistSw.stop();
     if (playlist.segments.isEmpty) return;
 
     // 以「上次下载的分片 URL」为锚点：找到它在最新窗口的位置，下载其后的新分片。
-    // 找不到（窗口已滑走）则下载整窗，宁可少量重复也不漏直播内容。
+    // 找不到（窗口已滑走）则从头算，随后由 maxSegmentsPerPoll 限制补下载量，
+    // 避免落后时一次性补整窗、瞬间抢走播放器带宽（正反馈式卡顿）。
     int start = 0;
     if (_lastSegmentUrl != null) {
       final int idx = playlist.segments.indexWhere((Uri u) => u.toString() == _lastSegmentUrl);
       if (idx >= 0) start = idx + 1;
     }
+    final int pendingAll = playlist.segments.length - start;
+    if (pendingAll <= 0) {
+      _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 无新片 '
+          'window=${playlist.segments.length}');
+      _tick();
+      return;
+    }
+    if (pendingAll > maxSegmentsPerPoll) {
+      final int skipped = pendingAll - maxSegmentsPerPoll;
+      start = playlist.segments.length - maxSegmentsPerPoll;
+      _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 落后 $pendingAll 片，'
+          '跳过 $skipped 片旧片，仅取最新 $maxSegmentsPerPoll 片');
+    } else {
+      _diag('poll playlist=${playlistSw.elapsedMilliseconds}ms 新片 $pendingAll 片 '
+          'window=${playlist.segments.length}');
+    }
+
     try {
       for (int i = start; i < playlist.segments.length; i++) {
         if (!isRecording) return;
         final Uri segment = playlist.segments[i];
+        final Stopwatch fetchSw = Stopwatch()..start();
         final List<int>? bytes = await _downloadSegment(segment);
+        fetchSw.stop();
         if (bytes == null) return; // 已按连续失败计数处理
+        final Stopwatch writeSw = Stopwatch()..start();
         await _appendBytes(bytes);
+        writeSw.stop();
         _lastSegmentUrl = segment.toString();
+        _diag('分片 ${i - start + 1}/${playlist.segments.length - start} '
+            '${bytes.length}B 下载=${fetchSw.elapsedMilliseconds}ms '
+            '写入=${writeSw.elapsedMilliseconds}ms 累计=$_bytes');
         if (_bytes >= maxFileBytes) {
           await stop(); // 到软上限，保存
           return;

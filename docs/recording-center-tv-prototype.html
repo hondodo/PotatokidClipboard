@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>录制中心 · TV 风格设计稿（普通 / 儿童双配色）</title>
+<style>
+  /* ============ 设计稿控制区（固定深色，不随页面主题切换） ============ */
+  :root{
+    --tb-bg:#1a1c22; --tb-line:#333744; --tb-text:#edeef2; --tb-2:#a9aeba;
+    --tb-blue:#2f6bff; --tb-surface:#22252d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#08090c;color:var(--tb-text);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    padding:20px;display:flex;flex-direction:column;align-items:center;gap:16px;
+  }
+  .toolbar{
+    width:100%;max-width:1180px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--tb-bg);border:1px solid var(--tb-line);border-radius:14px;padding:12px 18px;
+  }
+  .toolbar h1{font-size:15px;font-weight:500;margin-right:6px}
+  .toolbar .sep{width:1px;height:24px;background:var(--tb-line);margin:0 4px}
+  .toolbar button{
+    background:var(--tb-surface);color:var(--tb-text);border:1px solid var(--tb-line);
+    border-radius:999px;padding:7px 16px;font-size:13px;cursor:pointer;
+  }
+  .toolbar button.on{background:var(--tb-blue);border-color:var(--tb-blue);color:#fff}
+  .toolbar .tag{font-size:12px;color:var(--tb-2)}
+  .toolbar .hint{font-size:12px;color:var(--tb-2);margin-left:auto}
+
+  /* ============ 舞台：两套配色变量 ============ */
+  .stage{
+    width:1180px;height:664px;border-radius:18px;overflow:hidden;position:relative;
+    box-shadow:0 0 0 1px #2a2d36,0 24px 60px rgba(0,0,0,.6);
+
+    /* 普通（成人）模式：成人外壳配色
+       面板 #263247 / #1E2A3C，品牌蓝 #2F6BFF，选中橙 #FFB066，绿 #16865A */
+    --page-bg:linear-gradient(160deg,#111722 0%,#161d2b 55%,#121722 100%);
+    --surface:#263247; --surface-2:#1e2a3c; --line:#3a4a63;
+    --text:#eef1f6; --text-2:#a9b4c6;
+    --primary:#8fb4ff;          /* 常规强调（值 / 步进） */
+    --accent:#ffb066;           /* 选中行橙 */
+    --accent-ink:#1e2a3c;
+    --btn:#2f6bff;              /* 关闭胶囊：品牌蓝 */
+    --btn-ink:#ffffff;
+    --focus-line:#8fb4ff;       /* 焦点框：蓝 */
+    --focus-bg:rgba(100,150,255,.16);
+    --focus-glow:0 0 26px rgba(100,150,255,.30);
+    --remote-bg:rgba(38,50,71,.94); --remote-key:#2c3a52; --remote-ink:#d6dded;
+  }
+  /* 儿童模式：KidPalette
+     深蓝三段渐变 + 暖黄 #FFD166 强调 + 白描边焦点 + 白三级文字 */
+  .stage.kid{
+    --page-bg:linear-gradient(135deg,#234e70 0%,#1b425b 55%,#16324a 100%);
+    --surface:#28566b; --surface-2:#1c465b; --line:rgba(255,255,255,.24);
+    --text:#ffffff; --text-2:#9ccbff;
+    --primary:#ffd166;          /* 暖黄强调 */
+    --accent:#ffd166;           /* 选中行暖黄 */
+    --accent-ink:#17384b;
+    --btn:#ffd166;              /* 关闭胶囊：暖黄 */
+    --btn-ink:#17384b;
+    --focus-line:#ffffff;       /* 焦点框：白描边（KidActionButton / KidOutlineButton 同款） */
+    --focus-bg:rgba(255,209,102,.20);
+    --focus-glow:0 0 26px rgba(255,209,102,.55);
+    --remote-bg:rgba(28,70,91,.94); --remote-key:#28566b; --remote-ink:#eaf3ff;
+  }
+  .screen{position:absolute;inset:0}
+
+  /* ============ 全屏页面：与「设置」页同一套版式 ============ */
+  .page{padding:44px 56px;height:100%;overflow:hidden;background:var(--page-bg);transition:background .25s}
+  .topbar{display:flex;align-items:center;gap:20px;margin-bottom:26px}
+  .back{
+    width:52px;height:52px;border-radius:999px;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;border:1px solid var(--line);
+    font-size:26px;color:var(--text);
+  }
+  .topbar h2{font-size:36px;font-weight:600;letter-spacing:.5px;color:var(--text)}
+  .close{
+    margin-left:auto;padding:12px 30px;border-radius:999px;background:var(--btn);
+    color:var(--btn-ink);font-size:20px;font-weight:600;
+  }
+  .close.focus{box-shadow:0 0 0 3px #fff,var(--focus-glow)}
+
+  .group-title{
+    font-size:20px;color:var(--primary);margin:22px 4px 12px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .group-title::before{content:"";width:5px;height:18px;background:var(--primary);border-radius:3px}
+
+  .row{
+    display:flex;align-items:center;gap:20px;padding:17px 22px;border-radius:14px;
+    background:var(--surface);border:2px solid transparent;margin-bottom:11px;min-height:70px;
+  }
+  .row .label{font-size:25px;color:var(--text)}
+  .row .sub{font-size:17px;color:var(--text-2);margin-top:3px}
+  .row .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+  .row .value{font-size:25px;font-weight:600;color:var(--primary)}
+  .row .value.muted{color:var(--text-2);font-weight:400;font-size:20px}
+  .step{
+    width:42px;height:42px;border-radius:50%;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--primary);
+    border:1px solid var(--line);
+  }
+  .step.inactive{opacity:.4}
+  .icobtn{
+    width:44px;height:44px;border-radius:50%;background:var(--surface-2);
+    display:flex;align-items:center;justify-content:center;border:1px solid var(--line);font-size:20px;color:var(--text);
+  }
+  .pill-action{
+    padding:9px 22px;border-radius:999px;background:var(--surface-2);
+    border:1px solid var(--line);font-size:19px;color:var(--primary);
+  }
+  .pill-action.danger{color:#ff7a7a}
+  .row.focus{
+    border-color:var(--focus-line);background:var(--focus-bg);box-shadow:var(--focus-glow);
+  }
+  .row.focus .label,.row.focus .value{color:var(--text)}
+  .row.focus .step,.row.focus .pill-action{color:var(--text)}
+
+  .file{display:flex;align-items:center;gap:16px}
+  .file .fname{font-size:23px;color:var(--text);max-width:430px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .file .fsize{font-size:17px;color:var(--text-2)}
+
+  /* 悬浮遥控器：跟随页面配色 */
+  .fremote{
+    position:absolute;left:26px;top:26px;width:150px;padding:12px;border-radius:16px;
+    background:var(--remote-bg);border:1px solid var(--line);display:grid;
+    grid-template-columns:repeat(3,1fr);gap:6px;z-index:5;
+  }
+  .fremote div{
+    height:38px;display:flex;align-items:center;justify-content:center;
+    background:var(--remote-key);border-radius:9px;font-size:15px;color:var(--remote-ink);
+  }
+  .fremote .ok{background:var(--btn);color:var(--btn-ink);font-weight:600}
+  .fremote .sp{background:transparent}
+  .fremote .lbl{grid-column:span 3;height:22px;font-size:12px;color:var(--text-2);background:transparent}
+
+  .note{
+    max-width:1180px;width:100%;background:var(--tb-bg);border:1px solid var(--tb-line);
+    border-radius:14px;padding:14px 20px;font-size:13px;color:var(--tb-2);line-height:1.85;
+  }
+  .note b{color:var(--tb-text);font-weight:600}
+  .note .k{color:#8fb4ff}
+  .note .y{color:#ffd166}
+  .pal{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;margin:0 2px}
+  .pal.a{background:#2f6bff;color:#fff}.pal.k{background:#ffd166;color:#17384b}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>录制中心 · TV 风格设计稿</h1>
+  <div class="sep"></div>
+  <span class="tag">配色模式</span>
+  <button id="btnAdult" class="on" onclick="setMode('adult')">普通（成人）</button>
+  <button id="btnKid" onclick="setMode('kid')">儿童</button>
+  <div class="sep"></div>
+  <button id="btnSettings" class="on" onclick="show('settings')">录制设置</button>
+  <button id="btnFiles" onclick="show('files')">录制文件</button>
+  <div class="sep"></div>
+  <span class="tag">焦点位置</span>
+  <button class="focusbtn on" onclick="setFocus(0,this)">行 1</button>
+  <button class="focusbtn" onclick="setFocus(1,this)">行 2</button>
+  <button class="focusbtn" onclick="setFocus(2,this)">行 3</button>
+  <span class="hint">先切配色对比，再切页面 / 焦点 · 高亮行 = 当前遥控焦点</span>
+</div>
+
+<div class="stage" id="stage">
+  <div class="screen" id="screen"></div>
+  <div class="fremote">
+    <div class="lbl">悬浮遥控器（保留）</div>
+    <div class="sp"></div><div>▲</div><div class="sp"></div>
+    <div>◀</div><div class="ok">OK</div><div>▶</div>
+    <div class="sp"></div><div>▼</div><div class="sp"></div>
+    <div style="font-size:13px">菜单</div><div style="font-size:13px">返回</div>
+  </div>
+</div>
+
+<div class="note">
+  <b>版式（对齐「设置」页 / 胶囊页的 TV 语言）</b><br>
+  <span class="k">①</span> 取消底部小 sheet 与 TabBar → <b>全屏页面</b>，与「我的 → 设置」页同构。<br>
+  <span class="k">②</span> 单列两组 { 录制设置 }{ 录制文件 }，不是两个 Tab。<br>
+  <span class="k">③</span> 每行沿用设置页 <b>_SettingRow</b>：左大字号标签 + 右值 + ‹ › 步进；聚焦行随配色换框/底/光晕。<br>
+  <span class="k">④</span> 关闭按钮为胶囊页同款<b>胶囊 + 聚焦白光晕</b>，不再是右上角小文字。<br>
+  <b>双配色（全项目只有一个判定式 <code>kidModeOn</code>）</b><br>
+  <span class="y">⑤</span> <span class="pal a">普通</span> 深蓝面板 <code>#263247</code> + 品牌蓝 <code>#2F6BFF</code> 胶囊 + 橙色选中 <code>#FFB066</code>，焦点=<b>蓝框+蓝底</b>。<br>
+  <span class="y">⑥</span> <span class="pal k">儿童</span> <code>KidPalette</code> 深蓝三段渐变 + 暖黄 <code>#FFD166</code> 强调，焦点=<b>白描边+暖黄底光晕</b>（与 KidActionButton 一致）。<br>
+  <span class="k">⑦</span> 实现时这一页只读 <code>kidModeOn</code> 选 Palette，配色差异集中在一处，不散落。
+</div>
+
+<script>
+const ROWS = {
+  settings: [
+    {label:'存储位置', sub:'选择录制文件保存目录', right:'<span class="value">应用内部存储</span><span class="pill-action">选择目录</span>'},
+    {label:'使用应用内部存储', right:'<span class="step inactive">‹</span><span class="value">恢复默认</span><span class="step">›</span>'},
+    {label:'可用空间', right:'<span class="value muted">无法获取（设备可能不支持）</span><span class="icobtn">⟳</span>'},
+    {label:'单文件上限', right:'<span class="step">‹</span><span class="value">2048 MB</span><span class="step">›</span>'},
+    {label:'低空间提醒阈值', right:'<span class="step">‹</span><span class="value">512 MB</span><span class="step">›</span>'},
+  ],
+  files: [
+    {file:{name:'广东新闻联播_20261118.ts', size:'1.2 GB'}},
+    {file:{name:'体育赛事直播_20261117.ts', size:'864 MB'}},
+    {file:{name:'纪录片_城市之间_20261116.ts', size:'1.9 GB'}},
+  ]
+};
+let curView='settings', curFocus=0;
+function header(){
+  return `<div class="topbar"><div class="back">←</div><h2>录制中心</h2><div class="close ${curFocus===-1?'focus':''}">关闭</div></div>`;
+}
+function render(){
+  let html = header();
+  const rows = ROWS[curView];
+  if(curView==='settings') html += `<div class="group-title">录制设置</div>`;
+  else html += `<div class="group-title">录制文件 · 共 ${rows.length} 个</div>`;
+  rows.forEach((r,i)=>{
+    let body;
+    if(r.file){
+      body = `<div class="file"><div><div class="fname">${r.file.name}</div><div class="fsize">${r.file.size}</div></div>
+              <div class="right"><span class="pill-action">▶ 播放</span><span class="pill-action danger">删除</span></div></div>`;
+    } else {
+      body = `<div><div class="label">${r.label}</div>${r.sub?`<div class="sub">${r.sub}</div>`:''}</div><div class="right">${r.right}</div>`;
+    }
+    html += `<div class="row ${i===curFocus?'focus':''}">${body}</div>`;
+  });
+  if(curView==='settings'){
+    html += `<div class="group-title">录制文件</div>
+      <div class="row" style="justify-content:center"><span class="value muted">暂无录制文件（点上方「录制文件」查看）</span></div>`;
+  }
+  document.getElementById('screen').innerHTML = `<div class="page">${html}</div>`;
+}
+function show(v){
+  curView=v;curFocus=0;
+  document.getElementById('btnSettings').classList.toggle('on',v==='settings');
+  document.getElementById('btnFiles').classList.toggle('on',v==='files');
+  render();
+}
+function setFocus(i,btn){
+  curFocus=i;
+  document.querySelectorAll('.focusbtn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  render();
+}
+function setMode(m){
+  document.getElementById('stage').classList.toggle('kid', m==='kid');
+  document.getElementById('btnAdult').classList.toggle('on',m==='adult');
+  document.getElementById('btnKid').classList.toggle('on',m==='kid');
+}
+render();
+</script>
+</body>
+</html>

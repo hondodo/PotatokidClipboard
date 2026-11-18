@@ -11,6 +11,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "recording_storage_channel.h"
 
 namespace {
 
@@ -89,6 +90,9 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  // 注册录制存储通道（potatokid/recording），与 Android 宿主方法名一致。
+  RecordingStorageChannel::Register(flutter_controller_->engine()->messenger());
 
   // 注册系统音量通道（方法名与 Android 宿主完全一致）。
   volume_channel_ = std::make_unique<

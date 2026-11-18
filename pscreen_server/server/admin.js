@@ -117,6 +117,10 @@ const REMOTE_COMMANDS = [
         ],
     },
     { cmd: 'live_float', label: '直播悬浮', kind: 'home' },
+    // 儿童模式开关（仅电视）：按下即幂等设为开/关，走服务端 device-local，
+    // 不投 cmd 帧、不受短码解锁逻辑影响（见 esp/press 的专门分支）。
+    { cmd: 'parental_on', label: '儿童模式·开启', kind: 'tv' },
+    { cmd: 'parental_off', label: '儿童模式·关闭', kind: 'tv' },
 ];
 const REMOTE_CMD_MAP = new Map(REMOTE_COMMANDS.map((item) => [item.cmd, item]));
 // 页面绑定的目标设备主键（machines.json 的 key）。
@@ -421,6 +425,9 @@ function normalizeEspButton(raw, index, usedSlots) {
         label,
         entityId: isSys || isRemote ? '' : entityId,
         kind: isRemote ? 'remote' : (isSys ? 'sys' : 'ha'),
+        // 遥控按键各自的目标设备；非遥控按键不留该字段。
+        remoteTarget: isRemote && REMOTE_TARGET_RE.test(String(raw.remoteTarget || '').trim())
+            ? String(raw.remoteTarget).trim() : '',
         action,
         param,
         slot,
@@ -477,17 +484,46 @@ function remoteCommandArgs(action) {
     return { [arg.key]: arg.type === 'number' ? Number(action.param) : action.param };
 }
 
+// 模板里 `{remote.<设备id>.<字段>}` 可用的语义字段（白名单，防注入）。
+const REMOTE_STATE_FIELDS = ['page', 'channel', 'volume', 'sleep', 'sleepLeft'];
+// 匹配三段式遥控标签：`remote.android_xxx.channel`。设备 id 只含小写/数字/下划线。
+const REMOTE_TPL_TOKEN_RE = /\{remote\.([a-z0-9_]+)\.([a-z]+)\}/g;
+
+/**
+ * 遥控设备实时状态拆成语义字段（ESP 模板标签用）。
+ *
+ * 上报帧的 scene 里：title=当前页、channelName=当前频道、volume=音量、
+ * sleepTimer={active,remaining,label}=定时关闭。客户端旧版本没有 sleepTimer，
+ * 缺失时定时字段回落空串，不报错。
+ */
+function remoteStateFields(state) {
+    const blank = { page: '', channel: '', volume: '', sleep: '', sleepLeft: '', text: '' };
+    if (!state || typeof state !== 'object') return blank;
+    const scene = state.scene && typeof state.scene === 'object' ? state.scene : null;
+    if (!scene) return blank;
+    const page = scene.title != null ? String(scene.title) : '';
+    const channel = scene.channelName != null ? String(scene.channelName) : '';
+    const rawVolume = scene.volume != null ? scene.volume
+        : (state.volume != null ? state.volume : null);
+    const volume = rawVolume != null && Number.isFinite(Number(rawVolume))
+        ? String(Number(rawVolume)) : '';
+    const sleepTimer = scene.sleepTimer && typeof scene.sleepTimer === 'object'
+        ? scene.sleepTimer : null;
+    const sleepActive = Boolean(sleepTimer && sleepTimer.active);
+    const sleep = sleepActive ? '开启' : '关闭';
+    const sleepLeft = sleepActive
+        ? (sleepTimer.label != null ? String(sleepTimer.label) : '')
+        : '';
+    const parts = [];
+    if (channel) parts.push(channel);
+    else if (page) parts.push(page);
+    if (volume) parts.push(`音量${volume}`);
+    return { page, channel, volume, sleep, sleepLeft, text: parts.join(' ') };
+}
+
 /** 实时状态摘要：模板 `{remote.xxx}` 显示「珠江台 音量20」。 */
 function remoteStateText(state) {
-    if (!state || typeof state !== 'object') return '';
-    const scene = state.scene && typeof state.scene === 'object' ? state.scene : null;
-    const sceneName = scene ? (scene.name || scene.title || scene.channel || '') : '';
-    const volume = state.volume != null ? state.volume
-        : (state.playback && state.playback.volume != null ? state.playback.volume : null);
-    const parts = [];
-    if (sceneName) parts.push(String(sceneName));
-    if (volume != null && Number.isFinite(Number(volume))) parts.push(`音量${Number(volume)}`);
-    return parts.join(' ');
+    return remoteStateFields(state).text;
 }
 
 /** 单页归一：页面名 + 图标 + 显示类型/绑定 + 按键表 + 翻页/空闲策略。 */
@@ -3439,6 +3475,42 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    /**
+     * 设备自助设置本机备注名：TV / 中控用 ptools 登录 cookie 鉴权，
+     * 按「通信账号」定位自己那台 machine，只写 `name`（空串 = 清除）。
+     *
+     * 与后台 `PUT /api/admin/machines/:id` 的区别：这里无需管理员会话，
+     * 设备改不了 kind / owner / 绑定关系；且只认 `commAccount`，无法越权改别台。
+     * 不改 deviceId / commAccount（上传通道名保持不变）。
+     */
+    app.post('/api/account/machine_name', (req, res) => {
+        try {
+            const username = String((req.cookies && req.cookies.username) || '').trim();
+            if (!username) return jsonFail(res, '未登录', definds.code.UNLOGIN);
+            if (typeof req.body?.name !== 'string') return jsonFail(res, '名称格式错误');
+            const name = req.body.name.trim().slice(0, MAX_MACHINE_NAME);
+
+            const machines = readMachines();
+            const key = Object.keys(machines).find((k) => machines[k].commAccount === username);
+            if (!key) return jsonFail(res, '未找到本机设备记录', 404, 404);
+            // admin 账号可代管任意设备（用 body.deviceId 指定）；设备本人只认自己的 commAccount。
+            const targetKey = username === ADMIN_USERNAME && typeof req.body.deviceId === 'string'
+                ? (findMachineKey(machines, req.body.deviceId) || key)
+                : key;
+            const machine = machines[targetKey];
+            machine.name = name;
+            machines[targetKey] = normalizeMachine(targetKey, machine);
+            saveMachines(machines);
+            return jsonOk(res, {
+                deviceId: targetKey,
+                name: machines[targetKey].name,
+                nameSet: machines[targetKey].nameSet,
+            }, '设备名称已保存');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
     // ------------------------------------------------------------ ESP 小屏控制
     //
     // 一页 = 一台被控设备：屏幕四行文本 + 一组按键。设备端只认「当前页」，
@@ -3605,6 +3677,15 @@ function attachAdmin(app, options = {}) {
             ESP_TPL_ENTITY_RE.lastIndex = 0;
             let tplMatch;
             while ((tplMatch = ESP_TPL_ENTITY_RE.exec(tplAll))) tplEntityIds.push(tplMatch[1]);
+            // 三段式遥控标签 `{remote.xxx.channel}`：把基础实体 id 也纳入取状态，
+            // 但主正则只匹配两段，这里单独收集（去重在下面统一做）。
+            REMOTE_TPL_TOKEN_RE.lastIndex = 0;
+            let remoteMatch;
+            while ((remoteMatch = REMOTE_TPL_TOKEN_RE.exec(tplAll))) {
+                if (REMOTE_STATE_FIELDS.includes(remoteMatch[2])) {
+                    tplEntityIds.push(`remote.${remoteMatch[1]}`);
+                }
+            }
             const entityIds = [...new Set([
                 bindings.main, bindings.s1, bindings.s2, ...tplEntityIds,
             ].filter(Boolean))];
@@ -3658,9 +3739,15 @@ function attachAdmin(app, options = {}) {
                     }
                     for (const entityId of remoteIds) {
                         const target = byEntity.get(entityId);
-                        ctx.entities[entityId] = target
-                            ? remoteStateText(remoteStateOf(target.commAccount || ''))
-                            : '';
+                        const fields = target
+                            ? remoteStateFields(remoteStateOf(target.commAccount || ''))
+                            : null;
+                        // 整体摘要 `{remote.xxx}`（兼容旧模板）。
+                        ctx.entities[entityId] = fields ? fields.text : '';
+                        // 语义字段 `{remote.xxx.page/channel/volume/sleep/sleepLeft}`。
+                        for (const key of REMOTE_STATE_FIELDS) {
+                            ctx.entities[`${entityId}.${key}`] = fields ? (fields[key] || '') : '';
+                        }
                     }
                 }
                 // 自定义模板优先，没填的行仍走设备类型字典。
@@ -3723,10 +3810,11 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, { name: action.name, sys: action.action, page: pageNo }, '已执行');
         }
 
-        // 遥控动作（中控/电视）：不走 HA，按账号把 cmd 帧投给页面绑定的设备。
+        // 遥控动作（中控/电视）：不走 HA，按账号把 cmd 帧投给该按键选中的设备。
+        // 每个遥控按键各自绑定目标；旧配置没有时回退页面级 remoteTarget。
         if (action.kind === 'remote') {
-            const targetId = pageObj && pageObj.remoteTarget;
-            if (!targetId) return jsonFail(res, '该页面还没绑定遥控设备，请先在后台选择');
+            const targetId = action.remoteTarget || (pageObj && pageObj.remoteTarget);
+            if (!targetId) return jsonFail(res, '该按键还没选择目标设备，请先在后台为它选一台中控或电视');
             const machines = readMachines();
             const target = machines[targetId];
             if (!target) return jsonFail(res, '绑定的遥控设备已不存在，请重新选择');
@@ -3734,6 +3822,24 @@ function attachAdmin(app, options = {}) {
             // 命令必须在该设备类型的能力表里（防止换绑后残留了一个不支持的命令）。
             if (!remoteCapabilities(target.kind).some((item) => item.cmd === action.action)) {
                 return jsonFail(res, `${target.name || '目标设备'} 不支持「${action.action}」，请重新选择命令`);
+            }
+            // 儿童模式开关（仅电视）：幂等设置服务端 device-local.mode 并推送配置，
+            // 不投 cmd 帧（客户端没有对应命令，也不该走短码解锁那套校验）。
+            if (action.action === 'parental_on' || action.action === 'parental_off') {
+                if (target.kind !== 'tv') return jsonFail(res, '儿童模式只对电视设备生效');
+                if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
+                const mode = action.action === 'parental_on' ? 'on' : 'off';
+                const saved = familyStore.setDeviceLocal(targetId, { mode }, 'esp-remote');
+                pushConfigToMachine(target, { reason: 'esp-parental' });
+                console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 电视 ${targetId} 儿童模式 ${saved.mode}`);
+                return jsonOk(res, {
+                    name: action.name,
+                    remote: action.action,
+                    target: targetId,
+                    mode: saved.mode,
+                    revision: saved.revision || 0,
+                    page: pageNo,
+                }, mode === 'on' ? '儿童模式已开启' : '儿童模式已关闭');
             }
             const account = target.commAccount || '';
             if (!account) return jsonFail(res, '目标设备缺少通信账号，请让它重新连接一次');
@@ -3793,6 +3899,7 @@ function attachAdmin(app, options = {}) {
                 lastSeen: machine.lastSeen || 0,
                 home: machine.currentHome || (machine.homes && machine.homes[0]) || '',
                 state: remoteStateText(remoteStateOf(account)),
+                fields: remoteStateFields(remoteStateOf(account)),
                 capabilities: remoteCapabilities(machine.kind),
             });
         }

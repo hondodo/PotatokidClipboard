@@ -31,6 +31,29 @@ class AccountProfileApi {
     }
   }
 
+  /// 保存设备名称（写入服务端 machines.json 的 `machine.name`，全局可见）。
+  /// 空串 = 清除（服务端回落显示「电视/中控屏」）。失败返回 false。
+  /// 与 [updateDisplayName] 的区别：那是账号展示名，这是设备别名。
+  static Future<bool> updateMachineName(String name) async {
+    if (!await PtoolsUtil.loginWithSaved()) return false;
+    try {
+      final dynamic data = await DioManager().send(
+        url: AppConstants.ptoolsMachineNameUrl,
+        method: HttpMethod.POST,
+        params: <String, dynamic>{'name': name.trim()},
+        contentType: 'application/json',
+        notTipNetError: true,
+      );
+      final Map<String, dynamic>? map = _asMap(data);
+      if (map == null) return false;
+      final dynamic code = map['code'];
+      final int? value = code is int ? code : int.tryParse('$code');
+      return value == PtoolsCode.success;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Map<String, dynamic>? _asMap(dynamic data) {
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);

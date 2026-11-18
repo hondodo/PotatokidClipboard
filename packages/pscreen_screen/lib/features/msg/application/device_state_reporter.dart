@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:pscreen_screen/app/app_log.dart';
+import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
@@ -48,6 +49,10 @@ class DeviceStateReporter {
 
   /// 最近一次读到的媒体音量（0-100）；null = 尚未读到（非 Android 等）。
   int? _volume;
+
+  /// 最近一次上报的定时状态签名（开启与否 + 剩余整秒），轮询时据此判断
+  /// 是否要补推一帧，让 ESP 屏幕的「定时剩余」标签按 ~10s 精度刷新。
+  String _lastSleepSig = '';
 
   void start() {
     if (_started) return;
@@ -132,7 +137,10 @@ class DeviceStateReporter {
       // 音量可能被设备本机按键改掉：变了也要推一次（遥控端音量胶囊跟随）。
       final bool volumeChanged = await _refreshVolume();
       final String version = _versionOf(_channelNames());
-      if (!volumeChanged && version == _lastListVersion) return;
+      // 定时剩余随时间变化：签名不同也补推一帧（ESP 屏幕标签按轮询精度刷新）。
+      final bool sleepChanged =
+          _sleepSignature(SleepTimerController.instance) != _lastSleepSig;
+      if (!volumeChanged && !sleepChanged && version == _lastListVersion) return;
       _push();
     });
   }
@@ -141,6 +149,10 @@ class DeviceStateReporter {
     _listTimer?.cancel();
     _listTimer = null;
   }
+
+  /// 定时状态签名：开启与否 + 剩余整秒。剩余按 10s 轮询，整秒变化即触发补推。
+  String _sleepSignature(SleepTimerController sleep) =>
+      '${sleep.active ? 1 : 0}:${sleep.active ? sleep.remaining.inSeconds : 0}';
 
   /// 读一次系统音量；返回是否发生变化（变了才值得触发上报）。
   Future<bool> _refreshVolume() async {
@@ -172,6 +184,15 @@ class DeviceStateReporter {
       final Map<String, Object?> sceneJson = scene.toJson();
       final int? volume = _volume;
       if (volume != null) sceneJson['volume'] = volume;
+      // 定时关闭状态并入 scene（供 ESP 遥控页模板的「定时开关/剩余」标签用）。
+      final SleepTimerController sleep = SleepTimerController.instance;
+      final Map<String, Object?> sleepJson = <String, Object?>{
+        'active': sleep.active,
+        'remaining': sleep.active ? sleep.remaining.inSeconds : 0,
+        'label': sleep.active ? sleep.remainingLabel : '',
+      };
+      sceneJson['sleepTimer'] = sleepJson;
+      _lastSleepSig = _sleepSignature(sleep);
       final Map<String, Object?>? playbackNow =
           PlaybackStateProvider.instance.current?.toJson();
       if (playbackNow != null) _lastPlayback = playbackNow;

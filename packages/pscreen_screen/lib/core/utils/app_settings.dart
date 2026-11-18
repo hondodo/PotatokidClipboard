@@ -34,6 +34,9 @@ class AppSettings {
   static const String _keyRemoteAccount = 'app_remote_account_v1';
   static const String _keyRemotePassword = 'app_remote_password_v1';
   static const String _keyDisplayName = 'app_display_name_v1';
+  /// 设备名称（本机别名，写入服务端 machines.json 的 machine.name）。
+  /// 与账号展示名 displayName 区分：这个是「设备」级、全局可见的别名。
+  static const String _keyDeviceLabel = 'app_device_label_v1';
 
   // 录制存储配置
   static const String _keyRecordingLocation = 'app_recording_location_v1';
@@ -87,6 +90,9 @@ class AppSettings {
   /// 账号展示名（可改）；**空串表示未设置**，各处回落显示账号 id。
   String _displayName = '';
 
+  /// 设备名称（本机别名）；**空串表示未设置**，服务端回落显示「电视/中控屏」。
+  String _deviceLabel = '';
+
   /// 家长端自定义登录名；**空串表示仍用设备派生账号**。
   String _claimedAccount = '';
 
@@ -132,6 +138,9 @@ class AppSettings {
   /// 账号展示名：空串表示未设置（回落显示账号 id）。
   /// 仅用于展示，不参与登录/域名/存储键。
   String get displayName => _displayName;
+
+  /// 设备名称（本机别名），空串 = 未设置。
+  String get deviceLabel => _deviceLabel;
 
   /// 家长端自定义登录名：空串表示未设置（回落派生账号）。
   /// 仅 parent flavor 开启 claim 闸门后生效。
@@ -184,6 +193,7 @@ class AppSettings {
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
       _remotePassword = prefs.getString(_keyRemotePassword) ?? '';
       _displayName = prefs.getString(_keyDisplayName) ?? '';
+      _deviceLabel = prefs.getString(_keyDeviceLabel) ?? '';
       _claimedAccount = prefs.getString(_keyClaimedAccount) ?? '';
       _claimedPassword = prefs.getString(_keyClaimedPassword) ?? '';
       // 录制存储配置
@@ -349,6 +359,17 @@ class AppSettings {
     }
   }
 
+  /// 本机设备名称：先写内存与本地，调用方再决定是否同步服务端。
+  Future<void> setDeviceLabel(String name) async {
+    _deviceLabel = name.trim();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyDeviceLabel, _deviceLabel);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
   /// 保存实时通道「远程」口令（空串表示清除，回落默认口令）。
   Future<void> setRemotePassword(String password) async {
     _remotePassword = password;
@@ -430,6 +451,7 @@ class AppSettings {
     _remoteAccount = '';
     _remotePassword = '';
     _displayName = '';
+    _deviceLabel = '';
     _claimedAccount = '';
     _claimedPassword = '';
   }

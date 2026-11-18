@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pscreen_home/core/di/get_it.dart';
+import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
+import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_home/features/screen/presentation/components/live_player_view.dart';
 import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
@@ -78,6 +80,9 @@ class _LivePageState extends State<LivePage> {
     _scheduleHide();
     // 录制事件（切源被拒 / 已保存 / 不支持 / 失败）由本页统一提示（D-9）。
     RecordingController.instance.onEvent = _handleRecordingEvent;
+    // 录制分片下载/写入耗时与补片诊断接到统一日志，与播放器卡顿日志同一出口。
+    RecordingController.instance.onDiagnostic =
+        (String message) => Injection.get<LogService>().info(message);
   }
 
   @override
@@ -85,6 +90,7 @@ class _LivePageState extends State<LivePage> {
     if (RecordingController.instance.onEvent == _handleRecordingEvent) {
       RecordingController.instance.onEvent = null;
     }
+    RecordingController.instance.onDiagnostic = null;
     _hideTimer?.cancel();
     super.dispose();
   }

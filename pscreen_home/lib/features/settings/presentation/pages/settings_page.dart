@@ -57,6 +57,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _remoteAccountController;
   late final TextEditingController _remoteTokenController;
   late final TextEditingController _displayNameController;
+  late final TextEditingController _deviceNameController;
   bool _tokenVisible = false;
   bool _saving = false;
   late int _sampleSeconds;
@@ -98,6 +99,9 @@ class _SettingsPageState extends State<SettingsPage> {
     _displayNameController = TextEditingController(
       text: AppSettings.instance.displayName,
     );
+    _deviceNameController = TextEditingController(
+      text: AppSettings.instance.deviceLabel,
+    );
     // 天气城市由共享包 AppSettings 持久化：确保首次加载完成后再回显。
     AppSettings.instance.ensureLoaded().then((_) {
       if (!mounted) return;
@@ -106,6 +110,9 @@ class _SettingsPageState extends State<SettingsPage> {
         _hwdecEnabled = AppSettings.instance.hwdecEnabled;
         if (_displayNameController.text.isEmpty) {
           _displayNameController.text = AppSettings.instance.displayName;
+        }
+        if (_deviceNameController.text.isEmpty) {
+          _deviceNameController.text = AppSettings.instance.deviceLabel;
         }
       });
     });
@@ -129,6 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _remoteAccountController.dispose();
     _remoteTokenController.dispose();
     _displayNameController.dispose();
+    _deviceNameController.dispose();
     _wallpaperApiController.dispose();
     super.dispose();
   }
@@ -285,6 +293,27 @@ class _SettingsPageState extends State<SettingsPage> {
             synced
                 ? '名称已保存（仅展示，不影响账号与连接）'
                 : '名称已保存到本机，服务端同步失败（联网后重试）',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// 保存设备名称：写入服务端 machines.json 的 machine.name（全局可见，
+  /// 遥控列表/插入实体弹窗都显示它），不影响上报通道（deviceId / commAccount）。
+  Future<void> _saveDeviceName() async {
+    final String name = _deviceNameController.text.trim();
+    await AppSettings.instance.setDeviceLabel(name);
+    final bool synced = await AccountProfileApi.updateMachineName(name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            synced
+                ? (name.isEmpty ? '设备名称已清除' : '设备名称已保存（遥控列表将显示此名）')
+                : '设备名称已保存到本机，服务端同步失败（联网后重试）',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -804,6 +833,37 @@ class _SettingsPageState extends State<SettingsPage> {
               border: OutlineInputBorder(),
             ),
             maxLines: 1,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '设备名称',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '设置后，管理端遥控列表与插入实体弹窗会显示此别名；'
+            '不影响上报通道（设备号 / 通信账号）。留空则恢复默认值。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _deviceNameController,
+            decoration: const InputDecoration(
+              labelText: '设备名称',
+              helperText: '例：客厅电视；留空则清除',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 1,
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: _saveDeviceName,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('保存设备名称'),
           ),
           // 调试包才开放账号/口令编辑；正式包账号恒为派生值。
           if (AppConfig.enableChangeAccount) ...<Widget>[

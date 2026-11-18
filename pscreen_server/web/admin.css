@@ -378,6 +378,7 @@
     .esp-btn-table .del-btn:hover { color: #ff8080; border-color: rgba(248,113,113,.5); }
     .esp-action-cell { display: flex; gap: 6px; min-width: 0; }
     .esp-action-cell select:first-child { flex: 0 0 76px; }
+    .esp-action-cell select.esp-remote-target { flex: 0 0 120px; min-width: 0; }
     .esp-action-cell select:last-child { min-width: 0; flex: 1 1 auto; }
     .esp-map-line {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -576,6 +577,13 @@
 
     /* 实体选择弹窗：家庭/房间/设备筛选 + 当前状态值 */
     .ent-pick-dialog .dialog-body { display: grid; gap: 10px; }
+    /* 遥控状态快捷标签（模板插入弹窗专用） */
+    .ent-pick-quick { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, rgba(255,255,255,.03)); }
+    .ent-pick-quick-title { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .ent-pick-quick-list { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ent-pick-quick-btn { padding: 5px 10px; font-size: 12px; border: 1px solid var(--accent, #4c9ffe); border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; }
+    .ent-pick-quick-btn:hover { background: var(--accent, #4c9ffe); color: #fff; }
+    .ent-pick-quick-val { opacity: .65; font-size: 11px; margin-left: 3px; }
     .ent-pick-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
     .ent-pick-filters label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); min-width: 128px; }
     .ent-pick-filters .ent-pick-search { flex: 1 1 190px; min-width: 160px; }

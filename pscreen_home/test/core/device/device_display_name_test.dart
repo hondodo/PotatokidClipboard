@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_home/core/device/device_display_name.dart';
 
 void main() {
-  test('优先级：本机别名 > 家长别名 > displayName > 设备备注 > 账号 id', () {
+  test('优先级：本机别名 > 家长别名 > 设备备注 > displayName > 账号 id', () {
     expect(
       DeviceDisplayName.resolve(
         account: 'tv.tv.0e208908bebea19a',
@@ -27,6 +27,13 @@ void main() {
         account: 'tv.tv.0e208908bebea19a',
         displayName: '小米电视',
         machineName: '客厅',
+      ),
+      '客厅',
+    );
+    expect(
+      DeviceDisplayName.resolve(
+        account: 'tv.tv.0e208908bebea19a',
+        displayName: '小米电视',
       ),
       '小米电视',
     );

@@ -163,7 +163,7 @@
     wrap.appendChild(label);
     const note = document.createElement('p');
     note.className = 'field-note';
-    note.textContent = `名称生效顺序：账号展示名 > 设备备注 > 账号 id。设备 ID：${machine.id}（Android ID，重装 App 不变）`;
+    note.textContent = `名称生效顺序：设备备注 > 账号展示名 > 账号 id。设备 ID：${machine.id}（Android ID，重装 App 不变）`;
     wrap.appendChild(note);
     openDialog({
       title: '修改设备备注名',

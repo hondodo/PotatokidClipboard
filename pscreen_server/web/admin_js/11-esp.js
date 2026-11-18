@@ -118,6 +118,69 @@
     return first ? first.value : '';
   }
 
+  // 遥控设备状态标签：模板快捷插入。字段与服务端 REMOTE_STATE_FIELDS 对齐。
+  const ESP_REMOTE_TAGS = [
+    ['page', '当前页'],
+    ['channel', '当前频道'],
+    ['volume', '当前音量'],
+    ['sleep', '定时开关'],
+    ['sleepLeft', '定时剩余'],
+  ];
+
+  /** 当前页绑定的遥控设备可用的快捷标签（带当前值）；未绑定返回 null。 */
+  function espRemoteQuickTokens(page) {
+    const bound = page && page.remoteTarget;
+    if (!bound) return null;
+    const dev = espRemoteDeviceOf(bound);
+    if (!dev) return null;
+    const fields = dev.fields || {};
+    return {
+      label: `遥控状态 · ${dev.name || bound}`,
+      items: ESP_REMOTE_TAGS.map(([field, label]) => ({
+        id: `${dev.entityId}.${field}`,
+        name: label,
+        value: fields[field] || '',
+      })),
+    };
+  }
+
+  /**
+   * 所有遥控设备的状态字段 → 伪造成 HA 实体，供「插入实体」弹窗混选。
+   * 这样遥控状态与 HA 实体在同一列表，可跨设备、可搜索、可家庭/房间筛选。
+   * id 用三段式 remote.<设备id>.<字段>，与后端模板渲染的 REMOTE_TPL_TOKEN_RE 对齐。
+   */
+  function espRemoteStatusEntities() {
+    const out = [];
+    for (const dev of (state.espRemoteDevices || [])) {
+      const fields = dev.fields || {};
+      for (const [field, label] of ESP_REMOTE_TAGS) {
+        out.push({
+          id: `${dev.entityId}.${field}`,
+          name: `${dev.name || dev.deviceId} · ${label}`,
+          state: fields[field] || '',
+          home: dev.home || '未归属家庭',
+          room: dev.kind === 'home' ? '遥控 · 中控' : '遥控 · 电视',
+          device: dev.name || dev.deviceId,
+          __remoteBadge: '遥控',
+          actions: [],
+        });
+      }
+      // 整体摘要标签（当前场景 + 音量），对应 {remote.xxx} 两段式。
+      // 必须放在字段循环外：每台设备只生成 1 个，否则会随字段数重复。
+      out.push({
+        id: dev.entityId,
+        name: `${dev.name || dev.deviceId} · 场景与音量`,
+        state: dev.state || '',
+        home: dev.home || '未归属家庭',
+        room: dev.kind === 'home' ? '遥控 · 中控' : '遥控 · 电视',
+        device: dev.name || dev.deviceId,
+        __remoteBadge: '遥控',
+        actions: [],
+      });
+    }
+    return out;
+  }
+
   /** 实体 id → 实体（带 state/attributes），预览用；目录未加载时为空表。 */
   function espEntityIndex() {
     if (state.espEntityIndexSrc === state.haEntities && state.espEntityIndexMap) return state.espEntityIndexMap;
@@ -224,15 +287,22 @@
     };
     // 模板里直写的实体 id 也从目录里取值。
     const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
-    const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
+    // 三段式遥控标签 `{remote.xxx.channel}` 优先单独匹配（含整体 `{remote.xxx}`）。
+    const remoteTplRe = /\{(remote\.([a-z0-9_]+)(?:\.([a-z]+))?)\}/g;
     const remotes = new Map((state.espRemoteDevices || []).map((item) => [item.entityId, item]));
+    let rm;
+    while ((rm = remoteTplRe.exec(tplAll))) {
+      const dev = remotes.get(rm[2] ? `remote.${rm[2]}` : rm[1]);
+      const fields = dev && dev.fields ? dev.fields : null;
+      if (rm[3] && fields) ctx.entities[rm[1]] = fields[rm[3]] || '';
+      else if (!rm[3]) ctx.entities[rm[1]] = dev ? (dev.state || '') : '';
+      else ctx.entities[rm[1]] = '';
+    }
+    // 其余 HA 实体（排除已被上面处理的 remote.*）照旧取 state。
+    const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)\}/gi;
     let m;
     while ((m = re.exec(tplAll))) {
-      if (m[1].startsWith('remote.')) {
-        const dev = remotes.get(m[1]);
-        ctx.entities[m[1]] = dev ? (dev.state || '') : '';
-        continue;
-      }
+      if (m[1].startsWith('remote.')) continue;
       ctx.entities[m[1]] = espEntityValue(index, map, entityMaps, m[1], 'state');
     }
 
@@ -404,7 +474,9 @@
       const isSys = button.kind === 'sys';
       const isRemote = button.kind === 'remote';
       const pin = pinOf(button.slot);
-      const remoteDev = isRemote ? espRemoteDeviceOf(page.remoteTarget) : null;
+      // 每个遥控按键各自绑定目标设备；旧配置按键没这字段时回退页面级 remoteTarget。
+      const btnTarget = button.remoteTarget || page.remoteTarget || '';
+      const remoteDev = isRemote ? espRemoteDeviceOf(btnTarget) : null;
       const remoteSpec = isRemote && remoteDev
         ? (remoteDev.capabilities || []).find((item) => item.cmd === button.action)
         : null;
@@ -425,7 +497,7 @@
       let paramCell;
       if (isRemote) {
         if (!remoteSpec) {
-          paramCell = `<span class="hint">${page.remoteTarget ? '请选择命令' : '请先绑定遥控设备'}</span>`;
+          paramCell = `<span class="hint">${btnTarget ? '请选择命令' : '请先选目标设备'}</span>`;
         } else if (!arg) {
           paramCell = '<span class="hint">无需参数</span>';
         } else if (arg.type === 'enum') {
@@ -451,9 +523,10 @@
         <td><div class="esp-action-cell">
           <select data-f="kind">
             <option value="ha" ${!isSys && !isRemote ? 'selected' : ''}>HA 动作</option>
-            <option value="remote" ${isRemote ? 'selected' : ''} ${page.remoteTarget ? '' : 'disabled'}>设备遥控</option>
+            <option value="remote" ${isRemote ? 'selected' : ''}>设备遥控</option>
             <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
           </select>
+          ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="本按键要控制的中控/电视"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
           <select data-f="action">${actionOpts}</select>
         </div></td>
         <td><div class="esp-ent-cell">${isRemote ? paramCell : isSys ? '<span class="hint">无需参数</span>' : `
@@ -468,24 +541,18 @@
       </tr>`;
     };
 
-    const remoteOpts = ['<option value="">不绑定（普通 HA 页面）</option>']
-      .concat((state.espRemoteDevices || []).map((dev) => {
-        const kindText = dev.kind === 'home' ? '中控' : '电视';
-        return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === page.remoteTarget ? 'selected' : ''}>${esc(dev.name)}（${kindText}${dev.online ? '' : ' · 离线'}）</option>`;
-      })).join('');
-
-    const boundRemote = espRemoteDeviceOf(page.remoteTarget);
-    const remoteHint = boundRemote
-      ? `当前绑定「${esc(boundRemote.name)}」，模板里可写 <b>{${esc(boundRemote.entityId)}}</b> 显示它的场景/音量。`
-      : '';
+    // 遥控按键各自选目标设备：下拉选项在所有中控/电视里列，供每个按键独立选择。
+    const remoteDevOptsFor = (current) => (state.espRemoteDevices || []).map((dev) => {
+      const kindText = dev.kind === 'home' ? '中控' : '电视';
+      return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === current ? 'selected' : ''}>${esc(dev.name)}（${kindText}${dev.online ? '' : ' · 离线'}）</option>`;
+    }).join('');
 
     host.innerHTML = `
       <div class="esp-section">
         <h4>① 页面属性</h4>
         <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
         <div class="esp-field-row"><label>图标</label><input id="esp-page-icon" maxlength="2" value="${esc(page.icon || '')}" style="width:70px"></div>
-        <div class="esp-field-row"><label>遥控设备</label><select id="esp-page-remote">${remoteOpts}</select></div>
-        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。选中「遥控设备」后，本页按键可选「设备遥控」，命令从该设备能力表里挑（主页/直播/音量/频道…）；不绑定就是普通 HA 页面。${remoteHint}</p>
+        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作」——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
       </div>
       <div class="esp-section">
         <h4>② 屏幕显示内容 <span class="tag">由设备类型字典生成</span></h4>
@@ -513,7 +580,7 @@
             <button class="btn small" type="button" data-entmap-pick>插入实体</button>
           </div>
         </div>
-        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可直接搜家庭/房间/设备。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
+        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
       </div>
       <div class="esp-section">
         <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>
@@ -573,11 +640,6 @@
       page.deviceType = event.target.value;
       drawEspPreview();
     });
-    // 页面绑定遥控设备：绑定后按键才能选「设备遥控」，已有遥控按键保持不变。
-    $('esp-page-remote').addEventListener('change', (event) => {
-      page.remoteTarget = event.target.value;
-      renderEspPageEditor();
-    });
     $('esp-tpl-main').addEventListener('input', (event) => {
       page.tplMain = event.target.value;
       drawEspPreview();
@@ -612,6 +674,8 @@
         const input = which === 'main' ? $('esp-tpl-main') : $('esp-tpl-sub');
         openEntityPicker({
           title: which === 'main' ? '插入实体到主状态模板' : '插入实体到副状态模板',
+          quickTokens: espRemoteQuickTokens(page),
+          extraEntities: espRemoteStatusEntities(),
           onPick: (entity) => {
             const token = `{${entity.id}}`;
             const start = input.selectionStart == null ? input.value.length : input.selectionStart;
@@ -698,7 +762,15 @@
         const commit = () => {
           if (field === 'slot') button.slot = Number(el.value) || 0;
           else if (field === 'name') button.name = el.value;
-          else if (field === 'entity') {
+          else if (field === 'remoteTarget') {
+            button.remoteTarget = el.value;
+            // 换设备后能力表变了：重选第一条命令，参数也跟着重置。
+            const dev = espRemoteDeviceOf(button.remoteTarget);
+            const cap = dev && (dev.capabilities || [])[0];
+            button.action = cap ? cap.cmd : '';
+            button.param = espDefaultRemoteParam(cap);
+            if (!button.name && cap) button.name = cap.label;
+          } else if (field === 'entity') {
             button.entityId = el.value.trim();
             // 名称留空时，选中已知实体就用它的人类可读名称自动补上。
             if (!button.name && button.entityId) {
@@ -718,7 +790,7 @@
               button.action = 'next_page';
               if (!button.name) button.name = '下一页';
             } else if (kind === 'remote') {
-              const dev = espRemoteDeviceOf(page.remoteTarget);
+              const dev = espRemoteDeviceOf(button.remoteTarget || page.remoteTarget || '');
               const cap = dev && (dev.capabilities || [])[0];
               button.action = cap ? cap.cmd : '';
               button.param = espDefaultRemoteParam(cap);
@@ -730,7 +802,7 @@
           } else if (field === 'action') {
             const value = el.value;
             if (button.kind === 'remote') {
-              const dev = espRemoteDeviceOf(page.remoteTarget);
+              const dev = espRemoteDeviceOf(button.remoteTarget || page.remoteTarget || '');
               const cap = dev && (dev.capabilities || []).find((item) => item.cmd === value);
               button.action = value;
               button.param = espDefaultRemoteParam(cap);
@@ -837,7 +909,12 @@
       valueMap: page.valueMap || '',
       entityValueMap: page.entityValueMap || '',
       remoteTarget: page.remoteTarget || '',
-      buttons: (page.buttons || []).map((button) => ({ ...button })),
+      // 旧配置迁移：遥控按键没有自己的目标设备时，用页面级 remoteTarget 回填，
+      // 这样用户保存一次后，每个按键就独立记住自己的目标设备了。
+      buttons: (page.buttons || []).map((button) => ({
+        ...button,
+        remoteTarget: button.remoteTarget || (button.kind === 'remote' ? (page.remoteTarget || '') : ''),
+      })),
       loop: page.loop !== false,
       idle: Number(page.idle) || 0,
     }));
@@ -900,6 +977,7 @@
           // label 仅保留给旧固件协议，值与完整名称一致，不再截短。
           label: button.name || button.label || '',
           kind: button.kind === 'sys' ? 'sys' : button.kind === 'remote' ? 'remote' : 'ha',
+          remoteTarget: button.kind === 'remote' ? (button.remoteTarget || '') : '',
           action: button.kind === 'remote' ? button.action
             : button.kind === 'sys'
               ? button.action

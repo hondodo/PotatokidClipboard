@@ -392,7 +392,7 @@
    * @param {boolean} options.actionableOnly 只列有可用动作的实体（按键用）
    * @param {Function} options.onPick 选中回调 (entity)
    */
-  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, onPick } = {}) {
+  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick } = {}) {
     const root = $('dialog-root');
     const filters = { home: '', room: '', device: '', keyword: '', onlyActionable: !!actionableOnly };
     let catalog = state.haEntities;
@@ -405,6 +405,11 @@
             <button class="icon-btn" type="button" data-close>×</button>
           </div>
           <div class="dialog-body">
+            ${quickTokens && quickTokens.length ? `<div class="ent-pick-quick">
+              <div class="ent-pick-quick-title">${esc(quickTokens.label || '快捷标签')}</div>
+              <div class="ent-pick-quick-list">${quickTokens.items.map((t, i) =>
+                `<button class="ent-pick-quick-btn" type="button" data-quick="${i}" title="${esc(t.id)}">${esc(t.name)}${t.value ? ` <span class="ent-pick-quick-val">${esc(t.value)}</span>` : ''}</button>`).join('')}</div>
+            </div>` : ''}
             <div class="ent-pick-filters">
               <label>家庭<select data-filter="home"></select></label>
               <label>房间<select data-filter="room"></select></label>
@@ -425,6 +430,13 @@
 
     const close = () => { root.innerHTML = ''; };
     root.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
+    if (quickTokens && quickTokens.length) {
+      root.querySelectorAll('[data-quick]').forEach((btn) => btn.addEventListener('click', () => {
+        const token = quickTokens.items[Number(btn.dataset.quick)];
+        if (token && typeof onPick === 'function') onPick(token);
+        close();
+      }));
+    }
     const overlay = root.querySelector('.overlay');
     overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
 
@@ -437,7 +449,8 @@
     const meta = root.querySelector('.ent-pick-meta');
     const list = root.querySelector('.ent-pick-list');
 
-    const all = () => ((catalog && catalog.entities) || []);
+    // 主目录（HA 实体）+ 附加实体（遥控状态等虚拟实体），统一参与筛选/搜索/列表。
+    const all = () => [...((catalog && catalog.entities) || []), ...(extraEntities || [])];
 
     /** 按「家 / 关键词」过滤：用于推导房间候选。 */
     function poolForRooms() {
@@ -466,7 +479,10 @@
     }
 
     function renderFilters() {
-      const homeNames = Array.from(new Set(((catalog && catalog.homes) || []).map((item) => item.name)));
+      const homeNames = Array.from(new Set([
+        ...((catalog && catalog.homes) || []).map((item) => item.name),
+        ...(extraEntities || []).map((item) => item.home).filter(Boolean),
+      ]));
       filters.home = fillSelect(homeSel, '全部家庭', homeNames, filters.home);
 
       const roomNames = Array.from(new Set(poolForRooms().map((entity) => haEntityRoom(entity))))
@@ -483,6 +499,8 @@
         if (filters.device && (entity.device || '未归属设备') !== filters.device) return false;
         return true;
       }).sort((a, b) => {
+        // 遥控状态虚拟实体置顶，避免淹没在上千个 HA 实体里。
+        if (!!a.__remoteBadge !== !!b.__remoteBadge) return a.__remoteBadge ? -1 : 1;
         const key = (e) => `${e.home || ''}|${haEntityRoom(e)}|${e.device || ''}|${e.name || e.id}`;
         return key(a).localeCompare(key(b), 'zh-CN');
       });
@@ -490,11 +508,12 @@
 
     function renderList() {
       const rows = matched();
-      meta.textContent = catalog
+      const hasCatalog = !!catalog || !!(extraEntities && extraEntities.length);
+      meta.textContent = hasCatalog
         ? `${rows.length} 个实体${filters.onlyActionable ? '（可控制）' : ''}${rows.length > 300 ? '，仅显示前 300 条' : ''}`
         : '实体目录未加载';
       list.innerHTML = '';
-      if (!catalog) {
+      if (!hasCatalog) {
         list.innerHTML = '<div class="ent-pick-empty">实体目录未加载，点「刷新状态」从 HA 拉取</div>';
         return;
       }
@@ -512,7 +531,7 @@
         main.className = 'ent-pick-main';
         const name = document.createElement('span');
         name.className = 'nm';
-        name.textContent = entity.name || entity.id;
+        name.textContent = entity.__remoteBadge ? `[${entity.__remoteBadge}] ${entity.name || entity.id}` : (entity.name || entity.id);
         const state = document.createElement('span');
         state.className = 'st';
         state.textContent = haStateText(entity);

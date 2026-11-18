@@ -111,6 +111,18 @@
                 "parent",
                 "--dart-define=APP_FLAVOR=parent"
             ]
+        },
+        {
+            "name": "pscreen_home (Flutter Windows)",
+            "program": "lib/main.dart",
+            "deviceId": "windows",
+            "request": "launch",
+            "type": "dart",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
         }
     ]
 }

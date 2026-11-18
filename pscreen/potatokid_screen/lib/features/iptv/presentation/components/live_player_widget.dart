@@ -460,6 +460,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     unawaited(_player?.play());
     // 录制一次性事件（切源被拒 / 已保存 / 不支持 / 失败）由宿主弹提示（D-9）。
     RecordingController.instance.onEvent = _handleRecordingEvent;
+    // 录制分片下载/写入耗时与补片诊断接到统一日志，与播放器卡顿日志同一出口，便于对表。
+    RecordingController.instance.onDiagnostic =
+        (String message) => Injection.get<LogService>().info(message);
   }
 
   /// 录制事件 → SnackBar。文案走 i18n，儿童模式用 kidSnackBar。
@@ -585,8 +588,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       return;
     }
     _appInBackground = true;
-    // 退后台 / 锁屏即停录保存（本期不支持后台录制）。
-    unawaited(RecordingController.instance.stopOnExit());
+    // 桌面端（Windows/Linux/macOS）窗口失焦 / 最小化不是真后台，录制继续；
+    // 移动端退后台 / 锁屏即停录保存。
+    if (!RecordingController.keepRecordingInBackground) {
+      unawaited(RecordingController.instance.stopOnExit());
+    }
     // 儿童模式锁屏 / 选人页等待期间：即使开了「后台播放」也不允许后台继续出声。
     if (_pauseGateActive()) _pauseForLock();
   }
@@ -1286,6 +1292,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (RecordingController.instance.onEvent == _handleRecordingEvent) {
       RecordingController.instance.onEvent = null;
     }
+    RecordingController.instance.onDiagnostic = null;
     WidgetsBinding.instance.removeObserver(this);
     KidWatchTimerController.instance.removeListener(_onKidLockChanged);
     _channelController.removeListener(_onChannelSelected);

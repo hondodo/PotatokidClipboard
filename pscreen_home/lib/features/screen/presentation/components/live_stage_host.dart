@@ -62,9 +62,11 @@ class _LiveStageHostState extends State<LiveStageHost>
     return true;
   }
 
-  /// 退后台 / 锁屏即停录（本期不支持后台录制）。
+  /// 退后台 / 锁屏即停录；桌面端（Windows/Linux/macOS）窗口失焦不算真后台，
+  /// 录制继续跑完。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (RecordingController.keepRecordingInBackground) return;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {

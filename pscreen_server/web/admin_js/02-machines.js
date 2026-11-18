@@ -27,12 +27,15 @@
     return '未配置';
   }
 
-  // 设备名称生效顺序：账号展示名（displayName）> 设备备注（nameSet 才有效）> 账号 id。
+  // 设备名称生效顺序：设备备注（nameSet 才有效）> 账号展示名（displayName）> 账号 id。
+  // 设备备注是设备自己在设置页改的名字，比账号展示名更贴近这台设备；
   // 客户端本机备注别名优先级最高，但只存在于设备本地，后台不可见。
   function machineDisplay(machine) {
+    if (machine.nameSet && String(machine.name || '').trim()) {
+      return { name: String(machine.name).trim(), source: '设备备注' };
+    }
     const accountDisplay = String(machine.commDisplayName || '').trim();
     if (accountDisplay) return { name: accountDisplay, source: '账号展示名' };
-    if (machine.nameSet && machine.name) return { name: machine.name, source: '设备备注' };
     if (machine.commAccount) return { name: machine.commAccount, source: '账号 id' };
     return { name: machine.name || machine.id, source: '设备 id（无通信账号）' };
   }

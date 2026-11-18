@@ -35,6 +35,9 @@ class AppConstants {
   /// 本人自助修改展示名接口（按登录 cookie 校验，只写 displayName）。
   static const String ptoolsDisplayNameUrl = '$toolsBaseUrl/api/account/display_name';
 
+  /// 设备自助改本机名接口（按登录 cookie 定位 commAccount，只写 machine.name）。
+  static const String ptoolsMachineNameUrl = '$toolsBaseUrl/api/account/machine_name';
+
   /// 实时消息网关（与 ptools 服务端同一端口）。
   ///
   /// 服务端仅提供 http，故同步使用 `ws://`（https 会被 nginx 302 降级）。

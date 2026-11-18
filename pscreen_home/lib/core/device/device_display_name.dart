@@ -1,7 +1,10 @@
 /// 设备名称的唯一解析口径（会话列表 / 家长页下拉 / 设备管理 / 遥控标题共用）。
 ///
-/// 优先级：本机备注别名 > 家长私有别名 > 账号展示名（displayName）
-/// > 设备备注（machines.json.name）> 账号 id。
+/// 优先级：本机备注别名 > 家长私有别名 > 设备备注（machines.json.name）
+/// > 账号展示名（displayName）> 账号 id。
+///
+/// 设备备注是设备自己设的名字（TV/中控设置页第一行），比账号展示名更贴近
+/// 这台设备本身；账号展示名只在备注未设置时作回落。
 ///
 /// - 本机别名只存在当前中控本地（`remote_sessions.json`）；
 /// - 家长别名由服务端按登录账号下发（方案 B，互不可见）；
@@ -22,8 +25,8 @@ class DeviceDisplayName {
     for (final String candidate in <String>[
       localAlias,
       alias,
-      displayName,
       machineName,
+      displayName,
     ]) {
       final String value = candidate.trim();
       if (value.isEmpty || value == placeholder) continue;

@@ -8,6 +8,7 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "recording_storage_channel.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -36,6 +37,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 # Core Audio（IMMDeviceEnumerator / IAudioEndpointVolume）经 CoCreateInstance 使用。
 target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib")
+# IFileDialog / SHGetKnownFolderPath / IShellItem（录制目录选择）。
+target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
