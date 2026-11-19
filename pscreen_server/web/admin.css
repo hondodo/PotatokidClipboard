@@ -974,3 +974,34 @@
       background: rgba(76, 159, 254, .09); color: var(--text); font-size: 11.5px; line-height: 1.6; }
     .esp-section input:disabled, .esp-section textarea:disabled { opacity: .45; cursor: not-allowed; }
     .esp-section .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* 智能 · 自动化触发规则卡片：规则间 OR，规则内 AND */
+    .smart-trigger-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .smart-trigger-label { font-weight: 600; color: var(--text); }
+    .smart-trigger-actions { display: flex; gap: 8px; margin-left: auto; }
+    .smart-rules { display: flex; flex-direction: column; gap: 8px; }
+    .smart-rule { padding: 10px 11px; border: 1px solid var(--line);
+      border-radius: 9px; background: var(--panel-2); }
+    .smart-rule-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .smart-rule-no { font-size: 12px; font-weight: 600; color: var(--text);
+      padding: 2px 8px; border-radius: 10px; background: rgba(95, 211, 196, .16); white-space: nowrap; }
+    .smart-rule-hint { font-size: 11px; color: var(--muted-2); }
+    .smart-rule-head > .icon-btn { margin-left: auto; }
+    .smart-rule-conditions { display: flex; flex-direction: column; gap: 6px; }
+    .smart-rule-or, .smart-rule-and { align-self: center; font-size: 11px; line-height: 1;
+      padding: 3px 9px; border-radius: 9px; font-weight: 600; }
+    .smart-rule-or { color: #f0b86e; background: rgba(240, 184, 110, .12); }
+    .smart-rule-and { color: var(--accent); background: rgba(76, 159, 254, .12); }
+    .smart-rule-add { align-self: flex-start; margin-top: 8px; }
+    .smart-condition { padding: 10px 11px; border: 1px solid var(--line);
+      border-radius: 8px; background: var(--panel); }
+    .smart-condition-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .smart-condition-head select { flex: 1 1 140px; }
+    .smart-condition-no { display: inline-flex; align-items: center; justify-content: center;
+      width: 21px; height: 21px; border-radius: 50%; font-size: 11px; font-weight: 600;
+      background: rgba(95, 211, 196, .16); color: var(--text); flex: 0 0 auto; }
+    .smart-condition-body .smart-field-row { margin-top: 6px; }
+    .smart-ent-pick { display: flex; gap: 6px; align-items: center; min-width: 0; }
+    .smart-ent-pick input { flex: 1 1 150px; min-width: 0; }
+    .smart-weekdays { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 4px 0 8px; }
+    .smart-day { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }

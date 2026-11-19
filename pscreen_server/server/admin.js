@@ -2292,12 +2292,27 @@ function attachAdmin(app, options = {}) {
         }
     }
 
+    // 场景条件的实体状态来源，与 ESP「插入实体」弹窗里的遥控伪实体同源：
+    // HA 实体走 haCatalogService.getStates；remote.<设备>.<字段> 走机器表反查。
+    const sceneReadRemoteState = (entityId) => {
+        const match = /^remote\.([a-z0-9_]+)(?:\.([a-z]+))?$/i.exec(String(entityId || ''));
+        if (!match) return '';
+        const machines = readMachines();
+        const machine = Object.values(machines).find((m) => remoteEntityId(m.id) === `remote.${match[1].toLowerCase()}`);
+        if (!machine || (machine.kind !== 'home' && machine.kind !== 'tv')) return '';
+        const fields = remoteStateFields(remoteStateOf(machine.commAccount || ''));
+        if (match[2] && REMOTE_STATE_FIELDS.includes(match[2])) return fields[match[2]] || '';
+        return fields.text || '';
+    };
+
     const sceneEngine = attachScenes({
         file: scenesFile,
         runAction: runSceneAction,
         listMachines: espMachines,
         labelOf: sceneActionLabel,
         checkRemote: checkSceneRemote,
+        getStates: (ids) => haCatalogService.getStates(ids),
+        readRemoteState: sceneReadRemoteState,
         log: (message) => console.log(`[scenes] ${message}`),
     });
 

@@ -6,8 +6,12 @@
   // ESP「插入实体」同一个窗口）和 /api/admin/remote/devices 的能力表，
   // 保证后台配的动作和小屏按键可用命令一致。
   //
-  // 刻意不做的：HA 实体状态触发。服务端没有常驻 HA WS，只能 15 秒轮询，
-  // 做出来会让人以为是秒级，所以 P1 只给 感应 / 按键 / 定时 三种触发。
+  // 触发编辑是「规则卡片」结构：规则内 AND、规则间 OR。服务端每 15 秒（可配）
+  // 轮询一次 HA 状态，所以实体状态条件不是秒级，界面上要写明轮询间隔。
+
+  const SMART_MAX_RULES = 8;
+  const SMART_MAX_CONDITIONS_PER_RULE = 8;
+  const SMART_MAX_CONDITIONS_TOTAL = 16;
 
   state.scenes = null;
   state.sceneSettings = null;
@@ -300,6 +304,7 @@
   function openPresencePanel() {
     const entities = state.smartPresence || [];
     const windowSec = (state.sceneSettings && state.sceneSettings.occupiedWindowSec) || 90;
+    const haPollSec = (state.sceneSettings && state.sceneSettings.haPollSec) || 15;
     const box = document.createElement('div');
     box.className = 'smart-presence';
     if (!entities.length) {
@@ -335,18 +340,35 @@
           <small>传感器只认移动。人坐着不动会一直算「无人」，超过这个秒数才判空闲。调大更稳但「人走了灯还亮」更久。</small>
         </label>`;
     }
+    // 实体状态条件的轮询间隔：无论有没有感应设备都要能改。
+    box.insertAdjacentHTML('beforeend', `
+      <label class="smart-field smart-presence-window">
+        <span>实体状态轮询（秒）</span>
+        <input type="number" id="smart-ha-poll" min="5" max="60" value="${haPollSec}">
+        <small>「实体状态」触发条件多久读一次 HA / 遥控状态。默认 15 秒；调小更灵敏但请求更多。范围 5–60 秒。</small>
+      </label>`);
     openDialog({
-      title: '人体感应实体',
+      title: '感应与状态设置',
       content: box,
-      saveLabel: entities.length ? '保存窗口' : '关闭',
+      saveLabel: '保存设置',
       onSave: async () => {
-        const input = $('smart-presence-window');
-        if (!input) return;
-        const value = Number(input.value);
-        if (!Number.isFinite(value) || value < 10 || value > 3600) throw new Error('窗口需要在 10–3600 秒之间');
+        const patch = {};
+        const winInput = $('smart-presence-window');
+        if (winInput) {
+          const value = Number(winInput.value);
+          if (!Number.isFinite(value) || value < 10 || value > 3600) throw new Error('判空闲窗口需要在 10–3600 秒之间');
+          patch.occupiedWindowSec = value;
+        }
+        const pollInput = $('smart-ha-poll');
+        if (pollInput) {
+          const value = Number(pollInput.value);
+          if (!Number.isFinite(value) || value < 5 || value > 60) throw new Error('轮询间隔需要在 5–60 秒之间');
+          patch.haPollSec = value;
+        }
+        if (!Object.keys(patch).length) return;
         const saved = await api('/api/admin/scenes/settings', {
           method: 'PUT',
-          body: JSON.stringify({ occupiedWindowSec: value }),
+          body: JSON.stringify(patch),
         });
         state.sceneSettings = saved;
         await loadScenes(true);
@@ -356,6 +378,45 @@
 
   // ------------------------------------------------------------ 编辑弹层
 
+  function smartNewCondition(type = 'presence') {
+    const base = { type };
+    if (type === 'presence') return { ...base, deviceId: '', state: 'present', holdSec: 10 };
+    if (type === 'button') return { ...base, deviceId: '', slot: 0 };
+    if (type === 'time') return { ...base, at: '07:30' };
+    if (type === 'ha_state') return { ...base, entityId: '', attr: '', op: 'eq', value: '' };
+    return { ...base, days: [], start: '', end: '' }; // window
+  }
+
+  /**
+   * 把历史 trigger 迁移成规则卡片结构（与服务端 scenes.js 的 ruleListOf 同口径）：
+   * - 旧 AND 组 → 一条规则放全部条件；旧 OR 组 → 一条条件一条规则（规则间本来就是 OR）
+   * - 更早的单 trigger → 一条规则一条条件
+   * 读时迁移，不改落库数据，直到用户点保存。
+   */
+  function smartRulesOf(trigger) {
+    if (!trigger || typeof trigger !== 'object') return [];
+    if (Array.isArray(trigger.rules)) {
+      return trigger.rules
+        .filter((rule) => rule && Array.isArray(rule.conditions) && rule.conditions.length)
+        .map((rule) => ({ conditions: rule.conditions.map((c) => ({ ...c })) }));
+    }
+    if (Array.isArray(trigger.conditions) && trigger.conditions.length) {
+      if (trigger.logic === 'or') return trigger.conditions.map((c) => ({ conditions: [{ ...c }] }));
+      return [{ conditions: trigger.conditions.map((c) => ({ ...c })) }];
+    }
+    if (trigger.type) return [{ conditions: [{ ...trigger }] }];
+    return [];
+  }
+
+  function smartTriggerGroup(trigger) {
+    const rules = smartRulesOf(trigger);
+    return { rules: rules.length ? rules : [{ conditions: [smartNewCondition()] }] };
+  }
+
+  const SMART_COND_LABEL = {
+    presence: '人体感应', button: '小屏按键', time: '定时', ha_state: '实体状态', window: '允许触发时间',
+  };
+
   function openSceneEditor(scene, kind) {
     const isNew = !scene;
     const draft = isNew ? {
@@ -364,14 +425,14 @@
       name: '',
       enabled: true,
       cooldownSec: 30,
-      trigger: { type: 'presence', deviceId: '', state: 'present', slot: 0, at: '', holdSec: 10 },
+      trigger: { rules: [{ conditions: [smartNewCondition()] }] },
       window: { days: [], start: '', end: '' },
       actions: [{ type: 'ha', entityId: '', action: 'turn_on', param: '', onError: 'stop' }],
     } : JSON.parse(JSON.stringify(scene));
     if (draft.kind === 'manual') {
       draft.trigger = null;
-    } else if (!draft.trigger) {
-      draft.trigger = { type: 'presence', deviceId: '', state: 'present', slot: 0, at: '', holdSec: 10 };
+    } else {
+      draft.trigger = smartTriggerGroup(draft.trigger);
     }
     if (!draft.actions || !draft.actions.length) {
       draft.actions = [{ type: 'ha', entityId: '', action: 'turn_on', param: '', onError: 'stop' }];
@@ -385,15 +446,15 @@
         <input data-f="name" maxlength="40" placeholder="${draft.kind === 'manual' ? '例如：回家模式' : '例如：回家自动开灯'}">
       </label>
       <div class="smart-trigger-block"${draft.kind === 'manual' ? ' hidden' : ''}>
-        <div class="smart-field">
-          <span>触发方式</span>
-          <select data-f="triggerType">
-            <option value="presence">人体感应（秒级）</option>
-            <option value="button">小屏按键（按下即触发）</option>
-            <option value="time">定时（按服务器时间）</option>
-          </select>
+        <div class="smart-trigger-head">
+          <span class="smart-trigger-label">触发条件</span>
+          <span class="smart-trigger-actions">
+            <button class="btn small" type="button" data-op="add-rule">+ 添加规则</button>
+            <button class="btn small" type="button" data-op="add-condition">+ 添加条件</button>
+          </span>
         </div>
-        <div class="smart-trigger-body"></div>
+        <div class="smart-rules"></div>
+        <p class="smart-note">规则之间是「或」：任意一条规则满足就触发。每条规则内的条件是「且」：必须全部满足。条件满足即触发，重复执行由下面的「冷却时间」拦住。</p>
       </div>
       <label class="smart-field">
         <span>冷却时间（秒）</span>
@@ -416,17 +477,11 @@
     });
     nameInput.addEventListener('input', (event) => { draft.name = event.target.value; });
 
-    const triggerTypeSel = form.querySelector('[data-f="triggerType"]');
-    const triggerBody = form.querySelector('.smart-trigger-body');
+    const rulesBox = form.querySelector('.smart-rules');
     const actionsBox = form.querySelector('.smart-actions');
 
-    function renderTrigger() {
-      triggerBody.innerHTML = '';
-      if (draft.kind === 'manual') return;
-      const trigger = draft.trigger;
-      triggerTypeSel.value = trigger.type;
-      // 触发源只列 ESP 小屏。先收「上报过感应的设备」（scenes 接口已带回），
-      // 再用 overview 里的 ESP 补齐没接过传感器的设备（按键触发需要）。
+    /** 触发源设备下拉：感应 / 按键都只列 ESP 小屏。 */
+    function espDeviceOptions() {
       const seen = new Set();
       const devices = [];
       const push = (id, name) => {
@@ -441,67 +496,256 @@
           || Array.isArray(machine.espPages);
         if (isEsp) push(machine.id, machine.name);
       });
-      const devOptions = devices.map((device) => `<option value="${esc(device.id)}">${esc(device.name)}</option>`).join('');
+      return devices.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+    }
 
-      if (trigger.type === 'time') {
-        triggerBody.innerHTML = `<label class="smart-field"><span>每天几点</span>
-          <input type="time" data-t="at" value="${esc(trigger.at || '07:30')}"></label>`;
-        triggerBody.querySelector('[data-t="at"]').addEventListener('input', (event) => {
-          draft.trigger.at = event.target.value;
+    /** 单个条件的参数区。ha_state 复用「插入实体」弹窗（含遥控伪实体）。 */
+    function renderConditionBody(box, cond) {
+      const devOptions = espDeviceOptions();
+      if (cond.type === 'presence') {
+        box.innerHTML = `<div class="smart-field-row">
+          <label class="smart-field"><span>哪台小屏</span>
+            <select data-c="deviceId"><option value="">请选择…</option>${devOptions}</select></label>
+          <label class="smart-field"><span>状态</span>
+            <select data-c="state">
+              <option value="present">有人</option>
+              <option value="absent">无人</option>
+            </select></label>
+          <label class="smart-field"><span>持续（秒）</span>
+            <input type="number" data-c="holdSec" min="0" max="3600" value="${Number(cond.holdSec) || 0}"></label>
+        </div>
+        <p class="smart-note">持续 0 秒 = 检测到就执行。传感器只认移动，建议 5–15 秒。</p>`;
+        const sel = box.querySelector('[data-c="deviceId"]');
+        sel.value = cond.deviceId || '';
+        sel.addEventListener('change', (e) => { cond.deviceId = e.target.value; });
+        const stateSel = box.querySelector('[data-c="state"]');
+        stateSel.value = cond.state || 'present';
+        stateSel.addEventListener('change', (e) => { cond.state = e.target.value; });
+        box.querySelector('[data-c="holdSec"]').addEventListener('input', (e) => {
+          cond.holdSec = Number(e.target.value) || 0;
         });
-        return;
-      }
-
-      if (!devices.length) {
-        triggerBody.innerHTML = '<p class="smart-note">还没有 ESP 小屏。感应和按键触发都需要一台先上报过的小屏。</p>';
-        return;
-      }
-      if (trigger.type === 'presence') {
-        triggerBody.innerHTML = `
+      } else if (cond.type === 'button') {
+        box.innerHTML = `<div class="smart-field-row">
+          <label class="smart-field"><span>哪台小屏</span>
+            <select data-c="deviceId"><option value="">请选择…</option>${devOptions}</select></label>
+          <label class="smart-field"><span>槽位</span>
+            <select data-c="slot">
+              <option value="0">任意按键</option>
+              ${[1, 2, 3, 4, 5, 6, 7, 8].map((s) => `<option value="${s}">槽位 ${s}</option>`).join('')}
+            </select></label>
+        </div>
+        <p class="smart-note">按下按键时触发。按键自己的动作照常执行，这里是额外的联动。</p>`;
+        const sel = box.querySelector('[data-c="deviceId"]');
+        sel.value = cond.deviceId || '';
+        sel.addEventListener('change', (e) => { cond.deviceId = e.target.value; });
+        const slotSel = box.querySelector('[data-c="slot"]');
+        slotSel.value = String(cond.slot || 0);
+        slotSel.addEventListener('change', (e) => { cond.slot = Number(e.target.value) || 0; });
+      } else if (cond.type === 'time') {
+        box.innerHTML = `<label class="smart-field"><span>每天几点</span>
+          <input type="time" data-c="at" value="${esc(cond.at || '07:30')}"></label>
+          <p class="smart-note">按服务器时间，每分钟最多触发一次。</p>`;
+        box.querySelector('[data-c="at"]').addEventListener('input', (e) => { cond.at = e.target.value; });
+      } else if (cond.type === 'ha_state') {
+        box.innerHTML = `
           <div class="smart-field-row">
-            <label class="smart-field"><span>哪台小屏</span>
-              <select data-t="deviceId"><option value="">请选择…</option>${devOptions}</select></label>
-            <label class="smart-field"><span>状态</span>
-              <select data-t="state">
-                <option value="present">有人</option>
-                <option value="absent">无人</option>
-              </select></label>
-            <label class="smart-field"><span>持续（秒）</span>
-              <input type="number" data-t="holdSec" min="0" max="3600" value="${Number(trigger.holdSec) || 0}"></label>
+            <label class="smart-field"><span>实体（含遥控状态）</span>
+              <span class="smart-ent-pick"><input data-c="entityId" placeholder="点选择或输入 entity_id" value="${esc(cond.entityId || '')}">
+                <button class="btn small" type="button" data-c="pick">选择</button></span></label>
+            <label class="smart-field"><span>属性（可空=状态本身）</span>
+              <input data-c="attr" placeholder="如 temperature" value="${esc(cond.attr || '')}"></label>
           </div>
-          <p class="smart-note">持续 0 秒 = 检测到就执行。传感器只认移动，建议 5–15 秒，避免人走过走廊就开灯。</p>`;
-      } else {
-        triggerBody.innerHTML = `
           <div class="smart-field-row">
-            <label class="smart-field"><span>哪台小屏</span>
-              <select data-t="deviceId"><option value="">请选择…</option>${devOptions}</select></label>
-            <label class="smart-field"><span>槽位</span>
-              <select data-t="slot">
-                <option value="0">任意按键</option>
-                ${[1, 2, 3, 4, 5, 6, 7, 8].map((slot) => `<option value="${slot}">槽位 ${slot}</option>`).join('')}
+            <label class="smart-field"><span>比较</span>
+              <select data-c="op">
+                <option value="eq">等于</option><option value="neq">不等于</option>
+                <option value="contains">包含</option><option value="gt">大于</option>
+                <option value="lt">小于</option><option value="exists">有值</option>
               </select></label>
+            <label class="smart-field"><span>比较值</span>
+              <input data-c="value" placeholder="如 on / 26 / 打开" value="${esc(cond.value || '')}"></label>
           </div>
-          <p class="smart-note">按下按键时触发。按键自己的动作照常执行，这里是额外的联动。</p>`;
-      }
-
-      const devSel = triggerBody.querySelector('[data-t="deviceId"]');
-      devSel.value = trigger.deviceId || '';
-      devSel.addEventListener('change', (event) => { draft.trigger.deviceId = event.target.value; });
-      const stateSel = triggerBody.querySelector('[data-t="state"]');
-      if (stateSel) {
-        stateSel.value = trigger.state || 'present';
-        stateSel.addEventListener('change', (event) => { draft.trigger.state = event.target.value; });
-      }
-      const slotSel = triggerBody.querySelector('[data-t="slot"]');
-      if (slotSel) {
-        slotSel.value = String(trigger.slot || 0);
-        slotSel.addEventListener('change', (event) => { draft.trigger.slot = Number(event.target.value) || 0; });
-      }
-      const holdInput = triggerBody.querySelector('[data-t="holdSec"]');
-      if (holdInput) {
-        holdInput.addEventListener('input', (event) => { draft.trigger.holdSec = Number(event.target.value) || 0; });
+          <p class="smart-note" data-c="ha-note">服务端每 ${esc(String((state.sceneSettings || {}).haPollSec || 15))} 秒读一次状态；数值比较用于温度、音量等。选「有值」时不用填比较值。</p>`;
+        box.querySelector('[data-c="op"]').value = cond.op || 'eq';
+        box.querySelector('[data-c="entityId"]').addEventListener('input', (e) => { cond.entityId = e.target.value.trim(); });
+        box.querySelector('[data-c="attr"]').addEventListener('input', (e) => { cond.attr = e.target.value.trim(); });
+        box.querySelector('[data-c="op"]').addEventListener('change', (e) => { cond.op = e.target.value; });
+        box.querySelector('[data-c="value"]').addEventListener('input', (e) => { cond.value = e.target.value; });
+        box.querySelector('[data-c="pick"]').addEventListener('click', () => {
+          const entityInput = box.querySelector('[data-c="entityId"]');
+          const note = box.querySelector('[data-c="ha-note"]');
+          openEntityPicker({
+            title: '选择触发条件 · 实体状态',
+            value: cond.entityId || '',
+            // 与 ESP「插入实体到主状态」同源：HA 实体 + 遥控状态伪实体混选。
+            extraEntities: typeof espRemoteStatusEntities === 'function' ? espRemoteStatusEntities() : null,
+            withAttributes: true,
+            onPick: (entity) => {
+              cond.entityId = entity.id;
+              cond.attr = entity.attr || '';
+              entityInput.value = cond.entityId;
+              box.querySelector('[data-c="attr"]').value = cond.attr;
+              note.textContent = `${entity.name || entity.id}｜当前值：${entity.state || '—'}${cond.attr ? ` · 属性 ${cond.attr}` : ''}`;
+            },
+          });
+        });
+      } else if (cond.type === 'window') {
+        const labelMap = ['日', '一', '二', '三', '四', '五', '六'];
+        box.innerHTML = `
+          <div class="smart-weekdays">
+            ${labelMap.map((label, i) => `<label class="smart-day"><input type="checkbox" data-c="day" value="${i}" ${(cond.days || []).includes(i) ? 'checked' : ''}>${label}</label>`).join('')}
+          </div>
+          <div class="smart-field-row">
+            <label class="smart-field"><span>开始</span><input type="time" data-c="start" value="${esc(cond.start || '')}"></label>
+            <label class="smart-field"><span>结束</span><input type="time" data-c="end" value="${esc(cond.end || '')}"></label>
+          </div>
+          <p class="smart-note">都不填 = 全天；支持跨零点（如 22:00–02:00）；星期都不勾 = 每天。</p>`;
+        box.querySelectorAll('[data-c="day"]').forEach((input) => {
+          input.addEventListener('change', () => {
+            cond.days = [...box.querySelectorAll('[data-c="day"]:checked')].map((item) => Number(item.value));
+          });
+        });
+        box.querySelector('[data-c="start"]').addEventListener('input', (e) => { cond.start = e.target.value; });
+        box.querySelector('[data-c="end"]').addEventListener('input', (e) => { cond.end = e.target.value; });
       }
     }
+
+    function totalConditions() {
+      if (!draft.trigger) return 0;
+      return draft.trigger.rules.reduce((sum, rule) => sum + rule.conditions.length, 0);
+    }
+
+    /**
+     * 新增后重画整块，旧 DOM 会失效；用 rAF 再定位新卡片并滚过去。
+     * 不滚的话用户在长表单里看不到变化，会以为点了没加上反复点。
+     */
+    function scrollSmartInto(ruleIndex, condIndex) {
+      requestAnimationFrame(() => {
+        const selector = condIndex == null
+          ? `.smart-rule[data-rule-index="${ruleIndex}"]`
+          : `.smart-rule[data-rule-index="${ruleIndex}"] .smart-condition[data-cond-index="${condIndex}"]`;
+        const target = form.querySelector(selector);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+
+    function addCondition(ruleIndex) {
+      if (!draft.trigger) return;
+      const rule = draft.trigger.rules[ruleIndex];
+      if (!rule) return;
+      if (totalConditions() >= SMART_MAX_CONDITIONS_TOTAL) {
+        toast(`最多 ${SMART_MAX_CONDITIONS_TOTAL} 条触发条件`, 'error');
+        return;
+      }
+      if (rule.conditions.length >= SMART_MAX_CONDITIONS_PER_RULE) {
+        toast(`每条规则最多 ${SMART_MAX_CONDITIONS_PER_RULE} 条条件`, 'error');
+        return;
+      }
+      rule.conditions.push(smartNewCondition());
+      renderRules();
+      scrollSmartInto(ruleIndex, rule.conditions.length - 1);
+    }
+
+    function renderRules() {
+      if (!draft.trigger) return;
+      rulesBox.innerHTML = '';
+      draft.trigger.rules.forEach((rule, ruleIndex) => {
+        // 规则之间有显式的「或」分隔，避免用户把两张卡片误读成同时生效。
+        if (ruleIndex > 0) {
+          const joiner = document.createElement('div');
+          joiner.className = 'smart-rule-or';
+          joiner.textContent = '或';
+          rulesBox.appendChild(joiner);
+        }
+        const card = document.createElement('div');
+        card.className = 'smart-rule';
+        card.dataset.ruleIndex = String(ruleIndex);
+        card.innerHTML = `
+          <div class="smart-rule-head">
+            <span class="smart-rule-no">规则 ${ruleIndex + 1}</span>
+            <span class="smart-rule-hint">本规则的条件全部满足即触发</span>
+            <button class="icon-btn danger" type="button" data-r="del" title="删除这条规则">×</button>
+          </div>
+          <div class="smart-rule-conditions"></div>
+          <button class="btn small smart-rule-add" type="button" data-r="add-condition">+ 条件</button>`;
+
+        const list = card.querySelector('.smart-rule-conditions');
+        rule.conditions.forEach((cond, index) => {
+          if (index > 0) {
+            const joiner = document.createElement('div');
+            joiner.className = 'smart-rule-and';
+            joiner.textContent = '且';
+            list.appendChild(joiner);
+          }
+          const item = document.createElement('div');
+          item.className = 'smart-condition';
+          item.dataset.condIndex = String(index);
+          item.innerHTML = `
+            <div class="smart-condition-head">
+              <span class="smart-condition-no">${index + 1}</span>
+              <select data-c="type">
+                ${Object.entries(SMART_COND_LABEL).map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}
+              </select>
+              <button class="icon-btn" type="button" data-c="remove" title="删除这条条件">×</button>
+            </div>
+            <div class="smart-condition-body"></div>`;
+          const typeSel = item.querySelector('[data-c="type"]');
+          typeSel.value = cond.type;
+          typeSel.addEventListener('change', (event) => {
+            rule.conditions[index] = smartNewCondition(event.target.value);
+            renderRules();
+            scrollSmartInto(ruleIndex, index);
+          });
+          item.querySelector('[data-c="remove"]').addEventListener('click', () => {
+            if (rule.conditions.length <= 1) {
+              toast('每条规则至少保留一条条件；要删就删整条规则', 'error');
+              return;
+            }
+            rule.conditions.splice(index, 1);
+            renderRules();
+            scrollSmartInto(ruleIndex, Math.min(index, rule.conditions.length - 1));
+          });
+          renderConditionBody(item.querySelector('.smart-condition-body'), cond);
+          list.appendChild(item);
+        });
+
+        card.querySelector('[data-r="del"]').addEventListener('click', () => {
+          if (draft.trigger.rules.length <= 1) { toast('至少保留一条触发规则', 'error'); return; }
+          draft.trigger.rules.splice(ruleIndex, 1);
+          renderRules();
+          scrollSmartInto(Math.min(ruleIndex, draft.trigger.rules.length - 1), null);
+        });
+        card.querySelector('[data-r="add-condition"]').addEventListener('click', () => addCondition(ruleIndex));
+        rulesBox.appendChild(card);
+      });
+    }
+
+    form.querySelector('[data-op="add-rule"]').addEventListener('click', () => {
+      if (!draft.trigger) return;
+      if (draft.trigger.rules.length >= SMART_MAX_RULES) {
+        toast(`最多 ${SMART_MAX_RULES} 条触发规则`, 'error');
+        return;
+      }
+      if (totalConditions() >= SMART_MAX_CONDITIONS_TOTAL) {
+        toast(`最多 ${SMART_MAX_CONDITIONS_TOTAL} 条触发条件`, 'error');
+        return;
+      }
+      draft.trigger.rules.push({ conditions: [smartNewCondition()] });
+      renderRules();
+      scrollSmartInto(draft.trigger.rules.length - 1, null);
+    });
+
+    form.querySelector('[data-op="add-condition"]').addEventListener('click', () => {
+      if (!draft.trigger) return;
+      // 顶部按钮加到「离用户最近」的一条规则：从后往前找还有空位的那条。
+      for (let i = draft.trigger.rules.length - 1; i >= 0; i -= 1) {
+        if (draft.trigger.rules[i].conditions.length < SMART_MAX_CONDITIONS_PER_RULE) {
+          addCondition(i);
+          return;
+        }
+      }
+      toast(`每条规则最多 ${SMART_MAX_CONDITIONS_PER_RULE} 条条件`, 'error');
+    });
 
     function renderActions() {
       actionsBox.innerHTML = '';
@@ -761,11 +1005,6 @@
       box.appendChild(wrap);
     }
 
-    triggerTypeSel.addEventListener('change', (event) => {
-      draft.trigger.type = event.target.value;
-      if (draft.trigger.type === 'time' && !draft.trigger.at) draft.trigger.at = '07:30';
-      renderTrigger();
-    });
     /**
      * 「手动控制」动作：引用一条已建好的手动控制。
      * 为什么不是把动作再抄一遍：抄一遍就变成两份配置，改一处忘一处；
@@ -821,7 +1060,7 @@
       renderActions();
     });
 
-    renderTrigger();
+    renderRules();
     renderActions();
 
     openDialog({
@@ -858,13 +1097,23 @@
           }),
         };
         if (draft.kind === 'auto') {
+          // 规则内 AND、规则间 OR；服务端只认 rules 结构，旧结构在读入时已迁移。
           payload.trigger = {
-            type: draft.trigger.type,
-            deviceId: draft.trigger.deviceId || '',
-            state: draft.trigger.state || 'present',
-            slot: Number(draft.trigger.slot) || 0,
-            at: draft.trigger.at || '',
-            holdSec: Number(draft.trigger.holdSec) || 0,
+            rules: draft.trigger.rules.map((rule) => ({
+              conditions: rule.conditions.map((cond) => {
+                if (cond.type === 'presence') {
+                  return { type: 'presence', deviceId: cond.deviceId || '', state: cond.state || 'present', holdSec: Number(cond.holdSec) || 0 };
+                }
+                if (cond.type === 'button') {
+                  return { type: 'button', deviceId: cond.deviceId || '', slot: Number(cond.slot) || 0 };
+                }
+                if (cond.type === 'time') return { type: 'time', at: cond.at || '' };
+                if (cond.type === 'ha_state') {
+                  return { type: 'ha_state', entityId: (cond.entityId || '').trim(), attr: (cond.attr || '').trim(), op: cond.op || 'eq', value: (cond.value || '').trim() };
+                }
+                return { type: 'window', days: (cond.days || []).map(Number), start: cond.start || '', end: cond.end || '' };
+              }),
+            })),
           };
         }
         if (!payload.name) {

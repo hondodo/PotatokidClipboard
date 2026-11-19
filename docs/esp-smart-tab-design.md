@@ -1,8 +1,17 @@
-# 后台「智能」Tab 设计说明 v1.1
+# 后台「智能」Tab 设计说明 v1.3
 
-> 状态：**P1 已实现并上线**（2026-11-19）。服务端 `server/scenes.js` + `server/admin.js` 挂载，前端 `web/admin_js/12-smart.js`。
-> 配套原型：`docs/esp-smart-tab-prototype.html`（可直接点击：列表 / 编辑 / 触发器弹层 / 感应实体页）
+> 状态：**P1 + 触发规则卡片已实现并部署**（2026-11-19 20:18）。服务端 `server/scenes.js` + `server/admin.js` 挂载，前端 `web/admin_js/12-smart.js`。
+> 配套原型：`docs/esp-smart-tab-prototype.html`（原型为 P1 单触发版，v1.3 规则卡片以线上 admin 为准）
 > 日期：2026-11-19　范围：pscreen_server 后台 + ESP 固件感应上报链路
+>
+> **v1.2 变更（触发条件组）**：触发从「单个 trigger」升级为「条件组 `{logic:'and'|'or', conditions:[...]}`」；
+> 新增 `ha_state`（HA 实体 / 遥控状态，15 秒可配轮询）与 `window`（允许触发时间窗）两类条件。
+>
+> **v1.3 变更（规则卡片，本次）**：条件组再升级为 `{ rules:[{ conditions:[...] }] }`——
+> 一张规则卡片内的条件是 **AND**，规则卡片之间是 **OR**，两种关系可以同时表达，不再二选一。
+> 编辑弹层去掉全局 AND/OR 下拉，改为「+ 添加规则」「+ 添加条件」两个按钮；
+> 新增规则/条件后自动滚动到新卡片。触发时机**不变**（满足条件即触发 + 冷却防重复），不做边沿/状态保持。
+> 旧单 trigger 与旧 AND/OR 条件组在读配置时自动迁移为 rules（AND 组→1 条规则，OR 组→每条条件 1 条规则）。
 
 ## 零、已拍板的三个决策（2026-11-19 确认）
 
@@ -102,14 +111,24 @@ presence.<deviceId>        例：presence.esp32s3_3030f96cd03c
 ```json
 {
   "version": 1,
-  "settings": { "occupiedWindowSec": 90 },
+  "settings": { "occupiedWindowSec": 90, "haPollSec": 15 },
   "scenes": [
     {
       "id": "s_hjj_kaideng",
       "name": "回家自动开灯",
       "kind": "auto",
       "enabled": true,
-      "trigger": { "type": "presence", "deviceId": "esp32s3-3030f96cd03c", "state": "present", "holdSec": 10 },
+      "trigger": {
+        "rules": [
+          {
+            "conditions": [
+              { "type": "presence", "deviceId": "esp32s3-3030f96cd03c", "state": "present", "holdSec": 10 },
+              { "type": "ha_state", "entityId": "light.ke_ting_zhu_deng", "op": "eq", "value": "off" }
+            ]
+          },
+          { "conditions": [{ "type": "time", "at": "07:30" }] }
+        ]
+      },
       "window": { "days": [], "start": "", "end": "" },
       "actions": [
         { "type": "ha", "entityId": "light.ke_ting_zhu_deng", "action": "turn_on", "param": "", "onError": "stop" },
@@ -131,10 +150,15 @@ presence.<deviceId>        例：presence.esp32s3_3030f96cd03c
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
-| `trigger.type` | `presence` / `button` / `time` / `ha_state` | `ha_state` 属二期 |
-| `trigger.holdSec` | 0–3600 | 持续多久才触发，presence 默认 10；**这是防抖的关键** |
-| `trigger.state` | `present` / `absent` / 具体 HA 状态 | |
-| `window` | `days[]` + 时段 | 空数组 = 每天；空时段 = 全天 |
+| `trigger.rules[]` | 最多 8 条 | 规则卡片，彼此 **OR**；旧单 trigger / 旧 AND 组迁移成 1 条规则，旧 OR 组迁移成每条条件 1 条规则 |
+| `trigger.rules[].conditions[]` | 每规则最多 8 条、总计最多 16 条 | 规则内条件彼此 **AND**，每条是一张条件卡 |
+| `conditions[].type` | `presence` / `button` / `time` / `ha_state` / `window` | 五类条件 |
+| `conditions[].holdSec` | 0–3600 | presence 专用，持续多久才触发，默认 10；**这是防抖的关键** |
+| `conditions[].state` | `present` / `absent` | presence 用 |
+| `conditions[].entityId` / `attr` / `op` / `value` | HA 实体 / 遥控伪实体 | `ha_state` 用；`op` = eq/neq/contains/gt/lt/exists；选「有值」时 value 可空 |
+| `conditions[].days` / `start` / `end` | 星期数组 + 时段 | `window` 用；空数组 = 每天；空时段 = 全天；支持跨零点 |
+| `window`（旧字段） | `days[]` + 时段 | 兼容旧配置的全局时间闸门，新配置用 `window` 条件卡 |
+| `settings.haPollSec` | 5–60，默认 15 | `ha_state` 条件读 HA / 遥控状态的轮询间隔，在「感应与状态设置」里改 |
 | `actions[].type` | `ha` / `remote` / `delay` / `esp_page` | 前三项现有执行器已支持，`esp_page` 二期 |
 | `actions[].onError` | `stop` / `continue` | 默认 `stop`，符合「按顺序，失败即停」 |
 | `cooldownSec` | 0–3600 | 同场景重入间隔，防传感器抖动连续触发 |
@@ -175,9 +199,12 @@ presence.<deviceId>        例：presence.esp32s3_3030f96cd03c
 | `presence` | `POST /api/device/heartbeat` 里写 `espPresence` 的那段（admin.js:3399 附近），跳变时调用 `sceneEngine.onPresence()` | < 1 秒 |
 | `button` | `POST /api/device/esp/press` 里执行完按键动作后，再调 `sceneEngine.onButton()` | < 1 秒 |
 | `time` | 新增一个 60 秒 `setInterval`，比对「当前分钟是否等于场景时间」 | ±1 分钟 |
-| `ha_state`（二期） | 15 秒 `setInterval` 拉 `/api/states`，与上一次快照 diff | 15 秒级 |
+| `ha_state` | `tick()` 内按 `settings.haPollSec`（默认 15 秒，5–60 可配）独立节流，走注入的 `getStates`（复用 `haCatalogService.getStates`）；遥控伪实体 `remote.*` 走注入的 `readRemoteState`（与「插入实体」弹窗同源） | 15 秒级 |
+| `window` | 并入轮询后的状态判定；`inWindow()` 判星期 + 时段，支持跨零点 | 15 秒级 |
 
-> 关键：`presence` 的 `holdSec` 不是「等 10 秒再执行」，而是「进入时记下 pendingAt，10 秒后仍在有人状态才执行」。中途变无人则取消 pending。这样不会因为人走过走廊误触发。
+> 关键 1：**触发时机不变**——条件满足即触发，重复执行由 `cooldownSec` 拦；引擎不做边沿检测、不做「状态保持 N 秒」（用户明确口径）。
+> 关键 2：`presence` 的 `holdSec` 不是「等 10 秒再执行」，而是「进入时记下 pendingAt，10 秒后仍在有人状态才执行」。中途变无人则取消 pending。这样不会因为人走过走廊误触发。条件组里 presence 用 `occupied` 窗口（而非瞬时电平）判定，否则 AND 组合会被 PIR 两秒掉电平反复打断。
+> 关键 3：HA 轮询用独立 `lastHaPoll` 节流，**不能放在 time 判定的 30 秒节流之后**，否则配 15 秒实际变 30 秒（本次实现踩过并修掉）。
 
 ### 6.2 执行器复用
 
@@ -226,18 +253,32 @@ idle ──触发──▶ pending(holdSec 计时) ──满足──▶ running
 ### P1（已实现，2026-11-19 上线）
 
 1. 智能 Tab：列表 + 手动控制执行 + 自动化开关
-2. 自动化编辑：presence / button / time 三类触发，ha / remote / delay 三类动作
+2. 自动化编辑：规则卡片（规则内 AND、规则间 OR）+ presence / button / time / ha_state / window 五类条件，ha / remote / delay / scene 四类动作
 3. `presence` + `occupied` 双状态实体，后台实体详情页（含窗口可调）
 4. `POST /run` 逐步结果 + 失败时弹步骤明细（成功只 toast，不打断）
 
 实现落点：`server/scenes.js`（引擎 + 存储 + 感应实体）、`server/admin.js`（注入执行器、
 8 个接口、心跳与按键联动、1 秒 tick）、`web/admin_js/12-smart.js`（前端）、`web/admin.css`。
 
-### P2（触发需求出现再做）
+### P2（已提到 P1 完成，v1.2）
 
-1. HA 实体状态触发（15 秒轮询）
-2. 条件（condition）：只有满足时才执行
+1. ~~HA 实体状态触发（15 秒轮询）~~ — 已上线，`ha_state` 条件 + `settings.haPollSec`
+2. ~~条件（condition）：多条件 AND/OR~~ — 已上线，v1.3 起为 `trigger.rules` 规则卡片（规则内 AND、规则间 OR）
 3. `esp_page` 动作：让指定小屏跳到某页（**要固件配合加 FORCE 行，按 D-04 本期不做**）
+
+### v1.2 验收记录（2026-11-19 19:45）
+
+- 服务端单测 `test/scenes_conditions_test.js` **11/11**：旧 trigger 迁移、五类条件归一化、非法类型拦截、AND/OR 描述、HA 匹配/不匹配、AND 一假即不触发、OR 一真即触发、遥控伪实体、window 时段外不触发、haPollSec 边界。
+- 真实 admin 页无头浏览器 **24/24**：AND/OR 下拉、增删条件、ha_state 参数、复用插入实体弹窗、window 七天与跨零点、保存落库为条件组、触发文本、回读一致。
+- 回归：`esp_sys_test.js` 14/14、`esp_template_token_test.js` 7/7、ESP 页浏览器 26/26。
+- 部署：5 文件同步到 `100.83.142.107`，备份 `.bak-smartcond-20261119_1945`，md5 对齐、远端语法校验、`pm2 restart my-server`、线上接口验证旧自动化「回家自动开灯」迁移为 `logic=and / 1 条件`。
+
+### v1.3 验收记录（2026-11-19 20:15，本地完成）
+
+- 服务端单测 `test/scenes_conditions_test.js` **14/14**：旧单 trigger / 旧 AND 组 / 旧 OR 组迁移、新 rules 五类条件、非法类型与空规则拦截、规则间「或」+ 规则内「且」描述、HA 匹配/不匹配、规则内一假即不触发、规则间一真即触发、全不满足不触发、旧 OR 组迁移后仍按 OR 触发、遥控伪实体、window 时段、haPollSec 边界。
+- 真实 admin 页无头浏览器 **36/36**：无旧 AND/OR 下拉、两个新增按钮、默认 1 规则 1 条件、「且」/「或」连接词、加规则/加条件后确实调用滚动（含 rAF）、规则内「+ 条件」、规则与条件删除守卫、复用插入实体弹窗、保存落库为 `[2,1]` 两规则、触发文本「(A 且 B) 或 C」、回读一致。
+- 回归：`esp_sys_test.js` 14/14、`esp_template_token_test.js` 7/7、`admin_alias_test.js` 6/6；改动文件 `node --check` 全通过。
+- 部署（20:17 完成）：3 文件 `server/scenes.js`、`build/web/admin_js/12-smart.js`、`build/web/admin.css` 同步到 `100.83.142.107`，备份后缀 `.bak-smartrules-20261119_2017`，LF + md5 对齐（线上回读 `045dc33d…` / `b037ee6e…` / `23189192…`）、远端 `node --check` 通过、`pm2 restart my-server` 后服务在线。线上验证：静态资源 HTTP 200 且 md5 与本地一致；`/api/admin/scenes` 读旧自动化「回家自动开灯」已迁移为 `rules=[["presence"]]`，无残留 `logic` 字段。
 4. 感应实体作为 ESP 模板变量（`{presence.state}`）——需要改 `resolveDisplay` 的取数上下文，
    单独一次改动更安全，不塞进本次
 5. 通知动作：执行成功/失败推到家长端
