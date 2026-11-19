@@ -378,23 +378,32 @@ function ruleHit(rule, entities) {
  * @param {Array} types deviceTypeService.list() 的类型清单
  * @returns {{key,label,specificity,priority,matchedRules}|null}
  */
-function classify(entities, types) {
+function classify(entities, types, options) {
     let best = null;
+    const allHits = [];
     for (const type of types || []) {
         const matched = (type.rules || []).filter((r) => ruleHit(r, entities));
         if (!matched.length) continue;
         const specificity = Math.max.apply(null, matched.map((r) => (r.conds || []).length));
         const priority = Number(type.priority) || 5;
+        const hit = {
+            key: type.key,
+            label: type.label,
+            specificity,
+            priority,
+            matchedRules: matched.map((r) => r.name),
+        };
+        allHits.push(hit);
         if (!best || specificity > best.specificity
             || (specificity === best.specificity && priority > best.priority)) {
-            best = {
-                key: type.key,
-                label: type.label,
-                specificity,
-                priority,
-                matchedRules: matched.map((r) => r.name),
-            };
+            best = hit;
         }
+    }
+    // 命中测试用：附带全部命中类型，便于看清「为什么选了它」。
+    // 普通调用（自动分类）不传 options，行为完全不变。
+    if (best && options && options.includeAll) {
+        best.allHits = allHits.slice().sort((a, b) =>
+            b.specificity - a.specificity || b.priority - a.priority);
     }
     return best;
 }

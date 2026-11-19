@@ -24,6 +24,7 @@ const parentalShare = require('./parental_share');
 const { FamilyStore } = require('./parental_family');
 const haCatalog = require('./ha_catalog');
 const deviceTypes = require('./deviceTypes');
+const haDeviceVisibility = require('./haDeviceVisibility');
 const { attachScenes } = require('./scenes');
 
 // D-02 硬阻塞地基：家庭级主档案模型。默认关闭，开标志位才启用读路径切换
@@ -1299,6 +1300,10 @@ function attachAdmin(app, options = {}) {
     // datas/admin/deviceTypes.json，admin 页改一处两端生效。
     const deviceTypesFile = path.join(adminDir, 'deviceTypes.json');
     const deviceTypeService = deviceTypes.createDeviceTypeService({ file: deviceTypesFile });
+
+    // HA 设备「是否显示到中控屏」开关（三态：未配置/显示/隐藏）。
+    const haDeviceVisibilityFile = path.join(adminDir, 'haDeviceVisibility.json');
+    const haDeviceVisibilityService = haDeviceVisibility.createHaDeviceVisibilityService({ file: haDeviceVisibilityFile });
 
     // HA 实体目录服务：拉注册表 + 状态 + 服务清单，按「家 → 房间」分组。
     // 带 60 秒缓存（HA 在同一局域网内，实时性要求不高）；HA 短暂不可用时
@@ -3999,8 +4004,8 @@ function attachAdmin(app, options = {}) {
         const pageObj = pages[page - 1] || null;
         const actions = pageObj ? pageObj.buttons.filter((item) => item.enabled) : [];
 
-        // 按页面绑定的设备类型 + 实体，读 HA 状态解析屏幕四行文本。
-        // 令牌留服务端；固件只收纯文本，不认识设备类型。
+        // 按页内模板里写的实体读 HA 状态，解析屏幕四行文本。
+        // 内容完全由模板决定，无设备类型字典兜底；固件只收纯文本。
         let display = {
             title: pageObj ? pageObj.name : (machine.name || ''),
             main: pageObj ? '' : '未配置',
@@ -4009,7 +4014,6 @@ function attachAdmin(app, options = {}) {
             homeLabel: '当前状态',
         };
         if (pageObj) {
-            const bindings = pageObj.bindings || {};
             const tplMain = pageObj.tplMain || '';
             const tplSub = pageObj.tplSub || '';
             // 主/副状态模板拼成一段，供令牌解析与实体收集共用。
@@ -4026,18 +4030,13 @@ function attachAdmin(app, options = {}) {
                     tplEntityIds.push(`remote.${remoteMatch[1]}`);
                 }
             }
-            const entityIds = [...new Set([
-                bindings.main, bindings.s1, bindings.s2, ...tplEntityIds,
-            ].filter(Boolean))];
+            // 屏幕内容只认页内模板里写的实体；无设备类型字典兜底。
+            const entityIds = [...new Set(tplEntityIds.filter(Boolean))];
             if (entityIds.length) {
                 // `remote.*` 是遥控设备的实体 id，状态来自本地实时缓存，不查 HA。
                 const remoteIds = entityIds.filter((eid) => eid.startsWith('remote.'));
                 const haIds = entityIds.filter((eid) => !eid.startsWith('remote.'));
-                const dict = deviceTypes.normalizeDictEntry(pageObj.deviceType || '', null);
                 const ctx = {
-                    main: '',
-                    s1: '',
-                    s2: '',
                     title: pageObj.name,
                     entities: {},
                 };
@@ -4048,9 +4047,6 @@ function attachAdmin(app, options = {}) {
                     try {
                         const rawStates = await haCatalogService.getStates(haIds);
                         const states = mapEspStates(rawStates, globalMap, entityMap);
-                        ctx.main = espStateValue(states[bindings.main], dict.mainAttr);
-                        ctx.s1 = espStateValue(states[bindings.s1], 'state');
-                        ctx.s2 = espStateValue(states[bindings.s2], 'state');
                         for (const token of tplTokens) {
                             if (remoteIds.includes(token.baseId) || token.baseId.startsWith('remote.')) continue;
                             let value = espStateValue(states[token.baseId], token.attr);
@@ -4063,14 +4059,6 @@ function attachAdmin(app, options = {}) {
                             }
                             ctx.entities[token.key] = value;
                         }
-                        const resolved = deviceTypes.resolveDisplay({
-                            deviceType: pageObj.deviceType || '',
-                            bindings,
-                            states,
-                            deviceName: pageObj.name,
-                            buttonText: display.keys,
-                        });
-                        display = Object.assign(display, resolved);
                     } catch (error) {
                         // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
                         console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
@@ -4103,7 +4091,7 @@ function attachAdmin(app, options = {}) {
                         }
                     }
                 }
-                // 自定义模板优先，没填的行仍走设备类型字典。
+                // 屏幕内容完全来自页内模板：填了才显示，留空就是空行（无字典兜底）。
                 if (tplMain) display.main = renderEspTemplate(tplMain, ctx);
                 if (tplSub) display.sub = renderEspTemplate(tplSub, ctx);
             }
@@ -4379,14 +4367,64 @@ function attachAdmin(app, options = {}) {
         }
     });
 
-    /** admin：规则命中测试——传一组实体，返回判定结果（单一真源，前端不自己算）。 */
+    /** admin：规则命中测试——传一组实体，返回判定结果（单一真源，前端不自己算）。
+     *  可传 types（编辑器当前态，含未保存改动）以便不保存也能试；不传则用已保存规则。
+     *  附带 includeAll 返回全部命中类型，便于看清裁决过程。 */
     app.post('/api/admin/device-types/classify', requireAdmin, (req, res) => {
         try {
-            const entities = Array.isArray((req.body || {}).entities) ? req.body.entities : [];
-            const result = deviceTypes.classify(entities, deviceTypeService.list());
+            const body = req.body || {};
+            const entities = Array.isArray(body.entities) ? body.entities : [];
+            const types = Array.isArray(body.types) ? body.types : deviceTypeService.list();
+            const result = deviceTypes.classify(entities, types, { includeAll: true });
             return jsonOk(res, { result });
         } catch (error) {
             return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * admin：全局判定测试——用「编辑器当前态」的规则对所有 HA 设备跑一遍判定，
+     * 返回每台设备最新被识别的类型。前端据 currentKey 高亮当前编辑类型命中的设备。
+     * 不传 types 则用已保存规则；onlyVisible=true 时只返回「显示到中控屏」的设备。
+     */
+    app.post('/api/admin/device-types/classify-all', requireAdmin, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const types = Array.isArray(body.types) ? body.types : deviceTypeService.list();
+            const onlyVisible = body.onlyVisible === true;
+            const catalog = await haCatalogService.getCatalog();
+            const visibility = haDeviceVisibilityService.list();
+            const devices = catalog.devices || [];
+            const results = [];
+            for (const dev of devices) {
+                const visible = Object.prototype.hasOwnProperty.call(visibility, dev.id) ? visibility[dev.id] : null;
+                if (onlyVisible && visible === false) continue;
+                const entities = (dev.entities || []).map((e) => ({
+                    id: e.id, domain: e.domain, name: e.name, state: e.state,
+                    attrs: e.attributes || {},
+                    device: {
+                        name: dev.name || '',
+                        model: dev.model || '',
+                        manufacturer: dev.manufacturer || '',
+                    },
+                }));
+                const hit = deviceTypes.classify(entities, types, { includeAll: true });
+                results.push({
+                    id: dev.id,
+                    name: dev.name,
+                    areaName: dev.areaName || '',
+                    visible,
+                    key: hit ? hit.key : '',
+                    label: hit ? hit.label : '',
+                    specificity: hit ? hit.specificity : 0,
+                    priority: hit ? hit.priority : 5,
+                    allHits: hit ? (hit.allHits || []).map((h) => ({ key: h.key, label: h.label })) : [],
+                });
+            }
+            return jsonOk(res, { results, total: results.length });
+        } catch (error) {
+            console.error('[admin] 全局判定测试失败:', error.message);
+            return jsonFail(res, `全局判定测试失败：${error.message}`);
         }
     });
 
@@ -4422,6 +4460,62 @@ function attachAdmin(app, options = {}) {
         } catch (error) {
             console.error('[ha] 拉取实体目录失败:', error.message);
             return jsonFail(res, `拉取 HA 实体目录失败：${error.message}`);
+        }
+    });
+
+    /**
+     * admin：「HA 设备」页数据——按 device_id 聚合的 HA 设备清单，
+     * 附带每台设备的「是否显示到中控屏」开关状态（三态）。
+     * 复用 haCatalogService 的缓存，不额外向 HA 发请求。
+     */
+    app.get('/api/admin/ha/devices', requireAdmin, async (req, res) => {
+        try {
+            const refresh = req.query && req.query.refresh === '1';
+            const catalog = await haCatalogService.getCatalog(refresh);
+            const visibility = haDeviceVisibilityService.list();
+            const devices = (catalog.devices || []).map((d) => ({
+                ...d,
+                entityCount: (d.entities || []).length,
+                visible: Object.prototype.hasOwnProperty.call(visibility, d.id) ? visibility[d.id] : null,
+            }));
+            return jsonOk(res, {
+                devices,
+                cached: catalog.cached === true,
+                updatedAt: Date.now(),
+            });
+        } catch (error) {
+            console.error('[admin] 拉取 HA 设备列表失败:', error.message);
+            return jsonFail(res, `拉取 HA 设备列表失败：${error.message}`);
+        }
+    });
+
+    /** admin：设置单台 / 批量 HA 设备的「是否显示到中控屏」。 */
+    app.post('/api/admin/ha/devices/visibility', requireAdmin, (req, res) => {
+        try {
+            const body = req.body || {};
+            let changed;
+            if (Array.isArray(body.items)) {
+                changed = haDeviceVisibilityService.setMany(body.items);
+            } else {
+                const deviceId = String(body.deviceId || '');
+                if (!deviceId) return jsonFail(res, 'deviceId 不能为空');
+                if (typeof body.visible !== 'boolean') return jsonFail(res, 'visible 必须是布尔值');
+                changed = [haDeviceVisibilityService.set(deviceId, body.visible)];
+            }
+            return jsonOk(res, { changed }, '已保存');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** admin：清除某设备的显式显示配置（回归「未配置=保持现状」）。 */
+    app.post('/api/admin/ha/devices/visibility/reset', requireAdmin, (req, res) => {
+        try {
+            const deviceId = String((req.body || {}).deviceId || '');
+            if (!deviceId) return jsonFail(res, 'deviceId 不能为空');
+            return jsonOk(res, haDeviceVisibilityService.remove(deviceId), '已恢复默认');
+        } catch (error) {
+            return jsonFail(res, error.message);
         }
     });
 
@@ -4567,6 +4661,9 @@ function attachAdmin(app, options = {}) {
                 manualClassification: manual,
                 ruleEngineEnabled: true,
                 genericCardTypes: deviceTypeService.genericCardTypes(),
+                // HA 设备「是否显示到中控屏」显式配置（deviceId -> bool）。
+                // home 端据此从首页网格过滤：false=隐藏；未出现的设备保持现状。
+                deviceVisibility: haDeviceVisibilityService.publicMap(),
                 updatedAt: Date.now(),
             });
         } catch (error) {

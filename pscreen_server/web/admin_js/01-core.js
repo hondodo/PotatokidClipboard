@@ -21,9 +21,11 @@
     haEntities: null,
     haEntitiesLoading: false,
     haFilter: { keyword: '', domain: '', home: '', room: '', onlyFree: false, onlyActionable: true },
-    // 设备类型字典（全局真源）与 ESP 设备分类（每台设备）
+    // HA 设备（按 device_id 聚合）+ 显示开关
+    haDevices: null,
+    haDevicesTime: null,
+    // 设备类型（判定规则）与 ESP 设备分类（每台设备）
     deviceTypes: null,
-    dtEditKey: null,
     // 设备判定规则（规则引擎）
     reEditKey: null,
     reTestIdx: 0,
@@ -109,7 +111,7 @@
   function applyRoleLayout() {
     const parent = isParentRole();
     document.querySelectorAll('[data-tab]').forEach((btn) => {
-      const adminOnly = ['machines', 'users', 'layouts', 'traffic', 'programs', 'ha-entities', 'device-types', 'device-rules', 'esp-devices'].includes(btn.dataset.tab);
+      const adminOnly = ['machines', 'users', 'layouts', 'traffic', 'programs', 'ha-entities', 'ha-devices', 'device-rules', 'esp-devices'].includes(btn.dataset.tab);
       btn.hidden = parent && adminOnly;
     });
     $('stats').hidden = parent;

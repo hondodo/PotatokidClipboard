@@ -281,7 +281,7 @@
       text-align: right; font-variant-numeric: tabular-nums;
     }
 
-    /* ---------------------------------------------------------- 设备类型字典 / ESP 分类 */
+    /* ---------------------------------------------------------- ESP 分类 / 判定规则共用列表 */
     .dt-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; align-items: start; }
     /* 字典/规则系列 Tab 的卡片只有左右贴边：只补左右，上下保持原样 */
     .dt-layout > .card { padding-left: 14px; padding-right: 14px; }
@@ -292,16 +292,6 @@
     .dt-item .ic { width: 20px; text-align: center; color: var(--accent); font-size: 15px; }
     .dt-item .use { margin-left: auto; font-size: 11px; color: var(--muted-2); }
     .dt-item .cus { margin-left: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-    .dt-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-    @media(max-width:1100px){ .dt-editor { grid-template-columns: 1fr; } }
-    .dt-col { background: rgba(255, 255, 255, .025); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-    .dt-col h4 { margin: 0 0 10px; font-size: 12.5px; }
-    .dt-col.shared h4 { color: var(--accent); }
-    .dt-col.home h4 { color: #5fd6a8; }
-    .dt-col.esp h4 { color: #ffc978; }
-    .dt-field { margin-bottom: 11px; }
-    .dt-field label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
-    .dt-field input, .dt-field select { width: 100%; box-sizing: border-box; }
     .dt-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
     .espdev-list { display: flex; flex-direction: column; gap: 4px; max-height: 640px; overflow: auto; }
     .espdev-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
@@ -460,9 +450,15 @@
     /* 设备判定规则（规则引擎） */
     .re-layout { display: grid; grid-template-columns: 210px minmax(0, 1.35fr) minmax(260px, .8fr); gap: 14px; align-items: start; }
     /* 判定规则页卡片只有左右贴边：只补左右，上下保持原样 */
-    .re-layout > .card { padding-left: 14px; padding-right: 14px; }
+    .re-layout > .card, .re-center-col > .card { padding-left: 14px; padding-right: 14px; }
+    /* 中间列：判定规则在上、全局判定测试在下 */
+    .re-center-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
     @media(max-width:1240px){ .re-layout { grid-template-columns: 210px 1fr; } .re-preview { grid-column: 1 / -1; } }
     @media(max-width:820px){ .re-layout { grid-template-columns: 1fr; } }
+    .re-priority-row { display: flex; align-items: center; gap: 8px; }
+    .re-priority-row label { font-size: 11.5px; color: var(--muted); flex: none; }
+    .re-priority-row input { width: 64px; flex: none; }
+    .re-priority-row .hint { font-size: 11px; }
     .re-rule { border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; margin-bottom: 10px; background: rgba(255,255,255,.025); }
     .re-rule.off { opacity: .5; }
     .re-rule-head { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
@@ -472,16 +468,16 @@
     .re-cond .lbl { font-size: 11px; color: var(--muted-2); text-align: center; }
     .re-cond input { width: 100%; box-sizing: border-box; }
     .re-cond button, .re-btn-row button { cursor: pointer; }
+    .re-combo-menu { position: fixed; z-index: 95; width: 400px; max-width: 92vw; max-height: min(60vh, 460px); overflow: auto; padding: 5px; border: 1px solid var(--line); border-radius: 9px; background: #101820; box-shadow: 0 16px 36px rgba(0,0,0,.5); overscroll-behavior: contain; }
+    .re-combo-opt { display: grid; gap: 2px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+    .re-combo-opt .v { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); white-space: nowrap; }
+    .re-combo-opt .d { font-size: 11px; color: var(--muted-2); line-height: 1.4; }
+    .re-combo-opt:hover { background: rgba(95, 211, 196, .14); }
+    .re-combo-opt.active { background: rgba(139, 124, 246, .18); }
+    .re-combo-opt.active .v { color: var(--accent); }
     .re-btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
     .re-btn-icon { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; height: 28px; width: 26px; font-size: 15px; line-height: 1; }
     .re-btn-icon:hover { color: #ff8080; border-color: rgba(255,128,128,.5); }
-    .re-card-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .re-card-row label { width: 84px; flex: none; font-size: 11.5px; color: var(--muted); }
-    .re-card-row input { flex: 1; min-width: 0; }
-    .re-btn-chip { display: flex; gap: 5px; margin-bottom: 6px; align-items: center; }
-    .re-btn-chip input { min-width: 0; }
-    .re-btn-chip input:first-child { flex: 0 0 34%; }
-    .re-btn-chip input:nth-child(2) { flex: 1; }
     .re-test-sel { width: 100%; margin-bottom: 8px; }
     .re-ents { max-height: 150px; overflow: auto; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 10px; }
     .re-ents .en { display: flex; gap: 6px; padding: 2px 0; }
@@ -492,11 +488,7 @@
     .re-hit.win { border-left-color: #5fd6a8; background: rgba(95,214,168,.09); }
     .re-hit .nm { color: var(--text); font-weight: 600; }
     .re-hit .sc { color: var(--muted-2); font-size: 11px; }
-    .re-preview-card { border: 1px solid var(--line); border-radius: 10px; padding: 13px; margin-bottom: 10px; background: rgba(255,255,255,.02); }
-    .re-preview-card .big { font-size: 21px; font-weight: 600; margin: 6px 0 2px; }
-    .re-preview-card .sub { font-size: 12px; color: var(--muted); }
-    .re-preview-esp { background: #111; border: 2px solid #333; border-radius: 6px; padding: 9px 11px; font-family: monospace; font-size: 11.5px; line-height: 1.85; color: #ffe08a; min-height: 92px; }
-    .re-preview-esp .top { color: #7dd3fc; border-bottom: 1px solid #333; padding-bottom: 3px; margin-bottom: 3px; }
+    .re-hit.others { border-left-color: var(--muted-2); background: rgba(255,255,255,.03); }
     .re-newtype { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 10px; background: rgba(255,255,255,.02); }
 
     /* ---------------------------------------------------------- HA 实体库 */
@@ -560,6 +552,19 @@
     .ha-table-wrap td.ha-actions-td { overflow: visible; white-space: normal; }
     /* 域徽章：单词不折行，宁可列宽一点也不要出现 "sensor …" */
     .ha-table-wrap .badge { white-space: nowrap; }
+    /* HA 设备页：显示到中控屏开关 */
+    .ha-vis-cell { display: flex; align-items: center; gap: 7px; }
+    .ha-vis-cell input[type="checkbox"] { width: 16px; height: 16px; flex: none; }
+    .ha-vis-state { font-size: 11px; color: var(--muted-2); }
+    /* 全局判定测试 */
+    .re-global-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .re-global-head h3 { margin: 0 0 4px; }
+    .re-global-actions { display: flex; align-items: center; gap: 12px; }
+    .re-global-meta { font-size: 12px; color: var(--accent); margin: 8px 0; min-height: 16px; }
+    .re-global tr.re-global-hit { background: rgba(139, 124, 246, .16); }
+    .re-global tr.re-global-hit td { color: var(--accent); font-weight: 600; }
+    .re-global-vis { font-size: 11px; color: var(--muted); }
+    .re-global-vis.off { color: #ff8080; }
     /* 状态列：HA 的 state 可能是 sensor 的超长属性串（如 "0,0.48,8,8,64,..."），
        完整换行铺开显示，不做省略。 */
     .ha-state-cell { display: flex; align-items: flex-start; width: 100%; }

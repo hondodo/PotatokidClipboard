@@ -1,4 +1,5 @@
 import 'package:pscreen_home/core/network/ha_net_exceptions.dart';
+import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_registry_model.dart';
@@ -314,11 +315,18 @@ class HomeState {
   /// - 房间视图：在家庭顺序基础上按当前房间过滤；
   /// - 保存列表里没有的新卡片按默认排序追加到末尾。
   List<HaDeviceGroup> get deviceGroups {
-    final List<HaDeviceGroup> groups = HaDeviceGroup.group(
+    List<HaDeviceGroup> groups = HaDeviceGroup.group(
       entities: _filteredEntities,
       deviceIdOf: registry.deviceIdOf,
       deviceNameOf: (String deviceId) => registry.devices[deviceId]?.name,
     );
+    // 后台「是否显示到中控屏」开关：显式设为隐藏的设备从首页网格移除。
+    // 未配置的设备不在 visibility map 里，isDeviceHidden 返回 false，保持现状。
+    final DeviceTypeDictionary dict = DeviceTypeDictionary.active;
+    groups = groups.where((HaDeviceGroup g) {
+      final String? deviceId = g.deviceId;
+      return deviceId == null || !dict.isDeviceHidden(deviceId);
+    }).toList();
     final String home = effectiveHomeName;
     final List<String> base = home.isEmpty
         ? cardOrderAll

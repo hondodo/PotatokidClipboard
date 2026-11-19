@@ -4,94 +4,7 @@
     if (state.deviceTypes && !force) return state.deviceTypes;
     const data = await api('/api/admin/device-types');
     state.deviceTypes = data.types || [];
-    if (!state.dtEditKey && state.deviceTypes.length) state.dtEditKey = state.deviceTypes[0].key;
-    renderDeviceTypes();
     return state.deviceTypes;
-  }
-
-  function renderDeviceTypes() {
-    const list = $('dt-list');
-    if (!list || !state.deviceTypes) return;
-    // 统计每种类型被多少个屏幕页面使用（一个页面 = 一台被控设备）。
-    const usage = {};
-    for (const dev of (state.espDevices || [])) {
-      for (const page of (dev.espPages || [])) {
-        const key = page.deviceType || '';
-        usage[key] = (usage[key] || 0) + 1;
-      }
-    }
-    list.innerHTML = state.deviceTypes.map((t) => {
-      const active = t.key === state.dtEditKey ? ' active' : '';
-      const cus = t.customized ? '<span class="cus" title="已自定义"></span>' : '';
-      const use = usage[t.key] ? `<span class="use">${usage[t.key]} 页</span>` : '';
-      return `<div class="dt-item${active}" data-key="${esc(t.key)}"><span class="ic">${esc(t.icon)}</span><span>${esc(t.label)}</span>${cus}${use}</div>`;
-    }).join('');
-    list.querySelectorAll('.dt-item').forEach((el) => {
-      el.addEventListener('click', () => { state.dtEditKey = el.dataset.key; renderDeviceTypes(); });
-    });
-    $('dt-meta').textContent = `${state.deviceTypes.length} 种类型 · ${state.deviceTypes.filter((t) => t.customized).length} 已自定义`;
-    renderDictEditor();
-  }
-
-  function renderDictEditor() {
-    const host = $('dt-editor');
-    if (!host || !state.deviceTypes) return;
-    const t = state.deviceTypes.find((x) => x.key === state.dtEditKey);
-    if (!t) return;
-    $('dt-title').textContent = `字典规则 · ${t.label || '通用兜底'}`;
-    const d = t.dict || {};
-    const f = (id, label, val) => `<div class="dt-field"><label>${label}</label><input id="${id}" value="${esc(val)}"></div>`;
-    host.innerHTML = `
-      <div class="dt-col shared">
-        <h4>共用语义字段（两端都读）</h4>
-        ${f('df-mainAttr', '主状态属性', d.mainAttr)}
-        ${f('df-mainFmt', '显示格式（{v}=值）', d.mainFmt)}
-        ${f('df-subTpl', '副状态模板（{s1}/{s2}）', d.subTpl)}
-        ${f('df-step', '步长 / 单位', d.step)}
-      </div>
-      <div class="dt-col home">
-        <h4>home 端消费</h4>
-        ${f('df-homeLabel', '详情大字标签', d.homeLabel)}
-        ${f('df-homeCtrls', '控件组', d.homeCtrls)}
-        ${f('df-homeActs', '控制动作', d.homeActs)}
-        <p class="field-note">只影响 App 详情面板，与 ESP 屏幕无关。</p>
-      </div>
-      <div class="dt-col esp">
-        <h4>ESP 端消费（128×64 四行）</h4>
-        ${f('df-espTitle', '标题行模板', d.espTitle)}
-        ${f('df-espMain', '主状态行模板', d.espMain)}
-        ${f('df-espSub', '副状态行模板', d.espSub)}
-        ${f('df-espKeys', '按键提示行模板', d.espKeys)}
-        <div class="dt-actions">
-          <button class="btn primary small" id="dt-save" type="button">保存（两端生效）</button>
-          ${t.customized ? '<button class="btn small" id="dt-reset" type="button">恢复默认</button>' : ''}
-        </div>
-      </div>`;
-    $('dt-save').addEventListener('click', () => saveDict(t.key));
-    if ($('dt-reset')) $('dt-reset').addEventListener('click', () => resetDict(t.key));
-  }
-
-  function collectDictPatch() {
-    const keys = ['mainAttr', 'mainFmt', 'subTpl', 'step', 'homeLabel', 'homeCtrls', 'homeActs', 'espTitle', 'espMain', 'espSub', 'espKeys'];
-    const patch = {};
-    for (const k of keys) patch[k] = $('df-' + k).value;
-    return patch;
-  }
-
-  async function saveDict(key) {
-    try {
-      await api('/api/admin/device-types', { method: 'POST', body: JSON.stringify({ key, dict: collectDictPatch() }) });
-      toast('字典已保存，home 与 ESP 两端同步生效', 'success');
-      await loadDeviceTypes(true);
-    } catch (error) { toast('保存失败：' + error.message, 'error'); }
-  }
-
-  async function resetDict(key) {
-    try {
-      await api('/api/admin/device-types/reset', { method: 'POST', body: JSON.stringify({ key }) });
-      toast('已恢复默认规则', 'success');
-      await loadDeviceTypes(true);
-    } catch (error) { toast('恢复失败：' + error.message, 'error'); }
   }
 
   // ------------------------------------------------------------ 设备判定规则（规则引擎）
@@ -100,8 +13,81 @@
     return (state.deviceTypes || []).find((t) => t.key === state.reEditKey) || (state.deviceTypes || [])[0];
   }
   function reRulesOf(t) { return Array.isArray(t && t.rules) ? t.rules : []; }
-  function reCardOf(t) {
-    return t && t.card ? t.card : { label: '当前值', mainAttr: 'state', mainFmt: '{v}', subTpl: '{state}', icon: '✦', color: '#4dd4ac', mainEntity: '主实体', buttons: [], genericEnabled: false };
+
+  // 判定规则里的「字段 / 操作符」下拉：原生 datalist 会按已输入内容过滤，
+  // 输入 contains 就只剩 contains/not_contains、输入 entity_id 就只剩自己，
+  // 看不全。这里改成点击弹出「全部」候选（不过滤），同时保留手填任意值。
+  const RE_COMBO_OPTIONS = {
+    field: [
+      { v: 'domain', d: '实体域：switch 开关 / climate 空调 / water_heater 热水器' },
+      { v: 'entity_id', d: '实体 ID，如 switch.bedroom；常用「包含」匹配' },
+      { v: 'name', d: '设备名，如「米家热水器」' },
+      { v: 'state', d: '当前状态值，如 on / off' },
+      { v: 'attr.current_temperature', d: '当前温度属性，空调/热水器用它判类型' },
+      { v: 'attr.temperature', d: '温度属性，部分设备上报' },
+      { v: 'attr.percentage', d: '百分比属性，如风扇风速、灯亮度' },
+      { v: 'attr.options', d: '可选值列表，如「自来水」「标准洗」' },
+      { v: 'device.model', d: '设备型号，如 xiaomi.waterheater3，比实体 ID 稳定' },
+      { v: 'device.name', d: '设备名称（来自 HA 设备注册表）' },
+      { v: 'device.manufacturer', d: '厂商，如 xiaomi' },
+    ],
+    op: [
+      { v: 'eq', d: '等于，值完全相同' },
+      { v: 'neq', d: '不等于' },
+      { v: 'contains', d: '包含：字符串/列表里含某值' },
+      { v: 'not_contains', d: '不包含' },
+      { v: 'startsWith', d: '开头是，自动忽略 button./switch. 域前缀' },
+      { v: 'not_startsWith', d: '开头不是' },
+      { v: 'exists', d: '存在且有值（无需填右侧的值）' },
+      { v: 'gt', d: '大于，按数值比较' },
+      { v: 'lt', d: '小于，按数值比较' },
+    ],
+  };
+  let reComboMenu = null;
+  function closeReCombo() {
+    if (!reComboMenu) return;
+    const active = document.activeElement;
+    // 焦点仍在某个候选框上（如从 A 点到 B）时不关，避免误关刚打开的菜单
+    if (active && active.matches && active.matches('[data-combo]')) return;
+    reComboMenu.hidden = true;
+  }
+  function attachReCombo(input) {
+    input.addEventListener('click', () => {
+      const kind = input.dataset.combo;
+      const opts = RE_COMBO_OPTIONS[kind] || [];
+      if (!reComboMenu) {
+        reComboMenu = document.createElement('div');
+        reComboMenu.className = 're-combo-menu';
+        document.body.appendChild(reComboMenu);
+        // 点菜单外关闭
+        document.addEventListener('mousedown', (e) => {
+          if (reComboMenu && !reComboMenu.hidden && !reComboMenu.contains(e.target)
+              && !e.target.closest('[data-combo]')) reComboMenu.hidden = true;
+        });
+      }
+      reComboMenu.innerHTML = opts.map((o) =>
+        `<div class="re-combo-opt${o.v === input.value ? ' active' : ''}" data-val="${esc(o.v)}">`
+        + `<span class="v">${esc(o.v)}</span><span class="d">${esc(o.d)}</span></div>`).join('');
+      reComboMenu.querySelectorAll('.re-combo-opt').forEach((el) => {
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault(); // 抢在 input 失焦前，避免菜单先关
+          input.value = el.dataset.val;
+          input.dispatchEvent(new Event('input', { bubbles: true })); // 走原有同步逻辑
+          reComboMenu.hidden = true;
+          input.focus();
+        });
+      });
+      const r = input.getBoundingClientRect();
+      const menuW = Math.min(400, window.innerWidth * 0.92);
+      reComboMenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8)) + 'px';
+      // 空间不足时翻到输入框上方，避免菜单超出视口底部
+      const menuH = Math.min(window.innerHeight * 0.6, 460);
+      const below = r.bottom + 4;
+      reComboMenu.style.top = (below + menuH > window.innerHeight ? Math.max(8, r.top - menuH - 4) : below) + 'px';
+      reComboMenu.hidden = false;
+    });
+    // 菜单打开时不随输入过滤：输入任意内容仍显示全部候选；手填值照常生效
+    input.addEventListener('blur', () => { setTimeout(closeReCombo, 150); });
   }
 
   function renderReTypeList() {
@@ -118,7 +104,7 @@
     host.querySelectorAll('.dt-item').forEach((el) => {
       el.addEventListener('click', () => {
         state.reEditKey = el.dataset.key;
-        renderReTypeList(); renderReRules(); renderReCard(); clearReTestResult();
+        renderReTypeList(); renderReRules(); clearReTestResult();
       });
     });
     if ($('re-meta')) $('re-meta').textContent = `${types.length} 种类型 · ${types.reduce((n, t) => n + reRulesOf(t).length, 0)} 条规则`;
@@ -130,6 +116,7 @@
     if (!host) return;
     if (!t) { host.innerHTML = '<div class="empty">无类型</div>'; return; }
     if ($('re-title')) $('re-title').textContent = `判定规则 · ${t.label || t.key || '通用兜底'}`;
+    if ($('re-priority')) $('re-priority').value = Number(t.priority) || 5;
     const rules = reRulesOf(t);
     if (!rules.length) {
       host.innerHTML = '<div class="empty">该类型暂无规则，点下方「添加规则」。</div>';
@@ -140,8 +127,8 @@
       const condHtml = conds.map((c, ci) => `
         <div class="re-cond">
           <span class="lbl">${ci === 0 ? '当' : '且'}</span>
-          <input type="text" list="re-dl-fields" value="${esc(c.field)}" data-r="${ri}" data-c="${ci}" data-k="field" title="字段：attr.xxx 取任意 HA 属性，device.model 取型号">
-          <input type="text" list="re-dl-ops" value="${esc(c.op)}" data-r="${ri}" data-c="${ci}" data-k="op" title="操作符">
+          <input type="text" value="${esc(c.field)}" data-r="${ri}" data-c="${ci}" data-k="field" data-combo="field" title="字段：点击看全部候选，也可手填 attr.xxx / device.model">
+          <input type="text" value="${esc(c.op)}" data-r="${ri}" data-c="${ci}" data-k="op" data-combo="op" title="操作符：点击看全部候选">
           <input type="text" value="${esc(c.value)}" data-r="${ri}" data-c="${ci}" data-k="value" placeholder="值" ${c.op === 'exists' ? 'disabled' : ''}>
           <button class="re-btn-icon" type="button" data-del-cond="${ri}:${ci}" title="删除条件">×</button>
         </div>`).join('');
@@ -187,77 +174,27 @@
       }
       clearReTestResult();
     }));
+    // 字段 / 操作符：点击展开全部候选（不过滤），仍可手填
+    host.querySelectorAll('.re-cond input[data-combo]').forEach(attachReCombo);
   }
 
-  function renderReCard() {
-    const host = $('re-card');
-    const t = reCurType();
-    if (!host || !t) return;
-    const c = reCardOf(t);
-    host.innerHTML = `
-      <div class="re-card-row"><label>大字标签</label><input type="text" data-card="label" value="${esc(c.label)}"></div>
-      <div class="re-card-row"><label>主属性</label><input type="text" data-card="mainAttr" value="${esc(c.mainAttr)}"></div>
-      <div class="re-card-row"><label>主格式</label><input type="text" data-card="mainFmt" value="${esc(c.mainFmt)}"></div>
-      <div class="re-card-row"><label>副文案</label><input type="text" data-card="subTpl" value="${esc(c.subTpl)}"></div>
-      <div class="re-card-row"><label>主实体</label><input type="text" data-card="mainEntity" value="${esc(c.mainEntity)}"></div>
-      <div class="re-card-row"><label>图标/色</label><input type="text" data-card="icon" value="${esc(c.icon)}" style="flex:0 0 24%"><input type="text" data-card="color" value="${esc(c.color)}"></div>
-      <div class="re-card-row"><label>灰度开关</label><label class="ha-only-free" style="width:auto"><input type="checkbox" data-card="genericEnabled" ${c.genericEnabled ? 'checked' : ''} style="width:auto"> 用通用卡片渲染该类型（home）</label></div>
-      <div style="font-size:11.5px;color:var(--muted);margin:10px 0 5px">按钮（文案 + 动作 kind）</div>
-      <div id="re-card-btns">${(c.buttons || []).map((b, i) => `
-        <div class="re-btn-chip">
-          <input type="text" list="re-dl-actions" value="${esc(b.action)}" data-btn-action="${i}" title="动作 kind">
-          <input type="text" value="${esc(b.label)}" data-btn-label="${i}" title="按钮文案">
-          <button class="re-btn-icon" type="button" data-del-btn="${i}" title="删除按钮">×</button>
-        </div>`).join('')}</div>
-      <div class="re-btn-row"><button class="btn small" type="button" id="re-add-btn">＋ 按钮</button></div>`;
-    host.querySelectorAll('[data-card]').forEach((el) => {
-      if (el.dataset.card === 'genericEnabled') {
-        el.addEventListener('change', () => { reCardOf(reCurType()).genericEnabled = el.checked; });
-      } else {
-        el.addEventListener('input', () => {
-          reCardOf(reCurType())[el.dataset.card] = el.value;
-          renderRePreview();
-        });
-      }
-    });
-    host.querySelectorAll('[data-btn-action]').forEach((el) => el.addEventListener('input', () => {
-      reCardOf(reCurType()).buttons[+el.dataset.btnAction].action = el.value; renderRePreview();
-    }));
-    host.querySelectorAll('[data-btn-label]').forEach((el) => el.addEventListener('input', () => {
-      reCardOf(reCurType()).buttons[+el.dataset.btnLabel].label = el.value; renderRePreview();
-    }));
-    host.querySelectorAll('[data-del-btn]').forEach((el) => el.addEventListener('click', () => {
-      reCardOf(reCurType()).buttons.splice(+el.dataset.delBtn, 1); renderReCard(); renderRePreview();
-    }));
-    const addBtn = $('re-add-btn');
-    if (addBtn) addBtn.addEventListener('click', () => {
-      reCardOf(reCurType()).buttons.push({ label: '新按钮', action: 'toggle' }); renderReCard(); renderRePreview();
-    });
-    renderRePreview();
-  }
-
-  function renderRePreview() {
-    const t = reCurType();
-    if (!t) return;
-    const c = reCardOf(t);
-    const home = $('re-preview-home'), esp = $('re-preview-esp');
-    if (home) home.innerHTML = `<div style="color:${esc(c.color)}">${esc(c.icon)} ${esc(t.label || t.key)}</div>
-      <div class="big">${esc(c.mainFmt || '{v}').replace('{v}', '--')}</div>
-      <div class="sub">${esc(c.label)} · ${esc(c.subTpl || '')}</div>
-      <div class="re-btn-row">${(c.buttons || []).map((b) => `<span class="pill">${esc(b.label)}</span>`).join('')}</div>`;
-    if (esp) esp.innerHTML = `<div class="top">1/${esc(c.icon)} ${esc(t.label || t.key)}  ·  IP</div>
-      <div>${esc(c.mainFmt || '{v}').replace('{v}', '--')}</div>
-      <div>${esc((c.subTpl || '').replace('{s1}', '在线').replace('{s2}', '就绪').replace('{state}', '开启'))}</div>
-      <div>${(c.buttons || []).map((b) => esc(b.label)).join(' ')}</div>`;
+  /** 从 state.haDevices 构建 deviceId -> visible(true/false/null) 映射。 */
+  function reVisibilityMap() {
+    const map = {};
+    for (const d of (state.haDevices || [])) map[d.id] = d.visible;
+    return map;
   }
 
   function renderReTestSel() {
     const sel = $('re-test-device');
     if (!sel) return;
+    const onlyVisible = !!($('re-test-only-visible') && $('re-test-only-visible').checked);
+    const visMap = reVisibilityMap();
     const ents = (state.haEntities && state.haEntities.entities) || [];
     const byDevice = new Map();
     for (const e of ents) {
       const key = e.deviceId || e.id;
+      if (onlyVisible && visMap[key] === false) continue;
       if (!byDevice.has(key)) byDevice.set(key, { name: e.device || e.name || key, id: key, entities: [] });
       byDevice.get(key).entities.push(e);
     }
@@ -289,15 +226,27 @@
       device: { name: e.device || '', model: e.deviceModel || '', manufacturer: e.manufacturer || '' },
     }));
     try {
-      const data = await api('/api/admin/device-types/classify', { method: 'POST', body: JSON.stringify({ entities }) });
+      // 传编辑器当前态（含未保存改动）：改完规则不保存也能立即试，错了直接再改即可回滚。
+      // 优先级输入框的值要先同步进当前类型，否则测试仍用旧优先级。
+      const cur = reCurType();
+      const priorityEl = $('re-priority');
+      if (cur && priorityEl) cur.priority = Number(priorityEl.value) || 0;
+      const data = await api('/api/admin/device-types/classify', {
+        method: 'POST', body: JSON.stringify({ entities, types: state.deviceTypes }),
+      });
       const r = data.result;
       if (!r) {
-        host.innerHTML = '<span class="hint">没有规则命中，将落到通用兜底类型。</span>';
+        host.innerHTML = '<span class="hint">没有规则命中，将落到通用兜底类型。</span><br><span class="hint" style="font-size:11px">（用的是编辑器当前规则，尚未保存也能试）</span>';
         return;
       }
+      const others = (r.allHits || []).filter((h) => h.key !== r.key);
       host.innerHTML = `<div class="re-hit win"><span class="nm">判定结果：${esc(r.label)}</span><br>
         <span class="sc">具体度 ${r.specificity} · 优先级 ${r.priority}</span></div>
-        ${(r.matchedRules || []).map((n) => `<div class="re-hit">命中规则：${esc(n)}</div>`).join('')}`;
+        ${(r.matchedRules || []).map((n) => `<div class="re-hit">命中规则：${esc(n)}</div>`).join('')}
+        ${others.length ? `<div class="re-hit others"><span class="sc">其他也命中的类型（裁决落选）：</span><br>${
+          others.map((h) => `<span class="sc">· ${esc(h.label || h.key || '通用兜底')} — 具体度 ${h.specificity} · 优先级 ${h.priority}</span>`).join('<br>')
+        }</div>` : ''}
+        <div class="hint" style="font-size:11px;margin-top:6px">以上按编辑器当前规则计算（含未保存改动），未保存也能试；要生效请点「保存并生效」。</div>`;
     } catch (error) {
       host.innerHTML = `<span style="color:#ff8080">判定失败：${esc(error.message)}</span>`;
     }
@@ -307,17 +256,20 @@
     const t = reCurType();
     if (!t) return;
     try {
+      const priorityEl = $('re-priority');
+      const priority = priorityEl ? (Number(priorityEl.value) || 0) : (Number(t.priority) || 5);
+      t.priority = priority;
       await api('/api/admin/device-types', {
         method: 'POST',
         body: JSON.stringify({
-          key: t.key, rules: reRulesOf(t), card: reCardOf(t), priority: t.priority,
+          key: t.key, rules: reRulesOf(t), priority,
           meta: t.dynamic ? { label: t.label, icon: t.icon, color: t.color } : undefined,
         }),
       });
       state.deviceTypes = null;
       await loadDeviceTypes();
-      renderReTypeList(); renderReRules(); renderReCard();
-      toast('判定规则已保存，home 与 ESP 两端即时生效');
+      renderReTypeList(); renderReRules();
+      toast('判定规则已保存，即时生效');
     } catch (error) { toast('保存失败：' + error.message, 'error'); }
   }
 
@@ -329,7 +281,7 @@
       await api('/api/admin/device-types/reset', { method: 'POST', body: JSON.stringify({ key: t.key }) });
       state.deviceTypes = null;
       await loadDeviceTypes();
-      renderReTypeList(); renderReRules(); renderReCard(); clearReTestResult();
+      renderReTypeList(); renderReRules(); clearReTestResult();
       toast('已恢复默认');
     } catch (error) { toast('恢复失败：' + error.message, 'error'); }
   }
@@ -350,7 +302,7 @@
       state.deviceTypes = null;
       await loadDeviceTypes();
       state.reEditKey = key;
-      renderReTypeList(); renderReRules(); renderReCard();
+      renderReTypeList(); renderReRules();
       toast('类型已创建');
     } catch (error) { toast('创建失败：' + error.message, 'error'); }
   }
@@ -367,13 +319,66 @@
   $('re-reload').addEventListener('click', async () => {
     state.deviceTypes = null;
     await loadDeviceTypes();
-    renderReTypeList(); renderReRules(); renderReCard();
+    renderReTypeList(); renderReRules();
   });
   $('re-test-device').addEventListener('change', (e) => {
     state.reTestIdx = parseInt(e.target.value, 10) || 0;
     renderReTestEnts(); clearReTestResult();
   });
   $('re-run-test').addEventListener('click', runReTest);
+
+  // ------------------------------------------------------------ 全局判定测试
+  async function runGlobalClassify() {
+    const body = $('re-global-body');
+    const meta = $('re-global-meta');
+    if (!body) return;
+    // 同步优先级到当前编辑类型（未保存也能用当前值测试）
+    const cur = reCurType();
+    const priorityEl = $('re-priority');
+    if (cur && priorityEl) cur.priority = Number(priorityEl.value) || 0;
+    const onlyVisible = !!($('re-global-only-visible') && $('re-global-only-visible').checked);
+    body.innerHTML = '<tr><td colspan="6" class="empty">判定中…</td></tr>';
+    if (meta) meta.textContent = '';
+    try {
+      const data = await api('/api/admin/device-types/classify-all', {
+        method: 'POST',
+        body: JSON.stringify({ types: state.deviceTypes, onlyVisible }),
+      });
+      const rows = data.results || [];
+      const currentKey = cur ? cur.key : '';
+      const matched = rows.filter((r) => r.key === currentKey).length;
+      if (meta) meta.textContent = `共 ${data.total} 台设备 · 当前类型「${esc(cur ? (cur.label || cur.key) : '')}」命中 ${matched} 台`;
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的设备。</td></tr>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      rows.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        const hit = r.key === currentKey;
+        if (hit) tr.className = 're-global-hit';
+        const visText = r.visible === null ? '默认' : (r.visible ? '显示' : '隐藏');
+        const visCls = r.visible === false ? 'off' : '';
+        const others = (r.allHits || []).filter((h) => h.key !== r.key)
+          .map((h) => esc(h.label || h.key)).join('、');
+        tr.innerHTML = `<td>${i + 1}</td>
+          <td class="strong">${esc(r.name || r.id)}</td>
+          <td class="muted">${esc(r.areaName || '—')}</td>
+          <td>${r.label ? `<span class="badge">${esc(r.label)}</span>` : '<span class="muted">未命中/兜底</span>'}</td>
+          <td><span class="re-global-vis ${visCls}">${visText}</span></td>
+          <td class="muted">${others || '—'}</td>`;
+        frag.appendChild(tr);
+      });
+      body.innerHTML = '';
+      body.appendChild(frag);
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="6" class="empty" style="color:#ff8080">判定失败：${esc(error.message)}</td></tr>`;
+    }
+  }
+
+  $('re-global-run').addEventListener('click', runGlobalClassify);
+  const reTestOnly = $('re-test-only-visible');
+  if (reTestOnly) reTestOnly.addEventListener('change', () => { state.reTestIdx = 0; renderReTestSel(); });
 
   // ------------------------------------------------------------ ESP 设备分类（一页 = 一台被控设备）
 

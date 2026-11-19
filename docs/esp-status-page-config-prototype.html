@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP 状态展示 / 状态栏 / 图片 · 设计原型 v0.4</title>
+<style>
+  :root{
+    --bg:#0c131a; --panel:#121b25; --panel2:#16212d; --line:#22303f;
+    --text:#dbe6f0; --muted:#8fa2b6; --muted2:#65809a;
+    --accent:#4dd4ac; --accent2:#2f9cff; --warn:#ffb454; --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  button,input,select{font:inherit;color:inherit}
+  .topbar{height:54px;display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.3px}
+  .topbar .crumb{color:var(--muted);font-size:12px}
+  .topbar .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:7px 13px;cursor:pointer;font-size:12.5px}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#06221b;border-color:var(--accent);font-weight:650}
+  .btn.primary:hover{filter:brightness(1.08);color:#06221b}
+  .notice{margin:14px 22px 0;padding:12px 16px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--panel);color:var(--muted);font-size:12.5px}
+  .notice b{color:var(--text)}
+  .notice code{background:#0a1017;padding:1px 5px;border-radius:4px;color:var(--accent);font-size:11.5px}
+  .layout{display:grid;grid-template-columns:210px minmax(560px,1fr) 380px;gap:14px;padding:14px 22px 40px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card>h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted2);margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .card .body{padding:13px}
+  .page-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid transparent;border-radius:8px;cursor:pointer;margin-bottom:4px}
+  .page-item:hover{background:var(--panel2)}
+  .page-item.active{border-color:var(--accent);background:rgba(77,212,172,.08)}
+  .page-item .ic{width:24px;height:24px;display:grid;place-items:center;background:var(--panel2);border-radius:6px;font-size:14px}
+  .page-item .nm{flex:1;min-width:0}
+  .page-item .nm b{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .page-item .nm span{font-size:11px;color:var(--muted2)}
+  .page-tag{font-size:10px;padding:1px 5px;border-radius:9px;border:1px solid rgba(47,156,255,.35);color:var(--accent2);background:rgba(47,156,255,.08)}
+  .section{margin-bottom:16px}
+  .section:last-child{margin-bottom:0}
+  .section h3{font-size:12px;color:var(--muted);margin:0 0 8px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .section h3 .tag{font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(47,156,255,.13);color:var(--accent2);font-weight:500}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:7px}
+  .row .lbl{width:78px;flex:none;color:var(--muted2);font-size:12px}
+  input[type=text],input[type=time],select{background:#0d151e;border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12.5px;width:100%;min-width:0}
+  input[type=text]:focus,input[type=time]:focus,select:focus{outline:none;border-color:var(--accent2)}
+  input[type=checkbox]{accent-color:var(--accent2);width:15px;height:15px}
+  .hint{font-size:11px;color:var(--muted2);margin-top:5px;line-height:1.6}
+  .hint b{color:var(--muted)}
+  .hint code{background:#0a1017;color:var(--accent);padding:1px 4px;border-radius:4px;font-size:10.5px}
+  .seg{display:flex;gap:6px;margin-bottom:13px;border-bottom:1px solid var(--line);padding-bottom:9px}
+  .seg button{border:1px solid var(--line);background:var(--panel2);border-radius:14px;padding:5px 14px;cursor:pointer;font-size:12px;color:var(--muted)}
+  .seg button.active{border-color:var(--accent2);color:var(--text);background:rgba(47,156,255,.12)}
+  .tpl-row{display:grid;grid-template-columns:78px 1fr 100px;gap:7px;align-items:center;margin-bottom:7px}
+  .tpl-row .mini-lbl{font-size:11px;color:var(--muted2);text-align:right}
+  .tpl-row .btn{padding:6px 8px;font-size:11.5px;white-space:nowrap}
+  .tpl-row input{font-family:ui-monospace,Consolas,"Microsoft YaHei",monospace;font-size:12px}
+  .checkline{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;cursor:pointer}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+  .field{display:flex;flex-direction:column;gap:3px}
+  .field>span{font-size:11px;color:var(--muted2)}
+  .warnbox{border:1px solid rgba(255,180,84,.35);background:rgba(255,180,84,.07);color:var(--warn);border-radius:7px;padding:8px 10px;font-size:11.5px;line-height:1.6;margin-bottom:12px}
+  .goodbox{border:1px solid rgba(77,212,172,.35);background:rgba(77,212,172,.07);color:var(--accent);border-radius:7px;padding:8px 10px;font-size:11.5px;line-height:1.6;margin-bottom:12px}
+  .preview-wrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .oled-bezel{background:#05080b;border:6px solid #1d2732;border-radius:12px;padding:10px;box-shadow:0 12px 32px rgba(0,0,0,.6),inset 0 0 0 1px #2b3948}
+  canvas#screen{display:block;image-rendering:pixelated;width:100%;max-width:384px;height:auto;aspect-ratio:2/1;background:#000;border-radius:2px}
+  .preview-meta{font-size:11px;color:var(--muted2);text-align:center;line-height:1.7}
+  .preview-meta b{color:var(--accent)}
+  .legend{font-size:11px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;line-height:1.8;width:100%}
+  .legend b{color:var(--text)}
+  .legend .src{display:inline-block;font-size:10px;padding:0 5px;border-radius:8px;margin-right:4px;border:1px solid var(--line)}
+  .legend .src.local{color:var(--accent);border-color:rgba(77,212,172,.4)}
+  .legend .src.server{color:var(--accent2);border-color:rgba(47,156,255,.4)}
+  .legend .src.ha{color:var(--warn);border-color:rgba(255,180,84,.4)}
+  .demo{width:100%;border-top:1px solid var(--line);margin-top:4px;padding-top:10px}
+  .demo h4{font-size:11px;color:var(--muted2);margin:0 0 8px;font-weight:600}
+  .demo .row .lbl{width:58px}
+  .var-layer{position:fixed;inset:0;background:rgba(3,7,11,.72);display:none;align-items:center;justify-content:center;z-index:60}
+  .var-panel{width:min(780px,92vw);max-height:76vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.55)}
+  .var-head{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);font-weight:600}
+  .var-head .spacer{flex:1}
+  .var-group{padding:11px 16px;border-bottom:1px solid rgba(34,48,63,.6)}
+  .var-group h4{margin:0 0 8px;font-size:11px;color:var(--muted2);font-weight:600;display:flex;align-items:center;gap:8px}
+  .var-group h4 .newtag{font-size:9px;padding:1px 6px;border-radius:9px;background:rgba(77,212,172,.13);color:var(--accent);font-weight:600}
+  .var-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .var-item{text-align:left;border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:8px 10px;cursor:pointer}
+  .var-item:hover{border-color:var(--accent2);background:rgba(47,156,255,.08)}
+  .var-item code{color:var(--accent);font-size:11.5px}
+  .var-item span{display:block;color:var(--muted2);font-size:11px;margin-top:3px}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#16212d;border:1px solid var(--accent);color:var(--text);padding:9px 18px;border-radius:8px;font-size:12.5px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .footer-note{margin:0 22px 40px;font-size:11px;color:var(--muted2);line-height:1.8}
+  .pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;border:1px solid var(--line);color:var(--muted);margin-right:5px}
+  .pill.on{color:var(--accent);border-color:rgba(77,212,172,.45);background:rgba(77,212,172,.08)}
+  .city-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+  .city-tbl th{text-align:left;color:var(--muted2);font-weight:600;padding:4px 5px;border-bottom:1px solid var(--line)}
+  .city-tbl td{padding:4px 5px;border-bottom:1px solid rgba(34,48,63,.5);vertical-align:middle}
+  .city-tbl input{padding:4px 6px;font-size:11.5px}
+  .city-tbl .cid{font-family:ui-monospace,Consolas,monospace;color:var(--accent)}
+  .city-tbl .cvar{font-family:ui-monospace,Consolas,monospace;color:var(--accent2);font-size:10.5px}
+  .city-tbl .lock{color:var(--muted2);font-size:10px}
+  .city-tbl .xbtn{border:1px solid var(--line);background:var(--panel2);color:var(--danger);border-radius:5px;cursor:pointer;padding:2px 7px;font-size:11px}
+  .city-tbl .xbtn:hover{border-color:var(--danger)}
+  @media(max-width:1200px){.layout{grid-template-columns:190px 1fr}.preview-card{grid-column:1/-1}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>ESP 状态展示 / 状态栏 / 图片</h1>
+  <span class="crumb">设计原型 v0.4 · 未实现 · 2026-11-19</span>
+  <span class="spacer"></span>
+  <button class="btn" onclick="resetDemo()">重置示例</button>
+  <button class="btn primary" onclick="toast('原型演示：不会真的下发到设备')">保存并下发（演示）</button>
+</div>
+
+<div class="notice">
+  <b>v0.4 修正（天气模型）：</b>天气由「全局一个城市」改为<b>模板内联带参变量</b>——<code>{sys.weather.auto}</code>（服务端出口 IP）和 <code>{sys.weather.&lt;城市id&gt;}</code>（查城市映射表），城市从映射表生成 id（如 <code>gz</code>/<code>zj</code>），<b>一行可并排多个城市</b>：<code>广州 {sys.weather.gz}｜湛江 {sys.weather.zj}</code>。<b>不做手填经纬度</b>；每个城市独立缓存与降级，指定城市失败不跨城回退。v0.3 结论保留：不新建页面、状态栏勾选、图片 1-bit 黑白点。真机生效需固件解析新变量，本页只做设计确认。
+</div>
+
+<div class="layout">
+  <div class="card">
+    <h2>屏幕页面 <span id="pageCount">5</span></h2>
+    <div class="body" id="pageList"></div>
+    <div class="body" style="padding-top:0">
+      <button class="btn" style="width:100%" onclick="toast('原型：添加页面仍是现有流程，无新页面类型')">＋ 添加页面</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="configTitle">页面配置</h2>
+    <div class="body">
+      <div class="seg">
+        <button class="cfg-tab active" data-cfg="page" onclick="setCfgTab('page')">页面内容</button>
+        <button class="cfg-tab" data-cfg="bar" onclick="setCfgTab('bar')">状态栏</button>
+      </div>
+
+      <div id="pagePanel">
+        <div class="section">
+          <h3>① 页面属性</h3>
+          <div class="row"><span class="lbl">页面名称</span><input type="text" id="pageName" value="客厅状态" oninput="activePage().name=this.value;renderPageList();drawPreview()"></div>
+          <div class="hint">这就是现有的普通页，没有任何新页面类型。下面两个模板框也是现有的 <code>tplMain</code> / <code>tplSub</code>。</div>
+        </div>
+
+        <div class="section">
+          <h3>② 显示内容模板 <span class="tag">点「插入实体」→ 新分类「系统状态」</span></h3>
+          <div class="tpl-row">
+            <span class="mini-lbl">主状态</span>
+            <input type="text" id="tplMain" value="人在 {sys.present} · {sys.time}  {switch.bedroom}" oninput="state.tplMain=this.value;drawPreview();renderLegend()">
+            <button class="btn" onclick="openVarPicker('tplMain')">插入实体</button>
+          </div>
+          <div class="tpl-row">
+            <span class="mini-lbl">副状态</span>
+            <input type="text" id="tplSub" value="广州 {sys.weather.gz}｜湛江 {sys.weather.zj}" oninput="state.tplSub=this.value;drawPreview();renderLegend()">
+            <button class="btn" onclick="openVarPicker('tplSub')">插入实体</button>
+          </div>
+          <div class="goodbox">同一个框里可以混写 HA 实体 <code>{switch.xxx}</code>、遥控状态标签、系统变量 <code>{sys.*}</code>、图片 <code>{image}</code>。解析器只有一个，顺序你自己定。</div>
+          <div class="hint">超长行按现有节拍跑马灯滚动，不截断；缺值变量整段省略，不留 <code>--</code>。</div>
+        </div>
+
+        <div class="section">
+          <h3>③ 图片 <span class="tag">1-bit 黑白点</span></h3>
+          <div class="row"><span class="lbl">上传图片</span><button class="btn" onclick="toast('原型：真实上传在浏览器 canvas 转 128×64 黑白点')">选择图片…</button><span class="hint" style="margin:0">128×64 → 1024 字节</span></div>
+          <label class="checkline"><input type="checkbox" id="imgInvert" onchange="state.image.invert=this.checked;drawPreview()"> 反色（白底黑线图片建议勾选）</label>
+          <div class="hint">转换只有一步：灰度后按阈值二值化成黑白点。<b>没有灰度、没有抖动</b>——OLED 单色屏，灰阶无意义。在模板里写 <code>{image}</code> 引用：整屏只写它一个就整屏显示，写成 <code>图 {image} 说明</code> 就行内混排。</div>
+        </div>
+      </div>
+
+      <div id="barPanel" style="display:none">
+        <div class="notice" style="margin:0 0 12px">
+          <b>状态栏不做模板，只做勾选。</b>勾哪些就显示哪些，隐藏时普通页内容区上移、按实际布局重排。128×64 单行约 122px，全勾会超宽，预览会红色提示。
+        </div>
+        <div class="section">
+          <h3>① 总开关</h3>
+          <label class="checkline"><input type="checkbox" id="barEnabled" onchange="state.bar.enabled=this.checked;syncBarUI();drawPreview()"> <b>显示状态栏</b>（关闭后内容区上移约 12px，顶部空间归还内容）</label>
+        </div>
+        <div class="section">
+          <h3>② 显示哪些元素</h3>
+          <label class="checkline"><input type="checkbox" data-bar-el="showPage" onchange="toggleBarEl(this)"> 页码 <code>4/5</code></label>
+          <label class="checkline"><input type="checkbox" data-bar-el="showTime" onchange="toggleBarEl(this)"> 时间 <code>14:57</code></label>
+          <label class="checkline"><input type="checkbox" data-bar-el="showWifiIcon" onchange="toggleBarEl(this)"> WiFi 图标（按强度分级）</label>
+          <label class="checkline"><input type="checkbox" data-bar-el="showRssi" onchange="toggleBarEl(this)"> WiFi 强度数值 <code>-58dBm</code></label>
+          <label class="checkline"><input type="checkbox" data-bar-el="showIp" onchange="toggleBarEl(this)"> 设备内网 IP</label>
+          <div class="hint">这些元素的数据源和「系统状态」分类里的变量是同一套；区别是这里只能勾选开关，不能在状态栏里写模板。页脚（按键提示行）不可自定义。</div>
+        </div>
+        <div class="section">
+          <h3>③ 天气城市映射表 <span class="tag">全局配置 · 生成带参变量</span></h3>
+          <div class="goodbox" style="margin-bottom:9px">天气不是全局一个城市，而是模板里的带参变量。下表每行生成一个变量：写 <code>广州 {sys.weather.gz}</code>，就在那一行显示广州天气。<b>同一模板可写多个城市并排</b>。城市名手动写在模板里，变量只输出天气短文本。</div>
+          <div class="warnbox" style="margin:0 0 9px">与 home/tv 的关系：<span id="seedStatus">种子来源 weather_cities.txt（湛江/广州/佛山）· 与 home/tv 名单差异 0 个 · 此处是独立副本，改名不会同步到 home/tv</span></div>
+          <div id="cityTable"></div>
+          <div class="row" style="margin-top:8px">
+            <input type="text" id="newCityName" placeholder="输入城市名：镇江 / 赣州 / 舟山（可试冲突）" style="width:250px" onkeydown="if(event.key==='Enter')addWeatherCity()">
+            <button class="btn primary" onclick="addWeatherCity()">＋ 新增城市</button>
+            <button class="btn" onclick="reseedCities()">↻ 重新导入种子</button>
+            <span class="hint" style="margin:0">自动生成拼音 id；撞车降级全拼；id 一经使用不可改</span>
+          </div>
+          <div id="cityNotice" class="warnbox" style="margin:8px 0 0;display:none"></div>
+          <div class="grid2" style="margin-top:9px">
+            <div class="field"><span>缓存 TTL（每城市独立）</span><select data-weather="ttl"><option value="30">30 分钟（推荐）</option><option value="60">60 分钟</option><option value="120">120 分钟</option></select></div>
+            <div class="field"><span>auto 回退默认城市</span><input type="text" id="fallbackCity" value="湛江" oninput="state.weather.fallback=this.value"></div>
+          </div>
+          <div class="warnbox" style="margin:9px 0 0">实时状态：<span id="weatherStatus">auto 实时 · gz 缓存 · zj 缓存 · 未定义的 id 整段省略</span></div>
+          <div class="hint">初始化从 <code>weather_cities.txt</code>（湛江/广州/佛山）生成 id；admin 可增删，<code>auto</code> 行固定。<b>只对模板实际引用的 id 取数</b>：没写进模板的城市不请求 API。降级逐 id 独立：<code>auto</code> 失败回退默认城市，<b>指定城市失败不跨城回退</b>（写广州就不能塞湛江天气）。心知 key 不下发 ESP。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card preview-card">
+    <h2>128×64 实时预览 <span class="tag" style="font-size:10px;color:var(--muted2)">3×</span></h2>
+    <div class="body preview-wrap">
+      <div class="oled-bezel"><canvas id="screen" width="128" height="64"></canvas></div>
+      <div class="preview-meta" id="previewMeta"></div>
+      <div class="legend" id="legend"></div>
+      <div class="demo">
+        <h4>示例数据（改这里看解析效果）</h4>
+        <div class="row"><span class="lbl">RSSI</span><input type="range" id="demoRssi" min="-90" max="-35" value="-58" style="flex:1"></div>
+        <div class="row"><span class="lbl">人体</span><label class="checkline"><input type="checkbox" id="demoPresence" checked> 有人（占用窗口 90s）</label></div>
+        <div class="row"><span class="lbl">联网</span><label class="checkline"><input type="checkbox" id="demoOnline" checked> 已联网</label></div>
+        <div class="row"><span class="lbl">时间</span><input type="time" id="demoTime" value="14:57"></div>
+        <div class="row"><span class="lbl">各城市天气</span><span class="hint" style="margin:0">下方映射表里改，或点城市行的天气值</span></div>
+        <div class="row"><span class="lbl">IP</span><input type="text" id="demoIp" value="27.47.9.204"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">设计说明：<code>docs/esp-status-page-config-design.md</code>。示例数据均为虚构，原型为原创设计稿。</div>
+<div class="toast" id="toast"></div>
+
+<div class="var-layer" id="varLayer">
+  <div class="var-panel">
+    <div class="var-head">插入实体 <span class="spacer"></span><button class="btn" onclick="closeVarPicker()">关闭</button></div>
+    <div id="varList"></div>
+  </div>
+</div>
+
+<script>
+const SYS_VARS = [
+  {name:'sys.time',     label:'时间 时:分',       sample:'14:57'},
+  {name:'sys.timeSec',  label:'时间 时:分:秒',    sample:'14:57:08'},
+  {name:'sys.date',     label:'日期 + 星期',      sample:'11-19 周四'},
+  {name:'sys.lunar',    label:'农历',             sample:'十月初十'},
+  {name:'sys.weather.auto', label:'天气·自动（出口 IP）', sample:'晴 26°'},
+  {name:'sys.online',   label:'是否联网',         sample:'已联网'},
+  {name:'sys.wifi',     label:'WiFi 信号格',      sample:'▁▃▅▇'},
+  {name:'sys.rssi',     label:'WiFi 强度数值',    sample:'-58dBm'},
+  {name:'sys.present',  label:'人体感应原始态',   sample:'有人'},
+  {name:'sys.occupied', label:'人体占用态(90s)',  sample:'占用中'},
+  {name:'sys.ip',       label:'设备内网 IP',      sample:'27.47.9.204'},
+  {name:'sys.page',     label:'当前页',           sample:'4'},
+  {name:'sys.total',    label:'总页数',           sample:'5'},
+  {name:'sys.pageOf',   label:'页码 当前/总数',   sample:'4/5'}
+];
+function weatherPickerItems(){
+  return state.weather.cities.filter((c)=>c.id!=='auto').map((c)=>({
+    name:'sys.weather.'+c.id,
+    label:'天气·'+c.name,
+    sample:(state.data.weatherById[c.id]||'晴 26°')
+  }));
+}
+const PICKER_GROUPS = [
+  {name:'系统状态', isNew:true, items:[
+    ...SYS_VARS,
+    {name:'image', label:'图片 128×64（1-bit 黑白点）', sample:'[图片]'}
+  ]},
+  {name:'天气城市（映射表生成 · 可一页多城市）', items:()=>weatherPickerItems()},
+  {name:'家庭 / 房间 / 设备（HA 实体示例）', items:[
+    {name:'switch.bedroom', label:'卧室开关', sample:'开启'},
+    {name:'switch.kitchen', label:'厨房开关', sample:'关闭'},
+    {name:'sensor.temp', label:'温度（属性 .temperature）', sample:'26.5'},
+    {name:'main', label:'主状态快捷写法', sample:'（当前页主状态）'},
+    {name:'s1', label:'副状态 1 快捷写法', sample:'（当前页副状态1）'},
+    {name:'title', label:'页面名', sample:'客厅状态'}
+  ]},
+  {name:'遥控状态标签（跨设备示例）', items:[
+    {name:'remote.tv.page', label:'电视 · 当前页', sample:'CCTV-1'},
+    {name:'remote.tv.volume', label:'电视 · 音量', sample:'18'},
+    {name:'remote.home.page', label:'中控 · 当前页', sample:'3'}
+  ]}
+];
+const INITIAL = {
+  cfgTab:'page',
+  pages:[
+    {id:'p1',name:'双键插座和厨房开关',icon:'·'},
+    {id:'p2',name:'卧室空调 走廊关灯',icon:'·'},
+    {id:'p3',name:'客厅状态',icon:'◉'},
+    {id:'p4',name:'中控·直播',icon:'·'},
+    {id:'p5',name:'系统信息',icon:'·'}
+  ],
+  activePage:'p3',
+  tplMain:'人在 {sys.present} · {sys.time}  {switch.bedroom}',
+  tplSub:'广州 {sys.weather.gz}｜湛江 {sys.weather.zj}',
+  image:{invert:false},
+  bar:{enabled:true,showPage:true,showTime:false,showWifiIcon:true,showRssi:false,showIp:true},
+  weather:{
+    ttl:'30', fallback:'湛江',
+    cities:[
+      {id:'auto', name:'自动（出口 IP）', location:''},
+      {id:'gz',   name:'广州', location:'广州'},
+      {id:'zj',   name:'湛江', location:'湛江'},
+      {id:'fs',   name:'佛山', location:'佛山'}
+    ]
+  },
+  data:{online:true,rssi:-58,presence:true,occupied:true,time:'14:57',date:'11-19 周四',lunar:'十月初十',weatherById:{'auto':'晴 26°','gz':'多云 29°','zj':'晴 26°','fs':'阵雨 25°'},ip:'27.47.9.204'},
+  pickerTarget:null
+};
+let state = JSON.parse(JSON.stringify(INITIAL));
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),1800);
+}
+function resetDemo(){
+  state=JSON.parse(JSON.stringify(INITIAL)); renderAll(); syncDemoControls(); toast('已重置示例');
+}
+function setCfgTab(tab){
+  state.cfgTab=tab;
+  document.querySelectorAll('.cfg-tab').forEach((b)=>b.classList.toggle('active',b.dataset.cfg===tab));
+  renderConfig(); drawPreview();
+}
+function selectPage(id){ state.activePage=id; renderPageList(); drawPreview(); }
+function activePage(){ return state.pages.find((p)=>p.id===state.activePage) || state.pages[0]; }
+function pageNo(){ return state.pages.findIndex((p)=>p.id===state.activePage)+1; }
+
+function renderPageList(){
+  $('pageCount').textContent=state.pages.length+' 页';
+  $('pageList').innerHTML=state.pages.map((p)=>`
+    <div class="page-item ${p.id===state.activePage?'active':''}" onclick="selectPage('${p.id}')">
+      <span class="ic">${esc(p.icon||'·')}</span>
+      <span class="nm"><b>${esc(p.name)}</b><span>普通页 · 实体/系统混编</span></span>
+      <span class="num">${state.pages.indexOf(p)+1}</span>
+    </div>`).join('');
+  $('configTitle').textContent='页面配置 · '+activePage().name;
+}
+function renderConfig(){
+  $('pagePanel').style.display=state.cfgTab==='page'?'':'none';
+  $('barPanel').style.display=state.cfgTab==='bar'?'':'none';
+  if(state.cfgTab==='page'){ $('pageName').value=activePage().name; $('tplMain').value=state.tplMain; $('tplSub').value=state.tplSub; }
+  syncBarUI();
+  renderCityTable();
+  refreshSeedStatus();
+}
+
+function openVarPicker(target){
+  state.pickerTarget=target;
+  $('varList').innerHTML=PICKER_GROUPS.map((g)=>{
+    const items=(typeof g.items==='function')?g.items():g.items;
+    if(!items.length) return '';
+    return `<div class="var-group"><h4>${esc(g.name)}${g.isNew?'<span class="newtag">新增</span>':''}</h4><div class="var-grid">
+      ${items.map((v)=>`<button class="var-item" onclick="insertVar('${v.name}')"><code>{${v.name}}</code><span>${esc(v.label)} · 示例 ${esc(v.sample)}</span></button>`).join('')}
+    </div></div>`;
+  }).join('');
+  $('varLayer').style.display='flex';
+}
+function closeVarPicker(){ $('varLayer').style.display='none'; state.pickerTarget=null; }
+$('varLayer').addEventListener('click',(e)=>{ if(e.target===$('varLayer')) closeVarPicker(); });
+function insertVar(name){
+  const input=$(state.pickerTarget); if(!input) return;
+  const token='{'+name+'}';
+  const s=input.selectionStart==null?input.value.length:input.selectionStart;
+  const e=input.selectionEnd==null?s:input.selectionEnd;
+  input.value=input.value.slice(0,s)+token+input.value.slice(e);
+  input.dispatchEvent(new Event('input',{bubbles:true}));
+  closeVarPicker();
+  setTimeout(()=>{ input.focus(); input.selectionStart=input.selectionEnd=s+token.length; },0);
+}
+
+function renderCityTable(){
+  const box=$('cityTable'); if(!box) return;
+  box.innerHTML=`<table class="city-tbl"><thead><tr>
+    <th style="width:18%">id</th><th style="width:24%">城市名</th><th style="width:26%">location</th><th style="width:22%">天气值</th><th style="width:10%">操作</th>
+  </tr></thead><tbody>${state.weather.cities.map((c,i)=>{
+    const isAuto=c.id==='auto';
+    const wv=isAuto?(state.data.weatherById.auto||''):(state.data.weatherById[c.id]||'');
+    return `<tr>
+      <td>${isAuto?'<span class="cid">auto</span> <span class="lock">固定</span>':`<input type="text" class="cid" style="width:92px" value="${esc(c.id)}" onchange="renameCityId(${i},this.value)">`}</td>
+      <td><input type="text" value="${esc(c.name)}" ${isAuto?'disabled':''} oninput="state.weather.cities[${i}].name=this.value;renderLegend()"></td>
+      <td><input type="text" value="${esc(c.location)}" ${isAuto?'disabled':''} oninput="state.weather.cities[${i}].location=this.value"></td>
+      <td><input type="text" value="${esc(wv)}" oninput="state.data.weatherById['${esc(c.id)}']=this.value;drawPreview();renderLegend()"></td>
+      ${isAuto?'<td></td>':`<td><button class="xbtn" onclick="delWeatherCity(${i})">删</button></td>`}
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+const SEED_CITIES=['湛江','广州','佛山'];
+function refreshSeedStatus(){
+  const el=$('seedStatus'); if(!el) return;
+  const names=state.weather.cities.filter((c)=>c.id!=='auto').map((c)=>c.name);
+  const missing=SEED_CITIES.filter((n)=>!names.includes(n));
+  const extra=names.filter((n)=>!SEED_CITIES.includes(n));
+  const diff=missing.length+extra.length;
+  el.textContent='种子来源 weather_cities.txt（'+SEED_CITIES.join('/')+'）· 与 home/tv 名单差异 '+diff+' 个'+(diff?('（多出：'+(extra.join('/')||'无')+'；缺少：'+(missing.join('/')||'无')+'）'):'')+' · 此处是独立副本，改名不会同步到 home/tv';
+}
+function reseedCities(){
+  let added=0;
+  SEED_CITIES.forEach((name)=>{
+    if(state.weather.cities.some((c)=>c.name===name)) return;
+    const [short,full]=pyOf(name);
+    const ids=state.weather.cities.map((c)=>c.id);
+    let id=ids.includes(short)?full:short; let n=2; while(ids.includes(id)) id=full+n++;
+    state.weather.cities.push({id:id,name:name,location:name});
+    state.data.weatherById[id]='晴 26°'; added++;
+  });
+  renderCityTable(); refreshSeedStatus(); drawPreview(); renderLegend();
+  const notice=$('cityNotice'); notice.style.display=''; notice.textContent=added?('从种子补回 '+added+' 个缺失城市（已有城市未覆盖）'):'种子城市已齐全，无需导入';
+}
+const PINYIN_MAP={
+  '广州':['gz','guangzhou'],'湛江':['zj','zhanjiang'],'佛山':['fs','foshan'],
+  '镇江':['zj','zhenjiang'],'赣州':['gz','ganzhou'],'中山':['zs','zhongshan'],
+  '舟山':['zs','zhoushan'],'南京':['nj','nanjing'],'南宁':['nn','nanning'],
+  '长沙':['cs','changsha'],'上海':['sh','shanghai'],'深圳':['sz','shenzhen']
+};
+function pyOf(name){ return PINYIN_MAP[name] || ['city'+(state.weather.cities.length+1), name]; }
+function addWeatherCity(){
+  const inp=$('newCityName'); const name=(inp.value||'').trim();
+  const notice=$('cityNotice');
+  if(!name){ notice.style.display=''; notice.textContent='请先输入城市名'; return; }
+  const [short,full]=pyOf(name);
+  const ids=state.weather.cities.map((c)=>c.id);
+  let id=short, note='';
+  if(ids.includes(id)){
+    if(!ids.includes(full)){ id=full; note='首字母 '+short+' 已被占用，已自动生成全拼 '+full+'（可手动改 id）'; }
+    else { let n=2; while(ids.includes(full+n)) n++; id=full+n; note='首字母与全拼均被占用，已生成 '+id+'（可手动改 id）'; }
+  } else { note='生成 id '+short+'（无冲突）'; }
+  state.weather.cities.push({id:id,name:name,location:name});
+  state.data.weatherById[id]='晴 26°';
+  inp.value='';
+  notice.style.display=''; notice.textContent='「'+name+'」'+note;
+  renderCityTable(); refreshSeedStatus(); drawPreview(); renderLegend();
+  toast('已新增 '+name+' → '+id);
+}
+function renameCityId(i,raw){
+  const c=state.weather.cities[i]; if(!c||c.id==='auto') return;
+  const nid=(raw||'').trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
+  const notice=$('cityNotice');
+  if(!nid){ notice.style.display=''; notice.textContent='id 不能为空'; renderCityTable(); return; }
+  if(state.weather.cities.some((x,j)=>j!==i && x.id===nid)){
+    notice.style.display=''; notice.textContent='id「'+nid+'」已存在，冲突未保存（这正是首字母撞车时要防的情况）';
+    renderCityTable(); return;
+  }
+  const old=c.id;
+  const used=[state.tplMain,state.tplSub].some((t)=>t.indexOf('sys.weather.'+old)>=0);
+  if(used && !confirm('id「'+old+'」正被模板引用。改 id 后旧变量会失效，需同步改模板。确定改？')){ renderCityTable(); return; }
+  c.id=nid;
+  if(Object.prototype.hasOwnProperty.call(state.data.weatherById,old)){
+    state.data.weatherById[nid]=state.data.weatherById[old]; delete state.data.weatherById[old];
+  }
+  notice.style.display=''; notice.textContent='id 已从「'+old+'」改为「'+nid+'」（真实环境会同步替换所有引用它的模板）';
+  renderCityTable(); refreshSeedStatus(); drawPreview(); renderLegend();
+}
+function delWeatherCity(i){
+  const c=state.weather.cities[i]; if(!c||c.id==='auto') return;
+  const used=[state.tplMain,state.tplSub].some((t)=>t.indexOf('sys.weather.'+c.id)>=0);
+  if(used && !confirm('变量 {sys.weather.'+c.id+'} 正被模板引用，删除后该段会省略。确定删除？')) return;
+  state.weather.cities.splice(i,1); delete state.data.weatherById[c.id];
+  renderCityTable(); refreshSeedStatus(); drawPreview(); renderLegend(); toast('已删除 '+c.id);
+}
+function cityNameById(id){
+  const c=state.weather.cities.find((x)=>x.id===id);
+  return c?c.name:id;
+}
+function toggleBarEl(el){
+  state.bar[el.dataset.barEl]=el.checked;
+  drawPreview();
+}
+function syncBarUI(){
+  $('barEnabled').checked=!!state.bar.enabled;
+  document.querySelectorAll('[data-bar-el]').forEach((el)=>{ el.checked=!!state.bar[el.dataset.barEl]; el.disabled=!state.bar.enabled; });
+  $('imgInvert').checked=!!state.image.invert;
+  document.querySelectorAll('[data-weather]').forEach((el)=>{ const v=state.weather[el.dataset.weather]; if(v!==undefined) el.value=v; });
+  if($('fallbackCity')) $('fallbackCity').value=state.weather.fallback||'';
+  const st=$('weatherStatus');
+  if(st){
+    const used=[]; [state.tplMain,state.tplSub].forEach((t)=>{
+      const re=/sys\.weather\.([a-zA-Z0-9_]+)/g; let m; while((m=re.exec(t))!==null && !used.includes(m[1])) used.push(m[1]);
+    });
+    st.textContent=used.length?used.map((id)=>id+' '+(state.data.weatherById[id]?'实时/缓存':'待取数')).join(' · '):'模板还没引用天气变量';
+  }
+}
+document.querySelectorAll('[data-weather]').forEach((el)=>{
+  el.addEventListener(el.tagName==='SELECT'?'change':'input',()=>{ state.weather[el.dataset.weather]=el.value; renderLegend(); });
+});
+
+function syncDemoControls(){
+  $('demoRssi').value=state.data.rssi; $('demoPresence').checked=state.data.presence;
+  $('demoOnline').checked=state.data.online; $('demoTime').value=state.data.time;
+  $('demoIp').value=state.data.ip;
+}
+function bindDemo(){
+  $('demoRssi').addEventListener('input',(e)=>{state.data.rssi=Number(e.target.value);drawPreview();renderLegend();});
+  $('demoPresence').addEventListener('change',(e)=>{state.data.presence=e.target.checked;state.data.occupied=e.target.checked;drawPreview();renderLegend();});
+  $('demoOnline').addEventListener('change',(e)=>{state.data.online=e.target.checked;drawPreview();renderLegend();});
+  $('demoTime').addEventListener('input',(e)=>{state.data.time=e.target.value||'00:00';drawPreview();renderLegend();});
+  $('demoIp').addEventListener('input',(e)=>{state.data.ip=e.target.value;drawPreview();renderLegend();});
+}
+
+const COLOR='#55a9ff';
+function wifiLevel(){
+  if(!state.data.online) return 0;
+  const r=state.data.rssi;
+  if(r>=-55) return 4; if(r>=-65) return 3; if(r>=-75) return 2; return 1;
+}
+function rssiText(){ return state.data.online?state.data.rssi+'dBm':'离线'; }
+function tokenValue(name){
+  const glyph=['○','▁','▃','▅','▇'][wifiLevel()]||'○';
+  const map={
+    'sys.online':state.data.online?'已联网':'未联网',
+    'sys.wifi':state.data.online?glyph:'○',
+    'sys.rssi':rssiText(),
+    'sys.present':state.data.presence?'有人':'无人',
+    'sys.occupied':state.data.occupied?'占用中':'空闲',
+    'sys.time':state.data.time,
+    'sys.timeSec':state.data.time+':08',
+    'sys.date':state.data.date,
+    'sys.lunar':state.data.lunar,
+    'sys.ip':state.data.ip,
+    'sys.page':String(pageNo()),
+    'sys.total':String(state.pages.length),
+    'sys.pageOf':pageNo()+'/'+state.pages.length,
+    'image':'[图]',
+    'switch.bedroom':state.data.online?'开启':'关闭',
+    'switch.kitchen':'关闭',
+    'sensor.temp':'26.5',
+    'main':'卧室空调', 's1':'26° 制冷', 'title':activePage().name,
+    'remote.tv.page':'CCTV-1','remote.tv.volume':'18','remote.home.page':'3'
+  };
+  if(Object.prototype.hasOwnProperty.call(map,name)) return map[name];
+  if(name.indexOf('sys.weather.')===0){
+    const id=name.slice('sys.weather.'.length);
+    const c=state.weather.cities.find((x)=>x.id===id);
+    if(!c) return ''; // 未定义城市 id：整段省略
+    if(id==='auto') return state.data.weatherById.auto||'';
+    return state.data.weatherById[id]||'';
+  }
+  return '{'+name+'}';
+}
+function sourceOf(name){
+  if(name==='image') return ['页面资源','local'];
+  if(name.indexOf('sys.weather.')===0) return ['服务端·天气','server'];
+  if(name.indexOf('sys.')===0){
+    if(['sys.time','sys.timeSec','sys.date','sys.lunar'].includes(name)) return ['服务端','server'];
+    if(['sys.page','sys.total','sys.pageOf'].includes(name)) return ['页面','local'];
+    return ['本机','local'];
+  }
+  if(['main','s1','title'].includes(name)) return ['页面','local'];
+  if(name.indexOf('remote.')===0) return ['遥控','ha'];
+  return ['HA 实体','ha'];
+}
+function parseTpl(tpl){
+  const out=[]; const re=/\{([^{}]+)\}/g; let last=0,m;
+  while((m=re.exec(tpl))!==null){
+    if(m.index>last) out.push({type:'text',text:tpl.slice(last,m.index)});
+    out.push({type:'token',name:m[1]});
+    last=m.index+m[0].length;
+  }
+  if(last<tpl.length) out.push({type:'text',text:tpl.slice(last)});
+  return out;
+}
+function drawDemoImage(ctx,x,y,w,h){
+  ctx.save(); ctx.fillStyle=COLOR;
+  const u=Math.max(1,Math.floor(w/32));
+  for(let i=0;i<5;i++) ctx.fillRect(x+w-u*3+i*u*2,y+u,u,u);
+  ctx.fillRect(x+w-u*4,y+u*3,u*5,u);
+  const bx=x+u*5, by=y+u*5, bw=u*12, bh=u*9;
+  for(let i=0;i<bw/u;i++) ctx.fillRect(bx+i*u,by-i*u,u,u);
+  ctx.globalAlpha=.85; ctx.fillRect(bx,by,bw,bh); ctx.globalAlpha=1;
+  ctx.fillStyle='#000'; ctx.fillRect(bx+u*4,by+u*4,u*4,u*5);
+  ctx.fillStyle=COLOR; ctx.fillRect(bx+u*9,by+u*2,u*2,u*2);
+  if(state.image.invert){ ctx.globalCompositeOperation='difference'; ctx.fillStyle='#fff'; ctx.fillRect(x,y,w,h); ctx.globalCompositeOperation='source-over'; }
+  ctx.restore();
+}
+function drawTplLine(ctx,tpl,x,y,maxW,font,allowImage){
+  ctx.font=font;
+  const parts=parseTpl(tpl); let cursor=x, overflow=false, imageDrawn=false;
+  parts.forEach((p)=>{
+    if(overflow) return;
+    if(p.type==='token' && p.name==='image'){
+      if(!allowImage) return;
+      const iw=Math.min(56,maxW-(cursor-x));
+      if(iw<10) return;
+      drawDemoImage(ctx,cursor,y-12,iw,14); cursor+=iw+3; imageDrawn=true; return;
+    }
+    const txt=p.type==='text'?p.text:tokenValue(p.name);
+    if(!txt) return;
+    const w=ctx.measureText(txt).width;
+    if(cursor-x+w>maxW){ overflow=true; return; }
+    ctx.fillText(txt,cursor,y); cursor+=w+1;
+  });
+  return {overflow,imageDrawn};
+}
+function drawStatusBar(ctx){
+  const b=state.bar;
+  if(!b.enabled) return {y:4,overflow:false,desc:'状态栏：隐藏（内容区上移）'};
+  ctx.font='8px monospace';
+  let cursor=3, overflow=false;
+  const put=(txt)=>{
+    if(txt==null||txt===''||overflow) return;
+    const w=ctx.measureText(txt).width;
+    if(cursor+w>125){ overflow=true; return; }
+    ctx.fillText(txt,cursor,9); cursor+=w+3;
+  };
+  if(b.showPage) put(pageNo()+'/'+state.pages.length);
+  if(b.showTime) put(state.data.time);
+  if(b.showWifiIcon){
+    const glyph=['○','▁','▃','▅','▇'][wifiLevel()]||'○';
+    put(glyph);
+  }
+  if(b.showRssi) put(rssiText());
+  if(b.showIp) put(state.data.ip);
+  const on=['showPage','showTime','showWifiIcon','showRssi','showIp'].filter((k)=>b[k]).length;
+  return {y:14,overflow,desc:'状态栏：显示（'+on+' 项）'};
+}
+function drawPreview(){
+  const canvas=$('screen'); if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,128,64);
+  ctx.fillStyle=COLOR; ctx.textBaseline='alphabetic'; ctx.textAlign='left';
+  const bar=drawStatusBar(ctx);
+  const contentTop=bar.y;
+  // 内容区：状态栏显示时 y≈[22,38,50,62]；隐藏时整体上移约 12px
+  const slots = bar.enabled ? [22,38,50,62] : [12,27,40,55];
+  let contentOverflow=false, imageDrawn=false;
+  const mainParts=parseTpl(state.tplMain), subParts=parseTpl(state.tplSub);
+  const pureImage = mainParts.length===1 && mainParts[0].type==='token' && mainParts[0].name==='image' && !state.tplSub.trim();
+  if(pureImage){
+    drawDemoImage(ctx,2,contentTop+1,124,60-contentTop); imageDrawn=true;
+  } else {
+    const r1=drawTplLine(ctx,state.tplMain,3,slots[1],124,'bold 12px "Microsoft YaHei", sans-serif',true);
+    contentOverflow=contentOverflow||r1.overflow; imageDrawn=imageDrawn||r1.imageDrawn;
+    if(state.tplSub.trim()){
+      const r2=drawTplLine(ctx,state.tplSub,3,slots[2],124,'8px "Microsoft YaHei", sans-serif',true);
+      contentOverflow=contentOverflow||r2.overflow; imageDrawn=imageDrawn||r2.imageDrawn;
+    }
+    // 页面名放顶部（内容区第一行）
+    ctx.font='10px "Microsoft YaHei", sans-serif';
+    ctx.fillText(activePage().name,3,slots[0]);
+    // 页脚：按键提示行，不可自定义
+    ctx.font='8px monospace';
+    ctx.fillText('1:下一页  2:开灯  3:返回',3,slots[3]);
+  }
+  const warn=[];
+  if(bar.overflow) warn.push('<span style="color:var(--danger)">状态栏元素过多会截断，建议少勾几项</span>');
+  if(contentOverflow) warn.push('<span style="color:var(--accent)">超长行在设备上按节拍滚动（预览只显示首屏）</span>');
+  $('previewMeta').innerHTML=`页面 <b>${pageNo()}/${state.pages.length}</b> · ${bar.desc}<br>`+(warn.join('<br>')||'内容正常');
+  renderLegend();
+}
+function renderLegend(){
+  if(!$('legend')) return;
+  const names=[];
+  [state.tplMain,state.tplSub].forEach((t)=>parseTpl(t).forEach((p)=>{ if(p.type==='token' && !names.includes(p.name)) names.push(p.name); }));
+  if(!names.length){ $('legend').innerHTML='<b>模板里还没有变量</b><br>点「插入实体」→「系统状态」把变量写进主/副状态模板。'; return; }
+  $('legend').innerHTML='<b>模板里用到</b><br>'+names.map((n)=>{
+    const s=sourceOf(n);
+    return `<div><span class="src ${s[1]}">${s[0]}</span><b>{${n}}</b> → ${esc(tokenValue(n))}</div>`;
+  }).join('');
+}
+function renderAll(){ renderPageList(); renderConfig(); drawPreview(); }
+renderAll(); bindDemo(); syncDemoControls();
+</script>
+</body>
+</html>

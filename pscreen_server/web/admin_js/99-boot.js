@@ -6,7 +6,7 @@
     document.querySelectorAll('[data-tab]').forEach((item) => {
       item.classList.toggle('active', item.dataset.tab === tab);
     });
-    ['machines', 'users', 'layouts', 'parental', 'traffic', 'programs', 'ha-entities', 'device-types', 'device-rules', 'esp-devices', 'smart'].forEach((name) => {
+    ['machines', 'users', 'layouts', 'parental', 'traffic', 'programs', 'ha-entities', 'ha-devices', 'device-rules', 'esp-devices', 'smart'].forEach((name) => {
       const section = $('tab-' + name);
       if (section) section.hidden = state.tab !== name;
     });
@@ -21,14 +21,19 @@
       if (!state.haEntities) loadHaEntities();
       else renderHaEntities();
     }
-    if (tab === 'parental') loadParentalRecords(false);
-    if (tab === 'device-types') {
-      loadDeviceTypes().catch((error) => { $('dt-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
-      loadEspDevices().catch(() => {}); // 用于统计每种类型的「已用 N 台」
+    if (tab === 'ha-devices') {
+      bindHaDevicesOnce();
+      if (!state.haDevices) loadHaDevices();
+      else renderHaDevices();
     }
+    if (tab === 'parental') loadParentalRecords(false);
     if (tab === 'device-rules') {
-      Promise.all([loadDeviceTypes(), loadHaEntities().catch(() => {})])
-        .then(() => { renderReTypeList(); renderReRules(); renderReCard(); renderReTestSel(); })
+      Promise.all([
+        loadDeviceTypes(),
+        loadHaEntities().catch(() => {}),
+        (typeof loadHaDevices === 'function' ? loadHaDevices().catch(() => {}) : Promise.resolve()),
+      ])
+        .then(() => { renderReTypeList(); renderReRules(); renderReTestSel(); })
         .catch((error) => { $('re-type-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
     }
     if (tab === 'esp-devices') {

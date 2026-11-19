@@ -239,6 +239,7 @@ async function fetchHaRaw(baseUrl, token) {
             { key: 'areas', type: 'config/area_registry/list' },
             { key: 'entities', type: 'config/entity_registry/list' },
             { key: 'devices', type: 'config/device_registry/list' },
+            { key: 'configEntries', type: 'config/config_entry_registry/list' },
         ]),
     ]);
 
@@ -257,6 +258,7 @@ async function fetchHaRaw(baseUrl, token) {
         areas: Array.isArray(registry.areas) ? registry.areas : [],
         entities: Array.isArray(registry.entities) ? registry.entities : [],
         devices: Array.isArray(registry.devices) ? registry.devices : [],
+        configEntries: Array.isArray(registry.configEntries) ? registry.configEntries : [],
     };
 }
 
@@ -269,7 +271,7 @@ async function fetchHaRaw(baseUrl, token) {
  * - domains: [{id, label, count}]（筛选条用，只含有可用动作的域）
  */
 function buildCatalog(raw) {
-    const { states, domainServices, areas, entities, devices } = raw;
+    const { states, domainServices, areas, entities, devices, configEntries } = raw;
 
     const stateMap = {};
     for (const item of states) {
@@ -278,6 +280,21 @@ function buildCatalog(raw) {
     const deviceMap = {};
     for (const device of devices) {
         if (device && device.id) deviceMap[device.id] = device;
+    }
+    // config entry id → 集成名（如「Xiaomi Home」），用于「HA 设备」页展示。
+    const configEntryMap = {};
+    for (const entry of (configEntries || [])) {
+        if (entry && entry.entry_id) {
+            configEntryMap[entry.entry_id] = String(entry.title || entry.domain || '');
+        }
+    }
+    function integrationOf(device) {
+        if (!device || !Array.isArray(device.config_entries)) return '';
+        for (const id of device.config_entries) {
+            const title = configEntryMap[id];
+            if (title) return title;
+        }
+        return '';
     }
 
     // 区域：id → {name, home, room}
@@ -315,6 +332,8 @@ function buildCatalog(raw) {
             deviceId: entity.device_id || '',
             deviceModel: device && device.model ? String(device.model) : '',
             manufacturer: device && device.manufacturer ? String(device.manufacturer) : '',
+            integration: integrationOf(device),
+            platform: entity.platform ? String(entity.platform) : '',
             actions: actionsForDomain(domain, domainServices),
         });
     }
@@ -347,7 +366,57 @@ function buildCatalog(raw) {
         .map(([id, count]) => ({ id, label: domainLabel(id), count }))
         .sort((a, b) => b.count - a.count);
 
-    return { homes, entities: rows, domains };
+    // platform → 友好集成名。config_entry_registry 在部分 HA 版本返回空，
+    // 此时用 entity registry 的 platform（如 xiaomi_miot）作集成来源。
+    const PLATFORM_LABELS = {
+        xiaomi_miot: 'Xiaomi Miot', xiaomi: 'Xiaomi', miio: 'MiIO',
+        xiaomi_cloud: 'Xiaomi Cloud', mqtt: 'MQTT', esphome: 'ESPHome',
+        sun: 'Sun', homeassistant: 'Home Assistant', template: 'Template',
+        yeelight: 'Yeelight', xiaomi_aqara: 'Aqara',
+    };
+    function platformLabel(p) {
+        if (!p) return '';
+        if (PLATFORM_LABELS[p]) return PLATFORM_LABELS[p];
+        return p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    // 「HA 设备」聚合：按 device_id 把实体归到一台设备，供后台设备页与
+    // 全局判定测试复用。没有 device_id 的实体各自成卡（key = 'entity:<id>'）。
+    const deviceMapById = new Map();
+    for (const row of rows) {
+        const key = row.deviceId || (`entity:${row.id}`);
+        if (!deviceMapById.has(key)) {
+            deviceMapById.set(key, {
+                id: key,
+                name: row.device || row.name || key,
+                areaId: row.areaId || '',
+                areaName: row.areaName || '',
+                home: row.home || '',
+                room: row.room || '',
+                manufacturer: row.manufacturer || '',
+                model: row.deviceModel || '',
+                integration: row.integration || platformLabel(row.platform),
+                battery: '',
+                entities: [],
+            });
+        }
+        const dev = deviceMapById.get(key);
+        dev.entities.push(row);
+        // 电量：优先 device_class=battery 的 sensor state；其次 battery_level 属性。
+        if (!dev.battery) {
+            const attrs = row.attributes || {};
+            const isBatterySensor = attrs.device_class === 'battery' && row.state !== '';
+            if (isBatterySensor && /^-?\d+(\.\d+)?$/.test(row.state)) {
+                dev.battery = `${row.state}${attrs.unit_of_measurement || '%'}`;
+            } else if (attrs.battery_level != null && attrs.battery_level !== '') {
+                dev.battery = `${attrs.battery_level}%`;
+            }
+        }
+    }
+    const deviceList = Array.from(deviceMapById.values())
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN'));
+
+    return { homes, entities: rows, domains, devices: deviceList };
 }
 
 /**

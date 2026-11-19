@@ -277,11 +277,13 @@ class DeviceTypeDictionary {
     Map<String, String>? autoClassification,
     Map<String, String>? manualClassification,
     Set<String>? genericCardTypes,
+    Map<String, bool>? deviceVisibility,
   })  : _rules = rules ?? _fallbackRules(),
         _classification = classification ?? const <String, String>{},
         _autoClassification = autoClassification ?? const <String, String>{},
         _manualClassification = manualClassification ?? const <String, String>{},
-        _genericCardTypes = genericCardTypes ?? const <String>{};
+        _genericCardTypes = genericCardTypes ?? const <String>{},
+        _deviceVisibility = deviceVisibility ?? const <String, bool>{};
 
   final Map<String, DeviceTypeRule> _rules;
   final Map<String, String> _classification;
@@ -294,6 +296,13 @@ class DeviceTypeDictionary {
 
   /// 灰度：已开启通用卡片渲染的类型 key。
   final Set<String> _genericCardTypes;
+
+  /// HA 设备「是否显示到中控屏」显式配置（device_id → bool）。
+  /// 仅在后台显式设置过的设备才会出现在这个 map 里；未出现的设备保持现状。
+  final Map<String, bool> _deviceVisibility;
+
+  /// 设备在后台被显式设为「隐藏」。未配置（null）返回 false——保持现状，平滑过渡。
+  bool isDeviceHidden(String deviceId) => _deviceVisibility[deviceId] == false;
 
   /// 当前生效字典（由 DeviceTypeStore 在 refresh 成功后设置）。
   /// 各 Summary 的 tryBuild 用它做显式类型消歧：admin 已声明类型的设备，
@@ -397,12 +406,27 @@ class DeviceTypeDictionary {
         if (g is String && g.isNotEmpty) generic.add(g);
       }
     }
+    final Map<String, bool> visibility = <String, bool>{};
+    final dynamic rawVis = data['deviceVisibility'];
+    if (rawVis is Map) {
+      rawVis.forEach((dynamic k, dynamic v) {
+        if (k is String) {
+          if (v is bool) {
+            visibility[k] = v;
+          } else if (v is String) {
+            // 兼容 "true"/"false" 字符串
+            visibility[k] = v.toLowerCase() == 'true';
+          }
+        }
+      });
+    }
     return DeviceTypeDictionary(
       rules: rules,
       classification: classification,
       autoClassification: parseMap('autoClassification'),
       manualClassification: parseMap('manualClassification'),
       genericCardTypes: generic,
+      deviceVisibility: visibility,
     );
   }
 

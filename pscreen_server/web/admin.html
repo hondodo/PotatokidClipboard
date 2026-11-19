@@ -55,7 +55,7 @@
       <button class="tab" type="button" data-tab="traffic">流量统计</button>
       <button class="tab" type="button" data-tab="programs">节目编辑</button>
       <button class="tab" type="button" data-tab="ha-entities">HA 实体库</button>
-      <button class="tab" type="button" data-tab="device-types">设备类型字典</button>
+      <button class="tab" type="button" data-tab="ha-devices">HA 设备</button>
       <button class="tab" type="button" data-tab="device-rules">设备判定规则</button>
       <button class="tab" type="button" data-tab="esp-devices">ESP 设备分类</button>
       <button class="tab" type="button" data-tab="smart">智能</button>
@@ -361,25 +361,46 @@
       </div>
     </section>
 
-    <!-- 设备类型字典：全局规则的唯一真源，home 与 ESP 两端共用 -->
-    <section id="tab-device-types" class="panel" hidden>
+    <!-- HA 设备：按设备聚合，配置是否显示到中控屏 -->
+    <section id="tab-ha-devices" class="panel" hidden>
       <div class="panel-head">
         <div>
-          <h2>设备类型字典</h2>
-          <p>每种设备类型的解析规则只在这里维护一处——home 端详情页与 ESP 小屏共用。改一处，两端同时生效，不必再进某台设备。</p>
-          <p class="hint">「共用语义」两端都读；「home 端消费」只影响 App 详情面板；「ESP 端消费」只影响 128×64 屏幕四行文本。改动即时写入 deviceTypes.json，无需重启。</p>
+          <h2>HA 设备</h2>
+          <p>Home Assistant 里的每一台物理设备（由多个实体聚合）。<b>「显示到中控屏」</b>决定它是否真的出现在中控屏首页；关闭的设备会被首页网格隐藏。</p>
+          <p class="hint">默认未配置的设备<b>保持现状</b>（照常显示），逐个关掉不需要上屏的设备即可平滑接管。开关即时下发，中控屏下次拉取配置后生效。</p>
         </div>
         <div class="panel-actions">
-          <span class="pill" id="dt-meta">—</span>
-          <button class="btn small" id="dt-reload" type="button">重新加载</button>
+          <span class="pill" id="ha-devices-meta">—</span>
+          <button class="btn small" id="ha-devices-refresh" type="button">刷新</button>
         </div>
       </div>
-      <div class="dt-layout">
-        <div class="card"><h3>设备类型</h3><div class="dt-list" id="dt-list"><div class="empty">加载中…</div></div></div>
-        <div class="card">
-          <h3 id="dt-title">字典规则</h3>
-          <div id="dt-editor"><div class="empty">请选择左侧类型</div></div>
+
+      <div class="ha-toolbar">
+        <input id="ha-devices-search" type="search" placeholder="搜索设备名、型号、制造商…" autocomplete="off">
+        <div class="ha-switches">
+          <label class="inline-check ha-only-free">
+            <input type="checkbox" id="ha-devices-only-visible">
+            <span>仅看显示到中控屏</span>
+          </label>
         </div>
+      </div>
+
+      <div class="table-wrap ha-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:230px">设备</th>
+              <th style="width:150px">区域</th>
+              <th style="width:130px">集成</th>
+              <th style="width:120px">制造商</th>
+              <th style="width:190px">型号</th>
+              <th style="width:80px">电量</th>
+              <th style="width:80px">实体数</th>
+              <th style="width:150px">显示到中控屏</th>
+            </tr>
+          </thead>
+          <tbody id="ha-devices-body"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
+        </table>
       </div>
     </section>
 
@@ -388,8 +409,8 @@
       <div class="panel-head">
         <div>
           <h2>设备判定规则</h2>
-          <p>定义「哪台设备算空调 / 热水器 / 电视」。规则之间 <b>OR</b>、规则内条件之间 <b>AND</b>；多条命中时按<b>具体度优先、再按优先级</b>裁决。判定在服务端统一算，home 端按结果显示卡片、ESP 端哑巴显示四行文本。</p>
-          <p class="hint">字段/操作符为开放输入 + 推荐候选：<code>attr.属性名</code> 取任意 HA 属性，<code>device.model</code> 取设备型号（如 <code>xiaomi.tv.v1</code>，比实体 ID 前缀稳定）；「开头是」自动忽略 <code>button.</code> / <code>switch.</code> 域前缀。保存后写回字典覆盖层，两端即时生效。</p>
+          <p>定义「哪台设备算空调 / 热水器 / 电视」。规则之间 <b>OR</b>、规则内条件之间 <b>AND</b>；多条命中时按<b>具体度优先、再按优先级</b>裁决。判定结果返回给 home，由 home 按类型选用各自不同的专用卡片。</p>
+          <p class="hint">字段/操作符为开放输入 + 推荐候选：<code>attr.属性名</code> 取任意 HA 属性，<code>device.model</code> 取设备型号（如 <code>xiaomi.tv.v1</code>，比实体 ID 前缀稳定）；「开头是」自动忽略 <code>button.</code> / <code>switch.</code> 域前缀。保存后服务端即时生效。</p>
         </div>
         <div class="panel-actions">
           <span class="pill" id="re-meta">—</span>
@@ -411,43 +432,69 @@
           </div>
           <div class="dt-list" id="re-type-list"><div class="empty">加载中…</div></div>
         </div>
-        <div class="card">
-          <h3 id="re-title">判定规则</h3>
-          <div id="re-rules"><div class="empty">请选择左侧类型</div></div>
-          <div class="re-btn-row"><button class="btn small" type="button" id="re-add-rule">＋ 添加规则</button></div>
-          <h3 style="margin-top:18px">通用卡片配置</h3>
-          <div id="re-card"><div class="empty">请选择左侧类型</div></div>
-          <div class="re-btn-row" style="margin-top:12px">
-            <button class="btn primary small" type="button" id="re-save">保存并生效</button>
-            <button class="btn small" type="button" id="re-reset">恢复默认</button>
+        <div class="re-center-col">
+          <div class="card">
+            <h3 id="re-title">判定规则</h3>
+            <div class="re-priority-row" style="margin-bottom:8px">
+              <label for="re-priority">优先级</label>
+              <input type="number" id="re-priority" min="0" max="999" step="1" value="5" title="多条规则命中时，具体度相同则优先级高者胜出。如热水器要压过插座，填 21 以上。">
+              <span class="hint">具体度相同时，数值大者胜出（如压过插座填 21+）</span>
+            </div>
+            <div id="re-rules"><div class="empty">请选择左侧类型</div></div>
+            <div class="re-btn-row"><button class="btn small" type="button" id="re-add-rule">＋ 添加规则</button></div>
+            <div class="re-btn-row" style="margin-top:12px">
+              <button class="btn primary small" type="button" id="re-save">保存并生效</button>
+              <button class="btn small" type="button" id="re-reset">恢复默认</button>
+            </div>
+          </div>
+
+          <!-- 全局判定测试：一次列出所有 HA 设备最新被识别的类型 -->
+          <div class="card re-global">
+            <div class="re-global-head">
+              <div>
+                <h3>全局判定测试</h3>
+                <p class="hint">用<b>当前编辑器里的规则</b>（含未保存改动）对全部 HA 设备跑一遍判定，列出每台设备被识别的类型；<b>高亮</b>的行是当前编辑类型命中的设备。</p>
+              </div>
+              <div class="re-global-actions">
+                <label class="inline-check ha-only-free">
+                  <input type="checkbox" id="re-global-only-visible">
+                  <span>仅看显示到中控屏的设备</span>
+                </label>
+                <button class="btn small" type="button" id="re-global-run">开始</button>
+              </div>
+            </div>
+            <div class="re-global-meta" id="re-global-meta"></div>
+            <div class="table-wrap ha-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:60px">#</th>
+                    <th style="width:240px">设备</th>
+                    <th style="width:150px">区域</th>
+                    <th style="width:150px">识别类型</th>
+                    <th style="width:100px">显示到中控屏</th>
+                    <th>其他命中（落选）</th>
+                  </tr>
+                </thead>
+                <tbody id="re-global-body"><tr><td colspan="6" class="empty">点「开始」运行全局判定。</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
+
         <div class="card re-preview">
           <h3>命中测试</h3>
-          <p class="hint" style="margin-bottom:8px">从 HA 实体库取真实设备（含型号/属性），点运行看判定链路。</p>
+          <p class="hint" style="margin-bottom:8px">1、从 HA 实体库里选取设备（含型号 / 属性）<br>2、点击「运行判定」查看匹配结果</p>
+          <label class="inline-check ha-only-free" style="margin-bottom:6px">
+            <input type="checkbox" id="re-test-only-visible">
+            <span>仅看显示到中控屏的设备</span>
+          </label>
           <select class="re-test-sel" id="re-test-device"><option>加载中…</option></select>
           <div class="re-ents" id="re-test-ents">—</div>
           <div class="re-btn-row"><button class="btn small" type="button" id="re-run-test">运行判定</button></div>
           <div class="re-result" id="re-test-result"><span class="hint">点「运行判定」查看结果。</span></div>
-          <h3 style="margin-top:18px">Home 卡片预览</h3>
-          <div class="re-preview-card" id="re-preview-home">—</div>
-          <h3>ESP 四行预览</h3>
-          <div class="re-preview-esp" id="re-preview-esp">—</div>
         </div>
       </div>
-      <datalist id="re-dl-fields">
-        <option value="domain"></option><option value="entity_id"></option><option value="name"></option><option value="state"></option>
-        <option value="attr.current_temperature"></option><option value="attr.temperature"></option><option value="attr.percentage"></option><option value="attr.options"></option>
-        <option value="device.model"></option><option value="device.name"></option><option value="device.manufacturer"></option>
-      </datalist>
-      <datalist id="re-dl-ops">
-        <option value="eq"></option><option value="neq"></option><option value="contains"></option><option value="not_contains"></option>
-        <option value="startsWith"></option><option value="exists"></option><option value="gt"></option><option value="lt"></option>
-      </datalist>
-      <datalist id="re-dl-actions">
-        <option value="toggle"></option><option value="press"></option><option value="turn_on"></option><option value="turn_off"></option>
-        <option value="set_temperature(+0.5)"></option><option value="set_percentage(+25)"></option><option value="select_option"></option><option value="notify"></option>
-      </datalist>
     </section>
 
     <!-- ESP 设备分类：一页 = 一台被控设备（页面名 + 显示内容 + 一组按键） -->
@@ -456,7 +503,7 @@
         <div>
           <h2>ESP 设备分类</h2>
           <p>一页 = 一台被控设备。每页有自己的页面名、屏幕显示内容和一组按键；设备上按「下一页」整页切换，不用为每种设备重做固件。</p>
-          <p class="hint">显示内容只选「设备类型 + 实体」，四行文字由「设备类型字典」统一生成；按键槽位 1~8 只是逻辑编号，物理 GPIO 在设备本地设置页分配，换接线不用改这里。</p>
+          <p class="hint">屏幕显示内容在每页模板里直接写实体 id（如 <code>{switch.bedroom}</code>），填什么显示什么、无兜底；按键槽位 1~8 只是逻辑编号，物理 GPIO 在设备本地设置页分配，换接线不用改这里。</p>
         </div>
         <div class="panel-actions">
           <span class="pill" id="espdev-meta">—</span>
@@ -518,6 +565,7 @@
   <script src="admin_js/02-machines.js"></script>
   <script src="admin_js/03-dialogs.js"></script>
   <script src="admin_js/04-ha.js"></script>
+  <script src="admin_js/04b-ha-devices.js"></script>
   <script src="admin_js/05-config.js"></script>
   <script src="admin_js/06-parental.js"></script>
   <script src="admin_js/07-layouts.js"></script>

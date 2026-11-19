@@ -422,18 +422,12 @@
       .trim();
   }
 
-  /** 预览用：按设备类型字典/自定义模板把绑定实体解析成四行文本。 */
+  /** 预览用：按页内模板把实体解析成四行文本（模板留空即空行，无字典兜底）。 */
   function espPreviewLines(page) {
-    const type = espTypeInfo(page.deviceType);
-    const dict = (type && type.dict) || { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}' };
     const index = espEntityIndex();
     const map = espParseValueMap(page.valueMap);
     const entityMaps = espParseEntityValueMap(page.entityValueMap);
-    const b = page.bindings || {};
     const ctx = {
-      main: espEntityValue(index, map, entityMaps, b.main, dict.mainAttr),
-      s1: espEntityValue(index, map, entityMaps, b.s1, 'state'),
-      s2: espEntityValue(index, map, entityMaps, b.s2, 'state'),
       title: page.name || '',
       entities: {},
     };
@@ -462,12 +456,8 @@
       ctx.entities[token.key] = espEntityValue(index, map, entityMaps, token.baseId, token.attr);
     }
 
-    const mainTxt = page.tplMain
-      ? espRenderTemplate(page.tplMain, ctx)
-      : (ctx.main ? espCleanLine(dict.mainFmt.replace('{v}', ctx.main)) : '');
-    const subTxt = page.tplSub
-      ? espRenderTemplate(page.tplSub, ctx)
-      : espCleanLine(espRenderSub(dict.subTpl, ctx.s1, ctx.s2));
+    const mainTxt = page.tplMain ? espRenderTemplate(page.tplMain, ctx) : '';
+    const subTxt = page.tplSub ? espRenderTemplate(page.tplSub, ctx) : '';
     let keys = (page.buttons || [])
       .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
       .sort((a, b2) => Number(a.slot) - Number(b2.slot))
@@ -519,7 +509,7 @@
     }
 
     const buttonCount = (page.buttons || []).filter((item) => item.enabled !== false).length;
-    const displayCount = ['main', 's1', 's2'].filter((slot) => page.bindings && page.bindings[slot]).length;
+    const displayCount = ['tplMain', 'tplSub'].filter((slot) => page[slot] && String(page[slot]).trim()).length;
     $('espdev-preview-meta').innerHTML =
       `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${displayCount} 行显示<br>超宽文字在设备上按各行节拍滚动（预览只显示首屏）`;
   }
@@ -532,7 +522,6 @@
     $('espdev-pagecount').textContent = `${pages.length} 页`;
     box.innerHTML = pages.map((page, index) => `
       <div class="esp-page-chip${page.id === espDevDraft.activePageId ? ' active' : ''}" data-page="${esc(page.id)}">
-        <span>${esc(page.icon || '·')}</span>
         <span class="nm">${esc(page.name || '未命名')}</span>
         <span class="num">${index + 1}</span>
         <button class="x" type="button" data-del="${esc(page.id)}" title="删除这一页">×</button>
@@ -581,17 +570,6 @@
       return;
     }
     $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
-    const types = state.espTypes || [];
-    const typeOpts = ['<option value="">通用兜底（domain + state）</option>']
-      .concat(types.filter((t) => t.key).map((t) =>
-        `<option value="${esc(t.key)}" ${t.key === page.deviceType ? 'selected' : ''}>${esc(t.label || t.key)}</option>`))
-      .join('');
-    const bindInput = (slot, label) =>
-      `<label>${label}<div class="esp-ent-cell">
-        <input data-bind="${slot}" value="${esc((page.bindings && page.bindings[slot]) || '')}" placeholder="entity_id" autocomplete="off">
-        <button class="btn small" type="button" data-bind-pick="${slot}">选择</button>
-      </div></label>`;
-
     // 设备本机上报的槽位→GPIO。后台只展示，不反向下发；
     // 槽位 0 显示「—」，本机没启用的槽位显示「未映射」。
     const pinMap = new Map((espDevDraft.buttons || []).map((item) => [Number(item.slot), Number(item.pin)]));
@@ -747,14 +725,10 @@
       <div class="esp-section">
         <h4>① 页面属性</h4>
         <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
-        <div class="esp-field-row"><label>图标</label><input id="esp-page-icon" maxlength="2" value="${esc(page.icon || '')}" style="width:70px"></div>
-        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作 / 手动控制」（动作组在「智能」页维护）——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
+        <p class="hint">名称显示在屏幕顶部标题行。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作 / 手动控制」（动作组在「智能」页维护）——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
       </div>
       <div class="esp-section">
-        <h4>② 屏幕显示内容 <span class="tag">由设备类型字典生成</span></h4>
-        <div class="esp-field-row"><label>设备类型</label><select id="esp-page-type">${typeOpts}</select></div>
-        <div class="esp-bind-grid">${bindInput('main', '主状态')}${bindInput('s1', '副状态 1')}${bindInput('s2', '副状态 2')}</div>
-        <p class="hint">点「选择」按家庭 / 房间 / 设备筛选实体，弹窗里会显示当前状态值；也可以直接手填 entity_id。四行文字由「设备类型字典」统一解析，home 端与屏幕同时生效。</p>
+        <h4>② 屏幕显示内容 <span class="tag">按页内模板生成</span></h4>
         <div class="esp-field-row"><label>主状态模板</label>
           <div class="esp-ent-cell">
             <input id="esp-tpl-main" maxlength="120" value="${esc(page.tplMain || '')}" placeholder="例：卧室{switch.bedroom} 走廊{switch.corridor}">
@@ -776,7 +750,7 @@
             <button class="btn small" type="button" data-entmap-pick>插入实体</button>
           </div>
         </div>
-        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），遥控状态字段同样适用（<b>remote.android_xxx.sleep: 关闭=未启用, 开启=关闭剩余</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
+        <p class="hint">模板就是屏幕上要显示的内容：<b>直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个），<b>{title}</b> 是页面名。主状态模板显示在加粗大字行，副状态模板显示在下方小字行；留空的那行不显示。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），遥控状态字段同样适用（<b>remote.android_xxx.sleep: 关闭=未启用, 开启=关闭剩余</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
       </div>
       <div class="esp-section">
         <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>
@@ -829,7 +803,6 @@
       </div>
       <div class="dt-actions">
         <button class="btn primary small" type="button" id="esp-save">保存并下发</button>
-        <button class="btn small" type="button" id="esp-edit-dict">编辑此类型字典 →</button>
         <span class="hint" style="align-self:center">保存后设备下次心跳自动生效</span>
       </div>`;
 
@@ -837,14 +810,6 @@
       page.name = event.target.value;
       $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
       renderEspPages();
-    });
-    $('esp-page-icon').addEventListener('input', (event) => {
-      page.icon = event.target.value;
-      renderEspPages();
-    });
-    $('esp-page-type').addEventListener('change', (event) => {
-      page.deviceType = event.target.value;
-      drawEspPreview();
     });
     $('esp-tpl-main').addEventListener('input', (event) => {
       page.tplMain = event.target.value;
@@ -921,27 +886,6 @@
         });
       });
     }
-    host.querySelectorAll('[data-bind]').forEach((el) => {
-      el.addEventListener('input', () => {
-        page.bindings[el.dataset.bind] = el.value.trim();
-        drawEspPreview();
-      });
-    });
-    // 「选择」按钮：打开实体弹窗（家庭/房间/设备筛选 + 当前状态值）。
-    const bindLabels = { main: '主状态', s1: '副状态 1', s2: '副状态 2' };
-    host.querySelectorAll('[data-bind-pick]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const slot = btn.dataset.bindPick;
-        openEntityPicker({
-          title: `选择显示实体 · ${bindLabels[slot] || slot}`,
-          value: page.bindings[slot] || '',
-          onPick: (entity) => {
-            page.bindings[slot] = entity.id;
-            renderEspPageEditor();
-          },
-        });
-      });
-    });
     $('esp-page-loop').addEventListener('change', (event) => {
       page.loop = event.target.value === '1';
     });
@@ -962,10 +906,6 @@
     });
     $('esp-refresh-pins').addEventListener('click', refreshEspPins);
     $('esp-save').addEventListener('click', saveEspPages);
-    $('esp-edit-dict').addEventListener('click', () => {
-      state.dtEditKey = page.deviceType || '';
-      activateTab('device-types');
-    });
 
     host.querySelectorAll('tr[data-btn]').forEach((tr) => {
       const button = page.buttons.find((item) => item.id === tr.dataset.btn);
@@ -1244,12 +1184,7 @@
 
   if ($('espdev-theme')) $('espdev-theme').addEventListener('change', drawEspPreview);
 
-  // 设备类型字典 / ESP 设备分类的刷新按钮
-  if ($('dt-reload')) $('dt-reload').addEventListener('click', () => {
-    Promise.all([loadDeviceTypes(true), loadEspDevices(true)])
-      .then(() => toast('字典已刷新'))
-      .catch((error) => toast('刷新失败：' + error.message, 'error'));
-  });
+  // ESP 设备分类的刷新按钮
   if ($('espdev-reload')) $('espdev-reload').addEventListener('click', () => {
     Promise.all([loadDeviceTypes(true), loadHaEntities().catch(() => {}), loadEspDevices(true)])
       .then(() => { if (state.espDevEditId) return openEspDevEditor(state.espDevEditId); })
