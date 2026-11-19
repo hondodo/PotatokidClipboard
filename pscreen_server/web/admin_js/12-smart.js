@@ -2,8 +2,9 @@
 
   // 「智能」Tab：手动控制（点一下执行一组动作）+ 自动化（条件满足自动执行）。
   //
-  // 数据来自 /api/admin/scenes；动作编辑复用 04-ha.js 的 createEntityPicker 与
-  // /api/admin/remote/devices 的能力表，保证后台配的动作和小屏按键可用命令一致。
+  // 数据来自 /api/admin/scenes；动作编辑复用 04-ha.js 的 openEntityPicker（与
+  // ESP「插入实体」同一个窗口）和 /api/admin/remote/devices 的能力表，
+  // 保证后台配的动作和小屏按键可用命令一致。
   //
   // 刻意不做的：HA 实体状态触发。服务端没有常驻 HA WS，只能 15 秒轮询，
   // 做出来会让人以为是秒级，所以 P1 只给 感应 / 按键 / 定时 三种触发。
@@ -380,7 +381,6 @@
     const triggerTypeSel = form.querySelector('[data-f="triggerType"]');
     const triggerBody = form.querySelector('.smart-trigger-body');
     const actionsBox = form.querySelector('.smart-actions');
-    const pickers = [];
 
     function renderTrigger() {
       triggerBody.innerHTML = '';
@@ -585,14 +585,46 @@
         return;
       }
 
-      // HA 实体
+      // HA 实体：与 ESP「插入实体」同一套弹窗（家庭/房间/设备筛选 + 搜索 + 当前状态）。
+      // 场景编辑本身就在弹层里，所以选择器以叠加层打开，不会把下面正在填的表单顶掉。
       const wrap = document.createElement('div');
       wrap.className = 'smart-ha-row';
-      const picker = createEntityPicker({
-        value: action.entityId || '',
-        onChange: (entity) => { action.entityId = entity ? entity.id : ''; },
+      const picker = document.createElement('div');
+      picker.className = 'entity-picker';
+      const entInput = document.createElement('input');
+      entInput.className = 'entity-picker-input';
+      entInput.placeholder = 'light.living_room';
+      entInput.maxLength = 128;
+      entInput.autocomplete = 'off';
+      entInput.value = action.entityId || '';
+      const entBtn = document.createElement('button');
+      entBtn.type = 'button';
+      entBtn.className = 'btn small entity-picker-btn';
+      entBtn.textContent = '选择';
+      const entNote = document.createElement('p');
+      entNote.className = 'entity-picker-desc';
+      entNote.textContent = action.entityId
+        ? `当前：${action.entityId}`
+        : '点「选择」打开实体窗口，按家庭/房间/设备挑，也可直接输入 entity_id。';
+      picker.append(entInput, entBtn);
+      entInput.addEventListener('input', (event) => { action.entityId = event.target.value.trim(); });
+      entBtn.addEventListener('click', () => {
+        openEntityPicker({
+          title: '选择 HA 实体 · 动作',
+          value: action.entityId || '',
+          actionableOnly: true,   // 动作要真能执行，默认只看可控实体（弹窗里可取消）
+          onPick: (entity) => {
+            action.entityId = entity.id;
+            entInput.value = entity.id;
+            // 选中的实体可能只支持部分动作：把可用动作摆出来，避免配了 turn_on
+            // 到执行时才失败。判断动作合不合法仍由服务端把关。
+            const labels = (entity.actions || []).map((item) => item.label);
+            entNote.textContent = labels.length
+              ? `${entity.name || entity.id}｜${entity.home || '未归属家庭'} · ${haEntityRoom(entity)}｜可用动作：${labels.join(' / ')}`
+              : `${entity.name || entity.id}｜该实体没有可用的开关动作，执行会失败`;
+          },
+        });
       });
-      pickers.push(picker);
       const actions = document.createElement('div');
       actions.className = 'smart-field-row';
       actions.innerHTML = `
@@ -626,9 +658,9 @@
         action.action = event.target.value;
       });
       paramInput.addEventListener('input', (event) => { action.param = event.target.value; });
-      wrap.appendChild(picker.root);
+      wrap.appendChild(picker);
       wrap.appendChild(actions);
-      if (picker.note) wrap.appendChild(picker.note);
+      wrap.appendChild(entNote);
       box.appendChild(wrap);
     }
 

@@ -494,11 +494,15 @@
    * @param {Function} options.onPick 选中回调 (entity)；启用了属性时可能带 entity.attr
    */
   function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick, withAttributes = false } = {}) {
+    // 追加独立层，不整体替换 dialog-root：本选择器可能叠在另一个弹窗之上
+    // （例如「智能」Tab 的场景编辑弹层里选实体），整体替换会把下面正在编辑的表单清掉。
     const root = $('dialog-root');
+    const layer = document.createElement('div');
+    layer.className = 'ent-pick-layer';
     const filters = { home: '', room: '', device: '', keyword: '', onlyActionable: !!actionableOnly };
     let catalog = state.haEntities;
 
-    root.innerHTML = `
+    layer.innerHTML = `
       <div class="overlay">
         <div class="card dialog wide ent-pick-dialog" role="dialog" aria-modal="true">
           <div class="dialog-head">
@@ -528,27 +532,28 @@
           </div>
         </div>
       </div>`;
+    root.appendChild(layer);
 
-    const close = () => { root.innerHTML = ''; };
-    root.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
+    const close = () => { layer.remove(); };
+    layer.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
     if (quickTokens && quickTokens.length) {
-      root.querySelectorAll('[data-quick]').forEach((btn) => btn.addEventListener('click', () => {
+      layer.querySelectorAll('[data-quick]').forEach((btn) => btn.addEventListener('click', () => {
         const token = quickTokens.items[Number(btn.dataset.quick)];
         if (token && typeof onPick === 'function') onPick(token);
         close();
       }));
     }
-    const overlay = root.querySelector('.overlay');
+    const overlay = layer.querySelector('.overlay');
     overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
 
-    const homeSel = root.querySelector('[data-filter="home"]');
-    const roomSel = root.querySelector('[data-filter="room"]');
-    const deviceSel = root.querySelector('[data-filter="device"]');
-    const keywordInput = root.querySelector('[data-filter="keyword"]');
-    const onlyBox = root.querySelector('[data-filter="onlyActionable"]');
-    const refreshBtn = root.querySelector('[data-refresh]');
-    const meta = root.querySelector('.ent-pick-meta');
-    const list = root.querySelector('.ent-pick-list');
+    const homeSel = layer.querySelector('[data-filter="home"]');
+    const roomSel = layer.querySelector('[data-filter="room"]');
+    const deviceSel = layer.querySelector('[data-filter="device"]');
+    const keywordInput = layer.querySelector('[data-filter="keyword"]');
+    const onlyBox = layer.querySelector('[data-filter="onlyActionable"]');
+    const refreshBtn = layer.querySelector('[data-refresh]');
+    const meta = layer.querySelector('.ent-pick-meta');
+    const list = layer.querySelector('.ent-pick-list');
 
     // 主目录（HA 实体）+ 附加实体（遥控状态等虚拟实体），统一参与筛选/搜索/列表。
     const all = () => [...((catalog && catalog.entities) || []), ...(extraEntities || [])];
