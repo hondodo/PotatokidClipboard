@@ -30,7 +30,11 @@ const SOFT_DELETE_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 const TIME_TICK_MS = 30 * 1000;
 
 const TRIGGER_TYPES = new Set(['presence', 'button', 'time']);
-const ACTION_TYPES = new Set(['ha', 'remote', 'delay']);
+const ACTION_TYPES = new Set(['ha', 'remote', 'delay', 'scene']);
+// 场景 id 允许的字符集（与 ESP 按键里 sceneId 的校验保持一致）。
+const SCENE_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+// 动作调动作最多套几层：再深就不是「复用」而是把编排写乱了。
+const MAX_SCENE_DEPTH = 3;
 const WEEKDAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
 
 const DEFAULT_CONFIG = {
@@ -139,6 +143,10 @@ function describeAction(action, ctx) {
     const label = (ctx && ctx.labelOf) ? ctx.labelOf(action) : '';
     if (label) return label;
     if (action.type === 'delay') return `等待 ${action.seconds} 秒`;
+    if (action.type === 'scene') {
+        const name = (ctx && ctx.sceneName) ? ctx.sceneName(action.sceneId) : '';
+        return name ? `手动控制「${name}」` : `手动控制（${action.sceneId || '未选'}）`;
+    }
     if (action.type === 'ha') return `${action.entityId || '实体'} ${action.action || ''}`.trim();
     if (action.type === 'remote') return `${action.target || '设备'} ${action.action || ''}`.trim();
     return '动作';
@@ -199,6 +207,15 @@ function normalizeScene(input, ctx = {}) {
             const seconds = clampInt(a.seconds, 1, MAX_DELAY_SEC, 0);
             if (!seconds) throw new Error(`第 ${index + 1} 个动作（等待）需要 1–${MAX_DELAY_SEC} 秒`);
             return { type, seconds, onError };
+        }
+        if (type === 'scene') {
+            const sceneId = safeString(a.sceneId, 40);
+            if (!SCENE_ID_RE.test(sceneId)) throw new Error(`第 ${index + 1} 个动作没选手动控制`);
+            if (existing && sceneId === existing.id) throw new Error(`第 ${index + 1} 个动作不能引用自己`);
+            // 只校验「引用的不是自动化」；目标被删了不阻断保存 —— 否则别的字段也改不动了，
+            // 运行时由执行器报错（与 ESP 按键的取舍一致）。
+            if (typeof ctx.checkScene === 'function') ctx.checkScene(sceneId, index + 1);
+            return { type, sceneId, onError };
         }
         if (type === 'ha') {
             const entityId = safeString(a.entityId, 128);
@@ -316,13 +333,52 @@ function attachScenes(options = {}) {
         return config.settings;
     }
 
+    /** 保存期校验动作里引用的手动控制：不能指向自动化。目标不存在时不阻断（运行时报）。 */
+    function checkSceneRef(sceneId, index) {
+        const target = findScene(sceneId);
+        if (!target) return;
+        if (target.kind !== 'manual') {
+            throw new Error(`第 ${index} 个动作只能引用手动控制，「${target.name}」是自动化`);
+        }
+    }
+
     function ctxOf() {
-        return { labelOf, checkRemote };
+        return { labelOf, checkRemote, checkScene: checkSceneRef };
+    }
+
+    /**
+     * 保存前拦环：A 的动作里有 B、B 的动作里又有 A，执行时只会打转。
+     * 运行时也有 chain 兜底，但那时用户看到的是「执行失败」，不如保存时就说清。
+     */
+    function assertNoCycle(scene, config) {
+        const byId = new Map();
+        for (const item of config.scenes) if (!item.deletedAt) byId.set(item.id, item);
+        byId.set(scene.id, scene);
+        const seen = new Set([scene.id]);
+        const walk = (id, path) => {
+            const node = byId.get(id);
+            if (!node) return null;
+            for (const action of node.actions) {
+                if (!action || action.type !== 'scene') continue;
+                if (action.sceneId === scene.id) return [...path, id, scene.id];
+                if (seen.has(action.sceneId)) continue;
+                seen.add(action.sceneId);
+                const hit = walk(action.sceneId, [...path, id]);
+                if (hit) return hit;
+            }
+            return null;
+        };
+        const cycle = walk(scene.id, []);
+        if (cycle) {
+            const names = cycle.map((id) => (byId.get(id) || {}).name || id);
+            throw new Error(`动作会形成循环引用：${names.join(' → ')}`);
+        }
     }
 
     function create(input) {
         const scene = normalizeScene(input, ctxOf());
         const config = readConfig();
+        assertNoCycle(scene, config);
         config.scenes.push(scene);
         writeConfig(prune(config));
         log(`新建${scene.kind === 'manual' ? '手动控制' : '自动化'}「${scene.name}」`);
@@ -337,6 +393,7 @@ function attachScenes(options = {}) {
         const merged = normalizeScene({ ...existing, ...patch }, { ...ctxOf(), existing });
         // kind 不允许从自动化改成手动（触发器会残留），要改就删了重建。
         merged.kind = existing.kind;
+        assertNoCycle(merged, config);
         config.scenes[index] = merged;
         writeConfig(prune(config));
         log(`更新「${merged.name}」`);
@@ -380,7 +437,11 @@ function attachScenes(options = {}) {
      * 按顺序执行动作。手动执行（force）忽略 enabled 与冷却，但仍防重入；
      * 自动触发受 enabled / 冷却 / 时间窗约束。
      */
-    async function run(id, { reason = 'manual', force = false } = {}) {
+    async function run(id, { reason = 'manual', force = false, chain = [], ignoreCooldown = false } = {}) {
+        if (chain.includes(id)) throw new Error('循环引用：手动控制之间互相调用');
+        if (chain.length >= MAX_SCENE_DEPTH) {
+            throw new Error(`动作嵌套超过 ${MAX_SCENE_DEPTH} 层，请把中间那层拆开`);
+        }
         const scene = findScene(id);
         if (!scene) throw new Error('场景不存在或已删除');
         if (running.has(id)) {
@@ -393,7 +454,9 @@ function attachScenes(options = {}) {
                 return { ok: false, skipped: true, reason: '场景已关闭', steps: [] };
             }
             const cooldownMs = Math.max(0, Number(scene.cooldownSec) || 0) * 1000;
-            if (cooldownMs && Date.now() - (Number(scene.lastRunAt) || 0) < cooldownMs) {
+            // 被别的场景当动作调用时忽略冷却：冷却的意义是防外部重复触发，
+            // 而不是让「点一次自动化」因为中间那条手动控制刚被执行过就半途失败。
+            if (!ignoreCooldown && cooldownMs && Date.now() - (Number(scene.lastRunAt) || 0) < cooldownMs) {
                 stats.skipped += 1;
                 return { ok: false, skipped: true, reason: '冷却中', steps: [] };
             }
@@ -424,6 +487,29 @@ function attachScenes(options = {}) {
                         break;
                     }
                     steps.push({ i: i + 1, type: 'delay', label, status: 'ok', ms: Date.now() - t0 });
+                    continue;
+                }
+                if (action.type === 'scene') {
+                    // 嵌套执行：不走 runAction（那是单一 HA/遥控动作的执行器），
+                    // 直接调自身 run，让它自己的冷却记录、执行结果、日志都照常更新。
+                    try {
+                        const nested = await run(action.sceneId, {
+                            reason: 'nested',
+                            chain: [...chain, id],
+                            ignoreCooldown: true,
+                        });
+                        if (!nested.ok) {
+                            throw new Error(nested.reason || nested.error || '被调用的手动控制没有执行成功');
+                        }
+                        steps.push({ i: i + 1, type: 'scene', label, status: 'ok', ms: Date.now() - t0 });
+                    } catch (error) {
+                        if (!firstError) firstError = `${label}：${error.message}`;
+                        steps.push({
+                            i: i + 1, type: 'scene', label, status: 'failed',
+                            error: error.message, ms: Date.now() - t0,
+                        });
+                        if (action.onError !== 'continue') break;
+                    }
                     continue;
                 }
                 try {
@@ -596,12 +682,16 @@ function attachScenes(options = {}) {
             const machine = listMachines().find((item) => item.id === deviceId);
             return machine ? (machine.name || machine.id) : '';
         };
+        const sceneName = (sceneId) => {
+            const target = findScene(sceneId);
+            return target ? target.name : '';
+        };
         return {
             ...scene,
             triggerText: scene.kind === 'manual'
                 ? '点一下执行'
                 : describeTrigger(scene.trigger, { deviceName: machineName }),
-            actionTexts: scene.actions.map((action) => describeAction(action, { labelOf })),
+            actionTexts: scene.actions.map((action) => describeAction(action, { labelOf, sceneName })),
         };
     }
 

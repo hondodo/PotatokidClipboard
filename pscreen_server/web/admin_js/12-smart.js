@@ -85,6 +85,14 @@
     if (!state.scenes) { body.innerHTML = '<div class="empty">加载中…</div>'; return; }
     const manuals = state.scenes.filter((item) => item.kind === 'manual');
     const autos = state.scenes.filter((item) => item.kind === 'auto');
+    // 手动控制被别的场景当动作引用的次数：卡片上标出来，删之前心里有数。
+    const usedBy = new Map();
+    state.scenes.forEach((item) => {
+      (item.actions || []).forEach((action) => {
+        if (!action || action.type !== 'scene') return;
+        usedBy.set(action.sceneId, (usedBy.get(action.sceneId) || 0) + 1);
+      });
+    });
     const running = autos.filter((item) => item.enabled).length;
     const windowSec = (state.sceneSettings && state.sceneSettings.occupiedWindowSec) || 90;
     $('smart-hint').textContent = `手动控制 ${manuals.length} 个 · 自动化 ${autos.length} 个（${running} 个已开启）`
@@ -94,7 +102,7 @@
       <div class="card smart-section">
         <h3>手动控制 <span class="muted">点「执行」立即跑一遍，可以反复用</span></h3>
         ${manuals.length
-          ? `<div class="smart-manual-grid">${manuals.map(smartManualCard).join('')}</div>`
+          ? `<div class="smart-manual-grid">${manuals.map((item) => smartManualCard(item, usedBy.get(item.id) || 0)).join('')}</div>`
           : '<div class="empty">还没有手动控制。点右上角「+ 手动控制」建一个，比如「回家模式：开客厅灯 + 中控切首页 + 开夜灯」。</div>'}
       </div>
       <div class="card smart-section">
@@ -105,7 +113,7 @@
       </div>`;
   }
 
-  function smartManualCard(scene) {
+  function smartManualCard(scene, refCount = 0) {
     const actions = (scene.actionTexts || []).join(' · ') || '（没有动作）';
     const failed = scene.lastResult && scene.lastResult !== 'ok' && scene.lastRunAt;
     return `<div class="smart-card" data-id="${esc(scene.id)}">
@@ -117,6 +125,7 @@
         </span>
       </div>
       <div class="smart-card-desc" title="${esc(actions)}">${esc(actions)}</div>
+      ${refCount ? `<div class="smart-ref">被 ${refCount} 处动作引用</div>` : ''}
       <div class="smart-card-foot">
         <button class="btn small primary" type="button" data-act="run">执行</button>
         <span class="smart-status${failed ? ' failed' : ''}">${esc(smartResultText(scene))}</span>
@@ -482,6 +491,7 @@
             <select data-a="type">
               <option value="ha">HA 实体</option>
               <option value="remote">中控 / 电视</option>
+              <option value="scene">手动控制</option>
               <option value="delay">等待</option>
             </select>
             <label class="smart-onerror" title="勾上后这条失败也继续执行后面的动作">
@@ -504,15 +514,22 @@
           // 换类型时清掉另一类字段，避免残留脏值被提交。
           if (action.type === 'delay') {
             action.seconds = action.seconds || 5;
-            delete action.entityId; delete action.target;
+            delete action.entityId; delete action.target; delete action.sceneId;
           } else if (action.type === 'ha') {
             action.entityId = action.entityId || '';
             action.action = 'turn_on';
-            delete action.seconds; delete action.target;
+            delete action.seconds; delete action.target; delete action.sceneId;
+          } else if (action.type === 'scene') {
+            delete action.seconds; delete action.entityId; delete action.target;
+            // 默认指向第一条可用的手动控制，省一次点击；没有就留空提示去建。
+            if (!action.sceneId) {
+              const first = (state.scenes || []).find((item) => item.kind === 'manual' && item.id !== draft.id);
+              action.sceneId = first ? first.id : '';
+            }
           } else {
             action.target = action.target || '';
             action.action = action.action || '';
-            delete action.seconds; delete action.entityId;
+            delete action.seconds; delete action.entityId; delete action.sceneId;
           }
           renderActionBody(row.querySelector('.smart-action-body'), action);
         });
@@ -542,6 +559,10 @@
 
     function renderActionBody(box, action) {
       box.innerHTML = '';
+      if (action.type === 'scene') {
+        renderSceneActionBody(box, action);
+        return;
+      }
       if (action.type === 'delay') {
         const label = document.createElement('label');
         label.className = 'smart-field inline';
@@ -675,6 +696,55 @@
       if (draft.trigger.type === 'time' && !draft.trigger.at) draft.trigger.at = '07:30';
       renderTrigger();
     });
+    /**
+     * 「手动控制」动作：引用一条已建好的手动控制。
+     * 为什么不是把动作再抄一遍：抄一遍就变成两份配置，改一处忘一处；
+     * 引用之后，改手动控制等于同时改所有用到它的自动化。
+     */
+    function renderSceneActionBody(box, action) {
+      const manuals = (state.scenes || []).filter((item) => item.kind === 'manual' && item.id !== draft.id);
+      if (!manuals.length) {
+        box.innerHTML = '<p class="smart-note">还没有可调用的手动控制。先关掉这个窗口，在「手动控制」里建一个（比如「回家模式」），再回来引用。</p>';
+        return;
+      }
+      // 引用的场景被删了：必须留占位项，否则下拉会自动跳到第一条，
+      // 看着像换了绑定，实际存的还是那个不存在的 id。
+      const orphan = action.sceneId && !manuals.some((item) => item.id === action.sceneId);
+      const head = orphan ? `<option value="${esc(action.sceneId)}" selected>（原手动控制已删除，请重选）</option>` : '';
+      const list = manuals
+        .map((item) => `<option value="${esc(item.id)}" ${!orphan && item.id === action.sceneId ? 'selected' : ''}>${esc(item.name)}</option>`)
+        .join('');
+      const wrap = document.createElement('div');
+      wrap.className = 'smart-scene-row';
+      wrap.innerHTML = `
+        <label class="smart-field"><span>调用的手动控制</span>
+          <select data-a="sceneId">${head}${list}</select></label>
+        <p class="smart-scene-desc"></p>`;
+      const sel = wrap.querySelector('[data-a="sceneId"]');
+      const desc = wrap.querySelector('.smart-scene-desc');
+      const paint = () => {
+        const target = manuals.find((item) => item.id === sel.value);
+        if (!target) {
+          desc.textContent = '该手动控制已不存在，执行到这里会失败。';
+          desc.classList.add('warn');
+          return;
+        }
+        desc.classList.remove('warn');
+        const texts = (target.actionTexts || []).join(' · ') || '（这个手动控制还没有动作）';
+        const cool = Number(target.cooldownSec) || 0;
+        desc.textContent = `${texts}${cool ? `｜冷却 ${cool} 秒（被动作调用时忽略冷却）` : ''}`;
+      };
+      if (!action.sceneId && sel.value) action.sceneId = sel.value;
+      sel.value = action.sceneId || sel.value;
+      if (sel.value !== action.sceneId) action.sceneId = sel.value;
+      paint();
+      sel.addEventListener('change', (event) => {
+        action.sceneId = event.target.value;
+        paint();
+      });
+      box.appendChild(wrap);
+    }
+
     form.querySelector('[data-op="add-action"]').addEventListener('click', () => {
       if (draft.actions.length >= 20) { toast('单个场景最多 20 个动作', 'error'); return; }
       draft.actions.push({ type: 'ha', entityId: '', action: 'turn_on', param: '', onError: 'stop' });
@@ -704,6 +774,9 @@
             if (action.type === 'delay') return { type: 'delay', seconds: Number(action.seconds) || 1, onError: action.onError };
             if (action.type === 'remote') {
               return { type: 'remote', target: action.target || '', action: action.action || '', onError: action.onError };
+            }
+            if (action.type === 'scene') {
+              return { type: 'scene', sceneId: (action.sceneId || '').trim(), onError: action.onError };
             }
             return {
               type: 'ha',

@@ -875,6 +875,16 @@
     .smart-form > .btn { align-self: flex-start; }
     .smart-ha-row { display: flex; flex-direction: column; gap: 6px; }
     .smart-ha-row .entity-picker { width: 100%; }
+    /* 动作 = 调用手动控制：一个下拉 + 一行摘要说明它到底做什么 */
+    .smart-scene-row { display: flex; flex-direction: column; gap: 6px; }
+    .smart-scene-desc { margin: 0; font-size: 11px; line-height: 1.6; color: var(--muted-2); }
+    .smart-scene-desc.warn { color: #fca5a5; }
+    /* 手动控制卡片：被别处引用的次数 */
+    .smart-ref {
+      align-self: flex-start; margin: 2px 0 6px;
+      padding: 2px 7px; border-radius: 6px; font-size: 11px;
+      background: rgba(95, 211, 196, .13); color: var(--accent);
+    }
     .smart-custom-action { margin-bottom: 6px; }
     .smart-form-error {
       margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
