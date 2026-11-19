@@ -240,7 +240,7 @@
       const pirLine = espPresenceLine(pir);
       return `<div class="espdev-item${active}" data-id="${esc(dev.id)}">`
         + `<span class="espdev-name">${esc(dev.name || dev.id)}</span>`
-        + `<span class="espdev-tags">${pirTag}<span class="tag">${esc(tag)}</span></span>`
+        + `<span class="espdev-tags">${pirTag}<span class="tag">${esc(dev.role === 'slave' ? '从机' : '主机')}</span><span class="tag">${esc(tag)}</span></span>`
         + `<span class="espdev-pir" title="${esc(espPirTitle(pir))}">${pirLine || '感应未上报'}</span>`
         + '</div>';
     }).join('');

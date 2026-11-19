@@ -1,6 +1,7 @@
 /**
- * ESP32-S3 + 1.3" SH1106 OLED (I2C) + WiFi 配网 + HA 按键
- * 接线: VCC->3V3, GND->GND, SCL->GPIO9, SDA->GPIO8
+ * ESP32-S3 / ESP32-C6 + 1.3" SH1106 OLED (I2C) + WiFi 配网 + HA 按键
+ * S3 接线: VCC->3V3, GND->GND, SCL->GPIO9, SDA->GPIO8
+ * C6 接线: VCC->3V3, GND->GND, SCL->GPIO19, SDA->GPIO20（仅用外排针）
  * 按键: 槽位 1..8 的 GPIO 映射在设备设置页配置（存 NVS），对地短接即触发
  *
  * 逻辑:
@@ -23,14 +24,28 @@
 #include <freertos/semphr.h>
 #include "secrets.h"  // WiFi 默认账号 / 网页口令（本地文件，不入库）
 
-static const int PIN_SDA = 8;
-static const int PIN_SCL = 9;
+// 芯片分流：S3 与 C6 共用同一份固件逻辑，仅引脚、设备 ID、型号和可用 GPIO 不同。
+// S3 保持原接线与原 NVS 配置不变；C6 只用已焊的外排针（内部 12/13/21/22/23 不接）。
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  #define CHIP_TAG       "esp32c6"
+  #define CHIP_MODEL     "ESP32-C6 1.3 OLED"
+  #define CHIP_NAME      "ESP32-C6 小屏"
+  static const int PIN_SDA = 20;
+  static const int PIN_SCL = 19;
+  static const int DEFAULT_BTN_PINS[] = {0, 1, 2};
+#else
+  #define CHIP_TAG       "esp32s3"
+  #define CHIP_MODEL     "ESP32-S3 1.3 OLED"
+  #define CHIP_NAME      "ESP32-S3 小屏"
+  static const int PIN_SDA = 8;
+  static const int PIN_SCL = 9;
+  static const int DEFAULT_BTN_PINS[] = {4, 5, 6};
+#endif
 
 // 物理按键槽位：最多 8 个，槽位号与后台页面里的「槽位」一一对应。
 // GPIO 映射保存在 NVS（btns 命名空间），设备设置页可增删槽位、改引脚。
-// 默认槽位 1/2/3 = GPIO4/5/6；-1 表示该槽位未启用。
+// 默认槽位 1/2/3 = S3 的 GPIO4/5/6、C6 的 GPIO0/1/2；-1 表示该槽位未启用。
 static const int MAX_BTN = 8;
-static const int DEFAULT_BTN_PINS[] = {4, 5, 6};
 
 static const char *AP_SSID      = "Potatokid-Screen-Setup";
 static const char *DEFAULT_SSID = SECRET_WIFI_SSID;
@@ -46,7 +61,7 @@ static const char *WEB_PASS = SECRET_WEB_PASS;
 
 // 控制端地址：可在线修改（存 NVS），换域名不用重新烧录
 static const char *DEFAULT_SERVER_BASE = "http://ptool.w1.luyouxia.net";
-static const char *DEVICE_NAME         = "ESP32-S3 小屏";
+static const char *DEVICE_NAME         = CHIP_NAME;
 // 版本号要递增，否则 OTA 检测不到更新（服务端比对 APP_VER != 发布版本）。
 // oled-2.0：中文字库主屏 + 顶栏真实 IP + 分速跑马灯 + 单色适配 + 四行协议 + 翻页。
 // oled-2.1：设置页新增「自动更新」开关，检测到新版本自动安装（失败冷却 30 分钟重试）。
@@ -74,7 +89,9 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 // oled-4.0：系统状态变量支持——每页状态栏配置（BAR 行，逐页显示/隐藏 + 元素勾选、
 //           隐藏时内容上移重排）、状态栏时间（TIME 行）、图片点阵（IMG 行，128×64
 //           1-bit 服务端下发，不烧固件）。{sys.*} 本机变量在绘制时替换。老配置/老固件兼容。
-static const char *APP_VER             = "oled-4.3";
+// oled-5.0：同固件适配 ESP32-S3 与 ESP32-C6（引脚/设备 ID/可用 GPIO 按芯片分流），
+//           OTA 查询与下载带 target 参数，服务端按芯片分别发布。
+static const char *APP_VER             = "oled-5.0";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -240,6 +257,13 @@ String otaTriedVer;           // 上次尝试的版本，失败后按 OTA_RETRY_
 uint32_t otaTriedAt = 0;
 static const uint32_t OTA_RETRY_MS = 30UL * 60UL * 1000UL;
 
+// 主从角色（NVS cfg.role / cfg.masterMac）：
+// - master：常供电、保持在线，既作为普通 ESP 设备，也给下属从机做中继；
+// - slave ：经所属主机访问服务端，可配合电池休眠（中继链路在后续版本接入）。
+// 芯片型号决定 OTA 轨道，角色只决定通信方式，两者互不影响。
+String deviceRole = "master";
+String masterMac = "";        // 从机保存的所属主机 MAC（AA:BB:CC:DD:EE:FF）
+
 /* ---------------- OLED ---------------- */
 
 /**
@@ -249,20 +273,36 @@ static const uint32_t OTA_RETRY_MS = 30UL * 60UL * 1000UL;
  * - 26~32：Flash；
  * - 33~37：OPI PSRAM（本板 PSRAM=opi，最容易误填的就是这一段）；
  * - 19/20：USB；0/3/45/46：启动脚；8/9：OLED I2C。
+ * ESP32-C6-SuperMini 只焊接了外排针（0~18），8/9/15 为板载外设，12/13 为 USB。
  * 存进 NVS 的旧值也要过这一层，避免升级后把设备带进重启循环。
  */
 static bool pinUsable(int pin) {
   if (pin < 0 || pin > 48) return false;
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // C6-SuperMini：只用已焊的外排针（0~18）。内部 21/22/23 未焊，12/13 为板载 USB，
+  // 4/5/8/9/15 为启动配置脚（开机被按下会改变启动模式），均不可配为按键/感应。
+  if (pin > 18) return false;
+  if (pin == 4 || pin == 5 || pin == 8 || pin == 9 || pin == 12 || pin == 13 || pin == 15) return false;
+  if (pin == PIN_SDA || pin == PIN_SCL) return false;
+  return true;
+#else
   if (pin >= 26 && pin <= 37) return false;
   if (pin == 0 || pin == 3 || pin == 19 || pin == 20 || pin == 45 || pin == 46) return false;
   if (pin == PIN_SDA || pin == PIN_SCL) return false;
   return true;
+#endif
 }
 
-// 4~13 已接本机按键与 OLED I2C（8/9 上面已挡），人体感应脚不允许落在这段，
-// 避免和按键抢线；可用的是 14~18 / 21 / 38~42 / 47 / 48。
+// 人体感应可用的引脚：按键与 I2C 之外，再避开默认按键/启动脚。
 static bool pinUsableForPir(int pin) {
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  if (!pinUsable(pin)) return false;
+  return !(pin == 0 || pin == 1 || pin == 2);
+#else
+  // 4~13 已接本机按键与 OLED I2C（8/9 上面已挡），人体感应脚不允许落在这段，
+  // 避免和按键抢线；可用的是 14~18 / 21 / 38~42 / 47 / 48。
   return pinUsable(pin) && !(pin >= 4 && pin <= 13);
+#endif
 }
 
 // 西文等宽：6x10 字体一行约 21 字符。保留给系统提示（英文/数字）。
@@ -513,6 +553,11 @@ void loadCreds() {
   screenColor = prefs.getInt("color", 0);   // E4：0=蓝 1=白 2=黄（仅记录色别，绘制三色通用）
   if (screenColor < 0 || screenColor > 2) screenColor = 0;
   autoUpdate = prefs.getBool("auto", false);
+  deviceRole = prefs.getString("role", "master");
+  if (deviceRole != "slave") deviceRole = "master";
+  masterMac = prefs.getString("master", "");
+  masterMac.trim();
+  masterMac.toUpperCase();
   // 人体感应 OUT 引脚：-1 = 未接。旧的非法值（例如误填 33~37）一律忽略，
   // 否则 pinMode 会动到 PSRAM，设备开机就卡死。
   pirPin = prefs.getInt("pir", -1);
@@ -601,16 +646,18 @@ void buildDeviceId() {
   String mac = WiFi.macAddress();  // 30:30:F9:6C:D0:3C
   mac.replace(":", "");
   mac.toLowerCase();
-  deviceId = "esp32s3-" + mac;
+  deviceId = String(CHIP_TAG) + "-" + mac;
 }
 
 void reportToServer(bool isRegister) {
   if (deviceId.isEmpty()) buildDeviceId();
   String body = "{\"deviceId\":\"" + deviceId + "\"";
   if (isRegister) {
-    body += ",\"name\":\"" + String(DEVICE_NAME) + "\",\"platform\":\"esp32\",\"model\":\"ESP32-S3 1.3 OLED\"";
+    body += ",\"name\":\"" + String(DEVICE_NAME) + "\",\"platform\":\"esp32\",\"model\":\"" + String(CHIP_MODEL) + "\"";
   }
   body += ",\"appVersion\":\"" + String(APP_VER) + "\"";
+  body += ",\"role\":\"" + deviceRole + "\"";
+  if (deviceRole == "slave") body += ",\"masterMac\":\"" + masterMac + "\"";
   body += ",\"rssi\":" + String(WiFi.RSSI());
   // 人体感应状态（1=有人 / 0=无人）：未接感应时不上报，后台保持「未知」。
   if (pirPin >= 0) body += ",\"pir\":" + String(pirPresent ? 1 : 0);
@@ -829,7 +876,7 @@ bool checkFirmwareInto(NetSnapshot &snap) {
   snap.fwSize = 0;
   if (WiFi.status() != WL_CONNECTED) return false;
   String text;
-  if (!getText("/api/device/firmware/latest?format=text", text)) return false;
+  if (!getText("/api/device/firmware/latest?format=text&target=" + String(CHIP_TAG), text)) return false;
   text.trim();
   if (text.length() == 0) return true;
   int p1 = text.indexOf('|');
@@ -856,7 +903,7 @@ void runOta() {
   Serial.printf("[ota] start download %s\n", fwVersion.c_str());
   oledShow("Updating", "connecting...");
   WiFiClient client;
-  String url = serverBase + "/api/device/firmware/download";
+  String url = serverBase + "/api/device/firmware/download?target=" + String(CHIP_TAG);
   httpUpdate.rebootOnUpdate(false);
   httpUpdate.onProgress([](int cur, int total) {
     static uint32_t last = 0;
@@ -1357,6 +1404,20 @@ String pageSettings(const String &listText, const String &err) {
   h += String("<div class='tip'>默认 ") + DEFAULT_SERVER_BASE +
        "；换域名或换服务端时在这里改，不用重新烧录。留空保存恢复默认。</div>";
 
+  // 主从角色：芯片型号决定 OTA 轨道，角色只决定通信方式（从机经主机访问服务端）。
+  h += "<h3>主从角色</h3>";
+  h += "<form method='POST' action='/settings/role'>";
+  h += "<label>本机角色</label><select name='role'>";
+  h += String("<option value='master'") + (deviceRole == "master" ? " selected" : "") + ">主机（常供电，保持在线）</option>";
+  h += String("<option value='slave'") + (deviceRole == "slave" ? " selected" : "") + ">从机（经主机访问服务端）</option>";
+  h += "</select>";
+  h += "<label>所属主机 MAC（从机填写，主机可留空）</label>";
+  h += String("<input name='master' value='") + masterMac + "' placeholder='AA:BB:CC:DD:EE:FF'>";
+  h += "<button type='submit'>保存角色并重启</button></form>";
+  h += String("<div class='tip'>当前芯片：") + String(CHIP_MODEL) +
+       "（固件轨道 " + String(CHIP_TAG) +
+       "）。主机切从机前请先确认其下属从机已解绑；从机切主机会自动解除原绑定。</div>";
+
   h += "<h3>可控设备</h3>";
   if (err.length()) {
     h += String("<div class='st err'>") + err + "</div>";
@@ -1429,6 +1490,16 @@ String pageSettings(const String &listText, const String &err) {
   h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
   h += "<button class='mini' type='button' onclick='addSlot()' style='margin-top:8px'>＋ 添加槽位</button>";
   h += "<button type='submit'>保存按键映射并重启</button></form>";
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  h += "<div class='tip'>本机为 ESP32-C6：OLED 占用 GPIO19/20，可用按键/感应 0~3、6、7、10、11、14、16~18；"
+       "避开 4/5/8/9/15（启动配置脚）、12/13（USB）。</div>";
+  h += "<script>function addSlot(){var ins=document.querySelectorAll('.pin');"
+       "var used={};for(var i=0;i<ins.length;i++){if(ins[i].value!=='-1'&&ins[i].value!=='')used[ins[i].value]=1;}"
+       "var cand=[3,6,7,10,11,14,16,17,18];"
+       "for(var j=0;j<ins.length;j++){if(ins[j].value==='-1'||ins[j].value===''){"
+       "for(var k=0;k<cand.length;k++){if(!used[cand[k]]){ins[j].value=cand[k];return;}}}}"
+       "alert('槽位已满');}</script>";
+#else
   h += "<div class='tip'>避开 GPIO4~13（本机按键 + OLED I2C）、26~37（Flash / PSRAM）、"
        "0/3/19/20/45/46（USB / 启动脚）。人体感应建议 14~18/21/38~42/47/48。</div>";
   h += "<script>function addSlot(){var ins=document.querySelectorAll('.pin');"
@@ -1437,6 +1508,7 @@ String pageSettings(const String &listText, const String &err) {
        "for(var j=0;j<ins.length;j++){if(ins[j].value==='-1'||ins[j].value===''){"
        "for(var k=0;k<cand.length;k++){if(!used[cand[k]]){ins[j].value=cand[k];return;}}}}"
        "alert('槽位已满');}</script>";
+#endif
 
   h += "<h3>固件升级</h3>";
   h += String("<div class='st'>当前版本：") + APP_VER + "</div>";
@@ -1518,6 +1590,29 @@ void setupServer() {
     prefs.end();
     server.send(200, "text/html; charset=utf-8",
                 "<meta charset='utf-8'><h3>已保存，设备正在重启…</h3>");
+    delay(1200);
+    ESP.restart();
+  });
+
+  // 角色切换：master 会自动解除原本机作为从机的绑定；slave 保留填写的所属主机。
+  server.on("/settings/role", HTTP_POST, []() {
+    if (authBlocked()) return;
+    String role = server.hasArg("role") ? server.arg("role") : String("master");
+    role.trim();
+    role.toLowerCase();
+    if (role != "slave") role = "master";
+    String master = server.hasArg("master") ? server.arg("master") : String();
+    master.trim();
+    master.toUpperCase();
+    master.replace(" ", "");
+    if (master.length() && master.length() != 17) master = "";
+    prefs.begin("cfg", false);
+    prefs.putString("role", role);
+    prefs.putString("master", master);
+    prefs.end();
+    Serial.printf("[role] role=%s master=%s\n", role.c_str(), master.c_str());
+    server.send(200, "text/html; charset=utf-8",
+                "<meta charset='utf-8'><h3>角色已保存，设备正在重启…</h3>");
     delay(1200);
     ESP.restart();
   });
@@ -1698,8 +1793,13 @@ void setup() {
   lastPresenceAt = millis();
 
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。
+  // C6 为单核，不能指定 core 1，直接创建普通任务。
   netMux = xSemaphoreCreateMutex();
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  xTaskCreate(netTask, "net", 12288, nullptr, 1, nullptr);
+#else
   xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
+#endif
 
   if (connectSTA(STA_TIMEOUT_MS)) {
     showConnected();

@@ -1124,6 +1124,9 @@ function attachAdmin(app, options = {}) {
     fs.mkdirSync(firmwareDir, { recursive: true });
     const firmwareBin = path.join(firmwareDir, 'firmware.bin');
     const firmwareMeta = path.join(firmwareDir, 'meta.json');
+    // 双芯片 OTA：S3 沿用上面的旧文件名（兼容既有发布），C6 单独一条轨。
+    const firmwareBinC6 = path.join(firmwareDir, 'firmware-c6.bin');
+    const firmwareMetaC6 = path.join(firmwareDir, 'meta-c6.json');
     const layoutsFile = path.join(adminDir, 'layouts.json');
     // 「智能」场景：手动控制 + 自动化（触发 → 动作）。settings 与 scenes 同文件。
     const scenesFile = path.join(adminDir, 'scenes.json');
@@ -1315,6 +1318,9 @@ function attachAdmin(app, options = {}) {
             espPresence: normalizeEspPresence(machine.espPresence),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
             model: typeof machine.model === 'string' ? machine.model.slice(0, 64) : '',
+            // 主从角色由设备本机设置页或后台维护；芯片型号（model）决定 OTA 轨道。
+            role: machine.role === 'slave' ? 'slave' : 'master',
+            masterMac: typeof machine.masterMac === 'string' ? machine.masterMac.slice(0, 32) : '',
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
             ip: typeof machine.ip === 'string' ? machine.ip.slice(0, 64) : '',
             currentHome: typeof machine.currentHome === 'string' ? machine.currentHome.slice(0, MAX_HOME_NAME) : '',
@@ -3679,6 +3685,9 @@ function attachAdmin(app, options = {}) {
         if (typeof body.model === 'string' && body.model.trim()) {
             machine.model = body.model.trim().slice(0, 64);
         }
+        // 主从角色与所属主机 MAC：设备设置页保存后随注册/心跳上报。
+        if (body.role === 'master' || body.role === 'slave') machine.role = body.role;
+        if (typeof body.masterMac === 'string') machine.masterMac = body.masterMac.trim().slice(0, 32);
         if (typeof body.appVersion === 'string' && body.appVersion.trim()) {
             machine.appVersion = body.appVersion.trim().slice(0, 32);
         }
@@ -4888,14 +4897,28 @@ function attachAdmin(app, options = {}) {
         limits: { fileSize: 8 * 1024 * 1024 },
     });
 
-    function readFirmwareMeta() {
-        const raw = readJson(firmwareMeta, null);
+    // 固件按芯片分轨：esp32s3（默认，兼容旧客户端不传 target）/ esp32c6。
+    // 角色（主机/从机）不参与分轨，同一芯片共用一份固件。
+    const FW_TARGETS = {
+        esp32s3: { bin: firmwareBin, meta: firmwareMeta },
+        esp32c6: { bin: firmwareBinC6, meta: firmwareMetaC6 },
+    };
+
+    function firmwareTarget(value) {
+        const target = String(value || '').trim().toLowerCase();
+        return FW_TARGETS[target] ? target : 'esp32s3';
+    }
+
+    function readFirmwareMeta(target) {
+        const paths = FW_TARGETS[firmwareTarget(target)];
+        const raw = readJson(paths.meta, null);
         if (!raw || typeof raw !== 'object') return null;
         if (!FW_VERSION_RE.test(String(raw.version || ''))) return null;
-        if (!fs.existsSync(firmwareBin)) return null;
+        if (!fs.existsSync(paths.bin)) return null;
         return {
+            target: firmwareTarget(target),
             version: String(raw.version),
-            size: Number(raw.size) || fs.statSync(firmwareBin).size,
+            size: Number(raw.size) || fs.statSync(paths.bin).size,
             sha256: typeof raw.sha256 === 'string' ? raw.sha256 : '',
             notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 200) : '',
             uploadedAt: Number(raw.uploadedAt) || 0,
@@ -4904,7 +4927,8 @@ function attachAdmin(app, options = {}) {
 
     /** 设备侧：当前发布版本。没上传过固件时返回空文本。 */
     app.get('/api/device/firmware/latest', (req, res) => {
-        const meta = readFirmwareMeta();
+        const target = firmwareTarget(req.query.target);
+        const meta = readFirmwareMeta(target);
         if (!meta) return res.type('text/plain; charset=utf-8').send('');
         if (String(req.query.format || '') === 'text') {
             // 固件不接 JSON 库：version|size|sha256|notes（notes 取到行尾）
@@ -4913,31 +4937,39 @@ function attachAdmin(app, options = {}) {
         }
         return jsonOk(res, {
             ...meta,
-            url: '/api/device/firmware/download',
+            url: `/api/device/firmware/download?target=${target}`,
         });
     });
 
     /** 设备侧：下载已发布的 bin。 */
     app.get('/api/device/firmware/download', (req, res) => {
-        if (!readFirmwareMeta()) return jsonFail(res, '暂无固件', definds.code.FAILED, 404);
+        const target = firmwareTarget(req.query.target);
+        if (!readFirmwareMeta(target)) return jsonFail(res, '暂无固件', definds.code.FAILED, 404);
         res.setHeader('Cache-Control', 'no-store');
         res.type('application/octet-stream');
-        return res.sendFile(firmwareBin);
+        return res.sendFile(FW_TARGETS[target].bin);
     });
 
     app.get('/api/admin/firmware', requireAdmin, (req, res) => {
-        const meta = readFirmwareMeta();
-        return jsonOk(res, meta ? { ...meta, published: true } : { published: false });
+        const targets = {};
+        for (const key of Object.keys(FW_TARGETS)) {
+            const meta = readFirmwareMeta(key);
+            targets[key] = meta ? { ...meta, published: true } : { published: false };
+        }
+        // 顶层保留 esp32s3 字段，兼容旧 admin 页面。
+        return jsonOk(res, { ...targets.esp32s3, targets });
     });
 
     app.post('/api/admin/firmware', requireAdmin, firmwareUpload.single('file'), (req, res) => {
         try {
+            const target = firmwareTarget(req.body && req.body.target);
+            const paths = FW_TARGETS[target];
             const version = String((req.body && req.body.version) || '').trim();
             if (!FW_VERSION_RE.test(version)) return jsonFail(res, '版本号不合法（字母数字 . _ -，≤32 位）');
             if (!req.file || !req.file.buffer || !req.file.buffer.length) return jsonFail(res, '未收到固件文件');
             if (req.file.buffer.length < 64 * 1024) return jsonFail(res, '文件太小，不像是完整固件');
             const notes = String((req.body && req.body.notes) || '').trim().slice(0, 200);
-            fs.writeFileSync(firmwareBin, req.file.buffer);
+            fs.writeFileSync(paths.bin, req.file.buffer);
             const meta = {
                 version,
                 size: req.file.buffer.length,
@@ -4945,9 +4977,9 @@ function attachAdmin(app, options = {}) {
                 notes,
                 uploadedAt: nowMs(),
             };
-            writeJson(firmwareMeta, meta);
-            console.log(`[ota] 固件已更新: v${version} ${(meta.size / 1024).toFixed(0)}KB sha256=${meta.sha256.slice(0, 12)}…`);
-            return jsonOk(res, meta, '固件已发布');
+            writeJson(paths.meta, meta);
+            console.log(`[ota] ${target} 固件已更新: v${version} ${(meta.size / 1024).toFixed(0)}KB sha256=${meta.sha256.slice(0, 12)}…`);
+            return jsonOk(res, { ...meta, target }, '固件已发布');
         } catch (error) {
             console.error('[ota] 固件上传失败:', error.message);
             return jsonFail(res, `固件上传失败：${error.message}`);
@@ -4956,10 +4988,12 @@ function attachAdmin(app, options = {}) {
 
     app.delete('/api/admin/firmware', requireAdmin, (req, res) => {
         try {
-            fs.rmSync(firmwareBin, { force: true });
-            fs.rmSync(firmwareMeta, { force: true });
-            console.log('[ota] 已撤回固件发布');
-            return jsonOk(res, { published: false }, '已撤回');
+            const target = firmwareTarget(req.query.target);
+            const paths = FW_TARGETS[target];
+            fs.rmSync(paths.bin, { force: true });
+            fs.rmSync(paths.meta, { force: true });
+            console.log(`[ota] 已撤回 ${target} 固件发布`);
+            return jsonOk(res, { published: false, target }, '已撤回');
         } catch (error) {
             return jsonFail(res, error.message);
         }

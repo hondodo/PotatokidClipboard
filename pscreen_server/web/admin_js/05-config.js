@@ -86,6 +86,12 @@
     wrap.style.display = 'grid';
     wrap.style.gap = '12px';
 
+    const targetLabel = document.createElement('label');
+    targetLabel.textContent = '芯片型号（两条独立的 OTA 轨）';
+    const targetSelect = document.createElement('select');
+    targetSelect.innerHTML = '<option value="esp32s3">ESP32-S3</option><option value="esp32c6">ESP32-C6</option>';
+    targetLabel.appendChild(targetSelect);
+
     const status = document.createElement('div');
     status.className = 'field-note';
     status.textContent = '读取当前发布版本…';
@@ -100,7 +106,7 @@
     const versionLabel = document.createElement('label');
     versionLabel.textContent = '版本号（需与固件内 APP_VER 一致才不会再提示）';
     const versionInput = document.createElement('input');
-    versionInput.placeholder = 'oled-1.3';
+    versionInput.placeholder = 'oled-5.0';
     versionInput.maxLength = 32;
     versionLabel.appendChild(versionInput);
 
@@ -116,9 +122,10 @@
     revoke.type = 'button';
     revoke.textContent = '撤回发布';
     revoke.addEventListener('click', async () => {
-      if (!confirm('撤回后设备不再提示更新，确定？')) return;
+      const target = targetSelect.value;
+      if (!confirm(`撤回 ${target} 的发布后该芯片设备不再提示更新，确定？`)) return;
       try {
-        await api('/api/admin/firmware', { method: 'DELETE' });
+        await api(`/api/admin/firmware?target=${encodeURIComponent(target)}`, { method: 'DELETE' });
         status.textContent = '当前没有已发布的固件';
         toast('已撤回', 'ok');
       } catch (error) {
@@ -126,16 +133,24 @@
       }
     });
 
-    wrap.append(status, fileLabel, versionLabel, notesLabel, revoke);
+    wrap.append(targetLabel, status, fileLabel, versionLabel, notesLabel, revoke);
 
-    api('/api/admin/firmware').then((data) => {
-      if (!data || !data.published) {
-        status.textContent = '当前没有已发布的固件。选择 .bin 并填写版本号后上传即可。';
-        return;
-      }
-      status.textContent = `当前发布：v${data.version} · ${(data.size / 1024).toFixed(0)}KB · sha256 ${String(data.sha256 || '').slice(0, 12)}…${data.notes ? ` · ${data.notes}` : ''}`;
-      versionInput.value = data.version || '';
-    }).catch(() => { status.textContent = '读取发布状态失败'; });
+    function refreshStatus() {
+      const target = targetSelect.value;
+      status.textContent = '读取当前发布版本…';
+      api('/api/admin/firmware').then((data) => {
+        const item = (data && data.targets && data.targets[target]) || null;
+        if (!item || !item.published) {
+          status.textContent = `${target}：当前没有已发布的固件。选择 .bin 并填写版本号后上传即可。`;
+          versionInput.value = '';
+          return;
+        }
+        status.textContent = `${target}：当前发布 v${item.version} · ${(item.size / 1024).toFixed(0)}KB · sha256 ${String(item.sha256 || '').slice(0, 12)}…${item.notes ? ` · ${item.notes}` : ''}`;
+        versionInput.value = item.version || '';
+      }).catch(() => { status.textContent = '读取发布状态失败'; });
+    }
+    targetSelect.addEventListener('change', refreshStatus);
+    refreshStatus();
 
     openDialog({
       title: 'ESP 固件升级',
@@ -147,6 +162,7 @@
         const version = versionInput.value.trim();
         if (!version) throw new Error('请填写版本号');
         const form = new FormData();
+        form.append('target', targetSelect.value);
         form.append('version', version);
         form.append('notes', notesInput.value.trim());
         form.append('file', file);
