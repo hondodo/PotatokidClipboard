@@ -357,7 +357,7 @@
     .esp-bind-grid label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
     /* 固定布局 + 显式列宽，长 entity_id 不再把表格撑宽后钻到预览卡底下；实体 ID 完整换行 */
     .esp-btn-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overflow-y: visible; }
-    .esp-btn-table { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    .esp-btn-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
     .esp-btn-table th {
       position: static; background: transparent; border-bottom: 1px solid var(--line);
       padding: 6px 5px; font-size: 11px; color: var(--muted-2);
@@ -365,10 +365,12 @@
     .esp-btn-table th:nth-child(1) { width: 60px; }   /* 槽位 */
     .esp-btn-table th:nth-child(2) { width: 78px; }   /* 板上 GPIO */
     .esp-btn-table th:nth-child(3) { width: 104px; }  /* 按键名称 */
-    .esp-btn-table th:nth-child(4) { width: 168px; }  /* 行为（双下拉） */
+    .esp-btn-table th:nth-child(4) { width: 336px; }  /* 行为：类型 + 目标设备 + 动作 */
     /* 第 5 列「实体」不设宽：吃掉剩余空间 */
     .esp-btn-table th:nth-child(6) { width: 92px; }   /* 操作 */
     .esp-btn-table td { padding: 5px; border-bottom: 1px solid rgba(34,48,63,.5); vertical-align: middle; overflow-wrap: anywhere; }
+    /* 行为列必须裁掉溢出，否则下拉会画到「实体」列上，看起来像两段文字叠在一起 */
+    .esp-btn-table td:nth-child(4) { overflow: hidden; }
     .esp-btn-table .esp-ent-cell { min-width: 0; }
     .esp-btn-table .esp-ent-cell input { min-width: 0; overflow-wrap: anywhere; }
     .esp-btn-table input, .esp-btn-table select { padding: 6px 8px; font-size: 12px; }
@@ -383,10 +385,13 @@
     .esp-btn-table .ops-cell .move-btn:disabled { opacity: .3; cursor: default; }
     .esp-btn-table .ops-cell .move-btn:not(:disabled):hover { color: var(--accent); border-color: rgba(95, 211, 196, .45); }
     .esp-btn-table .del-btn:hover { color: #ff8080; border-color: rgba(248,113,113,.5); }
-    .esp-action-cell { display: flex; gap: 6px; min-width: 0; }
-    .esp-action-cell select:first-child { flex: 0 0 76px; }
-    .esp-action-cell select.esp-remote-target { flex: 0 0 120px; min-width: 0; }
-    .esp-action-cell select:last-child { min-width: 0; flex: 1 1 auto; }
+    /* 一行放不下就换行：遥控行有三个控件（类型/目标设备/动作），窄容器下不再互相压住 */
+    .esp-action-cell { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+    .esp-action-cell select:first-child { flex: 0 0 84px; }
+    .esp-action-cell select.esp-remote-target { flex: 1.3 1 0; min-width: 0; }
+    .esp-action-cell select:last-child,
+    .esp-action-cell select[data-f="action"] { flex: 1 1 0; min-width: 0; }
+    .esp-action-cell .esp-ha-param { flex: 1 1 100%; min-width: 0; }
     .esp-map-line {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       font-size: 11.5px; color: var(--muted); margin-bottom: 8px;

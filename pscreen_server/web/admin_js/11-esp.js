@@ -673,12 +673,12 @@
             <option value="remote" ${isRemote ? 'selected' : ''}>设备遥控</option>
             <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
           </select>
-          ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="本按键要控制的中控/电视"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
+          ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="${esc(remoteDev ? `本按键控制：${remoteDev.name}` : '本按键要控制的中控/电视')}"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
           <select data-f="action">${actionOpts}</select>
           ${needsHaParam ? `<input data-f="param" class="esp-ha-param" value="${esc(button.param || '')}"
             placeholder="参数：+0.5 / -0.5 / 制冷"
             title="该动作必须填参数，否则 HA 会拒绝"
-            style="margin-top:6px;${button.param ? '' : 'border-color:rgba(248,113,113,.65);'}">` : ''}
+            style="${button.param ? '' : 'border-color:rgba(248,113,113,.65);'}">` : ''}
         </div></td>
         <td><div class="esp-ent-cell">${isRemote ? paramCell : isSys ? '<span class="hint">无需参数</span>' : `
           <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off">
@@ -693,9 +693,11 @@
     };
 
     // 遥控按键各自选目标设备：下拉选项在所有中控/电视里列，供每个按键独立选择。
+    // 列宽有限：名字里已经带「中控/电视」时不再重复加括号后缀。
     const remoteDevOptsFor = (current) => (state.espRemoteDevices || []).map((dev) => {
       const kindText = dev.kind === 'home' ? '中控' : '电视';
-      return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === current ? 'selected' : ''}>${esc(dev.name)}（${kindText}${dev.online ? '' : ' · 离线'}）</option>`;
+      const label = String(dev.name || '').includes(kindText) ? dev.name : `${dev.name}（${kindText}）`;
+      return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === current ? 'selected' : ''}>${esc(label)}${dev.online ? '' : ' · 离线'}</option>`;
     }).join('');
 
     host.innerHTML = `
