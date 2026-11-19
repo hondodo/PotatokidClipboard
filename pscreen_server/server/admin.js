@@ -24,6 +24,7 @@ const parentalShare = require('./parental_share');
 const { FamilyStore } = require('./parental_family');
 const haCatalog = require('./ha_catalog');
 const deviceTypes = require('./deviceTypes');
+const { attachScenes } = require('./scenes');
 
 // D-02 硬阻塞地基：家庭级主档案模型。默认关闭，开标志位才启用读路径切换
 // （连同客户端/电视端同批次部署，见实施计划第 12 节第 8 条铁律）。
@@ -1048,6 +1049,8 @@ function attachAdmin(app, options = {}) {
     const firmwareBin = path.join(firmwareDir, 'firmware.bin');
     const firmwareMeta = path.join(firmwareDir, 'meta.json');
     const layoutsFile = path.join(adminDir, 'layouts.json');
+    // 「智能」场景：手动控制 + 自动化（触发 → 动作）。settings 与 scenes 同文件。
+    const scenesFile = path.join(adminDir, 'scenes.json');
     const secretFile = path.join(adminDir, 'secret.key');
     // 答题解锁题库：按「设备 → 儿童档案」独立存储，不塞进 machines.json，
     // 避免管理页保存 parental 时把题库冲掉，也避开 ws config 帧 128KiB 上限。
@@ -2138,6 +2141,106 @@ function attachAdmin(app, options = {}) {
         }
     });
 
+    // ------------------------------------------------------------ 智能场景引擎
+
+    /** ESP 小屏列表：感应实体与「感应/按键」触发源都从这里选。 */
+    function espMachines() {
+        return Object.values(readMachines()).filter((machine) => isEspMachine(machine));
+    }
+
+    // 只翻译最常见的几个，其余原样露出 service 名（自定义动作不该被硬编码挡住）。
+    const HA_ACTION_TEXT = { turn_on: '开', turn_off: '关', toggle: '切换', run: '执行' };
+
+    /** 动作的人话标签：卡片摘要、执行结果、日志三处共用。 */
+    function sceneActionLabel(action) {
+        if (!action) return '';
+        if (action.label) return action.label;
+        if (action.type === 'delay') return `等待 ${action.seconds} 秒`;
+        if (action.type === 'ha') {
+            const text = HA_ACTION_TEXT[action.action] || action.action;
+            return `${action.entityId} ${text}${action.param ? `(${action.param})` : ''}`;
+        }
+        if (action.type === 'remote') {
+            const target = readMachines()[action.target];
+            const cmd = REMOTE_CMD_MAP.get(action.action);
+            return `${target ? (target.name || target.id) : action.target} ${cmd ? cmd.label : action.action}`;
+        }
+        return '';
+    }
+
+    /**
+     * 场景动作执行：直接复用 ESP 按键那两条路径（HA / 遥控），
+     * 不另写一套，避免同一个动作在按键和自动化里行为不一致。
+     *
+     * 与按键的一处差异：遥控送达数为 0 在这里算失败。按键是「有人在屏前按，
+     * 提示已发送即可」；自动化没人看着，发出去了却没人接，等于没做到，
+     * 应该让卡片标红而不是假装成功。
+     */
+    async function runSceneAction(action) {
+        if (!action || typeof action !== 'object') throw new Error('动作配置无效');
+        if (action.type === 'ha') {
+            await callHaService(action.entityId, action.action, action.param);
+            return;
+        }
+        if (action.type === 'remote') {
+            const target = readMachines()[action.target];
+            if (!target) throw new Error('绑定的中控/电视已不存在');
+            if (target.kind !== 'home' && target.kind !== 'tv') throw new Error('绑定的设备不是中控或电视');
+            if (!remoteCapabilities(target.kind).some((item) => item.cmd === action.action)) {
+                throw new Error(`${target.name || '目标设备'} 不支持「${action.action}」`);
+            }
+            const account = target.commAccount || '';
+            if (!account) throw new Error('目标设备缺少通信账号，请让它重新连接一次');
+            const lastSeen = Number(target.lastSeen) || 0;
+            if (!lastSeen || nowMs() - lastSeen > MACHINE_ONLINE_MS) {
+                throw new Error(`${target.name || '目标设备'} 离线`);
+            }
+            const frame = {
+                t: 'msg',
+                from: 'scene',
+                to: account,
+                body: JSON.stringify({ t: 'cmd', name: action.action, args: remoteCommandArgs(action) }),
+                ts: nowMs(),
+            };
+            const delivered = pushRemoteCommand(account, frame) || 0;
+            if (!delivered) throw new Error(`${target.name || '目标设备'} 暂无在线连接`);
+            return;
+        }
+        throw new Error(`不支持的动作类型：${action.type}`);
+    }
+
+    /** 保存时校验遥控目标，避免存进一个永远失败的动作（设计文档第七节）。 */
+    function checkSceneRemote(targetId, cmd, index) {
+        const machines = readMachines();
+        const target = machines[targetId];
+        if (!target) throw new Error(`第 ${index} 个动作：绑定的设备不存在，请重新选择`);
+        if (target.kind !== 'home' && target.kind !== 'tv') {
+            throw new Error(`第 ${index} 个动作：只能遥控中控或电视`);
+        }
+        if (!remoteCapabilities(target.kind).some((item) => item.cmd === cmd)) {
+            throw new Error(`第 ${index} 个动作：${target.name || '目标设备'} 不支持该命令`);
+        }
+    }
+
+    const sceneEngine = attachScenes({
+        file: scenesFile,
+        runAction: runSceneAction,
+        listMachines: espMachines,
+        labelOf: sceneActionLabel,
+        checkRemote: checkSceneRemote,
+        log: (message) => console.log(`[scenes] ${message}`),
+    });
+
+    // 1 秒推进 holdSec 计时（定时触发的 30 秒节流在引擎内部）。unref 让进程不被它挂住。
+    const sceneTickTimer = setInterval(() => {
+        try {
+            sceneEngine.tick();
+        } catch (error) {
+            console.error('[scenes] tick 失败:', error.message);
+        }
+    }, 1000);
+    if (typeof sceneTickTimer.unref === 'function') sceneTickTimer.unref();
+
     /**
      * 轻量人体感应状态：admin 设备列表高频轮询专用。
      *
@@ -2156,6 +2259,100 @@ function attachAdmin(app, options = {}) {
             return jsonOk(res, { devices });
         } catch (error) {
             console.error('[admin] 读取感应状态失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    // ------------------------------------------------------------ 智能 Tab 接口
+
+    /**
+     * 场景列表：一次拉全量（量级小），前端切 Tab 时调一次就够。
+     * 顺带回感应实体与全局设置，省掉两次请求。
+     */
+    app.get('/api/admin/scenes', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, {
+                scenes: sceneEngine.list(),
+                settings: sceneEngine.settings(),
+                presence: sceneEngine.presenceEntities(),
+            });
+        } catch (error) {
+            console.error('[admin] 读取场景失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 全局设置只有一项：occupied 判空闲窗口（秒）。 */
+    app.put('/api/admin/scenes/settings', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, sceneEngine.setSettings(req.body || {}), '已保存');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    app.post('/api/admin/scenes', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, sceneEngine.create(req.body || {}), '已创建');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    app.put('/api/admin/scenes/:id', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, sceneEngine.update(String(req.params.id || ''), req.body || {}), '已保存');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    app.delete('/api/admin/scenes/:id', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, sceneEngine.remove(String(req.params.id || '')), '已删除');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 开关单独一条：列表上高频点，避免整表覆盖把别人的编辑冲掉。 */
+    app.patch('/api/admin/scenes/:id/enabled', requireParentOperator, (req, res) => {
+        try {
+            const body = req.body || {};
+            return jsonOk(res, sceneEngine.setEnabled(String(req.params.id || ''), body.enabled), '已更新');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 执行 / 试运行。手动执行 force=true，忽略 enabled 与冷却；
+     * 返回逐步结果，前端按 steps 渲染哪一步失败、失败原因。
+     */
+    app.post('/api/admin/scenes/:id/run', requireParentOperator, async (req, res) => {
+        try {
+            const result = await sceneEngine.run(String(req.params.id || ''), { reason: 'manual', force: true });
+            if (result.skipped) return jsonFail(res, result.reason);
+            return jsonOk(res, result, result.ok ? '已执行' : '部分动作失败');
+        } catch (error) {
+            console.error('[admin] 执行场景失败:', error.message);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /**
+     * 感应实体（虚拟，不是 HA 实体）。
+     *
+     * `presence` 是传感器电平，人坐着不动 2 秒就会变无人；`occupied` 是
+     * 「最近 occupiedWindowSec 秒内出现过有人」的去抖值，判断「人还在不在」用它。
+     */
+    app.get('/api/admin/presence/entities', requireParentOperator, (req, res) => {
+        try {
+            return jsonOk(res, {
+                windowSec: sceneEngine.settings().occupiedWindowSec,
+                entities: sceneEngine.presenceEntities(),
+            });
+        } catch (error) {
             return jsonFail(res, error.message);
         }
     });
@@ -3398,9 +3595,13 @@ function attachAdmin(app, options = {}) {
         // 人体感应状态：固件在 0/1 跳变时会立刻发一次心跳。
         // 只在跳变时刷新进入/离开时间，普通心跳只更新 updatedAt。
         const pirRaw = body.pir;
+        // 只在电平跳变时联动自动化：普通心跳也会带 pir，每次都跑会白耗。
+        // 引擎读的是落盘后的 machines.json，所以事件要等 saveMachines 之后再发。
+        let pirJump = null;
         if (pirRaw === 0 || pirRaw === 1 || pirRaw === '0' || pirRaw === '1') {
             const present = Number(pirRaw) === 1;
             const prev = normalizeEspPresence(machine.espPresence);
+            if (!prev || prev.present !== present) pirJump = present;
             machine.espPresence = {
                 present,
                 lastEnterAt: present
@@ -3432,6 +3633,14 @@ function attachAdmin(app, options = {}) {
         machine.lastSeen = now;
         machines[id] = normalizeMachine(id, machine);
         saveMachines(machines);
+        // 感应跳变 → 自动化联动（读的是刚落盘的状态，保证引擎算 occupied 用的是新值）。
+        if (pirJump !== null) {
+            try {
+                sceneEngine.onPresence({ deviceId: id, present: pirJump });
+            } catch (error) {
+                console.error('[scenes] 感应联动失败:', error.message);
+            }
+        }
         if (isNew) console.log(`[device] 新设备注册: ${id} ${machine.name} ip=${machine.ip}`);
         return machines[id];
     }
@@ -3940,6 +4149,14 @@ function attachAdmin(app, options = {}) {
                 : null;
         }
         if (!action) return jsonFail(res, '该按键未配置动作，或尚未在后台启用', definds.code.FAILED, 403);
+
+        // 按键联动：按下即触发，不依赖该按键自己的动作是否成功
+        // （用户的心智是「我按了这个键」，而不是「这个键成功执行了」）。
+        try {
+            sceneEngine.onButton({ deviceId: id, slot: action.slot || 0, page: pageNo });
+        } catch (error) {
+            console.error('[scenes] 按键联动失败:', error.message);
+        }
 
         // 系统动作（翻页/回首页）：不改 HA，只回执让固件本地切页。
         if (action.kind === 'sys') {

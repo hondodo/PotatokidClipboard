@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>后台「智能」Tab 原型 · 自动化与手动控制</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b1116;
+    --panel: rgba(20, 30, 40, .82);
+    --panel-2: rgba(27, 40, 52, .9);
+    --line: rgba(148, 163, 184, .16);
+    --line-2: rgba(148, 163, 184, .1);
+    --text: #e7eef6;
+    --muted: #93a4b5;
+    --muted-2: #6b7d8e;
+    --accent: #5fd3c4;
+    --accent-2: #60a5fa;
+    --danger: #f87171;
+    --warn: #fbbf24;
+    --ok: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text);
+    background: radial-gradient(900px 500px at 12% -10%, rgba(95,211,196,.13), transparent 60%),
+                radial-gradient(800px 480px at 92% 0%, rgba(96,165,250,.11), transparent 58%),
+                linear-gradient(180deg, #0a0f14, var(--bg));
+    min-height: 100vh;
+    font-size: 13px;
+  }
+  .app { max-width: 1080px; margin: 0 auto; padding: 18px 20px 40px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; overflow-x: auto; }
+  .tab { border: 0; background: transparent; color: var(--muted); padding: 9px 12px; font-size: 12px; white-space: nowrap;
+         border-bottom: 2px solid transparent; cursor: pointer; font-family: inherit; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+  .tab.ghost { color: var(--muted-2); }
+
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  h1 { font-size: 16px; font-weight: 500; margin: 0; }
+  .sub { font-size: 11px; color: var(--muted-2); margin-top: 3px; }
+  .btns { display: flex; gap: 8px; flex: none; }
+  .btn { font-family: inherit; font-size: 12px; padding: 6px 13px; border-radius: 8px; cursor: pointer;
+         border: .5px solid rgba(148,163,184,.3); background: transparent; color: var(--muted); }
+  .btn:hover { color: var(--text); border-color: rgba(148,163,184,.5); }
+  .btn.primary { background: var(--accent); color: #06231f; border-color: transparent; font-weight: 500; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.danger { color: var(--danger); border-color: rgba(248,113,113,.35); }
+  .btn.tiny { padding: 3px 9px; font-size: 11px; }
+
+  .sec { margin-top: 18px; }
+  .sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+  .sec-title { font-size: 12px; font-weight: 500; }
+  .sec-hint { font-size: 11px; color: var(--muted-2); }
+
+  .manual-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .manual-card { background: var(--panel-2); border: .5px solid var(--line); border-radius: 12px; padding: 11px 13px; }
+  .manual-card .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+  .manual-card .name { font-size: 13px; font-weight: 500; }
+  .manual-card .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .manual-card .foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .dots { color: var(--muted-2); cursor: pointer; line-height: 1; }
+
+  .auto-list { display: flex; flex-direction: column; gap: 8px; }
+  .auto-card { display: flex; gap: 12px; align-items: center; background: var(--panel);
+               border: .5px solid var(--line); border-radius: 12px; padding: 11px 14px; }
+  .auto-card.off { opacity: .62; }
+  .auto-card.failed { border-color: rgba(248,113,113,.35); }
+  .auto-card .body { flex: 1; min-width: 0; cursor: pointer; }
+  .auto-card .row1 { display: flex; align-items: center; gap: 7px; }
+  .auto-card .title { font-size: 13px; font-weight: 500; }
+  .auto-card .flow { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .auto-card .stat { font-size: 11px; color: var(--muted-2); margin-top: 3px; }
+  .auto-card .stat.err { color: var(--danger); }
+
+  .tagx { font-size: 10px; padding: 1px 6px; border-radius: 999px; flex: none; }
+  .tagx.sense { background: rgba(95,211,196,.14); color: var(--accent); }
+  .tagx.time { background: rgba(96,165,250,.14); color: var(--accent-2); }
+  .tagx.ha { background: rgba(251,191,36,.14); color: var(--warn); }
+  .tagx.fast { background: rgba(52,211,153,.14); color: var(--ok); }
+
+  .sw { width: 36px; height: 20px; border-radius: 999px; background: rgba(148,163,184,.25); position: relative;
+        cursor: pointer; flex: none; transition: background .15s; }
+  .sw i { position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%;
+          background: var(--muted); transition: left .15s, background .15s; }
+  .sw.on { background: var(--accent); }
+  .sw.on i { left: 18px; background: var(--bg); }
+
+  .editor { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); }
+  .col { padding: 16px 18px; }
+  .col + .col { border-left: 1px solid var(--line-2); }
+  .col-title { font-size: 12px; font-weight: 500; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .col-title.when { color: var(--accent); }
+  .col-title.then { color: var(--accent-2); }
+  .col-title span:last-child { font-weight: 400; color: var(--muted-2); font-size: 11px; }
+
+  .cond { background: var(--panel-2); border: .5px solid rgba(95,211,196,.35); border-radius: 10px; padding: 10px 12px; }
+  .cond .line1 { display: flex; align-items: center; gap: 7px; }
+  .cond .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .cond .mname { font-size: 12px; font-weight: 500; }
+  .cond .swap { margin-left: auto; font-size: 11px; color: var(--muted-2); cursor: pointer; }
+  .cond .swap:hover { color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .chip { font-size: 11px; padding: 3px 9px; border-radius: 6px; background: rgba(148,163,184,.1); color: var(--muted); cursor: pointer; }
+  .chip.on { background: rgba(95,211,196,.16); color: var(--accent); }
+  .cond .note { font-size: 11px; color: var(--muted-2); margin-top: 8px; line-height: 1.5; }
+  .kv { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-2); margin-top: 10px; }
+  .kv b { color: var(--muted); font-weight: 400; }
+  .divider { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+
+  .act { display: flex; gap: 9px; align-items: center; background: rgba(27,40,52,.75);
+         border: .5px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-bottom: 7px; }
+  .act .idx { width: 16px; height: 16px; border-radius: 50%; background: rgba(96,165,250,.18); color: var(--accent-2);
+              font-size: 10px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .act .txt { flex: 1; min-width: 0; }
+  .act .txt .t1 { font-size: 12px; }
+  .act .txt .t2 { font-size: 11px; color: var(--muted-2); margin-top: 1px; }
+  .act .ops { display: flex; gap: 4px; opacity: .45; }
+  .act:hover .ops { opacity: 1; }
+  .act .ops button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 3px; font-family: inherit; }
+  .add-act { display: flex; align-items: center; justify-content: center; gap: 6px; border: .5px dashed rgba(148,163,184,.28);
+             border-radius: 9px; padding: 8px; font-size: 12px; color: var(--accent); cursor: pointer; }
+  .add-act:hover { background: rgba(95,211,196,.06); }
+  .warnbox { margin-top: 11px; background: rgba(251,191,36,.07); border: .5px solid rgba(251,191,36,.22);
+             border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #d8b26a; line-height: 1.55; }
+
+  .headbar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .back { font-size: 13px; color: var(--muted); cursor: pointer; }
+  .namebar { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--line-2); }
+  .namebar input { flex: 1; background: transparent; border: 0; color: var(--text); font-size: 13px; font-family: inherit; outline: none;
+                   border-bottom: .5px dashed transparent; padding: 2px 0; }
+  .namebar input:focus { border-bottom-color: rgba(148,163,184,.4); }
+  .footbar { display: flex; gap: 14px; padding: 10px 18px; border-top: 1px solid var(--line-2); font-size: 11px; color: var(--muted-2); }
+  .footbar span { cursor: pointer; }
+  .footbar span:hover { color: var(--muted); }
+  .footbar .right { margin-left: auto; color: var(--danger); }
+
+  .card { background: var(--panel); border: .5px solid var(--line); border-radius: 14px; overflow: hidden; }
+
+  .mask { position: absolute; inset: 0; background: rgba(4, 8, 12, .68); display: flex; align-items: center;
+          justify-content: center; padding: 20px; }
+  .mask[hidden] { display: none; }
+  .modal { width: 100%; max-width: 430px; background: #121b23; border: .5px solid var(--line);
+           border-radius: 14px; max-height: 88vh; overflow-y: auto; }
+  .modal-head { display: flex; align-items: center; padding: 15px 18px 9px; }
+  .modal-head .ttl { font-size: 13px; font-weight: 500; }
+  .modal-head .x { margin-left: auto; font-size: 12px; color: var(--muted-2); cursor: pointer; }
+  .modal-body { padding: 0 18px 16px; }
+  .grp-label { font-size: 11px; color: var(--muted-2); margin: 13px 0 7px; }
+  .grp { background: var(--panel-2); border: .5px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .grp.warn { border-color: rgba(251,191,36,.22); }
+  .opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+  .opt + .opt { border-top: 1px solid var(--line-2); }
+  .opt:hover { background: rgba(255,255,255,.03); }
+  .opt .ico { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .opt .ico.s { background: rgba(95,211,196,.16); color: var(--accent); }
+  .opt .ico.t { background: rgba(96,165,250,.16); color: var(--accent-2); }
+  .opt .ico.h { background: rgba(251,191,36,.14); color: var(--warn); }
+  .opt .who { flex: 1; min-width: 0; }
+  .opt .who .n { font-size: 12px; font-weight: 500; }
+  .opt .who .d { font-size: 11px; color: var(--muted-2); margin-top: 1px; }
+  .modal-note { margin-top: 13px; font-size: 11px; color: var(--muted-2); line-height: 1.6; }
+
+  .ent-card { background: var(--panel); border: .5px solid var(--line); border-radius: 14px; padding: 15px 17px; }
+  .ent-head { display: flex; align-items: center; gap: 10px; }
+  .ent-head .av { width: 34px; height: 34px; border-radius: 9px; background: rgba(95,211,196,.15); color: var(--accent);
+                  display: flex; align-items: center; justify-content: center; font-size: 11px; flex: none; }
+  .ent-head .nm { font-size: 13px; font-weight: 500; }
+  .ent-head .eid { font-size: 11px; color: var(--muted-2); margin-top: 2px; font-family: ui-monospace, monospace; }
+  .state-row { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 14px; }
+  .state-box { background: var(--panel-2); border: .5px solid var(--line); border-radius: 10px; padding: 11px 13px; }
+  .state-box .lb { font-size: 11px; color: var(--muted-2); }
+  .state-box .vl { font-size: 15px; font-weight: 500; margin-top: 4px; }
+  .state-box .ex { font-size: 11px; color: var(--muted-2); margin-top: 4px; line-height: 1.45; }
+  .state-box .vl.on { color: var(--ok); }
+  .state-box .vl.off { color: var(--muted); }
+  .uselist { margin-top: 14px; }
+  .use { display: flex; gap: 9px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--line-2); }
+  .use .k { width: 3px; border-radius: 2px; background: rgba(95,211,196,.4); align-self: stretch; flex: none; }
+  .use .c .n { font-size: 12px; }
+  .use .c .d { font-size: 11px; color: var(--muted-2); margin-top: 2px; line-height: 1.5; }
+
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: #17303a;
+           border: .5px solid rgba(95,211,196,.4); color: var(--text); font-size: 12px; padding: 8px 16px;
+           border-radius: 999px; opacity: 0; pointer-events: none; transition: opacity .18s; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="tabs" id="tabs"></div>
+  <div id="view"></div>
+</div>
+<div class="mask" id="mask" hidden><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TABS = ['设备状态', '用户与家庭', '首页布局', '流量统计', '节目编辑', 'HA 实体库', 'ESP 设备分类', '智能'];
+
+const state = {
+  view: 'list',
+  editing: null,
+  mask: null,
+  manuals: [
+    { id: 'm1', name: '回家模式', actions: ['开客厅主灯', '中控切到首页', '开玄关小夜灯'], last: '今天 09:12' },
+    { id: 'm2', name: '离家模式', actions: ['关客厅主灯', '关小夜灯', '中控切到首页', '电视待机', '儿童模式开'], last: '昨天 22:40' },
+    { id: 'm3', name: '观影模式', actions: ['关主灯', '开氛围灯'], last: '从未执行' },
+  ],
+  autos: [
+    { id: 'a1', name: '回家自动开灯', on: true, kind: 'sense', kindText: '感应触发',
+      flow: '当 客厅小屏 · 人体感应 = 有人，持续 10 秒 → 开客厅主灯、中控切到首页',
+      stat: '今天触发 6 次 · 最近 09:12', failed: false,
+      cond: { device: '客厅小屏', mode: '有人', hold: 10 },
+      actions: [
+        { t: '开客厅主灯', d: 'HA · light.ke_ting_zhu_deng' },
+        { t: '中控切到首页', d: '中控 · 棠德304中控' },
+        { t: '延时 30 秒', d: '等待后继续下一个动作' },
+        { t: '开玄关小夜灯', d: 'HA · light.xuan_guan_ye_deng' },
+      ] },
+    { id: 'a2', name: '人走 5 分钟熄屏', on: true, kind: 'sense', kindText: '感应触发',
+      flow: '当 客厅小屏 · 人体感应 = 无人，持续 5 分钟 → 客厅灯关',
+      stat: '今天触发 4 次 · 最近 09:02', failed: false,
+      cond: { device: '客厅小屏', mode: '无人', hold: 300 },
+      actions: [{ t: '关客厅主灯', d: 'HA · light.ke_ting_zhu_deng' }] },
+    { id: 'a3', name: '早上 7:30 播新闻', on: true, kind: 'time', kindText: '定时触发',
+      flow: '当 每天 07:30 → 电视开机、切到珠江台',
+      stat: '上次执行失败：电视离线（07:30）', failed: true,
+      cond: { device: '每天 07:30', mode: '定时', hold: 0 },
+      actions: [{ t: '电视开机', d: '电视 · 客厅电视' }, { t: '切到珠江台', d: '电视 · 客厅电视' }] },
+    { id: 'a4', name: '门锁打开 → 玄关灯亮', on: false, kind: 'ha', kindText: 'HA 状态 · 15 秒',
+      flow: '当 门锁 由 上锁 变为 解锁 → 开玄关灯',
+      stat: '已暂停', failed: false,
+      cond: { device: '门锁', mode: '由 上锁 变为 解锁', hold: 0 },
+      actions: [{ t: '开玄关小夜灯', d: 'HA · light.xuan_guan_ye_deng' }] },
+  ],
+  presence: {
+    device: '客厅小屏', eid: 'presence.esp32s3_3030f96cd03c',
+    presence: true, occupied: true, enter: '09:12:31', leave: '09:02:14', idleSec: 0,
+  },
+};
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+function renderTabs() {
+  $('#tabs').innerHTML = TABS.map((t, i) => {
+    const cls = t === '智能' ? 'tab active' : (i === 3 ? 'tab ghost' : 'tab');
+    return `<button class="${cls}" type="button">${esc(i === 3 ? '…' : t)}</button>`;
+  }).join('');
+}
+
+function renderList() {
+  const onCount = state.autos.filter((a) => a.on).length;
+  return `
+  <div class="page-head">
+    <div>
+      <h1>智能</h1>
+      <div class="sub">${state.manuals.length} 个手动控制 · ${state.autos.length} 个自动化，${onCount} 个在运行</div>
+    </div>
+    <div class="btns">
+      <button class="btn" data-go="presence">人体感应实体</button>
+      <button class="btn" data-act="new-manual">+ 手动控制</button>
+      <button class="btn primary" data-act="new-auto">+ 自动化</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head">
+      <div class="sec-title">手动控制</div>
+      <div class="sec-hint">点卡片就执行 · 悬停右上角可编辑</div>
+    </div>
+    <div class="manual-grid">
+      ${state.manuals.map((m) => `
+        <div class="manual-card" data-id="${esc(m.id)}">
+          <div class="top">
+            <div class="name">${esc(m.name)}</div>
+            <span class="dots" data-act="edit-manual" data-id="${esc(m.id)}">⋯</span>
+          </div>
+          <div class="meta">${m.actions.length} 个动作 · ${esc(m.last)}</div>
+          <div class="foot">
+            <button class="btn primary tiny" data-act="run-manual" data-id="${esc(m.id)}" style="padding:4px 16px;">执行</button>
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head">
+      <div class="sec-title">自动化</div>
+      <div class="sec-hint">满足条件自动执行，关掉开关立即停用</div>
+    </div>
+    <div class="auto-list">
+      ${state.autos.map((a) => `
+        <div class="auto-card ${a.on ? '' : 'off'} ${a.failed ? 'failed' : ''}">
+          <div class="body" data-act="edit-auto" data-id="${esc(a.id)}">
+            <div class="row1">
+              <span class="title">${esc(a.name)}</span>
+              <span class="tagx ${a.kind}">${esc(a.kindText)}</span>
+            </div>
+            <div class="flow">${esc(a.flow)}</div>
+            <div class="stat ${a.failed ? 'err' : ''}">${esc(a.stat)}</div>
+          </div>
+          <div class="sw ${a.on ? 'on' : ''}" data-act="toggle-auto" data-id="${esc(a.id)}"><i></i></div>
+        </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="sec" style="font-size:11px;color:var(--muted-2);line-height:1.6;">
+    失效提示只留在卡片上，不弹窗；点开可看每次执行的逐步结果。
+  </div>`;
+}
+
+function renderEditor() {
+  const a = state.editing;
+  const isNew = !a;
+  const d = a || { name: '新建自动化', cond: { device: '客厅小屏', mode: '有人', hold: 10 }, actions: [] };
+  const hold = d.cond.hold ? `持续 ${d.cond.hold >= 60 ? Math.round(d.cond.hold / 60) + ' 分钟' : d.cond.hold + ' 秒'}` : '';
+  return `
+  <div class="card">
+    <div class="headbar">
+      <span class="back" data-act="back">←</span>
+      <span style="font-size:13px;font-weight:500;">${isNew ? '新建自动化' : '编辑自动化'}</span>
+      <span style="font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(148,163,184,.12);color:var(--muted-2);">${isNew ? '未保存' : '已启用'}</span>
+      <button class="btn primary" style="margin-left:auto;" data-act="save">保存并启用</button>
+    </div>
+    <div class="namebar">
+      <span style="font-size:11px;color:var(--muted-2);">名称</span>
+      <input id="auto-name" value="${esc(d.name)}">
+      <span style="font-size:11px;color:var(--muted-2);">建议写「什么时候 + 做什么」</span>
+    </div>
+    <div class="editor">
+      <div class="col">
+        <div class="col-title when"><span>当以下情况发生</span><span>1 个条件</span></div>
+        <div class="cond">
+          <div class="line1">
+            <span class="dot"></span>
+            <span class="mname">${esc(d.cond.device)} · 人体感应</span>
+            <span class="swap" data-act="pick-trigger">更换</span>
+          </div>
+          <div class="chips">
+            <span class="chip on">${esc(d.cond.mode)}</span>
+            ${hold ? `<span class="chip on">${esc(hold)}</span>` : ''}
+          </div>
+          <div class="note">传感器只认移动，去掉「持续」会一分钟触发好几次。</div>
+        </div>
+        <div class="kv">生效时段 <b>全天</b><span style="margin-left:auto;">可选</span></div>
+        <div class="divider">
+          <div class="kv" style="margin-top:0;">预计响应 <span class="tagx fast">1 秒内</span></div>
+          <div class="kv">最近触发 <b>今天 09:12</b></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="col-title then"><span>就执行以下动作</span><span>按顺序，失败即停</span></div>
+        ${d.actions.map((x, i) => `
+          <div class="act">
+            <span class="idx">${i + 1}</span>
+            <div class="txt"><div class="t1">${esc(x.t)}</div><div class="t2">${esc(x.d)}</div></div>
+            <div class="ops">
+              <button data-act="up" data-i="${i}" title="上移">↑</button>
+              <button data-act="down" data-i="${i}" title="下移">↓</button>
+              <button data-act="del" data-i="${i}" title="删除">×</button>
+            </div>
+          </div>`).join('')}
+        <div class="add-act" data-act="add-action">+ 添加动作</div>
+        <div class="warnbox">电视离线时「切台」会失败，后面的动作不会执行。需要继续跑就把该动作设为「失败也继续」。</div>
+      </div>
+    </div>
+    <div class="footbar">
+      <span data-act="dryrun">试运行</span><span>复制</span>
+      <span class="right">删除</span>
+    </div>
+  </div>`;
+}
+
+function renderPresence() {
+  const p = state.presence;
+  return `
+  <div class="page-head">
+    <div>
+      <h1>人体感应实体</h1>
+      <div class="sub">由小屏心跳上报，跳变即更新，无需额外配置</div>
+    </div>
+    <div class="btns"><button class="btn" data-act="back">← 返回智能</button></div>
+  </div>
+
+  <div class="sec">
+    <div class="ent-card">
+      <div class="ent-head">
+        <div class="av">感应</div>
+        <div>
+          <div class="nm">${esc(p.device)} · 人体感应</div>
+          <div class="eid">${esc(p.eid)}</div>
+        </div>
+        <span class="tagx fast" style="margin-left:auto;">在线</span>
+      </div>
+
+      <div class="state-row">
+        <div class="state-box">
+          <div class="lb">presence · 瞬时有人</div>
+          <div class="vl ${p.presence ? 'on' : 'off'}">${p.presence ? '有人' : '无人'}</div>
+          <div class="ex">传感器当前电平，移动停止约 2 秒后回落</div>
+        </div>
+        <div class="state-box">
+          <div class="lb">occupied · 占用中</div>
+          <div class="vl ${p.occupied ? 'on' : 'off'}">${p.occupied ? '占用中' : '空闲'}</div>
+          <div class="ex">90 秒内有过移动即视为有人，适合判断「家里到底有没有人」</div>
+        </div>
+      </div>
+
+      <div class="state-row" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+        <div class="state-box"><div class="lb">最近进入</div><div class="vl" style="font-size:13px;">${esc(p.enter)}</div></div>
+        <div class="state-box"><div class="lb">最近离开</div><div class="vl" style="font-size:13px;">${esc(p.leave)}</div></div>
+        <div class="state-box"><div class="lb">空闲时长</div><div class="vl" style="font-size:13px;">${p.idleSec} 秒</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-head"><div class="sec-title">这个实体被谁用了</div><div class="sec-hint">改动会同步影响下面这些地方</div></div>
+    <div class="ent-card" style="padding-top:4px;">
+      <div class="uselist">
+        <div class="use"><span class="k"></span><div class="c"><div class="n">自动化 · 回家自动开灯</div><div class="d">触发条件：有人，持续 10 秒</div></div></div>
+        <div class="use"><span class="k"></span><div class="c"><div class="n">自动化 · 人走 5 分钟熄屏</div><div class="d">触发条件：无人，持续 5 分钟</div></div></div>
+        <div class="use"><span class="k"></span><div class="c"><div class="n">小屏屏幕 · 第 1 页副标题</div><div class="d">模板 {presence.状态} → 显示「有人 / 无人」</div></div></div>
+        <div class="use"><span class="k"></span><div class="c"><div class="n">开放接口</div><div class="d">GET /api/device/presence 可被外部系统读取</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec" style="font-size:11px;color:var(--muted-2);line-height:1.7;">
+    做不到的事也要说清楚：这套架构没有常驻 HA WebSocket，无法把感应注册成 HA 里的 binary_sensor。
+    要用在 HA 自动化里，走「服务端 webhook → HA 自动化」这条路，需要你那边建一条自动化接收。
+  </div>`;
+}
+
+function renderModal() {
+  const m = state.mask;
+  if (!m) return;
+  if (m.type === 'trigger') {
+    $('#modal').innerHTML = `
+      <div class="modal-head"><span class="ttl">添加触发条件</span><span class="x" data-act="close-mask">取消</span></div>
+      <div class="modal-body">
+        <div class="grp-label">本机事件 · 立即触发</div>
+        <div class="grp">
+          <div class="opt" data-act="choose-trigger" data-v="人体感应">
+            <span class="ico s"><span style="width:8px;height:8px;border-radius:50%;background:currentColor;"></span></span>
+            <div class="who"><div class="n">人体感应</div><div class="d">如：客厅小屏 检测到有人</div></div>
+            <span class="tagx fast">1 秒内</span>
+          </div>
+          <div class="opt" data-act="choose-trigger" data-v="小屏按键">
+            <span class="ico s"><span style="width:10px;height:6px;border-radius:2px;border:1.5px solid currentColor;"></span></span>
+            <div class="who"><div class="n">小屏按键被按下</div><div class="d">如：床头小屏 按键 1 单击</div></div>
+            <span class="tagx fast">1 秒内</span>
+          </div>
+        </div>
+        <div class="grp-label">按时间 · 误差 1 分钟内</div>
+        <div class="grp">
+          <div class="opt" data-act="choose-trigger" data-v="每天固定时间">
+            <span class="ico t"><span style="width:11px;height:11px;border-radius:50%;border:1.5px solid currentColor;"></span></span>
+            <div class="who"><div class="n">每天固定时间</div><div class="d">如：每天 07:30</div></div>
+            <span class="tagx time">定时</span>
+          </div>
+          <div class="opt" data-act="choose-trigger" data-v="每周指定几天">
+            <span class="ico t"><span style="font-size:11px;">7</span></span>
+            <div class="who"><div class="n">每周指定几天</div><div class="d">如：工作日 18:30</div></div>
+            <span class="tagx time">定时</span>
+          </div>
+        </div>
+        <div class="grp-label">设备状态变化 · 最多 15 秒延迟</div>
+        <div class="grp warn">
+          <div class="opt" data-act="choose-trigger" data-v="HA 实体状态">
+            <span class="ico h"><span style="width:9px;height:9px;border-radius:2px;border:1.5px solid currentColor;"></span></span>
+            <div class="who"><div class="n">HA 实体状态</div><div class="d">如：门锁 由 上锁 变为 解锁</div></div>
+            <span class="tagx ha">15 秒</span>
+          </div>
+        </div>
+        <div class="modal-note">延迟是真实的：本机事件由小屏主动上报，所以秒级；HA 实体只能定期拉状态比对，最快 15 秒。</div>
+      </div>`;
+  } else {
+    $('#modal').innerHTML = `
+      <div class="modal-head"><span class="ttl">添加动作</span><span class="x" data-act="close-mask">取消</span></div>
+      <div class="modal-body">
+        <div class="grp-label">常用</div>
+        <div class="grp">
+          <div class="opt" data-act="choose-action" data-t="开客厅主灯" data-d="HA · light.ke_ting_zhu_deng">
+            <span class="ico s"><span style="width:8px;height:8px;border-radius:50%;background:currentColor;"></span></span>
+            <div class="who"><div class="n">控制 HA 实体</div><div class="d">灯、开关、空调、窗帘、门锁</div></div>
+          </div>
+          <div class="opt" data-act="choose-action" data-t="中控切到首页" data-d="中控 · 棠德304中控">
+            <span class="ico t"><span style="width:10px;height:6px;border-radius:2px;border:1.5px solid currentColor;"></span></span>
+            <div class="who"><div class="n">控制中控 / 电视</div><div class="d">切页、切台、音量、儿童模式</div></div>
+          </div>
+          <div class="opt" data-act="choose-action" data-t="延时 30 秒" data-d="等待后继续下一个动作">
+            <span class="ico h"><span style="font-size:10px;">30</span></span>
+            <div class="who"><div class="n">延时</div><div class="d">等一段时间再继续</div></div>
+          </div>
+        </div>
+        <div class="modal-note">动作复用现有按键执行器：HA 走实体服务，中控/电视走指令帧，不用新写一套。</div>
+      </div>`;
+  }
+  $('#mask').hidden = false;
+}
+
+function render() {
+  renderTabs();
+  const v = state.view === 'editor' ? renderEditor() : (state.view === 'presence' ? renderPresence() : renderList());
+  $('#view').innerHTML = v;
+  if (state.mask) renderModal(); else $('#mask').hidden = true;
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act],[data-go]');
+  if (!el) return;
+  const act = el.dataset.act;
+  const go = el.dataset.go;
+  const id = el.dataset.id;
+
+  if (go === 'presence') { state.view = 'presence'; render(); return; }
+
+  if (act === 'new-auto') { state.editing = null; state.view = 'editor'; render(); return; }
+  if (act === 'new-manual') { toast('手动控制编辑页：名称 + 动作列表，交互同自动化右栏'); return; }
+  if (act === 'edit-auto') {
+    state.editing = state.autos.find((a) => a.id === id);
+    state.view = 'editor'; render(); return;
+  }
+  if (act === 'toggle-auto') {
+    const a = state.autos.find((x) => x.id === id);
+    a.on = !a.on;
+    toast(a.on ? '已启用 ' + a.name : '已停用 ' + a.name);
+    render(); return;
+  }
+  if (act === 'run-manual') {
+    const m = state.manuals.find((x) => x.id === id);
+    el.textContent = '执行中…';
+    el.classList.remove('primary');
+    setTimeout(() => {
+      m.last = '刚刚';
+      toast(m.name + ' 已执行：' + m.actions.length + ' 个动作全部成功');
+      render();
+    }, 900);
+    return;
+  }
+  if (act === 'back') { state.view = 'list'; render(); return; }
+  if (act === 'pick-trigger') { state.mask = { type: 'trigger' }; render(); return; }
+  if (act === 'add-action') { state.mask = { type: 'action' }; render(); return; }
+  if (act === 'close-mask') { state.mask = null; render(); return; }
+  if (act === 'choose-trigger') {
+    if (!state.editing) {
+      state.editing = { name: '新建自动化', cond: { device: '客厅小屏', mode: '有人', hold: 10 }, actions: [] };
+    }
+    state.editing.cond.device = el.dataset.v === '人体感应' ? '客厅小屏' : el.dataset.v;
+    state.mask = null;
+    toast('触发条件已换为：' + el.dataset.v);
+    render(); return;
+  }
+  if (act === 'choose-action') {
+    if (!state.editing) {
+      state.editing = { name: '新建自动化', cond: { device: '客厅小屏', mode: '有人', hold: 10 }, actions: [] };
+    }
+    state.editing.actions.push({ t: el.dataset.t, d: el.dataset.d });
+    state.mask = null;
+    render(); return;
+  }
+  if (act === 'up' || act === 'down' || act === 'del') {
+    const i = Number(el.dataset.i);
+    const arr = state.editing.actions;
+    if (act === 'del') arr.splice(i, 1);
+    if (act === 'up' && i > 0) { const t = arr[i - 1]; arr[i - 1] = arr[i]; arr[i] = t; }
+    if (act === 'down' && i < arr.length - 1) { const t = arr[i + 1]; arr[i + 1] = arr[i]; arr[i] = t; }
+    render(); return;
+  }
+  if (act === 'dryrun') {
+    const n = state.editing ? state.editing.actions.length : 0;
+    toast(n ? '试运行已发送：' + n + ' 个动作按顺序执行' : '还没有动作，先添加一个');
+    return;
+  }
+  if (act === 'save') {
+    const nameEl = $('#auto-name');
+    if (state.editing && nameEl) state.editing.name = nameEl.value.trim() || '未命名自动化';
+    if (state.editing) {
+      state.editing.flow = '当 ' + state.editing.cond.device + ' · 人体感应 = ' + state.editing.cond.mode + ' → ' +
+        state.editing.actions.map((x) => x.t).join('、');
+      state.editing.stat = '还未触发过';
+      state.editing.kind = 'sense'; state.editing.kindText = '感应触发'; state.editing.on = true;
+      if (!state.autos.includes(state.editing)) state.autos.unshift(state.editing);
+    }
+    toast('已保存并启用');
+    state.view = 'list'; render(); return;
+  }
+});
+
+$('#mask').addEventListener('click', (e) => {
+  if (e.target === $('#mask')) { state.mask = null; render(); }
+});
+
+render();
+</script>
+</body>
+</html>

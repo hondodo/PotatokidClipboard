@@ -6,7 +6,7 @@
     document.querySelectorAll('[data-tab]').forEach((item) => {
       item.classList.toggle('active', item.dataset.tab === tab);
     });
-    ['machines', 'users', 'layouts', 'parental', 'traffic', 'programs', 'ha-entities', 'device-types', 'device-rules', 'esp-devices'].forEach((name) => {
+    ['machines', 'users', 'layouts', 'parental', 'traffic', 'programs', 'ha-entities', 'device-types', 'device-rules', 'esp-devices', 'smart'].forEach((name) => {
       const section = $('tab-' + name);
       if (section) section.hidden = state.tab !== name;
     });
@@ -31,6 +31,13 @@
       Promise.all([loadDeviceTypes(), loadHaEntities().catch(() => {}), loadEspDevices()])
         .then(() => { if (state.espDevEditId) return openEspDevEditor(state.espDevEditId); })
         .catch((error) => { $('espdev-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
+    }
+    // 智能 Tab：首次进入才拉数据；事件委托只绑一次，避免切回来重复触发。
+    if (tab === 'smart') {
+      bindSmartOnce();
+      loadScenes().catch((error) => {
+        $('smart-body').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`;
+      });
     }
   }
 

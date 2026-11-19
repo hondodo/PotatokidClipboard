@@ -713,3 +713,180 @@
       .layout-grid { grid-template-columns: 1fr; }
       .layout-side { max-height: none; }
     }
+
+    /* 智能 Tab 的动作控件用 16px 的小图标按钮，与表格里的密度一致 */
+    .smart-card-ops .icon-btn,
+    .smart-action-btns .icon-btn,
+    .smart-auto-ops .icon-btn { font-size: 15px; padding: 2px 6px; }
+    .icon-btn.danger:hover { background: rgba(248, 113, 113, .14); color: var(--danger); }
+
+    /* ------------------------------------------------------------ 智能 Tab */
+
+    .smart-section { margin-bottom: 14px; }
+    .smart-section > h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .smart-section > h3 .muted { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+    /* 手动控制：卡片网格，宽度自适应 */
+    .smart-manual-grid {
+      display: grid; gap: 10px; margin-top: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+    }
+    .smart-card {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 12px 13px; border-radius: 10px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
+    }
+    .smart-card:hover { border-color: rgba(95, 211, 196, .35); }
+    .smart-card-head { display: flex; align-items: center; gap: 8px; }
+    .smart-card-head strong {
+      flex: 1 1 auto; min-width: 0; font-size: 14px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .smart-card-ops { display: flex; gap: 2px; opacity: .55; }
+    .smart-card:hover .smart-card-ops { opacity: 1; }
+    .smart-card-desc {
+      font-size: 12px; line-height: 1.5; color: var(--muted);
+      min-height: 36px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .smart-card-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+    .smart-status { font-size: 11px; color: var(--muted-2); }
+    .smart-status.failed { color: var(--danger); }
+
+    /* 自动化：一行一条，开关在最左 */
+    .smart-auto-list { display: flex; flex-direction: column; margin-top: 10px; }
+    .smart-auto-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 4px; border-bottom: 1px solid rgba(148, 163, 184, .08);
+    }
+    .smart-auto-row:last-child { border-bottom: 0; }
+    .smart-auto-row.off .smart-auto-main { opacity: .45; }
+    .smart-auto-main { flex: 1 1 auto; min-width: 0; }
+    .smart-auto-name { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .smart-auto-name strong { font-size: 13px; }
+    .smart-auto-desc {
+      margin-top: 3px; font-size: 12px; line-height: 1.55; color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+    .smart-when { color: var(--accent); }
+    .smart-arrow { margin: 0 5px; color: var(--muted-2); }
+    .smart-auto-ops { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+
+    /* 开关：纯 CSS，避免引入组件库 */
+    .smart-switch { position: relative; flex: 0 0 auto; display: inline-flex; width: 38px; height: 21px; cursor: pointer; }
+    .smart-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .smart-switch span {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: rgba(148, 163, 184, .22); transition: background .18s;
+    }
+    .smart-switch span::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 15px; height: 15px; border-radius: 50%; background: #cbd5e1;
+      transition: transform .18s, background .18s;
+    }
+    .smart-switch input:checked + span { background: rgba(95, 211, 196, .55); }
+    .smart-switch input:checked + span::after { transform: translateX(17px); background: #eafffb; }
+
+    /* 编辑表单 */
+    .smart-form { display: flex; flex-direction: column; gap: 12px; }
+    .smart-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    .smart-field > span { font-size: 12px; color: var(--muted); }
+    .smart-field > small { font-size: 11px; line-height: 1.5; color: var(--muted-2); }
+    .smart-field.inline { flex-direction: row; align-items: center; gap: 8px; }
+    .smart-field.inline input { width: 90px; }
+    .smart-field-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .smart-field-row > .smart-field { flex: 1 1 150px; }
+    .smart-trigger-block {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 12px; border-radius: 10px;
+      border: 1px solid var(--line); background: rgba(95, 211, 196, .04);
+    }
+    .smart-note {
+      margin: 8px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted-2);
+    }
+    .smart-note strong { color: var(--muted); }
+    .smart-note code {
+      padding: 1px 5px; border-radius: 4px; font-size: 11px;
+      background: rgba(148, 163, 184, .12); color: var(--text);
+    }
+    .smart-actions-head {
+      display: flex; flex-direction: column; gap: 3px;
+      padding-top: 4px; border-top: 1px solid var(--line);
+    }
+    .smart-actions-head > span { font-size: 13px; }
+    .smart-actions-head > small { font-size: 11px; color: var(--muted-2); }
+    .smart-actions { display: flex; flex-direction: column; gap: 9px; }
+    .smart-action {
+      padding: 10px; border-radius: 10px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .022);
+    }
+    .smart-action-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .smart-action-no {
+      flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; background: rgba(95, 211, 196, .16); color: var(--accent);
+    }
+    .smart-action-head select { flex: 0 1 128px; }
+    .smart-onerror {
+      display: inline-flex; align-items: center; gap: 5px;
+      flex: 0 0 auto; white-space: nowrap;
+      font-size: 11px; color: var(--muted-2); cursor: pointer;
+    }
+    .smart-action-btns { display: flex; gap: 2px; margin-left: auto; }
+    .smart-action-body { margin-top: 9px; }
+    /* 按钮在 column flex 里默认会被拉满宽，这里保持内容宽度 */
+    .smart-form > .btn { align-self: flex-start; }
+    .smart-ha-row { display: flex; flex-direction: column; gap: 6px; }
+    .smart-ha-row .entity-picker { width: 100%; }
+    .smart-custom-action { margin-bottom: 6px; }
+    .smart-form-error {
+      margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+      background: rgba(248, 113, 113, .12); color: #fecaca;
+      border: 1px solid rgba(248, 113, 113, .3);
+    }
+
+    /* 执行结果 */
+    .smart-result-head { margin: 0 0 10px; font-size: 13px; color: var(--warn); }
+    .smart-result-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .smart-result-steps li {
+      display: flex; align-items: baseline; gap: 9px;
+      padding: 7px 9px; border-radius: 8px; font-size: 12px;
+      background: rgba(255, 255, 255, .03); border: 1px solid var(--line);
+    }
+    .smart-result-steps li.step-failed { border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .07); }
+    .step-no { flex: 0 0 auto; color: var(--muted-2); }
+    .step-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+    .step-status { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+    .step-failed .step-status { color: var(--danger); }
+
+    /* 人体感应实体 */
+    .smart-presence { display: flex; flex-direction: column; gap: 10px; }
+    .smart-presence-card {
+      padding: 11px 12px; border-radius: 10px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .025);
+    }
+    .smart-presence-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .smart-presence-head code { font-size: 11px; color: var(--muted-2); }
+    .smart-presence-states { display: flex; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+    .smart-state {
+      flex: 1 1 140px; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--line); background: rgba(255, 255, 255, .02);
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .smart-state span { font-size: 11px; color: var(--muted-2); }
+    .smart-state b { font-size: 15px; }
+    .smart-state small { font-size: 11px; color: var(--muted-2); }
+    .smart-state.on { border-color: rgba(95, 211, 196, .45); background: rgba(95, 211, 196, .09); }
+    .smart-state.on b { color: var(--accent); }
+    .smart-presence-times {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      margin-top: 8px; font-size: 11px; color: var(--muted);
+    }
+    .smart-presence-window { margin-top: 4px; }
+    .smart-presence-window input { max-width: 140px; }
+
+    @media (max-width: 760px) {
+      .smart-manual-grid { grid-template-columns: 1fr; }
+      .smart-auto-row { flex-wrap: wrap; }
+      .smart-auto-ops { margin-left: 50px; }
+    }

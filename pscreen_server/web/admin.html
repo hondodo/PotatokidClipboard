@@ -58,6 +58,7 @@
       <button class="tab" type="button" data-tab="device-types">设备类型字典</button>
       <button class="tab" type="button" data-tab="device-rules">设备判定规则</button>
       <button class="tab" type="button" data-tab="esp-devices">ESP 设备分类</button>
+      <button class="tab" type="button" data-tab="smart">智能</button>
     </nav>
 
     <section id="tab-machines" class="panel">
@@ -492,6 +493,22 @@
         </div>
       </div>
     </section>
+    <section id="tab-smart" class="panel" hidden>
+      <div class="panel-head">
+        <div>
+          <h2>智能</h2>
+          <p>手动控制点一下就执行一组动作；自动化在条件满足时自己执行。动作走的就是小屏按键那条执行链路（HA 服务 / 中控电视遥控），不会出现两边行为不一致。</p>
+          <p class="hint" id="smart-hint">—</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn small" id="smart-presence" type="button">人体感应实体</button>
+          <button class="btn small" id="smart-reload" type="button">重新加载</button>
+          <button class="btn small primary" id="smart-new-manual" type="button">+ 手动控制</button>
+          <button class="btn small primary" id="smart-new-auto" type="button">+ 自动化</button>
+        </div>
+      </div>
+      <div id="smart-body"><div class="empty">加载中…</div></div>
+    </section>
   </main>
 </div>
 
@@ -508,6 +525,7 @@
   <script src="admin_js/09-programs.js"></script>
   <script src="admin_js/10-device-types.js"></script>
   <script src="admin_js/11-esp.js"></script>
-  <script src="admin_js/12-boot.js"></script>
+  <script src="admin_js/12-smart.js"></script>
+  <script src="admin_js/99-boot.js"></script>
 </body>
 </html>
