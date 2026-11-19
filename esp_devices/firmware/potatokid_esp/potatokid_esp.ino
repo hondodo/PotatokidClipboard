@@ -20,6 +20,7 @@
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 #include <esp_now.h>
+#include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -94,7 +95,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           OTA 查询与下载带 target 参数，服务端按芯片分别发布。
 // oled-5.1：ESP-NOW 主从中继——从机的注册/心跳/页面/按键经所属主机转发，
 //           请求与回包分片传输；OTA 仍由从机直连下载。角色可在设置页切换。
-static const char *APP_VER             = "oled-5.1";
+// oled-5.2：从机电池休眠——C6 从机空闲后关屏关 WiFi 深睡，按键低电平唤醒，
+//           唤醒后经主机重新注册；新增电池分压检测与电压上报。
+static const char *APP_VER             = "oled-5.2";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -267,6 +270,15 @@ static const uint32_t OTA_RETRY_MS = 30UL * 60UL * 1000UL;
 String deviceRole = "master";
 String masterMac = "";        // 从机保存的所属主机 MAC（AA:BB:CC:DD:EE:FF）
 
+// 电池休眠（仅从机、仅 C6 生效）：
+// - sleepSeconds = 无操作多久进入深度睡眠，0 = 不休眠；
+// - 唤醒源为已配置按键（低电平），唤醒后重新联网、经主机注册并拉取页面；
+// - batPin 接电池分压点（C6 只有 GPIO0~6 是 ADC1），batDiv 为分压比。
+int sleepSeconds = 0;
+int batPin = -1;
+int batDiv = 2;
+uint32_t lastActivityAt = 0;
+
 /* ---------------- OLED ---------------- */
 
 /**
@@ -305,6 +317,20 @@ static bool pinUsableForPir(int pin) {
   // 4~13 已接本机按键与 OLED I2C（8/9 上面已挡），人体感应脚不允许落在这段，
   // 避免和按键抢线；可用的是 14~18 / 21 / 38~42 / 47 / 48。
   return pinUsable(pin) && !(pin >= 4 && pin <= 13);
+#endif
+}
+
+// 电池分压检测脚：C6 仅 GPIO0~6 属于 ADC1，且不能和按键/感应/I2C 抢线。
+bool pinUsableForBat(int pin) {
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  if (pin < 0 || pin > 6) return false;
+  if (pin == PIN_SDA || pin == PIN_SCL) return false;
+  if (pin == pirPin) return false;
+  for (int i = 0; i < btnCount; i++) if (btnPins[i] == pin) return false;
+  return true;
+#else
+  (void)pin;
+  return false;   // S3 当前不做电池休眠，不提供分压检测
 #endif
 }
 
@@ -568,6 +594,17 @@ void loadCreds() {
     if (pirPin >= 0) Serial.printf("[pir] NVS 里的 GPIO%d 不可用（PSRAM/Flash/按键段），已忽略\n", pirPin);
     pirPin = -1;
   }
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // 从机默认 60 秒休眠；主机或手动设为 0 时不休眠。
+  sleepSeconds = prefs.getInt("sleep", deviceRole == "slave" ? 60 : 0);
+#else
+  sleepSeconds = 0;   // S3 不参与电池休眠
+#endif
+  if (sleepSeconds < 0 || sleepSeconds > 3600) sleepSeconds = 0;
+  batPin = prefs.getInt("batpin", -1);
+  if (!pinUsableForBat(batPin)) batPin = -1;
+  batDiv = prefs.getInt("batdiv", 2);
+  if (batDiv < 1 || batDiv > 10) batDiv = 2;
   prefs.end();
   if (serverBase.isEmpty()) serverBase = DEFAULT_SERVER_BASE;
 
@@ -887,6 +924,12 @@ void buildDeviceId() {
   deviceId = String(CHIP_TAG) + "-" + mac;
 }
 
+int readBatteryMv() {
+  if (batPin < 0) return 0;
+  // analogReadMilliVolts 已做校准，返回分压点电压；乘分压比得到电池电压。
+  return (int)(analogReadMilliVolts(batPin) * (uint32_t)batDiv);
+}
+
 void reportToServer(bool isRegister) {
   if (deviceId.isEmpty()) buildDeviceId();
   String body = "{\"deviceId\":\"" + deviceId + "\"";
@@ -899,6 +942,8 @@ void reportToServer(bool isRegister) {
   body += ",\"rssi\":" + String(WiFi.RSSI());
   // 人体感应状态（1=有人 / 0=无人）：未接感应时不上报，后台保持「未知」。
   if (pirPin >= 0) body += ",\"pir\":" + String(pirPresent ? 1 : 0);
+  // 电池电压：未接检测脚时不上报。
+  if (batPin >= 0) body += ",\"batteryMv\":" + String(readBatteryMv());
   // 上报本机槽位→GPIO 映射：后台据此显示实际引脚，并提示未映射的槽位。
   body += ",\"espButtons\":[";
   bool firstBtn = true;
@@ -1177,7 +1222,7 @@ void runOta() {
 void onButtonPress(int slot) {
   if (deviceId.isEmpty()) buildDeviceId();
   lastActionAt = millis();
-  // 屏灭时按键也要能看到反馈：先亮屏并把「最后有人在」的计时重新拉满。
+  lastActivityAt = millis();
   lastPresenceAt = millis();
   wakeScreen();
   Serial.printf("[btn] slot %d pressed (page %d)\n", slot, currentPage);
@@ -1296,6 +1341,7 @@ void pollPir() {
   bool present = digitalRead(pirPin) == HIGH;
   if (present) {
     lastPresenceAt = millis();
+    lastActivityAt = millis();
     wakeScreen();
   }
   if (present != pirPresent) {
@@ -1665,6 +1711,18 @@ String pageSettings(const String &listText, const String &err) {
        "（固件轨道 " + String(CHIP_TAG) +
        "）。主机切从机前请先确认其下属从机已解绑；从机切主机会自动解除原绑定。</div>";
 
+  // 电池与休眠：仅 C6 从机生效。S3 为市电常供，不显示这项。
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  h += "<h3>电池与休眠</h3>";
+  h += "<form method='POST' action='/settings/power'>";
+  h += String("<label>空闲休眠秒数（0 = 不休眠）</label><input name='sleep' type='number' min='0' max='3600' value='") + sleepSeconds + "'>";
+  h += String("<label>电池检测 GPIO（-1 = 未接，C6 仅 0~6 可用）</label><input name='batpin' type='number' min='-1' max='6' value='") + batPin + "'>";
+  h += String("<label>分压比（电池电压 = 引脚电压 × 该值）</label><input name='batdiv' type='number' min='1' max='10' value='") + batDiv + "'>";
+  h += "<button type='submit'>保存并重启</button></form>";
+  h += "<div class='tip'>休眠时关屏关 WiFi，按已配置按键（低电平）唤醒；唤醒后重新联网并经主机注册。"
+       "人体感应只在本机清醒时生效，休眠期间不唤醒。分压点请勿直接接电池，需加分压电阻。</div>";
+#endif
+
   h += "<h3>可控设备</h3>";
   if (err.length()) {
     h += String("<div class='st err'>") + err + "</div>";
@@ -1864,6 +1922,28 @@ void setupServer() {
     ESP.restart();
   });
 
+  // 电池与休眠（仅 C6）：校验引脚后写入 NVS，重启生效。
+  server.on("/settings/power", HTTP_POST, []() {
+    if (authBlocked()) return;
+    int sleepArg = server.hasArg("sleep") ? server.arg("sleep").toInt() : 0;
+    if (sleepArg < 0) sleepArg = 0;
+    if (sleepArg > 3600) sleepArg = 3600;
+    int pinArg = server.hasArg("batpin") ? server.arg("batpin").toInt() : -1;
+    if (!pinUsableForBat(pinArg)) pinArg = -1;
+    int divArg = server.hasArg("batdiv") ? server.arg("batdiv").toInt() : 2;
+    if (divArg < 1 || divArg > 10) divArg = 2;
+    prefs.begin("cfg", false);
+    prefs.putInt("sleep", sleepArg);
+    prefs.putInt("batpin", pinArg);
+    prefs.putInt("batdiv", divArg);
+    prefs.end();
+    Serial.printf("[power] sleep=%ds batPin=%d div=%d\n", sleepArg, pinArg, divArg);
+    server.send(200, "text/html; charset=utf-8",
+                "<meta charset='utf-8'><h3>电池与休眠已保存，设备正在重启…</h3>");
+    delay(1200);
+    ESP.restart();
+  });
+
   // 按键槽位映射：槽位号 = 表单行号，空 / -1 / 重复引脚视为停用；保存后重启生效。
   server.on("/settings/buttons", HTTP_POST, []() {
     if (authBlocked()) return;
@@ -2013,6 +2093,32 @@ void portalRetry() {
 
 /* ---------------- 主流程 ---------------- */
 
+/* ---------------- 电池休眠（C6 从机） ---------------- */
+
+// 空闲到点后进入深度睡眠：关屏、关 WiFi，仅保留按键低电平唤醒。
+// 唤醒 = 整机复位，重新联网、经主机注册并拉取页面，行为回到开机流程。
+void enterDeepSleep() {
+  Serial.printf("[sleep] idle %lus, deep sleep, wake pins:", (unsigned long)sleepSeconds);
+  for (int i = 0; i < btnCount; i++) if (btnPins[i] >= 0) Serial.printf(" GPIO%d", btnPins[i]);
+  Serial.println();
+  oledShow("Sleep", "press key to wake", String(sleepSeconds) + "s idle");
+  delay(400);
+  if (oledOk) u8g2.setPowerSave(1);
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  uint64_t mask = 0;
+  for (int i = 0; i < btnCount; i++) {
+    if (btnPins[i] < 0) continue;
+    pinMode(btnPins[i], INPUT_PULLUP);
+    mask |= (1ULL << btnPins[i]);
+  }
+  if (mask) esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  esp_deep_sleep_start();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -2038,6 +2144,7 @@ void setup() {
     pirPresent = digitalRead(pirPin) == HIGH;
   }
   lastPresenceAt = millis();
+  lastActivityAt = millis();
 
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。
   // C6 为单核，不能指定 core 1，直接创建普通任务。
@@ -2096,6 +2203,15 @@ void loop() {
   applyNetSnapshot();
   // 空闲时把还没缓存的页补齐，之后翻页全部命中本地缓存。
   schedulePrefetch();
+
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // 从机电池休眠：按键/人在场会刷新 lastActivityAt；OTA 中或待自动更新时不睡。
+  if (deviceRole == "slave" && sleepSeconds > 0 && !otaInProgress
+      && !(autoUpdate && fwAvailable)
+      && millis() - lastActivityAt > (uint32_t)sleepSeconds * 1000UL) {
+    enterDeepSleep();
+  }
+#endif
 
   // 空闲回首页（页面级配置）：超过 idleSeconds 没有按键就回到第 1 页。
   if (idleSeconds > 0 && currentPage != 1

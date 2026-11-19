@@ -1321,6 +1321,7 @@ function attachAdmin(app, options = {}) {
             // 主从角色由设备本机设置页或后台维护；芯片型号（model）决定 OTA 轨道。
             role: machine.role === 'slave' ? 'slave' : 'master',
             masterMac: typeof machine.masterMac === 'string' ? machine.masterMac.slice(0, 32) : '',
+            batteryMv: Number(machine.batteryMv) || 0,
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
             ip: typeof machine.ip === 'string' ? machine.ip.slice(0, 64) : '',
             currentHome: typeof machine.currentHome === 'string' ? machine.currentHome.slice(0, MAX_HOME_NAME) : '',
@@ -3688,6 +3689,10 @@ function attachAdmin(app, options = {}) {
         // 主从角色与所属主机 MAC：设备设置页保存后随注册/心跳上报。
         if (body.role === 'master' || body.role === 'slave') machine.role = body.role;
         if (typeof body.masterMac === 'string') machine.masterMac = body.masterMac.trim().slice(0, 32);
+        // 电池电压（mV）：从机休眠前上报，后台用于展示电量。
+        if (Number.isFinite(Number(body.batteryMv)) && Number(body.batteryMv) > 0) {
+            machine.batteryMv = Math.round(Number(body.batteryMv));
+        }
         if (typeof body.appVersion === 'string' && body.appVersion.trim()) {
             machine.appVersion = body.appVersion.trim().slice(0, 32);
         }

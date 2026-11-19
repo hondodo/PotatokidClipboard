@@ -238,9 +238,13 @@
       // 标签常驻占位：新上报时增量更新就能显示出来，不必整列表重渲染。
       const pirTag = `<span class="tag${pir && pir.present ? ' pir-on' : ''}" data-pir${pir ? '' : ' style="display:none"'}>${pir && pir.present ? '有人' : '无人'}</span>`;
       const pirLine = espPresenceLine(pir);
+      // 电量：从机休眠前上报 batteryMv；未接检测脚时不显示。
+      const batteryTag = dev.batteryMv > 0
+        ? `<span class="tag" title="电池电压">${esc((dev.batteryMv / 1000).toFixed(2))}V</span>`
+        : '';
       return `<div class="espdev-item${active}" data-id="${esc(dev.id)}">`
         + `<span class="espdev-name">${esc(dev.name || dev.id)}</span>`
-        + `<span class="espdev-tags">${pirTag}<span class="tag">${esc(dev.role === 'slave' ? '从机' : '主机')}</span><span class="tag">${esc(tag)}</span></span>`
+        + `<span class="espdev-tags">${pirTag}<span class="tag">${esc(dev.role === 'slave' ? '从机' : '主机')}</span>${batteryTag}<span class="tag">${esc(tag)}</span></span>`
         + `<span class="espdev-pir" title="${esc(espPirTitle(pir))}">${pirLine || '感应未上报'}</span>`
         + '</div>';
     }).join('');
