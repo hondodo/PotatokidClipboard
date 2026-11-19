@@ -19,6 +19,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
+#include <esp_now.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -91,7 +92,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           1-bit 服务端下发，不烧固件）。{sys.*} 本机变量在绘制时替换。老配置/老固件兼容。
 // oled-5.0：同固件适配 ESP32-S3 与 ESP32-C6（引脚/设备 ID/可用 GPIO 按芯片分流），
 //           OTA 查询与下载带 target 参数，服务端按芯片分别发布。
-static const char *APP_VER             = "oled-5.0";
+// oled-5.1：ESP-NOW 主从中继——从机的注册/心跳/页面/按键经所属主机转发，
+//           请求与回包分片传输；OTA 仍由从机直连下载。角色可在设置页切换。
+static const char *APP_VER             = "oled-5.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -606,9 +609,240 @@ bool connectSTA(uint32_t timeoutMs) {
   return WiFi.status() == WL_CONNECTED;
 }
 
+/* ---------------- ESP-NOW 主从中继 ----------------
+ * 从机不直接访问服务端：注册/心跳/页面/按键都经 ESP-NOW 发给所属主机，
+ * 主机代为 HTTP 转发并把回包分片送回。固件下载体积太大，仍由从机直连
+ * WiFi 下载（仅 OTA 例外），避免多 MB 数据在 ESP-NOW 上分片。
+ * 帧格式：11 字节头 + data[<=188]，请求与响应都按 seq 分片，按 total 收齐。
+ */
+#define RELAY_MAGIC       0x50
+#define RELAY_REQ         1
+#define RELAY_RESP        2
+#define RELAY_CHUNK       188
+#define RELAY_BUF         8192
+#define RELAY_TIMEOUT_MS  4000
+
+typedef struct __attribute__((packed)) {
+  uint8_t magic;
+  uint8_t type;      // RELAY_REQ / RELAY_RESP
+  uint16_t id;       // 请求序号，响应原样带回
+  uint8_t method;    // 0=GET 1=POST
+  uint8_t status;    // 响应：1 = HTTP 200
+  uint16_t total;    // 整个载荷字节数
+  uint16_t seq;      // 本片起始偏移
+  uint8_t len;
+  uint8_t data[RELAY_CHUNK];
+} RelayPacket;
+
+bool relayReady = false;
+bool haveMasterMac = false;
+uint8_t relayMasterMac[6] = {0, 0, 0, 0, 0, 0};
+uint16_t relaySeq = 0;
+
+// 从机侧：等待中的响应
+uint8_t relayRxBuf[RELAY_BUF];
+uint16_t relayRxId = 0, relayRxTotal = 0, relayRxGot = 0;
+volatile bool relayRespDone = false;
+volatile bool relayRespOk = false;
+
+// 主机侧：当前从机请求（一次处理一个，足够本场景）
+struct RelayReq {
+  uint8_t mac[6];
+  uint16_t id;
+  uint8_t method;
+  uint16_t total;
+  uint16_t got;
+  uint32_t at;
+  uint8_t buf[RELAY_BUF];
+};
+RelayReq relayReq;
+volatile bool relayReqComplete = false;
+
+bool parseMac(const String &text, uint8_t out[6]) {
+  unsigned v[6];
+  if (sscanf(text.c_str(), "%x:%x:%x:%x:%x:%x",
+             &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) return false;
+  for (int i = 0; i < 6; i++) {
+    if (v[i] > 0xFF) return false;
+    out[i] = (uint8_t)v[i];
+  }
+  return true;
+}
+
+void relayAddPeer(const uint8_t *mac) {
+  if (esp_now_is_peer_exist(mac)) return;
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, mac, 6);
+  peer.channel = WiFi.channel();
+  peer.encrypt = false;
+  esp_now_add_peer(&peer);
+}
+
+// 把载荷按片发出；total=0 也会发一个空片，让对端知道「成功但无内容」。
+void relaySend(const uint8_t *mac, uint8_t type, uint16_t id, uint8_t method,
+               uint8_t status, const uint8_t *data, uint16_t total) {
+  uint16_t off = 0;
+  do {
+    RelayPacket pkt;
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.magic = RELAY_MAGIC;
+    pkt.type = type;
+    pkt.id = id;
+    pkt.method = method;
+    pkt.status = status;
+    pkt.total = total;
+    pkt.seq = off;
+    uint16_t n = total - off;
+    if (n > RELAY_CHUNK) n = RELAY_CHUNK;
+    pkt.len = (uint8_t)n;
+    if (n) memcpy(pkt.data, data + off, n);
+    esp_now_send(mac, (const uint8_t *)&pkt, offsetof(RelayPacket, data) + n);
+    off += n;
+    delay(10);   // 让对端回调来得及取走
+  } while (off < total);
+}
+
+void onRelayRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  if (len < (int)offsetof(RelayPacket, data)) return;
+  const uint8_t *mac = info->src_addr;
+  RelayPacket pkt;
+  memcpy(&pkt, data, len < (int)sizeof(pkt) ? len : (int)sizeof(pkt));
+  if (pkt.magic != RELAY_MAGIC || pkt.len > RELAY_CHUNK) return;
+  if (pkt.seq + pkt.len > RELAY_BUF) return;
+
+  if (pkt.type == RELAY_REQ && deviceRole == "master") {
+    if (pkt.seq == 0) {
+      memcpy(relayReq.mac, mac, 6);
+      relayReq.id = pkt.id;
+      relayReq.method = pkt.method;
+      relayReq.total = pkt.total;
+      relayReq.got = 0;
+      relayReq.at = millis();
+    } else if (relayReq.id != pkt.id || memcmp(relayReq.mac, mac, 6) != 0) {
+      return;   // 不是当前请求的后续片，丢弃
+    }
+    memcpy(relayReq.buf + pkt.seq, pkt.data, pkt.len);
+    if (pkt.seq + pkt.len > relayReq.got) relayReq.got = pkt.seq + pkt.len;
+    if (relayReq.total <= RELAY_BUF - 1 && relayReq.got >= relayReq.total) {
+      relayReq.buf[relayReq.total] = 0;
+      relayReqComplete = true;
+    }
+    return;
+  }
+
+  if (pkt.type == RELAY_RESP && deviceRole == "slave") {
+    if (pkt.id != relayRxId) return;
+    if (memcmp(mac, relayMasterMac, 6) != 0) return;
+    memcpy(relayRxBuf + pkt.seq, pkt.data, pkt.len);
+    if (pkt.seq + pkt.len > relayRxGot) relayRxGot = pkt.seq + pkt.len;
+    relayRxTotal = pkt.total;
+    if (relayRxTotal <= RELAY_BUF - 1 && relayRxGot >= relayRxTotal) {
+      relayRxBuf[relayRxTotal] = 0;
+      relayRespOk = (pkt.status == 1);
+      relayRespDone = true;
+    }
+  }
+}
+
+// 从机：发一个请求并等回包。成功返回 true（HTTP 200）。
+bool relayRequest(uint8_t method, const String &payload, String &out, bool needBody) {
+  if (!relayReady || !haveMasterMac || payload.length() > RELAY_BUF - 1) return false;
+  relayRespDone = false;
+  relayRespOk = false;
+  relayRxGot = 0;
+  relayRxTotal = 0;
+  uint16_t id = ++relaySeq;
+  relayRxId = id;
+  relaySend(relayMasterMac, RELAY_REQ, id, method, 0,
+            (const uint8_t *)payload.c_str(), payload.length());
+  uint32_t t0 = millis();
+  while (!relayRespDone && millis() - t0 < RELAY_TIMEOUT_MS) delay(10);
+  if (!relayRespDone) return false;
+  if (needBody) out = String((const char *)relayRxBuf);
+  return relayRespOk;
+}
+
+// 主机：在 netTask 里同步转发从机请求（不能在 WiFi 回调里做 HTTP）。
+bool relayHttpGet(const String &path, String &out) {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, serverBase + path)) return false;
+  http.setTimeout(6000);
+  int code = http.GET();
+  if (code == 200) out = http.getString();
+  http.end();
+  return code == 200;
+}
+
+bool relayHttpPost(const String &path, const String &body, String &out) {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, serverBase + path)) return false;
+  http.setTimeout(6000);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST((uint8_t *)body.c_str(), body.length());
+  if (code == 200) out = http.getString();
+  http.end();
+  return code == 200;
+}
+
+void processRelayRequests() {
+  if (deviceRole != "master" || !relayReady || !relayReqComplete) return;
+  uint8_t mac[6];
+  memcpy(mac, relayReq.mac, 6);
+  uint16_t id = relayReq.id;
+  uint8_t method = relayReq.method;
+  String payload((const char *)relayReq.buf);
+  relayReqComplete = false;
+
+  int nl = payload.indexOf('\n');
+  String path = nl < 0 ? payload : payload.substring(0, nl);
+  String body = nl < 0 ? String() : payload.substring(nl + 1);
+  String resp;
+  bool ok = method == 1 ? relayHttpPost(path, body, resp) : relayHttpGet(path, resp);
+  if (resp.length() > RELAY_BUF - 1) resp = resp.substring(0, RELAY_BUF - 1);
+  relayAddPeer(mac);
+  relaySend(mac, RELAY_RESP, id, method, ok ? 1 : 0,
+            (const uint8_t *)resp.c_str(), resp.length());
+  Serial.printf("[relay] %s %s -> %s %uB %lums\n", ok ? "ok" : "fail", path.c_str(),
+                ok ? "200" : "ERR", (unsigned)resp.length(),
+                (unsigned long)(millis() - relayReq.at));
+}
+
+void initRelay() {
+  if (relayReady) return;
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("[relay] esp_now_init failed");
+    return;
+  }
+  esp_now_register_recv_cb(onRelayRecv);
+  if (deviceRole == "slave") {
+    if (!parseMac(masterMac, relayMasterMac)) {
+      Serial.println("[relay] 从机未配置有效的主机 MAC，暂按直连运行");
+      return;
+    }
+    relayAddPeer(relayMasterMac);
+    haveMasterMac = true;
+    Serial.printf("[relay] slave -> master %s ch=%d\n", masterMac.c_str(), WiFi.channel());
+  } else {
+    Serial.printf("[relay] master listen ch=%d mac=%s\n", WiFi.channel(), WiFi.macAddress().c_str());
+  }
+  relayReady = true;
+}
+
 /* ---------------- pscreen_server 上报 ---------------- */
 
 bool postJson(const String &path, const String &body) {
+  // 从机：注册/心跳经所属主机转发（主机在 netTask 里替它发 HTTP）。
+  if (deviceRole == "slave" && relayReady) {
+    String resp;
+    bool ok = relayRequest(1, path + "\n" + body, resp, true);
+    bool pass = ok && resp.indexOf("\"code\":0") >= 0;
+    Serial.print("[srv] ");
+    Serial.print(path);
+    Serial.println(pass ? " -> relay ok" : " -> relay fail");
+    return pass;
+  }
   WiFiClient client;
   HTTPClient http;
   if (!http.begin(client, serverBase + path)) return false;
@@ -632,6 +866,10 @@ bool postJson(const String &path, const String &body) {
 }
 
 bool getText(const String &path, String &out) {
+  // 从机：页面/固件版本查询经主机转发，主机返回原始响应体。
+  if (deviceRole == "slave" && relayReady) {
+    return relayRequest(0, path, out, true);
+  }
   WiFiClient client;
   HTTPClient http;
   if (!http.begin(client, serverBase + path)) return false;
@@ -852,6 +1090,12 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
 // 让服务端执行某个按钮 / 控制项对应的 HA 动作。
 // 返回服务端响应体（含 sys 翻页回执），失败返回空串。
 String pressAction(const String &body) {
+  // 从机：按键动作经主机转发，返回值仍是服务端原始响应体。
+  if (deviceRole == "slave" && relayReady) {
+    String out;
+    relayRequest(1, String("/api/device/esp/press\n") + body, out, true);
+    return out;
+  }
   WiFiClient client;
   HTTPClient http;
   String out;
@@ -1234,6 +1478,8 @@ void netTask(void *) {
   uint32_t pirRetryAt = 0;
   static const uint32_t FW_CHECK_MS = 5UL * 60UL * 1000UL;  // OTA 检查 5 分钟一次
   for (;;) {
+    // 主机：先把从机排队的请求转发完，再做自己的心跳/拉页面。
+    processRelayRequests();
     // 到点刷新：翻页是立即，按键动作后延迟 ~0.7 秒等 HA 状态机更新。
     // 用有符号差值比较，millis() 回绕也不会漏触发。
     bool refresh = netRefreshAt != 0 && (int32_t)(millis() - netRefreshAt) >= 0;
@@ -1303,6 +1549,7 @@ void showConnected() {
   if (!serverStarted) setupServer();  // 局域网内也能打开配置页
 
   buildDeviceId();
+  initRelay();
   reportToServer(true);
   // 注册完成后交给后台任务：首次拉取 + 之后每 REPORT_MS 一次心跳/配置。
   netEnabled = true;
