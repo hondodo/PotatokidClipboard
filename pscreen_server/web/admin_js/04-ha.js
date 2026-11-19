@@ -8,7 +8,11 @@
     try {
       const data = await api(`/api/admin/ha/entities${force ? '?refresh=1' : ''}`);
       state.haEntities = data;
-      renderHaEntities();
+      // 实体目录近 1MB、上千条，渲染出 domains + 树 + 整张表是一笔可观的 DOM 开销。
+      // 智能页 / ESP 页只是借这份数据填编辑器，用户根本看不到 HA 表格——
+      // 别为一个隐藏 tab 付这份成本。切回 HA 实体页时 activateTab 会补渲染。
+      const haPanel = $('tab-ha-entities');
+      if (!haPanel || !haPanel.hidden) renderHaEntities();
     } catch (error) {
       if (meta) meta.textContent = '加载失败';
       const body = $('ha-entities-body');

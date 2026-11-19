@@ -16,7 +16,11 @@
       loadPrograms();
       loadProgramPreview();
     }
-    if (tab === 'ha-entities' && !state.haEntities) loadHaEntities();
+    if (tab === 'ha-entities') {
+      // 数据可能在智能页/ESP 页先加载过（那时 tab 隐藏、没渲染），这里补上。
+      if (!state.haEntities) loadHaEntities();
+      else renderHaEntities();
+    }
     if (tab === 'parental') loadParentalRecords(false);
     if (tab === 'device-types') {
       loadDeviceTypes().catch((error) => { $('dt-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });

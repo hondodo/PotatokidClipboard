@@ -1045,7 +1045,9 @@
             button.param = el.value;
           }
           drawEspPreview();
-          if (field === 'kind' || field === 'action' || field === 'sceneId') renderEspPageEditor();
+          // 换目标设备后命令表变了，必须重绘整行：否则命令下拉还停在选设备前的空态，
+          // 看着像「没拉到数据」，其实 button.action 已经被设成第一条命令了。
+          if (field === 'kind' || field === 'action' || field === 'sceneId' || field === 'remoteTarget') renderEspPageEditor();
         };
         el.addEventListener('change', commit);
         if (field === 'name' || field === 'entity' || field === 'param') el.addEventListener('input', commit);
