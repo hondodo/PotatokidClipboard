@@ -12,7 +12,11 @@
   state.scenes = null;
   state.sceneSettings = null;
   state.smartPresence = null;
-  state.smartRemote = null;
+  // 遥控设备目录与 ESP 页共用同一份（都在 /api/admin/remote/devices）。
+  // 之前这里单独存 state.smartRemote，两页各拉一次、各缓存一份；任一页拉失败
+  // 就把它设成 []，而 [] 是 truthy，之后就再也不重试——表现为「第一次能看到，
+  // 切到别的页再回来选项就没了」。现在别名指向 ESP 那份，一处加载处处可用。
+  state.smartRemote = state.espRemoteDevices || null;
 
   const SMART_HA_ACTIONS = [
     ['turn_on', '开'],
@@ -71,10 +75,27 @@
   }
 
   async function loadSmartRemote(force = false) {
-    if (state.smartRemote && !force) return state.smartRemote;
+    // 与 ESP 页共用缓存：任一侧加载过，另一侧直接用，不再各拉一份。
+    if (state.espRemoteDevices && !force) {
+      state.smartRemote = state.espRemoteDevices;
+      return state.smartRemote;
+    }
+    // 请求成功才写缓存（含真实的空列表）。异常不会走到这里，由调用处的 catch
+    // 兜住并保留旧值——避免「刷新失败 → 缓存被清成 [] → 选项凭空消失」。
     const data = await api('/api/admin/remote/devices');
-    state.smartRemote = data.devices || [];
+    state.espRemoteDevices = data.devices || [];
+    state.smartRemote = state.espRemoteDevices;
     return state.smartRemote;
+  }
+
+  // 与 ESP 按键一致的默认参数：枚举取第一项、数字取下限、文本留空。
+  function smartDefaultRemoteParam(cap) {
+    const arg = cap && cap.args && cap.args[0];
+    if (!arg) return '';
+    if (arg.type === 'number') return String(arg.min == null ? 0 : arg.min);
+    if (arg.type === 'text') return '';
+    const first = (arg.options || [])[0];
+    return first ? first.value : '';
   }
 
   // ------------------------------------------------------------ 列表渲染
@@ -108,7 +129,7 @@
       <div class="card smart-section">
         <h3>自动化 <span class="muted">条件满足时自己执行，关掉开关立即停用</span></h3>
         ${autos.length
-          ? `<div class="smart-auto-list">${autos.map(smartAutoRow).join('')}</div>`
+          ? `<div class="smart-manual-grid">${autos.map(smartAutoRow).join('')}</div>`
           : '<div class="empty">还没有自动化。点右上角「+ 自动化」建一个，比如「小屏持续有人 10 秒 → 开客厅灯」，或「每天 22:00 → 中控切首页」。</div>'}
       </div>`;
   }
@@ -136,26 +157,28 @@
   function smartAutoRow(scene) {
     const actions = (scene.actionTexts || []).join('、') || '（没有动作）';
     const failed = scene.enabled && scene.lastResult && scene.lastResult !== 'ok';
-    return `<div class="smart-auto-row${scene.enabled ? '' : ' off'}" data-id="${esc(scene.id)}">
-      <label class="smart-switch" title="${scene.enabled ? '点一下停用' : '点一下启用'}">
-        <input type="checkbox" data-act="toggle"${scene.enabled ? ' checked' : ''}>
-        <span></span>
-      </label>
-      <div class="smart-auto-main">
-        <div class="smart-auto-name">
-          <strong>${esc(scene.name)}</strong>
-          <span class="smart-status${failed ? ' failed' : ''}">${esc(smartResultText(scene))}</span>
-        </div>
-        <div class="smart-auto-desc">
-          <span class="smart-when">当 ${esc(scene.triggerText || '—')}</span>
-          <span class="smart-arrow">→</span>
-          <span class="smart-then" title="${esc(actions)}">${esc(actions)}</span>
-        </div>
+    // 与「手动控制」同一套卡片骨架，避免紧凑列表让人误以为还没添加。
+    // 开关放在标题左侧，执行/编辑/删除放底部，和手动卡片的「执行」按钮位置对齐。
+    return `<div class="smart-card smart-auto-card${scene.enabled ? '' : ' off'}" data-id="${esc(scene.id)}">
+      <div class="smart-card-head">
+        <label class="smart-switch" title="${scene.enabled ? '点一下停用' : '点一下启用'}">
+          <input type="checkbox" data-act="toggle"${scene.enabled ? ' checked' : ''}>
+          <span></span>
+        </label>
+        <strong title="${esc(scene.name)}">${esc(scene.name)}</strong>
+        <span class="smart-card-ops">
+          <button class="icon-btn" type="button" data-act="edit" title="编辑">✎</button>
+          <button class="icon-btn danger" type="button" data-act="del" title="删除">×</button>
+        </span>
       </div>
-      <div class="smart-auto-ops">
-        <button class="btn small" type="button" data-act="run">执行</button>
-        <button class="btn small" type="button" data-act="edit">编辑</button>
-        <button class="icon-btn danger" type="button" data-act="del" title="删除">×</button>
+      <div class="smart-card-desc smart-auto-desc" title="当 ${esc(scene.triggerText || '—')} → ${esc(actions)}">
+        <span class="smart-when">当 ${esc(scene.triggerText || '—')}</span>
+        <span class="smart-arrow">→</span>
+        <span class="smart-then">${esc(actions)}</span>
+      </div>
+      <div class="smart-card-foot">
+        <button class="btn small primary" type="button" data-act="run">执行</button>
+        <span class="smart-status${failed ? ' failed' : ''}">${esc(smartResultText(scene))}</span>
       </div>
     </div>`;
   }
@@ -527,8 +550,11 @@
               action.sceneId = first ? first.id : '';
             }
           } else {
+            // 切到「中控/电视」：默认选第一台在线设备 + 第一条命令 + 默认参数，
+            // 省掉「切了类型还要逐个选」的空状态（renderActionBody 会再按设备补参数）。
             action.target = action.target || '';
             action.action = action.action || '';
+            action.param = action.param || '';
             delete action.seconds; delete action.entityId; delete action.sceneId;
           }
           renderActionBody(row.querySelector('.smart-action-body'), action);
@@ -581,7 +607,7 @@
           return;
         }
         const wrap = document.createElement('div');
-        wrap.className = 'smart-field-row';
+        wrap.className = 'smart-field-row smart-remote-row';
         wrap.innerHTML = `
           <label class="smart-field"><span>目标设备</span>
             <select data-a="target">
@@ -589,17 +615,55 @@
               ${devices.map((device) => `<option value="${esc(device.deviceId)}">${esc(device.name)}（${device.kind === 'home' ? '中控' : '电视'}${device.online ? '' : ' · 离线'}）</option>`).join('')}
             </select></label>
           <label class="smart-field"><span>命令</span>
-            <select data-a="action"></select></label>`;
+            <select data-a="action"></select></label>
+          <label class="smart-field smart-remote-param" data-role="param-field" hidden><span data-role="param-label">参数</span>
+            <span data-role="param-input"></span></label>`;
         const targetSel = wrap.querySelector('[data-a="target"]');
         const cmdSel = wrap.querySelector('[data-a="action"]');
+        const paramField = wrap.querySelector('[data-role="param-field"]');
+        const paramLabel = wrap.querySelector('[data-role="param-label"]');
+        const paramInputHost = wrap.querySelector('[data-role="param-input"]');
         targetSel.value = action.target || '';
+
+        // 参数控件与 ESP 按键同款：枚举出下拉、数字出 number、文本出 input。
+        // 每次重画都读当前 action.param；没有参数能力时整行隐藏。
+        const renderParam = () => {
+          const device = devices.find((item) => item.deviceId === targetSel.value);
+          const spec = device && (device.capabilities || []).find((item) => item.cmd === cmdSel.value);
+          const arg = spec && spec.args && spec.args[0];
+          if (!arg) {
+            paramField.hidden = true;
+            paramInputHost.innerHTML = '';
+            return;
+          }
+          paramField.hidden = false;
+          paramLabel.textContent = arg.label || '参数';
+          if (arg.type === 'enum') {
+            paramInputHost.innerHTML = `<select data-a="param">${(arg.options || []).map((opt) =>
+              `<option value="${esc(opt.value)}" ${opt.value === action.param ? 'selected' : ''}>${esc(opt.label)}</option>`).join('')}</select>`;
+          } else if (arg.type === 'text') {
+            paramInputHost.innerHTML = `<input data-a="param" type="text" maxlength="40" value="${esc(action.param || '')}" placeholder="${esc(arg.label || '参数')}">`;
+          } else {
+            paramInputHost.innerHTML = `<input data-a="param" type="number" value="${esc(action.param || '')}" min="${esc(arg.min == null ? '' : arg.min)}" max="${esc(arg.max == null ? '' : arg.max)}" placeholder="${esc(arg.label || '参数')}">`;
+          }
+          paramInputHost.querySelector('[data-a="param"]').addEventListener('input', (event) => {
+            action.param = event.target.value;
+          });
+        };
+
         const fillCmds = () => {
           const device = devices.find((item) => item.deviceId === targetSel.value);
           const caps = (device && device.capabilities) || [];
           cmdSel.innerHTML = caps.map((cap) => `<option value="${esc(cap.cmd)}">${esc(cap.label)}</option>`).join('')
             || '<option value="">（该设备没有可用命令）</option>';
-          if (action.action && caps.some((cap) => cap.cmd === action.action)) cmdSel.value = action.action;
-          else action.action = cmdSel.value;
+          const spec = caps.find((cap) => cap.cmd === action.action);
+          if (spec) cmdSel.value = action.action;
+          else {
+            cmdSel.value = caps.length ? caps[0].cmd : '';
+            action.action = cmdSel.value;
+            action.param = smartDefaultRemoteParam(spec || caps[0]);
+          }
+          renderParam();
         };
         fillCmds();
         targetSel.addEventListener('change', (event) => {
@@ -607,7 +671,13 @@
           action.action = '';
           fillCmds();
         });
-        cmdSel.addEventListener('change', (event) => { action.action = event.target.value; });
+        cmdSel.addEventListener('change', (event) => {
+          action.action = event.target.value;
+          const device = devices.find((item) => item.deviceId === targetSel.value);
+          const spec = device && (device.capabilities || []).find((item) => item.cmd === action.action);
+          action.param = smartDefaultRemoteParam(spec);
+          renderParam();
+        });
         box.appendChild(wrap);
         return;
       }
@@ -773,7 +843,7 @@
           actions: draft.actions.map((action) => {
             if (action.type === 'delay') return { type: 'delay', seconds: Number(action.seconds) || 1, onError: action.onError };
             if (action.type === 'remote') {
-              return { type: 'remote', target: action.target || '', action: action.action || '', onError: action.onError };
+              return { type: 'remote', target: action.target || '', action: action.action || '', param: (action.param || '').trim(), onError: action.onError };
             }
             if (action.type === 'scene') {
               return { type: 'scene', sceneId: (action.sceneId || '').trim(), onError: action.onError };

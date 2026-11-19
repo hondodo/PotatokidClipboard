@@ -217,14 +217,20 @@
   }
 
   /** 遥控设备目录（中控/电视）：一设备一实体，含能力表与实时状态。 */
+  // 与智能页共用 state.espRemoteDevices 这一份缓存。刷新失败时保留旧值，
+  // 不要把缓存清成 []——否则选项会「第一次能看到、刷新失败后就没了」。
   async function loadEspRemoteDevices(force = false) {
-    if (state.espRemoteDevices && !force) return state.espRemoteDevices;
+    if (state.espRemoteDevices && !force) {
+      state.smartRemote = state.espRemoteDevices;
+      return state.espRemoteDevices;
+    }
     try {
       const data = await api('/api/admin/remote/devices');
       state.espRemoteDevices = data.devices || [];
     } catch (error) {
-      state.espRemoteDevices = [];
+      // 保留上一次成功加载的目录；只有从未加载过才留空，让界面给出正确提示。
     }
+    state.smartRemote = state.espRemoteDevices;
     return state.espRemoteDevices;
   }
 

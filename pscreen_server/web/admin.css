@@ -753,8 +753,7 @@
 
     /* 智能 Tab 的动作控件用 16px 的小图标按钮，与表格里的密度一致 */
     .smart-card-ops .icon-btn,
-    .smart-action-btns .icon-btn,
-    .smart-auto-ops .icon-btn { font-size: 15px; padding: 2px 6px; }
+    .smart-action-btns .icon-btn { font-size: 15px; padding: 2px 6px; }
     .icon-btn.danger:hover { background: rgba(248, 113, 113, .14); color: var(--danger); }
 
     /* ------------------------------------------------------------ 智能 Tab */
@@ -790,24 +789,12 @@
     .smart-status { font-size: 11px; color: var(--muted-2); }
     .smart-status.failed { color: var(--danger); }
 
-    /* 自动化：一行一条，开关在最左 */
-    .smart-auto-list { display: flex; flex-direction: column; margin-top: 10px; }
-    .smart-auto-row {
-      display: flex; align-items: center; gap: 12px;
-      padding: 10px 4px; border-bottom: 1px solid rgba(148, 163, 184, .08);
-    }
-    .smart-auto-row:last-child { border-bottom: 0; }
-    .smart-auto-row.off .smart-auto-main { opacity: .45; }
-    .smart-auto-main { flex: 1 1 auto; min-width: 0; }
-    .smart-auto-name { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-    .smart-auto-name strong { font-size: 13px; }
-    .smart-auto-desc {
-      margin-top: 3px; font-size: 12px; line-height: 1.55; color: var(--muted);
-      overflow-wrap: anywhere;
-    }
+    /* 自动化：与手动控制同款卡片，避免紧凑列表让人误以为还没添加 */
+    .smart-auto-card.off { opacity: .55; }
+    .smart-auto-card .smart-card-head { gap: 9px; }
+    .smart-auto-desc { min-height: 36px; }
     .smart-when { color: var(--accent); }
     .smart-arrow { margin: 0 5px; color: var(--muted-2); }
-    .smart-auto-ops { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 
     /* 开关：纯 CSS，避免引入组件库 */
     .smart-switch { position: relative; flex: 0 0 auto; display: inline-flex; width: 38px; height: 21px; cursor: pointer; }
@@ -833,6 +820,11 @@
     .smart-field.inline input { width: 90px; }
     .smart-field-row { display: flex; gap: 10px; flex-wrap: wrap; }
     .smart-field-row > .smart-field { flex: 1 1 150px; }
+    /* 遥控动作：目标 / 命令 / 参数 三列，参数列固定窄一些 */
+    .smart-remote-row > .smart-field:first-child { flex: 1 1 180px; }
+    .smart-remote-row > .smart-remote-param { flex: 0 1 140px; }
+    .smart-remote-param > [data-role="param-input"] { display: flex; }
+    .smart-remote-param > [data-role="param-input"] > * { width: 100%; }
     .smart-trigger-block {
       display: flex; flex-direction: column; gap: 10px;
       padding: 12px; border-radius: 10px;
@@ -934,6 +926,4 @@
 
     @media (max-width: 760px) {
       .smart-manual-grid { grid-template-columns: 1fr; }
-      .smart-auto-row { flex-wrap: wrap; }
-      .smart-auto-ops { margin-left: 50px; }
     }
