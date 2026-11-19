@@ -84,6 +84,46 @@ fs.writeFileSync(machinesFile, JSON.stringify({
       idle: 0,
       statusBar: { enabled: true, showPage: true, showTime: true, showWifiIcon: true, showRssi: false, showIp: false },
       image: { data: '', invert: false, enabled: true },
+    }, {
+      // 第 5 页：四行内容位 —— 页面名/按键提示都隐藏，行3/4 填模板。
+      id: 'p5',
+      name: '不该显示',
+      tplMain: '主状态一',
+      tplSub: '副状态二',
+      tplLine3: '内容第三行',
+      tplLine4: '内容第四行',
+      showTitle: false,
+      showKeys: true,
+      bindings: {},
+      valueMap: '',
+      entityValueMap: '',
+      remoteTarget: '',
+      buttons: [{
+        id: 'btn1', name: '翻页', label: '翻页', kind: 'sys', action: 'next_page',
+        param: '', entityId: '', slot: 1, enabled: true,
+      }],
+      loop: true,
+      idle: 0,
+      statusBar: { enabled: true, showPage: true, showTime: true, showWifiIcon: true, showRssi: false, showIp: false },
+    }, {
+      // 第 6 页：默认开关（页面名/按键提示都显示）→ 行3/4 即便填了也不开放。
+      id: 'p6',
+      name: '默认页面名',
+      tplMain: '主{A}',
+      tplSub: '',
+      tplLine3: '不该出现的第三行',
+      tplLine4: '不该出现的第四行',
+      bindings: { A: '' },
+      valueMap: 'A=甲',
+      entityValueMap: '',
+      remoteTarget: '',
+      buttons: [{
+        id: 'btn2', name: '下一页', label: '下一页', kind: 'sys', action: 'next_page',
+        param: '', entityId: '', slot: 2, enabled: true,
+      }],
+      loop: true,
+      idle: 0,
+      statusBar: { enabled: true, showPage: true, showTime: true, showWifiIcon: true, showRssi: false, showIp: false },
     }],
     espButtons: [],
     espSlotNames: {},
@@ -119,7 +159,7 @@ const server = app.listen(0, async () => {
     ok('PAGE 行存在且页码正确', () => {
       assert.ok(pageLine);
       assert.strictEqual(pageLine.split('|')[1], '1');
-      assert.strictEqual(pageLine.split('|')[2], '4'); // 桩数据四页
+      assert.strictEqual(pageLine.split('|')[2], '6'); // 桩数据六页
     });
     ok('BAR 行按每页配置下发 7 段', () => {
       assert.ok(barLine);
@@ -185,6 +225,29 @@ const server = app.listen(0, async () => {
       const disp = emptyLines.find((l) => l.startsWith('DISPLAY|'));
       assert.ok(disp);
       assert.ok(/\d{2}:\d{2}/.test(disp.split('|')[2]), `正文应保留时间，实际=${disp}`);
+    });
+
+    // 1e. v4.2：ROWS 行按显示开关合并，隐藏行3/4 让出的内容位。
+    const p5Text = await (await fetch(`${base}/api/device/esp/actions?format=text&deviceId=${testDeviceId}&page=5`)).text();
+    const p5Lines = p5Text.split('\n');
+    const p5Rows = p5Lines.find((l) => l.startsWith('ROWS|'));
+    ok('隐藏页面名后 ROWS 不含页面名，内容行3 生效', () => {
+      assert.ok(p5Rows, '必须下发 ROWS 行');
+      const f = p5Rows.split('|').slice(1);
+      assert.ok(!f.includes('不该显示'), '页面名已隐藏，不能出现');
+      assert.deepStrictEqual(f, ['主状态一', '副状态二', '内容第三行', '1:翻页'],
+        `隐藏一行时应把主/副/行3/按键提示上移成四行，实际=${f}`);
+      assert.ok(!f.includes('内容第四行'), '只隐藏页面名时行4 不开放');
+    });
+
+    const p6Text = await (await fetch(`${base}/api/device/esp/actions?format=text&deviceId=${testDeviceId}&page=6`)).text();
+    const p6Rows = p6Text.split('\n').find((l) => l.startsWith('ROWS|'));
+    ok('默认开关下 ROWS 不含内容行3/4（编辑了也不下发）', () => {
+      assert.ok(p6Rows);
+      const f = p6Rows.split('|').slice(1);
+      assert.deepStrictEqual(f, ['默认页面名', '主', '2:下一页'],
+        `默认开关下只显示页面名/主/按键，实际=${f}`);
+      assert.ok(!f.some((x) => x.includes('不该出现')), `行3/4 未开放时不得下发，实际=${f}`);
     });
 
     // 2. 城市映射表纯逻辑（generateCityId / normalizeCities），不依赖鉴权。

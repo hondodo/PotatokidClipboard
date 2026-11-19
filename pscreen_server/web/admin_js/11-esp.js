@@ -52,6 +52,24 @@
     };
   }
 
+  /**
+   * 4 个模板位与显示开关的关系（与服务端 / 固件同口径）：
+   * - 主/副状态：恒定可用；
+   * - 行3：页面名或按键提示隐藏一个就开放；
+   * - 行4：两个都隐藏才开放。
+   * 「逐个开放」是为了避免用户编辑了真机看不到的行。
+   */
+  function espRowVisibility(page) {
+    const showTitle = !page || page.showTitle !== false;
+    const showKeys = !page || page.showKeys !== false;
+    return {
+      showTitle,
+      showKeys,
+      line3: !showTitle || !showKeys,
+      line4: !showTitle && !showKeys,
+    };
+  }
+
   function newEspPage(index) {
     return {
       id: espUid('p'),
@@ -62,6 +80,10 @@
       // 自定义显示模板 + 值替换（留空 = 走设备类型字典）
       tplMain: '',
       tplSub: '',
+      tplLine3: '',
+      tplLine4: '',
+      showTitle: true,
+      showKeys: true,
       valueMap: '',
       entityValueMap: '',
       // 绑定的遥控设备（中控/电视主键）；空串 = 普通 HA 页面。
@@ -539,8 +561,12 @@
     const index = espEntityIndex();
     const map = espParseValueMap(page.valueMap);
     const entityMaps = espParseEntityValueMap(page.entityValueMap);
+    // 与服务端同构：行3/行4 只在对应开关让位后参与渲染。
+    const vis = espRowVisibility(page);
+    const tplLine3 = vis.line3 ? (page.tplLine3 || '') : '';
+    const tplLine4 = vis.line4 ? (page.tplLine4 || '') : '';
     // 模板里直写的实体 id 也从目录里取值。
-    const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
+    const tplAll = `${page.tplMain || ''} ${page.tplSub || ''} ${tplLine3} ${tplLine4}`;
     // 与服务端同构：「显示图片」勾选优先；旧配置按「模板只有 {image}」兼容。
     const showImageOnly = !!(page.image && page.image.enabled && page.image.data)
       || (/\{image\}/.test(tplAll) && !tplAll.replace(/\{image\}/g, ' ').trim());
@@ -595,6 +621,8 @@
 
     const mainTxt = page.tplMain ? espRenderTemplate(page.tplMain, ctx) : '';
     const subTxt = page.tplSub ? espRenderTemplate(page.tplSub, ctx) : '';
+    const line3Txt = tplLine3 ? espRenderTemplate(tplLine3, ctx) : '';
+    const line4Txt = tplLine4 ? espRenderTemplate(tplLine4, ctx) : '';
     let keys = (page.buttons || [])
       .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
       .sort((a, b2) => Number(a.slot) - Number(b2.slot))
@@ -604,8 +632,15 @@
       })
       .join('  ');
     // 纯图片页：标题/正文/按键提示全部留空，预览与真机下发保持一致。
-    if (showImageOnly) return { title: '', main: '', sub: '', keys: '' };
-    return { title: page.name || '未命名', main: mainTxt, sub: subTxt, keys };
+    if (showImageOnly) {
+      return { title: '', main: '', sub: '', line3: '', line4: '', keys: '', rows: [] };
+    }
+    const title = vis.showTitle ? (page.name || '未命名') : '';
+    const keysText = vis.showKeys ? keys : '';
+    // 空行不占位：与服务端 ROWS 行同构，隐藏后内容整体上移。
+    const allRows = [title, mainTxt, subTxt, line3Txt, line4Txt, keysText];
+    const rows = allRows.map((text) => espCleanLine(text)).filter((text) => text !== '').slice(0, 4);
+    return { title, main: mainTxt, sub: subTxt, line3: line3Txt, line4: line4Txt, keys: keysText, rows };
   }
 
   function espClip(ctx, text, maxWidth) {
@@ -647,7 +682,10 @@
         for (let i = 0; i < 3; i += 1) ctx.fillRect(110 + i * 4, 9 - (3 + i * 2), 2, 3 + i * 2);
       }
     }
-    const dy = hasBar ? 0 : -12;
+    // 四行统一字号、等距排列；隐藏行时空位被后续内容顶替（与固件 ROWS 行同构）。
+    // 状态栏显示时内容区从 y=12 起、每行 13px；隐藏时从 y=2 起、每行 15px。
+    const rowTop = hasBar ? 12 : 2;
+    const rowStep = hasBar ? 13 : 15;
 
     // 图片（服务端下发的 1-bit 点阵）：预览按真实点位画，所见即真机所见。
     const hasImg = !!(page.image && page.image.data && (page.image.enabled
@@ -676,21 +714,16 @@
     }
 
     const lines = espPreviewLines(page);
-    ctx.font = '10px "Microsoft YaHei", sans-serif';
-    ctx.fillText(espClip(ctx, lines.title, 122), 3, 22 + dy);
-    ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
-    ctx.fillText(espClip(ctx, lines.main, 122), 3, 38 + dy);
-    ctx.font = '8px "Microsoft YaHei", sans-serif';
-    if (lines.sub) ctx.fillText(espClip(ctx, lines.sub, 122), 3, 50 + dy);
-    if (lines.keys) {
-      ctx.font = '8px monospace';
-      ctx.fillText(espClip(ctx, lines.keys, 124), 3, 62);
-    }
+    // 与真机一致：四行统一 12px 中文字号，不再「标题小 / 主状态大 / 副状态小」。
+    ctx.font = '12px "Microsoft YaHei", sans-serif';
+    lines.rows.forEach((text, i) => {
+      const baseline = rowTop + rowStep * (i + 1) - 2;
+      ctx.fillText(espClip(ctx, text, 122), 3, baseline);
+    });
 
     const buttonCount = (page.buttons || []).filter((item) => item.enabled !== false).length;
-    const displayCount = ['tplMain', 'tplSub'].filter((slot) => page[slot] && String(page[slot]).trim()).length;
     $('espdev-preview-meta').innerHTML =
-      `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${displayCount} 行显示`
+      `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${lines.rows.length} 行显示`
       + `<br>状态栏：${hasBar ? '显示' : '隐藏（内容上移）'} · 图片：${hasImg ? '显示' : '关闭'} · 超宽文字按节拍滚动`;
   }
 
@@ -904,11 +937,19 @@
       return `<option value="${esc(dev.deviceId)}" ${dev.deviceId === current ? 'selected' : ''}>${esc(label)}${dev.online ? '' : ' · 离线'}</option>`;
     }).join('');
 
+    const rowVis = espRowVisibility(page);
     host.innerHTML = `
       <div class="esp-section">
         <h4>① 页面属性</h4>
         <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
-        <p class="hint">名称显示在屏幕顶部标题行。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作 / 手动控制」（动作组在「智能」页维护）——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
+        <div class="esp-field-row"><label>屏幕行显示</label>
+          <div class="esp-field-inline">
+            <label class="inline-check"><input type="checkbox" id="esp-show-title" ${rowVis.showTitle ? 'checked' : ''}> 显示页面名称</label>
+            <label class="inline-check"><input type="checkbox" id="esp-show-keys" ${rowVis.showKeys ? 'checked' : ''}> 显示按键提示</label>
+          </div>
+        </div>
+        <p class="hint">四行统一字号、等距排列。隐藏「页面名称」或「按键提示」会让出一行内容位——下方「内容行3」随之开放编辑；两个都隐藏时再开放「内容行4」。这样你编辑的每一行都能在预览/真机上看到。</p>
+        <p class="hint">按键动作可独立选「HA 动作 / 设备遥控 / 系统动作 / 手动控制」（动作组在「智能」页维护）——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
       </div>
       <div class="esp-section">
         <h4>② 屏幕显示内容 <span class="tag">按页内模板生成</span></h4>
@@ -924,6 +965,19 @@
             <button class="btn small" type="button" data-tpl-pick="sub">插入实体</button>
           </div>
         </div>
+        <div class="esp-field-row" data-line3-row><label>内容行3</label>
+          <div class="esp-ent-cell">
+            <input id="esp-tpl-line3" maxlength="120" value="${esc(page.tplLine3 || '')}" placeholder="隐藏页面名称或按键提示后可编辑" ${rowVis.line3 ? '' : 'disabled'}>
+            <button class="btn small" type="button" data-tpl-pick="line3" ${rowVis.line3 ? '' : 'disabled'}>插入实体</button>
+          </div>
+        </div>
+        <div class="esp-field-row" data-line4-row><label>内容行4</label>
+          <div class="esp-ent-cell">
+            <input id="esp-tpl-line4" maxlength="120" value="${esc(page.tplLine4 || '')}" placeholder="页面名称与按键提示都隐藏后可编辑" ${rowVis.line4 ? '' : 'disabled'}>
+            <button class="btn small" type="button" data-tpl-pick="line4" ${rowVis.line4 ? '' : 'disabled'}>插入实体</button>
+          </div>
+        </div>
+        <p class="hint" id="esp-line-lock-hint">${!rowVis.line3 ? '内容行3/4 未开放：先到「① 页面属性」隐藏「页面名称」或「按键提示」让出屏幕行。' : !rowVis.line4 ? '内容行4 未开放：再把剩下的「页面名称 / 按键提示」也隐藏，让出第 4 行。' : '四行内容位已全部开放，可编辑内容行3、内容行4。'}</p>
         <div class="esp-field-row"><label>值替换</label>
           <input id="esp-value-map" maxlength="300" value="${esc(String(page.valueMap || '').replace(/\n/g, '，'))}" placeholder="on=开启, off=关闭">
         </div>
@@ -1024,12 +1078,50 @@
       $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
       renderEspPages();
     });
+
+    // 显示开关 → 逐位开放内容行3/4（与服务端 ROW 行、固件渲染同口径）。
+    function applyRowVisibility() {
+      const vis = espRowVisibility(page);
+      const line3Input = $('esp-tpl-line3');
+      const line4Input = $('esp-tpl-line4');
+      const line3Pick = host.querySelector('[data-tpl-pick="line3"]');
+      const line4Pick = host.querySelector('[data-tpl-pick="line4"]');
+      const imgOn = !!(page.image && page.image.enabled && page.image.data);
+      line3Input.disabled = !vis.line3 || imgOn;
+      line4Input.disabled = !vis.line4 || imgOn;
+      if (line3Pick) line3Pick.disabled = !vis.line3 || imgOn;
+      if (line4Pick) line4Pick.disabled = !vis.line4 || imgOn;
+      const hint = $('esp-line-lock-hint');
+      if (hint) hint.textContent = !vis.line3
+        ? '内容行3/4 未开放：先隐藏「页面名称」或「按键提示」让出屏幕行。'
+        : !vis.line4
+          ? '内容行4 未开放：再把剩下的「页面名称 / 按键提示」也隐藏，让出第 4 行。'
+          : '四行内容位已全部开放，可编辑内容行3、内容行4。';
+    }
+    $('esp-show-title').addEventListener('change', (event) => {
+      page.showTitle = event.target.checked;
+      applyRowVisibility();
+      drawEspPreview();
+    });
+    $('esp-show-keys').addEventListener('change', (event) => {
+      page.showKeys = event.target.checked;
+      applyRowVisibility();
+      drawEspPreview();
+    });
     $('esp-tpl-main').addEventListener('input', (event) => {
       page.tplMain = event.target.value;
       drawEspPreview();
     });
     $('esp-tpl-sub').addEventListener('input', (event) => {
       page.tplSub = event.target.value;
+      drawEspPreview();
+    });
+    $('esp-tpl-line3').addEventListener('input', (event) => {
+      page.tplLine3 = event.target.value;
+      drawEspPreview();
+    });
+    $('esp-tpl-line4').addEventListener('input', (event) => {
+      page.tplLine4 = event.target.value;
       drawEspPreview();
     });
     $('esp-value-map').addEventListener('input', (event) => {
@@ -1060,7 +1152,8 @@
     const clearImgBtn = $('esp-clear-image');
     const imgEnabledBox = $('esp-image-enabled');
     const imgLock = $('esp-image-lock');
-    const contentFields = [$('esp-tpl-main'), $('esp-tpl-sub'), $('esp-value-map'), $('esp-entity-value-map')];
+    const contentFields = [$('esp-tpl-main'), $('esp-tpl-sub'), $('esp-tpl-line3'), $('esp-tpl-line4'),
+      $('esp-value-map'), $('esp-entity-value-map')];
     const contentPickers = [...host.querySelectorAll('[data-tpl-pick], [data-entmap-pick]')];
     // 勾选「显示图片」后整页只出图：锁住上方四个内容框并给出明确提示，
     // 避免用户以为文字还会显示。取消勾选即解锁，已填内容原样保留。
@@ -1070,6 +1163,7 @@
       contentFields.forEach((el) => { if (el) el.disabled = on; });
       contentPickers.forEach((el) => { el.disabled = on; });
       imgLock.hidden = !on;
+      applyRowVisibility();
     }
     applyImageLock();
     imgEnabledBox.addEventListener('change', (event) => {
@@ -1126,9 +1220,21 @@
     host.querySelectorAll('[data-tpl-pick]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const which = btn.dataset.tplPick;
-        const input = which === 'main' ? $('esp-tpl-main') : $('esp-tpl-sub');
+        const inputIds = {
+          main: 'esp-tpl-main', sub: 'esp-tpl-sub',
+          line3: 'esp-tpl-line3', line4: 'esp-tpl-line4',
+        };
+        const titles = {
+          main: '插入实体到主状态模板', sub: '插入实体到副状态模板',
+          line3: '插入实体到内容行3', line4: '插入实体到内容行4',
+        };
+        const keys = {
+          main: 'tplMain', sub: 'tplSub', line3: 'tplLine3', line4: 'tplLine4',
+        };
+        const input = $(inputIds[which]);
+        if (!input) return;
         openEntityPicker({
-          title: which === 'main' ? '插入实体到主状态模板' : '插入实体到副状态模板',
+          title: titles[which] || '插入实体',
           quickTokens: espRemoteQuickTokens(page),
           groups: espSysVarGroups(),
           extraEntities: espRemoteStatusEntities(),
@@ -1141,8 +1247,7 @@
             const end = input.selectionEnd == null ? input.value.length : input.selectionEnd;
             input.value = input.value.slice(0, start) + token + input.value.slice(end);
             const pos = start + token.length;
-            if (which === 'main') page.tplMain = input.value;
-            else page.tplSub = input.value;
+            page[keys[which]] = input.value;
             input.focus();
             input.setSelectionRange(pos, pos);
             drawEspPreview();
@@ -1358,6 +1463,10 @@
       bindings: Object.assign({ main: '', s1: '', s2: '' }, page.bindings || {}),
       tplMain: page.tplMain || '',
       tplSub: page.tplSub || '',
+      tplLine3: page.tplLine3 || '',
+      tplLine4: page.tplLine4 || '',
+      showTitle: page.showTitle !== false,
+      showKeys: page.showKeys !== false,
       valueMap: page.valueMap || '',
       entityValueMap: page.entityValueMap || '',
       remoteTarget: page.remoteTarget || '',
@@ -1428,6 +1537,10 @@
         bindings: page.bindings,
         tplMain: page.tplMain || '',
         tplSub: page.tplSub || '',
+        tplLine3: page.tplLine3 || '',
+        tplLine4: page.tplLine4 || '',
+        showTitle: page.showTitle !== false,
+        showKeys: page.showKeys !== false,
         valueMap: page.valueMap || '',
         entityValueMap: page.entityValueMap || '',
         remoteTarget: page.remoteTarget || '',

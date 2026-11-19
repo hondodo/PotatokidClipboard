@@ -74,7 +74,7 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 // oled-4.0：系统状态变量支持——每页状态栏配置（BAR 行，逐页显示/隐藏 + 元素勾选、
 //           隐藏时内容上移重排）、状态栏时间（TIME 行）、图片点阵（IMG 行，128×64
 //           1-bit 服务端下发，不烧固件）。{sys.*} 本机变量在绘制时替换。老配置/老固件兼容。
-static const char *APP_VER             = "oled-4.1";
+static const char *APP_VER             = "oled-4.2";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -141,6 +141,9 @@ struct NetSnapshot {
   uint8_t imageBits[1024];    // 128×64 1-bit 点阵（行优先，每行 16 字节，MSB 在前）
   bool imageInvert = false;   // 反色（暂保留，服务端可下发）
   String title, main, sub, keys;
+  // v4.2：服务端下发的 ROWS| 四行内容（已按显示开关合并好），老服务端不下发则留空。
+  String rows[4];
+  int rowCount = 0;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
   String action[MAX_BTN + 1];
@@ -158,6 +161,8 @@ volatile bool netBusy = false;      // 任务正在请求中（预取别重复�
 // ---- 屏幕四行内容（服务端按设备类型字典下发，固件只管显示）----
 // 顶栏固定：页码 + 真实 IP（WiFi.localIP，拿到前留空）+ WiFi 信号格。
 String scrTitle = "", scrMain = "", scrSub = "", scrKeys = "";
+String scrRows[4];                      // v4.2 ROWS 行：服务端已排好序的四行内容
+int  scrRowCount = 0;
 bool haveDisplay = false;               // 收到过 DISPLAY 行（空主状态也要正常绘制）
 int  pageCount = 1, pageIndex = 1;      // 页码来自服务端（若下发）；>=1
 uint8_t curStatusBar = 15;              // 当前页状态栏位掩码（BAR 行）
@@ -192,6 +197,9 @@ struct PageCache {
   bool hasImage;
   uint8_t imageBits[1024];    // 128×64 1-bit 点阵
   String title, main, sub, keys;
+  // v4.2：服务端下发的 ROWS| 四行内容（已按显示开关合并好），老服务端不下发则留空。
+  String rows[4];
+  int rowCount = 0;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
   String action[MAX_BTN + 1];
@@ -385,52 +393,65 @@ void drawImageBits(const uint8_t *bits, bool invert, int top, int contentH) {
   }
 }
 
-// 主屏（E1/E2/E3/E4）：顶栏 + 标题 + 主状态 + 副状态 + 按键提示，四行分速滚动。
-// 统一用 wqy12（12px，含 ASCII 字形），中英文都能画；字号 + 留白 + 反白分层。
+// 主屏（v4.2）：顶栏 + 最多四行内容，四行统一 wqy12 字号、等距排列。
+// - 服务端下发 ROWS| 时按「服务端合并好的行」画（隐藏标题/按键后内容自动上移）；
+// - 老服务端只有 DISPLAY| 时，把 title/main/sub/keys 当四行画，兼容旧数据。
+// - 异常态（按键反馈）反白第 2 行——与旧版观感一致。
 void drawScreen(const String &title, const String &main, const String &sub, const String &keys, bool abnormal) {
   if (!oledOk || screenOff) return;
   u8g2.clearBuffer();
   bool hasBar = drawStatusBar();
 
-  // 状态栏隐藏时内容区整体上移 12px，空出的顶部归还正文（v0.5 每页状态栏）。
-  int dy = hasBar ? 0 : -12;
+  // 内容区：状态栏显示时从 y=12 起、每行 13px；隐藏时从 y=2 起、每行 15px。
+  // 与 admin 预览 drawEspPreview 同一套坐标，所见即所得。
+  int rowTop  = hasBar ? 12 : 2;
+  int rowStep = hasBar ? 13 : 15;
 
   // 图片：作为正文背景绘制在状态栏下方（有图时正文文字仍可叠加）。
-  // 整屏图片页通常把四个文本 token 留空，就是「哑巴显示」一张图。
   if (curHasImage) {
     int imgTop = hasBar ? 12 : 0;
     drawImageBits(curImageBits, curImageInvert, imgTop, 64 - imgTop);
   }
 
-  // 本机 sys 变量在绘制时替换（联网/信号/人体/IP/页码只有固件知道）。
-  String tTitle = resolveLocalSys(title);
-  String tMain  = resolveLocalSys(main);
-  String tSub   = resolveLocalSys(sub);
-
-  // ① 标题（10px 中文）：
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  marqueeLine(tTitle, 3, 22 + dy, 122, phaseTitle, MARQUEE_SPEED[0], true);
 
-  // ② 主状态：异常时整行反白（亮底黑字），否则正常亮字。
-  if (abnormal) {
-    invertBlock(2, 27 + dy, 124, 14);
-    u8g2.setDrawColor(0);
-    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-    marqueeLine(tMain, 3, 38 + dy, 122, phaseMain, MARQUEE_SPEED[1], true);
-    u8g2.setDrawColor(1);
+  // 组装四行：优先 ROWS（服务端已合并 + 过滤空行），老服务端回落 DISPLAY 四段。
+  String lines[4];
+  int count = 0;
+  // 异常态（toast / 升级提示）用自己的参数画，不复用页面缓存的 ROWS。
+  if (!abnormal && scrRowCount > 0) {
+    for (int i = 0; i < scrRowCount && i < 4; i++) {
+      lines[i] = resolveLocalSys(scrRows[i]);
+      if (lines[i].length()) count = i + 1;  // 保序，空行仍占位但最后不计
+    }
+    //  Servers 已经过滤过空行；这里再压实一次，避免中间空行留白。
+    String packed[4]; int p = 0;
+    for (int i = 0; i < scrRowCount && i < 4; i++) {
+      if (lines[i].length()) packed[p++] = lines[i];
+    }
+    for (int i = 0; i < 4; i++) lines[i] = packed[i];
+    count = p;
   } else {
-    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-    marqueeLine(tMain, 3, 38 + dy, 122, phaseMain, MARQUEE_SPEED[1], true);
+    String src[4] = { title, main, sub, keys };
+    for (int i = 0; i < 4; i++) {
+      lines[i] = resolveLocalSys(src[i]);
+      if (lines[i].length()) count = i + 1;
+    }
   }
 
-  // ③ 副状态（wqy12 已是最小中文字库，靠 y 间距分层）：
-  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  marqueeLine(tSub, 3, 51 + dy, 122, phaseSub, MARQUEE_SPEED[2], true);
-
-  // ⑤ 按键提示行（底部 54..64）：
-  if (keys.length()) {
-    u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-    marqueeLine(keys, 3, 63, 124, phaseKeys, MARQUEE_SPEED[3], true);
+  uint32_t phases[4] = { phaseTitle, phaseMain, phaseSub, phaseKeys };
+  for (int i = 0; i < count; i++) {
+    int baseline = rowTop + rowStep * (i + 1) - 2;
+    // 只画在屏幕内，避免超出行带。
+    if (baseline > 63) baseline = 63;
+    if (abnormal && i == 1) {
+      invertBlock(2, baseline - 11, 124, 14);
+      u8g2.setDrawColor(0);
+      marqueeLine(lines[i], 3, baseline, 122, phases[i], MARQUEE_SPEED[i], true);
+      u8g2.setDrawColor(1);
+    } else {
+      marqueeLine(lines[i], 3, baseline, 122, phases[i], MARQUEE_SPEED[i], true);
+    }
   }
   u8g2.sendBuffer();
 }
@@ -726,13 +747,27 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
       if (n >= 1024) { snap.hasImage = true; snap.imageInvert = fieldAt(line, 3) == "1"; }
       continue;
     }
-    // 显示层：DISPLAY|title|main|sub|keys —— 服务端按字典解析好的四行。
+    // 显示层：DISPLAY|title|main|sub|keys —— 老四段，保持兼容。
     // main/sub 允许为空（没有值就留白），固件不要补 `--`。
     if (line.startsWith("DISPLAY")) {
       snap.title = fieldAt(line, 1);
       snap.main  = fieldAt(line, 2);
       snap.sub   = fieldAt(line, 3);
       snap.keys  = fieldAt(line, 4);
+      gotDisplay = true;
+      continue;
+    }
+    // v4.2：ROWS|<row1>|<row2>|<row3>|<row4>（最多四行，服务端已按显示开关合并）。
+    // 老服务端不下发这一行，snap.rowCount 保持 0，drawScreen 回落 DISPLAY 四段。
+    if (line.startsWith("ROWS|")) {
+      int n = 0;
+      for (int i = 1; i <= 4; i++) {
+        String v = fieldAt(line, i);
+        if (!v.length()) break;
+        snap.rows[i - 1] = v;
+        n++;
+      }
+      snap.rowCount = n;
       gotDisplay = true;
       continue;
     }
@@ -753,6 +788,7 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
     snap.main  = "未配置显示";
     snap.sub   = "请在 Admin 设备分类页设置";
     snap.keys  = "";
+    snap.rowCount = 0;
   }
   Serial.printf("[esp] 已放行控制项 %u 字节，显示行 %d\n", (unsigned)text.length(), gotDisplay ? 1 : 0);
   return true;
@@ -985,6 +1021,8 @@ void switchPageLocal(int target) {
     scrMain  = c.main;
     scrSub   = c.sub;
     scrKeys  = c.keys;
+    scrRowCount = c.rowCount;
+    for (int i = 0; i < 4; i++) scrRows[i] = c.rows[i];
     haveDisplay = true;
     for (int i = 0; i <= MAX_BTN; i++) {
       btnLabel[i]  = c.label[i];
@@ -1064,6 +1102,8 @@ void applyNetSnapshot() {
       c.main  = snap.main;
       c.sub   = snap.sub;
       c.keys  = snap.keys;
+      c.rowCount = snap.rowCount;
+      for (int i = 0; i < 4; i++) c.rows[i] = snap.rows[i];
       for (int i = 0; i <= MAX_BTN; i++) {
         c.label[i]  = snap.label[i];
         c.name[i]   = snap.name[i];
@@ -1077,6 +1117,8 @@ void applyNetSnapshot() {
       scrMain  = snap.main;
       scrSub   = snap.sub;
       scrKeys  = snap.keys;
+      scrRowCount = snap.rowCount;
+      for (int i = 0; i < 4; i++) scrRows[i] = snap.rows[i];
       haveDisplay = snap.hasDisplay;
       for (int i = 0; i <= MAX_BTN; i++) {
         btnLabel[i] = snap.label[i];

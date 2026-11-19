@@ -641,8 +641,14 @@ function normalizeEspPage(raw, index) {
         deviceType: normalizeEspTypeKey(raw.deviceType),
         bindings: normalizeEspBindings(raw.bindings),
         // 自定义显示模板与值替换：留空则完全走设备类型字典。
+        // 4 个模板位：主/副恒定可用；行3/行4 由页面名/按键提示的显示开关「让位」而来，
+        // 老配置没有这两个字段时留空，屏幕行为与升级前一致。
         tplMain: normalizeEspTemplate(raw.tplMain),
         tplSub: normalizeEspTemplate(raw.tplSub),
+        tplLine3: normalizeEspTemplate(raw.tplLine3),
+        tplLine4: normalizeEspTemplate(raw.tplLine4),
+        showTitle: raw.showTitle !== false,
+        showKeys: raw.showKeys !== false,
         valueMap: normalizeEspValueMap(raw.valueMap),
         entityValueMap: normalizeEspEntityValueMap(raw.entityValueMap),
         // 绑定的遥控设备（中控/电视主键）；空串 = 这页仍是普通 HA 页面。
@@ -692,6 +698,10 @@ function migrateEspActionsToPages(actions, display, deviceName) {
             bindings: pageNo === 1 ? normalizeEspBindings(disp.bindings) : { main: '', s1: '', s2: '' },
             tplMain: '',
             tplSub: '',
+            tplLine3: '',
+            tplLine4: '',
+            showTitle: true,
+            showKeys: true,
             valueMap: '',
             entityValueMap: '',
             remoteTarget: '',
@@ -4117,11 +4127,20 @@ function attachAdmin(app, options = {}) {
         // 「显示图片」勾选后整页只出点阵图：标题/正文/按键提示全部清空。
         // 老配置没有 enabled 字段时，模板只写 {image} 仍按纯图片页兼容。
         let showImageOnly = false;
+        // 显示开关在 if(pageObj) 外也要用（ROWS 行组装），缺省按显示处理。
+        const showTitle = !pageObj || pageObj.showTitle !== false;
+        const showKeys = !pageObj || pageObj.showKeys !== false;
+        const line3On = !showTitle || !showKeys;
+        const line4On = !showTitle && !showKeys;
         if (pageObj) {
             const tplMain = pageObj.tplMain || '';
             const tplSub = pageObj.tplSub || '';
-            // 主/副状态模板拼成一段，供令牌解析与实体收集共用。
-            const tplAll = `${tplMain} ${tplSub}`;
+            // 行3/行4 只有对应开关关掉（让出屏幕行）时才参与取数与下发，
+            // 避免「编辑了但真机看不到」以及无谓的 HA 状态查询。
+            const tplLine3 = line3On ? (pageObj.tplLine3 || '') : '';
+            const tplLine4 = line4On ? (pageObj.tplLine4 || '') : '';
+            // 主/副状态模板 + 已开放的行3/行4，供令牌解析与实体收集共用。
+            const tplAll = `${tplMain} ${tplSub} ${tplLine3} ${tplLine4}`;
             // 模板里可直接写 {switch.xxx} / {climate.xxx.temperature}，这些实体也要一起取状态。
             const tplTokens = parseEspTemplateTokens(tplAll);
             const tplEntityIds = tplTokens.map((token) => token.baseId);
@@ -4241,16 +4260,25 @@ function attachAdmin(app, options = {}) {
             // 屏幕内容完全来自页内模板：填了才显示，留空就是空行（无字典兜底）。
             if (tplMain) display.main = renderEspTemplate(tplMain, ctx);
             if (tplSub) display.sub = renderEspTemplate(tplSub, ctx);
+            if (tplLine3) display.line3 = renderEspTemplate(tplLine3, ctx);
+            if (tplLine4) display.line4 = renderEspTemplate(tplLine4, ctx);
         }
         // 没有值就留空：`--` / `-- · --` 只在后台预览里提示「未绑定」，
         // 不上屏，避免 128×64 上多出两行噪音。
         display.main = cleanEspDisplayLine(display.main);
         display.sub = cleanEspDisplayLine(display.sub);
+        display.line3 = cleanEspDisplayLine(display.line3);
+        display.line4 = cleanEspDisplayLine(display.line4);
+        // 显示开关关掉的行直接置空，固件按「空行不绘制 + 后续行上移」处理。
+        if (pageObj && pageObj.showTitle === false) display.title = '';
+        if (pageObj && pageObj.showKeys === false) display.keys = '';
         if (showImageOnly) {
-            // 纯图片页不叠任何文字：标题、主副状态、按键提示都留空。
+            // 纯图片页不叠任何文字：标题、所有内容行、按键提示都留空。
             display.title = '';
             display.main = '';
             display.sub = '';
+            display.line3 = '';
+            display.line4 = '';
             display.keys = '';
         }
 
@@ -4274,7 +4302,20 @@ function attachAdmin(app, options = {}) {
             const nowText = new Date(Date.now() + tzMinText * 60000);
             const p2 = (n) => String(n).padStart(2, '0');
             const timeLine = ['TIME', `${p2(nowText.getUTCHours())}:${p2(nowText.getUTCMinutes())}`].join('|');
-            const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys].join('|');
+            // DISPLAY 保留老四段（老固件只读前 4 段，行为不变），末尾追加行3/行4 供测试与新客户端核对。
+            const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys,
+                display.line3 || '', display.line4 || ''].join('|');
+            // ROWS 是 v4.2 起真正绘制的四行：按显示开关把「让位」出来的内容行排进去。
+            // 老固件不认这一行会跳过，继续按 DISPLAY 画，OTA 后由新固件接管。
+            // 空行不占位：隐藏标题/按键或模板留空时，后续内容整体向上收拢。
+            const allRows = [];
+            if (showTitle) allRows.push(display.title);
+            allRows.push(display.main, display.sub);
+            if (line3On) allRows.push(display.line3 || '');
+            if (line4On) allRows.push(display.line4 || '');
+            if (showKeys) allRows.push(display.keys);
+            const rows = allRows.filter((text) => String(text || '').trim() !== '').slice(0, 4);
+            const rowsLine = ['ROWS', ...rows].join('|');
             const lines = actions.map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
             // 图片（v0.5）：页面配了 {image} 且有数据时下发一行 IMG|id|base64|invert。
             // 第 4 段是新增的反色位；老固件只读前 3 段，仍按原样显示，兼容。
@@ -4287,7 +4328,7 @@ function attachAdmin(app, options = {}) {
                     pageObj.image.invert ? 1 : 0].join('|'));
             }
             return res.type('text/plain; charset=utf-8').send(
-                [pageLine, screenLine, barLine, timeLine, displayLine].concat(extra, lines).join('\n'));
+                [pageLine, screenLine, barLine, timeLine, displayLine, rowsLine].concat(extra, lines).join('\n'));
         }
         return jsonOk(res, { deviceId: id, page, pageTotal, actions, display });
     });
