@@ -74,7 +74,7 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 // oled-4.0：系统状态变量支持——每页状态栏配置（BAR 行，逐页显示/隐藏 + 元素勾选、
 //           隐藏时内容上移重排）、状态栏时间（TIME 行）、图片点阵（IMG 行，128×64
 //           1-bit 服务端下发，不烧固件）。{sys.*} 本机变量在绘制时替换。老配置/老固件兼容。
-static const char *APP_VER             = "oled-4.2";
+static const char *APP_VER             = "oled-4.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -218,6 +218,10 @@ int screenColor = 0;
 int pirPin = -1;
 int screenOnSec = 0;          // 服务端 SCREEN 行下发：人离开后多少秒熄屏（0 = 常亮）
 volatile bool screenOff = false;
+// OTA 升级期间强制常亮：升级在没人盯着时也会触发，此时屏幕已被 PIR 熄屏，
+// 所有升级提示都会被 drawScreen 首行的 screenOff 拦截。升级全程置 true，
+// 堵住 sleepScreen / loop 的超时熄屏，结束后复位恢复正常省电逻辑。
+volatile bool otaInProgress = false;
 uint32_t lastPresenceAt = 0;
 // 人体感应状态上报：只在 0/1 跳变时发一次心跳，后台不必等 60 秒轮询。
 bool pirPresent = false;
@@ -397,7 +401,10 @@ void drawImageBits(const uint8_t *bits, bool invert, int top, int contentH) {
 // - 服务端下发 ROWS| 时按「服务端合并好的行」画（隐藏标题/按键后内容自动上移）；
 // - 老服务端只有 DISPLAY| 时，把 title/main/sub/keys 当四行画，兼容旧数据。
 // - 异常态（按键反馈）反白第 2 行——与旧版观感一致。
-void drawScreen(const String &title, const String &main, const String &sub, const String &keys, bool abnormal) {
+// useArgs=true 时强制用传入的四行（系统提示：升级/Booting/WiFi lost），
+// 不复用页面缓存 ROWS——否则正常页的 ROWS 会把 "Updating/进度%" 盖掉（v4.3 修）。
+void drawScreen(const String &title, const String &main, const String &sub, const String &keys,
+                bool abnormal, bool useArgs = false) {
   if (!oledOk || screenOff) return;
   u8g2.clearBuffer();
   bool hasBar = drawStatusBar();
@@ -419,7 +426,7 @@ void drawScreen(const String &title, const String &main, const String &sub, cons
   String lines[4];
   int count = 0;
   // 异常态（toast / 升级提示）用自己的参数画，不复用页面缓存的 ROWS。
-  if (!abnormal && scrRowCount > 0) {
+  if (!abnormal && !useArgs && scrRowCount > 0) {
     for (int i = 0; i < scrRowCount && i < 4; i++) {
       lines[i] = resolveLocalSys(scrRows[i]);
       if (lines[i].length()) count = i + 1;  // 保序，空行仍占位但最后不计
@@ -459,7 +466,8 @@ void drawScreen(const String &title, const String &main, const String &sub, cons
 // 兼容旧调用：oledShow(title,l1,l2,l3) 走同一套四行布局（无反白）。
 // 系统提示（Booting / WiFi lost / Updating 等）仍用此入口，只是不显示反白块。
 void oledShow(const String &title, const String &l1 = "", const String &l2 = "", const String &l3 = "") {
-  drawScreen(title, l1, l2, l3, false);
+  // 系统提示强制用传入文案（useArgs=true），不被页面 ROWS 覆盖。
+  drawScreen(title, l1, l2, l3, false, true);
 }
 
 // 按键反馈：临时占屏 2.5 秒，之后由主循环恢复常规页面。
@@ -841,6 +849,10 @@ bool checkFirmwareInto(NetSnapshot &snap) {
 // 下载并写入另一个 OTA 槽；成功自动重启，失败保留旧固件
 void runOta() {
   if (!fwAvailable) return;
+  // 升级可能在没人盯着时自动触发（PIR 早已熄屏）。先点亮并锁住屏幕，
+  // 否则下面所有 oledShow 进度提示都会被 drawScreen 的 screenOff 拦截。
+  otaInProgress = true;
+  wakeScreen();
   Serial.printf("[ota] start download %s\n", fwVersion.c_str());
   oledShow("Updating", "connecting...");
   WiFiClient client;
@@ -859,12 +871,14 @@ void runOta() {
     Serial.println("[ota] ok, rebooting");
     oledShow("Update done", "rebooting...");
     delay(1200);
+    otaInProgress = false;   // 复位（随即重启，主要为语义完整）
     ESP.restart();
   }
   String err = httpUpdate.getLastErrorString();
   Serial.printf("[ota] failed code=%d msg=%s\n", (int)httpUpdate.getLastError(), err.c_str());
   otaTriedVer = fwVersion;   // 自动更新用：记录失败版本与时间，冷却后再试
   otaTriedAt = millis();
+  otaInProgress = false;     // 失败后恢复常规熄屏节奏
   oledShow("Update failed", String(httpUpdate.getLastError()), err.substring(0, 21));
   toastUntil = millis() + 5000;
 }
@@ -946,9 +960,10 @@ void pollButtons() {
 void drawMain() {
   if (screenOff) return;   // 熄屏期间不往面板写数据，等感应到人再恢复
   if (fwAvailable) {
-    // 有更新时优先提示：自动更新会自己装，否则引导用户打开本机设置页
-    drawScreen("Update ready", String("cur ") + APP_VER, String("new ") + fwVersion,
-               autoUpdate ? "auto updating..." : "open web page", false);
+    // 有更新时优先提示：自动更新会自己装，否则引导用户打开本机设置页。
+    // 走 oledShow(useArgs=true)，避免正常页的 ROWS 把升级提示盖掉。
+    oledShow("Update ready", String("cur ") + APP_VER, String("new ") + fwVersion,
+             autoUpdate ? "auto updating..." : "open web page");
     return;
   }
   // 常规页：优先显示服务端下发的四行（设备类型字典解析），没配置时退回连接信息。
@@ -975,6 +990,7 @@ void wakeScreen() {
 
 // 熄屏：面板进 power save（SH1106 关显示，功耗从 ~18mA 降到 ~1mA 以内）。
 void sleepScreen() {
+  if (otaInProgress) return;   // 升级期间禁止熄屏，保证进度可见
   if (screenOff || !oledOk) return;
   screenOff = true;
   u8g2.setPowerSave(1);
@@ -1724,7 +1740,7 @@ void loop() {
   // 人体感应：有人立即亮屏并刷新计时；人走后按服务端给的秒数熄屏。
   // 没接感应（pirPin=-1）或后台设为常亮（screenOnSec=0）时这里什么都不做。
   pollPir();
-  if (pirPin >= 0 && screenOnSec > 0 && !screenOff
+  if (pirPin >= 0 && screenOnSec > 0 && !screenOff && !otaInProgress
       && millis() - lastPresenceAt > (uint32_t)screenOnSec * 1000UL) {
     sleepScreen();
   }

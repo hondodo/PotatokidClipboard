@@ -43,7 +43,18 @@
 
 验证：服务端 16/16、真实 admin 浏览器 18/18、固件编译通过（flash 62% / RAM 22%）。代码与固件均已部署/发布。
 
+## 追加：ESP 升级亮屏问题分析（21:14，仅分析未改代码）
+
+工作区干净、无待提交内容（最近提交 `5714a1c`）。应要求分析「怎样让 ESP 升级时亮屏」，结论是**两个独立缺陷叠加**：
+
+1. **升级时屏幕是灭的**：`drawScreen()` 首行 `if (!oledOk || screenOff) return;`；自动更新在没人时触发（5 分钟检查 + 8 秒排队），PIR 早已超时熄屏，所有 `oledShow()` 升级提示被吞。
+2. **亮屏后进度被页面内容盖掉**（上一轮 ROWS 引入的回归）：`drawScreen()` 里 `if (!abnormal && scrRowCount > 0)` 用页面缓存 ROWS 覆盖传入文案，`oledShow()` 传 `abnormal=false`，导致 "Updating / 进度%" 显示成当前页正常内容。
+
+推荐方案 B：`otaInProgress` 标志贯穿升级全程 + 开头 `wakeScreen()` + 堵住 PIR 再次熄屏 + 给 `drawScreen()` 加 `useArgs` 让系统提示绕过 ROWS。固件升 `oled-4.3`。详见 `docs/esp-ota-bright-screen-analysis.md`。
+
 ## 后续事项
 
 - 线上已有自动化若仍是旧结构，读取时会自动迁移；用户重新保存后落库为 rules。
 - **ESP 设备需在本地设置页手动点升级**到 `oled-4.2`（设备 autoUpdate 默认 false，服务端已发布但不会自动推），升级后新布局才在真机生效。
+- **升级亮屏已按方案 B 实施并发布 `oled-4.3`**（21:26）：`otaInProgress` 全程防熄屏 + 开头 `wakeScreen()` + 系统提示绕过 ROWS；编译通过（flash 62%/RAM 22%），固件 sha256 `bcb06ec4…`，`latest` 接口回读一致。详见 `docs/esp-ota-bright-screen-analysis.md`。服务端/admin 无需改动。
+- **待真机验收**：设备 autoUpdate 默认 false，需在小屏本地设置页升级到 `oled-4.3`，实测升级时亮屏与进度显示（本轮未连真机）。
