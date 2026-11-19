@@ -38,7 +38,13 @@
     }
     if (tab === 'esp-devices') {
       // 按键可以绑「手动控制」，所以这里要把场景列表一起拉好，否则下拉是空的。
-      Promise.all([loadDeviceTypes(), loadHaEntities().catch(() => {}), loadEspDevices(), loadScenes().catch(() => {})])
+      Promise.all([
+        loadDeviceTypes(),
+        loadHaEntities().catch(() => {}),
+        loadEspDevices(),
+        loadScenes().catch(() => {}),
+        loadWeatherCities().catch(() => {}), // {sys.weather.<id>} 的变量清单来自城市表
+      ])
         .then(() => { if (state.espDevEditId) return openEspDevEditor(state.espDevEditId); })
         .catch((error) => { $('espdev-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
     }

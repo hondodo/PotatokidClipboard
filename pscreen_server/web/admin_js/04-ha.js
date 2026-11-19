@@ -497,7 +497,7 @@
    *        `{entity.attr}` 令牌（温度、亮度这类属性不是独立实体，列表里选不到）
    * @param {Function} options.onPick 选中回调 (entity)；启用了属性时可能带 entity.attr
    */
-  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick, withAttributes = false } = {}) {
+  function openEntityPicker({ title = '选择实体', value = '', actionableOnly = false, quickTokens = null, extraEntities = null, onPick, withAttributes = false, groups = null } = {}) {
     // 追加独立层，不整体替换 dialog-root：本选择器可能叠在另一个弹窗之上
     // （例如「智能」Tab 的场景编辑弹层里选实体），整体替换会把下面正在编辑的表单清掉。
     const root = $('dialog-root');
@@ -519,6 +519,15 @@
               <div class="ent-pick-quick-list">${quickTokens.items.map((t, i) =>
                 `<button class="ent-pick-quick-btn" type="button" data-quick="${i}" title="${esc(t.id)}">${esc(t.name)}${t.value ? ` <span class="ent-pick-quick-val">${esc(t.value)}</span>` : ''}</button>`).join('')}</div>
             </div>` : ''}
+            ${(groups || []).map((g, gi) => {
+              const items = typeof g.items === 'function' ? g.items() : (g.items || []);
+              if (!items.length) return '';
+              return `<div class="ent-pick-quick ent-pick-group${g.isNew ? ' is-new' : ''}">
+                <div class="ent-pick-quick-title">${esc(g.label)}${g.isNew ? '<span class="ent-pick-newtag">新增</span>' : ''}</div>
+                <div class="ent-pick-quick-list">${items.map((t, i) =>
+                  `<button class="ent-pick-quick-btn" type="button" data-group="${gi}" data-gitem="${i}" title="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>
+              </div>`;
+            }).join('')}
             <div class="ent-pick-filters">
               <label>家庭<select data-filter="home"></select></label>
               <label>房间<select data-filter="room"></select></label>
@@ -543,6 +552,15 @@
     if (quickTokens && quickTokens.length) {
       layer.querySelectorAll('[data-quick]').forEach((btn) => btn.addEventListener('click', () => {
         const token = quickTokens.items[Number(btn.dataset.quick)];
+        if (token && typeof onPick === 'function') onPick(token);
+        close();
+      }));
+    }
+    if (groups && groups.length) {
+      layer.querySelectorAll('[data-group]').forEach((btn) => btn.addEventListener('click', () => {
+        const g = groups[Number(btn.dataset.group)];
+        const items = typeof g.items === 'function' ? g.items() : (g.items || []);
+        const token = items[Number(btn.dataset.gitem)];
         if (token && typeof onPick === 'function') onPick(token);
         close();
       }));

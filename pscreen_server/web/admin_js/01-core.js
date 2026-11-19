@@ -32,6 +32,11 @@
     reTestEntities: [],
     espDevices: null,
     espDevEditId: null,
+    // ESP 天气城市映射表（sys.weather.<id> 的唯一真源），首次进 ESP tab 懒加载。
+    weatherCities: null,
+    weatherRefCounts: null,
+    weatherCache: null,
+    weatherSeedNames: null,
   };
 
   const $ = (id) => document.getElementById(id);

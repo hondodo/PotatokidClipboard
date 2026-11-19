@@ -26,6 +26,7 @@ const haCatalog = require('./ha_catalog');
 const deviceTypes = require('./deviceTypes');
 const haDeviceVisibility = require('./haDeviceVisibility');
 const { attachScenes } = require('./scenes');
+const { createEspSys, lunarText } = require('./esp_sys');
 
 // D-02 硬阻塞地基：家庭级主档案模型。默认关闭，开标志位才启用读路径切换
 // （连同客户端/电视端同批次部署，见实施计划第 12 节第 8 条铁律）。
@@ -372,6 +373,24 @@ function normalizeEspScreen(value) {
 }
 
 /**
+ * 每页状态栏配置（v0.5 由设备级下沉到页面级）：显示/隐藏 + 元素勾选。
+ * 缺省时给「按现状」的安全默认：页码 + 时间 + WiFi 图标开，IP/RSSI 关。
+ * 128×64 单行放不下全部元素，勾选过多由 admin 预览提示、不自动删。
+ */
+function normalizeEspStatusBar(value) {
+    const raw = value && typeof value === 'object' ? value : {};
+    const on = (key, fallback) => (typeof raw[key] === 'boolean' ? raw[key] : fallback);
+    return {
+        enabled: on('enabled', true),
+        showPage: on('showPage', true),
+        showTime: on('showTime', true),
+        showWifiIcon: on('showWifiIcon', true),
+        showRssi: on('showRssi', false),
+        showIp: on('showIp', false),
+    };
+}
+
+/**
  * 人体感应状态（设备上报 pir: 0/1）。
  * lastEnterAt / lastLeaveAt 只在状态跳变时刷新，避免每次心跳都把时间改成「刚刚」。
  * 未接感应或老固件从来不上报时返回 null，后台显示「未接」。
@@ -633,7 +652,19 @@ function normalizeEspPage(raw, index) {
         buttons,
         loop: raw.loop !== false,
         idle,
+        // 每页状态栏：老页面缺省时给安全默认（页码+时间+WiFi图标），行为近似现状。
+        statusBar: normalizeEspStatusBar(raw.statusBar),
+        // 图片：服务端下发的 1-bit 点阵（base64），不烧固件。单图 ≤2KB。
+        image: normalizeEspImage(raw.image),
     };
+}
+
+/** 页面图片：{data(base64), invert}；data 超长/非法则丢弃，不阻塞页面保存。 */
+function normalizeEspImage(value) {
+    const raw = value && typeof value === 'object' ? value : {};
+    const data = typeof raw.data === 'string' && raw.data.length <= 4096 ? raw.data : '';
+    // enabled 由「显示图片」勾选控制；空数据时强制关掉，避免留下空壳开关。
+    return { data, invert: raw.invert === true, enabled: raw.enabled === true && !!data };
 }
 
 /**
@@ -677,6 +708,8 @@ function migrateEspActionsToPages(actions, display, deviceName) {
             })),
             loop: true,
             idle: 0,
+            statusBar: normalizeEspStatusBar(null),
+            image: { data: '', invert: false },
         });
     }
     return pages;
@@ -1049,6 +1082,28 @@ function attachAdmin(app, options = {}) {
 
     const adminDir = path.join(datasDir, 'admin');
     fs.mkdirSync(adminDir, { recursive: true });
+
+    // ESP 系统变量服务（天气 / 农历 / 城市映射表），独立于 machines 配置。
+    const espSys = createEspSys({
+        adminDir,
+        readJson,
+        writeJson,
+        log: (msg) => console.log(msg),
+    });
+    // 城市删除前的引用检查：扫描所有 ESP 页面模板里用到的 sys.weather.<id>。
+    espSys.setReferencedIdsScanner(() => {
+        const refs = new Set();
+        for (const machine of Object.values(readMachines())) {
+            for (const page of (machine.espPages || [])) {
+                for (const tpl of [page.tplMain, page.tplSub]) {
+                    const re = /\{sys\.weather\.([a-zA-Z0-9_]+)\}/g;
+                    let m;
+                    while ((m = re.exec(String(tpl || ''))) !== null) refs.add(m[1]);
+                }
+            }
+        }
+        return refs;
+    });
 
     const machinesFile = path.join(adminDir, 'machines.json');
     // ESP 小屏控制 HA 用的连接信息（地址 + 长期令牌），由 admin 页维护。
@@ -3897,6 +3952,11 @@ function attachAdmin(app, options = {}) {
     // 自定义模板里可直接写实体 id 或属性：
     // `卧室灯{switch.bedroom_light}`、`当前{climate.bed.current_temperature}`。
     const ESP_TPL_TOKEN_RE = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)(?:\.([a-z0-9_]+))?\}/gi;
+    // 这些 sys 变量由固件在绘制时取本机实时值，服务端不下发、原样保留 token。
+    const ESP_FIRMWARE_SYS_KEYS = new Set([
+        'sys.online', 'sys.wifi', 'sys.rssi', 'sys.present', 'sys.occupied',
+        'sys.ip', 'sys.page', 'sys.total', 'sys.pageof',
+    ]);
 
     /**
      * 抽出模板里的实体令牌（含可选第三段属性），供取状态与渲染共用。
@@ -3908,8 +3968,22 @@ function attachAdmin(app, options = {}) {
         ESP_TPL_TOKEN_RE.lastIndex = 0;
         let m;
         while ((m = ESP_TPL_TOKEN_RE.exec(String(text || '')))) {
+            // sys.* 是内置变量，不是 HA 实体：从 HA 取数集合里排除，避免被当实体查成空。
+            if (m[1].toLowerCase() === 'sys' || m[1].toLowerCase().startsWith('sys.')) continue;
             const attr = m[2] || 'state';
             out.push({ baseId: m[1], attr, key: attr === 'state' ? m[1] : `${m[1]}.${attr}` });
+        }
+        return out;
+    }
+
+    /** 抽出模板里用到的系统变量全名（sys.time / sys.weather.gz / image …），供按需取数。 */
+    function parseEspSysTokens(text) {
+        const out = new Set();
+        const re = /\{([a-zA-Z][a-zA-Z0-9_.]*)\}/g;
+        let m;
+        while ((m = re.exec(String(text || ''))) !== null) {
+            const key = m[1];
+            if (key === 'image' || key.toLowerCase().startsWith('sys.')) out.add(key);
         }
         return out;
     }
@@ -3987,6 +4061,18 @@ function attachAdmin(app, options = {}) {
                 if (key === 's1') return ctx.s1;
                 if (key === 's2') return ctx.s2;
                 if (key === 'title' || key === '名称') return ctx.title;
+                // 系统变量：从 ctx.sys 字典取（时间/农历/天气/图片由服务端算好）。
+                // 本机类变量（online/wifi/rssi/present/occupied/ip/page/total/pageOf）
+                // 由固件绘制时替换，服务端原样保留 token 交给固件识别。
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.startsWith('sys.') || key === 'image') {
+                    // 图片由独立 IMG 行下发点阵，不占文本行：正文 {image} 必须渲染为空，
+                    // 否则 base64 数据会被 DISPLAY 行当文字画到屏幕上（真机乱码）。
+                    if (key === 'image') return '';
+                    if (ctx.sys && Object.prototype.hasOwnProperty.call(ctx.sys, key)) return ctx.sys[key];
+                    // 未定义变量整段省略（拍板项 2）；本机类留给固件。
+                    return ESP_FIRMWARE_SYS_KEYS.has(lowerKey) ? `{${key}}` : '';
+                }
                 return ctx.entities[key] || '';
             })
             .replace(/[ \t]+/g, ' ')
@@ -4013,6 +4099,9 @@ function attachAdmin(app, options = {}) {
             keys: espKeyHints(actions, machine.espSlotNames),
             homeLabel: '当前状态',
         };
+        // 「显示图片」勾选后整页只出点阵图：标题/正文/按键提示全部清空。
+        // 老配置没有 enabled 字段时，模板只写 {image} 仍按纯图片页兼容。
+        let showImageOnly = false;
         if (pageObj) {
             const tplMain = pageObj.tplMain || '';
             const tplSub = pageObj.tplSub || '';
@@ -4032,74 +4121,123 @@ function attachAdmin(app, options = {}) {
             }
             // 屏幕内容只认页内模板里写的实体；无设备类型字典兜底。
             const entityIds = [...new Set(tplEntityIds.filter(Boolean))];
-            if (entityIds.length) {
-                // `remote.*` 是遥控设备的实体 id，状态来自本地实时缓存，不查 HA。
-                const remoteIds = entityIds.filter((eid) => eid.startsWith('remote.'));
-                const haIds = entityIds.filter((eid) => !eid.startsWith('remote.'));
-                const ctx = {
-                    title: pageObj.name,
-                    entities: {},
-                };
-                // 值替换（全局 + 按实体）对字典、自定义模板与遥控语义字段同时生效。
-                const globalMap = parseEspValueMap(pageObj.valueMap);
-                const entityMap = parseEspEntityValueMap(pageObj.entityValueMap);
-                if (haIds.length) {
+            const remoteIds = entityIds.filter((eid) => eid.startsWith('remote.'));
+            const haIds = entityIds.filter((eid) => !eid.startsWith('remote.'));
+
+            // ctx 构造不再被 entityIds.length 包裹：纯 sys 变量页（无 HA 实体）也要渲染。
+            const ctx = {
+                title: pageObj.name,
+                entities: {},
+                sys: {},
+            };
+            // 值替换（全局 + 按实体）对字典、自定义模板与遥控语义字段同时生效。
+            const globalMap = parseEspValueMap(pageObj.valueMap);
+            const entityMap = parseEspEntityValueMap(pageObj.entityValueMap);
+
+            // ---- 系统变量（按需取数）----
+            const sysTokens = parseEspSysTokens(tplAll);
+            // 显示图片开关优先于模板；旧配置按「模板只有 {image}」兼容。
+            // 混编页（不勾选、模板里图 + 文字）不受影响，文字照常显示。
+            const legacyImageOnly = sysTokens.has('image')
+                && !tplAll.replace(/\{image\}/g, ' ').trim();
+            showImageOnly = !!(pageObj.image && pageObj.image.enabled && pageObj.image.data)
+                || legacyImageOnly;
+            if (sysTokens.size) {
+                // 时间：按设备时区算好字符串；设备本地再按 millis 走秒。
+                // espTimezone 是相对 UTC 的分钟偏移；缺省按东八区 +480。
+                const tzRaw = Number(machine.espTimezone);
+                const tzOffsetMin = Number.isFinite(tzRaw) ? tzRaw : 480;
+                const now = new Date(Date.now() + tzOffsetMin * 60000);
+                const pad2 = (n) => String(n).padStart(2, '0');
+                const hhmm = `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}`;
+                const hhmmss = `${hhmm}:${pad2(now.getUTCSeconds())}`;
+                const weekCn = ['日', '一', '二', '三', '四', '五', '六'][now.getUTCDay()];
+                const mmdd = `${pad2(now.getUTCMonth() + 1)}-${pad2(now.getUTCDate())}`;
+                ctx.sys['sys.time'] = hhmm;
+                ctx.sys['sys.timeSec'] = hhmmss;
+                ctx.sys['sys.date'] = `${mmdd} 周${weekCn}`;
+                ctx.sys['sys.lunar'] = lunarText(now);
+
+                // 天气：只对模板引用到的 id 取数。
+                const weatherIds = [...sysTokens]
+                    .filter((k) => k.startsWith('sys.weather.'))
+                    .map((k) => k.slice('sys.weather.'.length));
+                if (weatherIds.length) {
                     try {
-                        const rawStates = await haCatalogService.getStates(haIds);
-                        const states = mapEspStates(rawStates, globalMap, entityMap);
-                        for (const token of tplTokens) {
-                            if (remoteIds.includes(token.baseId) || token.baseId.startsWith('remote.')) continue;
-                            let value = espStateValue(states[token.baseId], token.attr);
-                            // 属性也走值替换，与前端 espEntityValue 同构；
-                            // state 已在 mapEspStates 里翻译过，避免二次替换。
-                            if (token.attr !== 'state') {
-                                const own = entityMap.get(token.baseId);
-                                if (own && own.has(value)) value = own.get(value);
-                                else if (globalMap.has(value)) value = globalMap.get(value);
-                            }
-                            ctx.entities[token.key] = value;
+                        const built = await espSys.buildWeatherDict(weatherIds);
+                        for (const [wid, value] of Object.entries(built.dict)) {
+                            ctx.sys[`sys.weather.${wid}`] = value;
                         }
                     } catch (error) {
-                        // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
-                        console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
+                        console.warn(`[esp] ${id} 天气取数降级:`, error.message);
                     }
                 }
-                if (remoteIds.length) {
-                    const machines = readMachines();
-                    const byEntity = new Map();
-                    for (const item of Object.values(machines)) {
-                        if (item.kind !== 'home' && item.kind !== 'tv') continue;
-                        byEntity.set(remoteEntityId(item.id), item);
-                    }
-                    for (const entityId of remoteIds) {
-                        const target = byEntity.get(entityId);
-                        const fields = target
-                            ? remoteStateFields(remoteStateOf(target.commAccount || ''))
-                            : null;
-                        // 整体摘要 `{remote.xxx}`（兼容旧模板）。
-                        ctx.entities[entityId] = fields ? fields.text : '';
-                        // 语义字段 `{remote.xxx.page/channel/volume/sleep/sleepLeft}`。
-                        for (const key of REMOTE_STATE_FIELDS) {
-                            const tokenKey = `${entityId}.${key}`;
-                            let value = fields ? (fields[key] || '') : '';
-                            // 遥控字段是「开启/关闭」这类中文值，按实体替换优先，
-                            // 再接页面级兜底；与 HA 属性的替换链路一致。
-                            const own = entityMap.get(tokenKey);
+                // 图片不进文本 ctx：点阵走独立 IMG 行下发，{image} 在正文里恒为空串。
+            }
+
+            if (haIds.length) {
+                try {
+                    const rawStates = await haCatalogService.getStates(haIds);
+                    const states = mapEspStates(rawStates, globalMap, entityMap);
+                    for (const token of tplTokens) {
+                        if (remoteIds.includes(token.baseId) || token.baseId.startsWith('remote.')) continue;
+                        let value = espStateValue(states[token.baseId], token.attr);
+                        // 属性也走值替换，与前端 espEntityValue 同构；
+                        // state 已在 mapEspStates 里翻译过，避免二次替换。
+                        if (token.attr !== 'state') {
+                            const own = entityMap.get(token.baseId);
                             if (own && own.has(value)) value = own.get(value);
                             else if (globalMap.has(value)) value = globalMap.get(value);
-                            ctx.entities[tokenKey] = value;
                         }
+                        ctx.entities[token.key] = value;
+                    }
+                } catch (error) {
+                    // 读 HA 失败不挡按键：显示层降级，按键白名单照常下发。
+                    console.warn(`[esp] ${id} 第 ${page} 页解析显示文本失败，降级:`, error.message);
+                }
+            }
+            if (remoteIds.length) {
+                const machines = readMachines();
+                const byEntity = new Map();
+                for (const item of Object.values(machines)) {
+                    if (item.kind !== 'home' && item.kind !== 'tv') continue;
+                    byEntity.set(remoteEntityId(item.id), item);
+                }
+                for (const entityId of remoteIds) {
+                    const target = byEntity.get(entityId);
+                    const fields = target
+                        ? remoteStateFields(remoteStateOf(target.commAccount || ''))
+                        : null;
+                    // 整体摘要 `{remote.xxx}`（兼容旧模板）。
+                    ctx.entities[entityId] = fields ? fields.text : '';
+                    // 语义字段 `{remote.xxx.page/channel/volume/sleep/sleepLeft}`。
+                    for (const key of REMOTE_STATE_FIELDS) {
+                        const tokenKey = `${entityId}.${key}`;
+                        let value = fields ? (fields[key] || '') : '';
+                        // 遥控字段是「开启/关闭」这类中文值，按实体替换优先，
+                        // 再接页面级兜底；与 HA 属性的替换链路一致。
+                        const own = entityMap.get(tokenKey);
+                        if (own && own.has(value)) value = own.get(value);
+                        else if (globalMap.has(value)) value = globalMap.get(value);
+                        ctx.entities[tokenKey] = value;
                     }
                 }
-                // 屏幕内容完全来自页内模板：填了才显示，留空就是空行（无字典兜底）。
-                if (tplMain) display.main = renderEspTemplate(tplMain, ctx);
-                if (tplSub) display.sub = renderEspTemplate(tplSub, ctx);
             }
+            // 屏幕内容完全来自页内模板：填了才显示，留空就是空行（无字典兜底）。
+            if (tplMain) display.main = renderEspTemplate(tplMain, ctx);
+            if (tplSub) display.sub = renderEspTemplate(tplSub, ctx);
         }
         // 没有值就留空：`--` / `-- · --` 只在后台预览里提示「未绑定」，
         // 不上屏，避免 128×64 上多出两行噪音。
         display.main = cleanEspDisplayLine(display.main);
         display.sub = cleanEspDisplayLine(display.sub);
+        if (showImageOnly) {
+            // 纯图片页不叠任何文字：标题、主副状态、按键提示都留空。
+            display.title = '';
+            display.main = '';
+            display.sub = '';
+            display.keys = '';
+        }
 
         // 固件没接 JSON 库，`format=text` 给：
         // PAGE|当前页|总页数|循环|空闲秒 → SCREEN|熄屏秒
@@ -4110,9 +4248,31 @@ function attachAdmin(app, options = {}) {
             const pageLine = ['PAGE', page, pageTotal, pageObj && pageObj.loop === false ? '0' : '1', (pageObj && pageObj.idle) || 0].join('|');
             // 熄屏秒数（设备级）：固件据此在人离开后熄屏，0 = 常亮。
             const screenLine = ['SCREEN', normalizeEspScreen(machine.espScreen).onSeconds].join('|');
+            // 每页状态栏配置（v0.5）：enabled/showPage/showTime/showWifiIcon/showRssi/showIp → 0/1。
+            // 固件按此绘制顶部状态栏；enabled=0 时内容区上移重排。
+            const sb = normalizeEspStatusBar(pageObj && pageObj.statusBar);
+            const barLine = ['BAR', sb.enabled ? 1 : 0, sb.showPage ? 1 : 0, sb.showTime ? 1 : 0,
+                sb.showWifiIcon ? 1 : 0, sb.showRssi ? 1 : 0, sb.showIp ? 1 : 0].join('|');
+            // 状态栏时间（HH:MM）：服务端按设备时区算好；设备无需 RTC/NTP。
+            const tzRawText = Number(machine.espTimezone);
+            const tzMinText = Number.isFinite(tzRawText) ? tzRawText : 480;
+            const nowText = new Date(Date.now() + tzMinText * 60000);
+            const p2 = (n) => String(n).padStart(2, '0');
+            const timeLine = ['TIME', `${p2(nowText.getUTCHours())}:${p2(nowText.getUTCMinutes())}`].join('|');
             const displayLine = ['DISPLAY', display.title, display.main, display.sub, display.keys].join('|');
             const lines = actions.map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
-            return res.type('text/plain; charset=utf-8').send([pageLine, screenLine, displayLine].concat(lines).join('\n'));
+            // 图片（v0.5）：页面配了 {image} 且有数据时下发一行 IMG|id|base64|invert。
+            // 第 4 段是新增的反色位；老固件只读前 3 段，仍按原样显示，兼容。
+            const extra = [];
+            if (pageObj && pageObj.image && pageObj.image.data
+                && (pageObj.image.enabled === true
+                    || /\{image\}/.test(`${pageObj.tplMain || ''} ${pageObj.tplSub || ''}`))) {
+                extra.push(['IMG', pageObj.id,
+                    String(pageObj.image.data).replace(/[|\r\n]/g, ''),
+                    pageObj.image.invert ? 1 : 0].join('|'));
+            }
+            return res.type('text/plain; charset=utf-8').send(
+                [pageLine, screenLine, barLine, timeLine, displayLine].concat(extra, lines).join('\n'));
         }
         return jsonOk(res, { deviceId: id, page, pageTotal, actions, display });
     });
@@ -4327,6 +4487,135 @@ function attachAdmin(app, options = {}) {
         const buttonCount = pages.reduce((sum, page) => sum + page.buttons.length, 0);
         console.log(`[esp] ${id} 页面已更新：${pages.length} 页 / ${buttonCount} 个按键`);
         return jsonOk(res, { pages }, '已保存');
+    });
+
+    /* ---- ESP 天气城市映射表（sys.weather.<id> 的唯一真源，仅 admin 一处维护）---- */
+
+    /** 读映射表 + 缓存状态 + 各 id 被多少模板引用（删除前提示用）。 */
+    app.get('/api/admin/weather/cities', requireAdmin, (req, res) => {
+        try {
+            const cities = espSys.readCities();
+            // 现场扫一遍模板，统计每个 id 被引用次数（删除前提示用）。
+            const refCounts = {};
+            for (const machine of Object.values(readMachines())) {
+                for (const page of (machine.espPages || [])) {
+                    for (const tpl of [page.tplMain, page.tplSub]) {
+                        const re = /\{sys\.weather\.([a-zA-Z0-9_]+)\}/g;
+                        let m;
+                        while ((m = re.exec(String(tpl || ''))) !== null) {
+                            refCounts[m[1]] = (refCounts[m[1]] || 0) + 1;
+                        }
+                    }
+                }
+            }
+            // 种子名单只读展示：让 admin 看得见与 weather_cities.txt 的差异，
+            // 但不能反向写入（home/tv 那份名单是独立副本）。
+            const seedPath = path.join(datasDir, 'screen', 'datas', 'weather_cities.txt');
+            const seedNames = fs.existsSync(seedPath)
+                ? fs.readFileSync(seedPath, 'utf8').split(/[\r\n,，]+/).map((s) => s.trim()).filter(Boolean)
+                : [];
+            return jsonOk(res, {
+                cities,
+                refCounts,
+                cache: espSys.cacheStatus(),
+                seedNames,
+            });
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 新增城市：自动生成拼音 id，冲突降级全拼/序号；id 落库后不可改。 */
+    app.post('/api/admin/weather/cities', requireAdmin, (req, res) => {
+        try {
+            const body = req.body || {};
+            const name = String(body.name || '').trim().slice(0, 20);
+            if (!name) return jsonFail(res, '城市名不能为空');
+            const cities = espSys.readCities();
+            if (cities.some((c) => c.name === name)) return jsonFail(res, `「${name}」已存在`);
+            const gen = espSys.generateCityId(name, cities);
+            const location = String(body.location || '').trim().slice(0, 40) || name;
+            cities.push({ id: gen.id, name, location });
+            espSys.saveCities(cities);
+            console.log(`[esp] 新增天气城市 ${name} → ${gen.id}${gen.note ? `（${gen.note}）` : ''}`);
+            return jsonOk(res, { city: { id: gen.id, name, location }, note: gen.note, cities }, '已新增');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 改城市名 / location（不改 id；缓存 key = id，改名不影响命中）。 */
+    app.put('/api/admin/weather/cities/:id', requireAdmin, (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim().toLowerCase();
+            if (id === 'auto') return jsonFail(res, '「自动」为固定项，不可修改');
+            const cities = espSys.readCities();
+            const idx = cities.findIndex((c) => c.id === id);
+            if (idx < 0) return jsonFail(res, '城市不存在');
+            const body = req.body || {};
+            const updated = Object.assign({}, cities[idx]);
+            if (body.name !== undefined) {
+                const name = String(body.name).trim().slice(0, 20);
+                if (name) updated.name = name;
+            }
+            if (body.location !== undefined) {
+                const location = String(body.location).trim().slice(0, 40);
+                if (location) updated.location = location;
+            }
+            cities[idx] = updated;
+            espSys.saveCities(cities);
+            return jsonOk(res, { city: updated, cities }, '已更新');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 删除城市：有模板引用则禁止删，逼用户先替换变量。 */
+    app.delete('/api/admin/weather/cities/:id', requireAdmin, (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim().toLowerCase();
+            if (id === 'auto') return jsonFail(res, '「自动」为固定项，不可删除');
+            const cities = espSys.readCities();
+            if (!cities.some((c) => c.id === id)) return jsonFail(res, '城市不存在');
+            let count = 0;
+            for (const machine of Object.values(readMachines())) {
+                for (const page of (machine.espPages || [])) {
+                    for (const tpl of [page.tplMain, page.tplSub]) {
+                        const re = new RegExp(`\\{sys\\.weather\\.${id}\\}`, 'g');
+                        count += (String(tpl || '').match(re) || []).length;
+                    }
+                }
+            }
+            if (count > 0) {
+                return jsonFail(res, `有 ${count} 处模板仍在使用 {sys.weather.${id}}，请先替换再删除`);
+            }
+            espSys.saveCities(cities.filter((c) => c.id !== id));
+            return jsonOk(res, { cities: espSys.readCities() }, '已删除');
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 从 weather_cities.txt 重新导入种子：只补缺失城市名，不覆盖已有 id。 */
+    app.post('/api/admin/weather/cities/reseed', requireAdmin, (req, res) => {
+        try {
+            const seedPath = path.join(datasDir, 'screen', 'datas', 'weather_cities.txt');
+            const seedText = fs.existsSync(seedPath) ? fs.readFileSync(seedPath, 'utf8') : '';
+            const seedNames = seedText.split(/[\r\n,，]+/).map((s) => s.trim()).filter(Boolean);
+            const cities = espSys.readCities();
+            const existingNames = new Set(cities.map((c) => c.name));
+            const added = [];
+            for (const name of seedNames) {
+                if (name === '自动' || existingNames.has(name)) continue;
+                const gen = espSys.generateCityId(name, cities.concat(added));
+                added.push({ id: gen.id, name, location: name });
+                existingNames.add(name);
+            }
+            if (added.length) espSys.saveCities(cities.concat(added));
+            return jsonOk(res, { added, cities: espSys.readCities(), seedNames }, `已补入 ${added.length} 个城市`);
+        } catch (error) {
+            return jsonFail(res, error.message);
+        }
     });
 
     /* ---- 设备类型字典 CRUD（S3）：home 与 ESP 共用的唯一真源 ---- */

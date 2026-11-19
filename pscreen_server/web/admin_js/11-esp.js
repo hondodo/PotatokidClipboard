@@ -38,6 +38,20 @@
     return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   }
 
+  // 每页状态栏配置：新增项容忍旧配置缺字段，默认值与服务端 normalizeEspStatusBar 保持一致。
+  function espStatusBarOf(page) {
+    const raw = (page && page.statusBar) || {};
+    const on = (key, def) => (raw[key] === undefined ? def : raw[key] !== false);
+    return {
+      enabled: on('enabled', true),
+      showPage: on('showPage', true),
+      showTime: on('showTime', true),
+      showWifiIcon: on('showWifiIcon', true),
+      showRssi: on('showRssi', false),
+      showIp: on('showIp', false),
+    };
+  }
+
   function newEspPage(index) {
     return {
       id: espUid('p'),
@@ -55,7 +69,66 @@
       buttons: [],
       loop: true,
       idle: 0,
+      statusBar: espStatusBarOf(null),
+      image: { data: '', invert: false, enabled: false },
     };
+  }
+
+  /**
+   * 上传图片 → 128×64 1-bit 行优先点阵（每行 16 字节，MSB 在前），base64 输出。
+   * 与固件 drawImageBits / 服务端 IMG| 协议共用同一格式；不做灰度，阈值二值化。
+   */
+  function espImageToBits(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error('未选择图片'));
+      if (file.size > 2 * 1024 * 1024) return reject(new Error('原图请选 2MB 以内'));
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('读取图片失败'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('图片格式无法识别'));
+        img.onload = () => {
+          const cv = document.createElement('canvas');
+          cv.width = 128;
+          cv.height = 64;
+          const c = cv.getContext('2d', { willReadFrequently: true });
+          c.fillStyle = '#fff';
+          c.fillRect(0, 0, 128, 64);
+          // 透明底按白处理，避免 PNG 透明区被二值化成一片黑点。
+          c.drawImage(img, 0, 0, 128, 64);
+          const data = c.getImageData(0, 0, 128, 64).data;
+          const bits = new Uint8Array(1024);
+          for (let y = 0; y < 64; y += 1) {
+            for (let x = 0; x < 128; x += 1) {
+              const i = (y * 128 + x) * 4;
+              // 透明像素无论 RGB 是什么都当白底。
+              const a = data[i + 3] / 255;
+              const gray = (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) * a + 255 * (1 - a);
+              if (gray < 128) bits[y * 16 + (x >> 3)] |= 0x80 >> (x & 7);
+            }
+          }
+          let bin = '';
+          for (let i = 0; i < bits.length; i += 4096) {
+            bin += String.fromCharCode.apply(null, bits.subarray(i, i + 4096));
+          }
+          resolve(btoa(bin));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** 预览解码：base64 → 1024 字节点阵，反色由预览端按位取反，与固件一致。 */
+  function espDecodeImageBits(data, invert) {
+    if (!data) return null;
+    let bin;
+    try { bin = atob(String(data).replace(/[^A-Za-z0-9+/=]/g, '')); } catch (error) { return null; }
+    if (bin.length < 1024) return null;
+    const bits = new Uint8Array(1024);
+    for (let i = 0; i < 1024; i += 1) bits[i] = bin.charCodeAt(i) & 0xff;
+    if (invert) for (let i = 0; i < 1024; i += 1) bits[i] = ~bits[i] & 0xff;
+    return bits;
   }
 
   async function loadEspDevices(force = false) {
@@ -276,6 +349,31 @@
   }
 
   /**
+   * 「插入实体」弹窗的系统状态分组（v0.5）：
+   * - 系统状态：内置变量，点击插入 {sys.xxx} / {image}；
+   * - 天气城市：从 state.weatherCities 动态生成带参变量 {sys.weather.<id>}。
+   * 与 HA 实体/遥控状态在同一弹窗混选，复用 onPick 回调。
+   */
+  function espSysVarGroups() {
+    const SYS_VARS = [
+      ['sys.time', '时间 HH:MM'], ['sys.timeSec', '时间 HH:MM:SS'], ['sys.date', '日期'],
+      ['sys.lunar', '农历'], ['sys.weather.auto', '天气·自动定位'],
+      ['sys.online', '是否联网'], ['sys.wifi', 'WiFi 信号'], ['sys.rssi', '信号强度 dBm'],
+      ['sys.present', '人体感应'], ['sys.occupied', '占用状态'], ['sys.ip', '本机 IP'],
+      ['sys.page', '当前页'], ['sys.total', '总页数'], ['sys.pageOf', '页码 4/5'],
+      // 图片不再靠模板 token：在「屏幕显示内容 → 图片显示」上传并勾选即可。
+    ];
+    const sysItems = SYS_VARS.map(([id, name]) => ({ id, name, value: `{${id}}` }));
+    const cityItems = () => (state.weatherCities || [])
+      .filter((c) => c.id !== 'auto')
+      .map((c) => ({ id: `sys.weather.${c.id}`, name: `天气·${c.name}`, value: `{sys.weather.${c.id}}` }));
+    return [
+      { label: '系统状态（新增）', isNew: true, items: sysItems },
+      { label: '天气城市（映射表生成 · 一页可多城市）', items: cityItems },
+    ];
+  }
+
+  /**
    * 所有遥控设备的状态字段 → 伪造成 HA 实体，供「插入实体」弹窗混选。
    * 这样遥控状态与 HA 实体在同一列表，可跨设备、可搜索、可家庭/房间筛选。
    * id 用三段式 remote.<设备id>.<字段>，与后端模板渲染的 REMOTE_TPL_TOKEN_RE 对齐。
@@ -381,18 +479,25 @@
    * key 是 ctx.entities 的查找键（与 {token} 原文一致）。
    * 与服务端 admin.js 的 parseEspTemplateTokens 同构。
    */
+  // 本机类 sys 变量由固件绘制时替换，服务端/预览都原样保留 token（与服务端同构）。
+  const ESP_FIRMWARE_SYS_KEYS = new Set([
+    'sys.online', 'sys.wifi', 'sys.rssi', 'sys.present', 'sys.occupied',
+    'sys.ip', 'sys.page', 'sys.total', 'sys.pageof',
+  ]);
+
   function espTemplateTokens(text) {
     const re = /\{([a-z][a-z0-9_]*\.[a-z0-9_]+)(?:\.([a-z0-9_]+))?\}/gi;
     const out = [];
     let m;
     while ((m = re.exec(String(text || '')))) {
+      if (m[1].toLowerCase() === 'sys' || m[1].toLowerCase().startsWith('sys.')) continue;
       const attr = m[2] || 'state';
       out.push({ baseId: m[1], attr, key: attr === 'state' ? m[1] : `${m[1]}.${attr}` });
     }
     return out;
   }
 
-  /** 渲染 `{main}/{s1}/{s2}/{title}/{domain.entity[.attr]}` 模板（与服务端同构）。 */
+  /** 渲染 `{main}/{s1}/{s2}/{title}/{domain.entity[.attr]}/{sys.*}` 模板（与服务端同构）。 */
   function espRenderTemplate(tpl, ctx) {
     return String(tpl || '')
       .replace(/\{([^{}]+)\}/g, (all, rawKey) => {
@@ -401,6 +506,13 @@
         if (key === 's1') return ctx.s1;
         if (key === 's2') return ctx.s2;
         if (key === 'title' || key === '名称') return ctx.title;
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.startsWith('sys.') || key === 'image') {
+          // 与服务端同构：图片走独立 IMG 行，正文 {image} 永远渲染为空。
+          if (key === 'image') return '';
+          if (ctx.sys && Object.prototype.hasOwnProperty.call(ctx.sys, key)) return ctx.sys[key];
+          return ESP_FIRMWARE_SYS_KEYS.has(lowerKey) ? `{${key}}` : '';
+        }
         return ctx.entities[key] || '';
       })
       .replace(/[ \t]+/g, ' ')
@@ -427,12 +539,37 @@
     const index = espEntityIndex();
     const map = espParseValueMap(page.valueMap);
     const entityMaps = espParseEntityValueMap(page.entityValueMap);
-    const ctx = {
-      title: page.name || '',
-      entities: {},
-    };
     // 模板里直写的实体 id 也从目录里取值。
     const tplAll = `${page.tplMain || ''} ${page.tplSub || ''}`;
+    // 与服务端同构：「显示图片」勾选优先；旧配置按「模板只有 {image}」兼容。
+    const showImageOnly = !!(page.image && page.image.enabled && page.image.data)
+      || (/\{image\}/.test(tplAll) && !tplAll.replace(/\{image\}/g, ' ').trim());
+    const ctx = {
+      title: showImageOnly ? '' : (page.name || ''),
+      entities: {},
+      sys: {},
+    };
+    // 系统变量预览值（示例；真机由服务端/固件取实时值）。
+    const sysTokens = tplAll.match(/\{(?:sys\.[a-zA-Z0-9_.]+|image)\}/g) || [];
+    const nowD = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    const wk = ['日', '一', '二', '三', '四', '五', '六'][nowD.getDay()];
+    const demoSys = {
+      'sys.time': `${p2(nowD.getHours())}:${p2(nowD.getMinutes())}`,
+      'sys.timeSec': `${p2(nowD.getHours())}:${p2(nowD.getMinutes())}:${p2(nowD.getSeconds())}`,
+      'sys.date': `${p2(nowD.getMonth() + 1)}-${p2(nowD.getDate())} 周${wk}`,
+      'sys.lunar': '十月十一',
+      'sys.weather.auto': '晴 26°',
+    };
+    for (const t of sysTokens) {
+      const key = t.slice(1, -1);
+      // 图片不作为文字绘制；预览靠点阵块表示，不再写 "[图片]" 占位字样。
+      if (key === 'image') continue;
+      if (Object.prototype.hasOwnProperty.call(demoSys, key)) ctx.sys[key] = demoSys[key];
+      else if (key.startsWith('sys.weather.')) {
+        ctx.sys[key] = '晴 26°'; // 预览示例值；城市名由模板手写
+      }
+    }
     // 三段式遥控标签 `{remote.xxx.channel}` 优先单独匹配（含整体 `{remote.xxx}`）。
     const remoteTplRe = /\{(remote\.([a-z0-9_]+)(?:\.([a-z]+))?)\}/g;
     const remotes = new Map((state.espRemoteDevices || []).map((item) => [item.entityId, item]));
@@ -466,6 +603,8 @@
         return `${slotName || item.slot}:${String(item.name || item.label || '').trim()}`;
       })
       .join('  ');
+    // 纯图片页：标题/正文/按键提示全部留空，预览与真机下发保持一致。
+    if (showImageOnly) return { title: '', main: '', sub: '', keys: '' };
     return { title: page.name || '未命名', main: mainTxt, sub: subTxt, keys };
   }
 
@@ -488,21 +627,61 @@
     ctx.fillStyle = on;
     ctx.textBaseline = 'alphabetic';
 
-    // 顶部系统状态栏：页码 + IP + WiFi（固件固定绘制，不参与页面配置）。
+    // 顶部状态栏：按本页 statusBar 逐项绘制（每页独立配置，v0.5）。
     const index = espDevDraft.pages.indexOf(page) + 1;
-    ctx.font = '8px monospace';
-    ctx.fillText(`${index}/${espDevDraft.pages.length}`, 3, 9);
+    const sb = espStatusBarOf(page);
     const dev = (state.espDevices || []).find((d) => d.id === espDevDraft.id) || {};
-    if (dev.ip) ctx.fillText(dev.ip, 34, 9);
-    for (let i = 0; i < 3; i += 1) ctx.fillRect(110 + i * 4, 9 - (3 + i * 2), 2, 3 + i * 2);
+    const hasBar = sb.enabled !== false;
+    let sx = 3;
+    ctx.font = '8px monospace';
+    if (hasBar) {
+      if (sb.showPage !== false) { ctx.fillText(`${index}/${espDevDraft.pages.length}`, sx, 9); sx += 26; }
+      if (sb.showTime !== false) {
+        const d0 = new Date();
+        ctx.fillText(`${String(d0.getHours()).padStart(2, '0')}:${String(d0.getMinutes()).padStart(2, '0')}`, sx, 9);
+        sx += 30;
+      }
+      if (sb.showIp && dev.ip) { ctx.fillText(dev.ip, sx, 9); sx += dev.ip.length * 5 + 3; }
+      if (sb.showRssi && dev.rssi != null) { ctx.fillText(`${dev.rssi}dBm`, sx, 9); sx += 34; }
+      if (sb.showWifiIcon !== false) {
+        for (let i = 0; i < 3; i += 1) ctx.fillRect(110 + i * 4, 9 - (3 + i * 2), 2, 3 + i * 2);
+      }
+    }
+    const dy = hasBar ? 0 : -12;
+
+    // 图片（服务端下发的 1-bit 点阵）：预览按真实点位画，所见即真机所见。
+    const hasImg = !!(page.image && page.image.data && (page.image.enabled
+      || /\{image\}/.test(`${page.tplMain || ''} ${page.tplSub || ''}`)));
+    if (hasImg) {
+      const bits = espDecodeImageBits(page.image.data, page.image.invert);
+      const imgTop = hasBar ? 12 : 0;
+      if (bits) {
+        ctx.fillStyle = on;
+        for (let y = 0; y < 64 - imgTop; y += 1) {
+          for (let xb = 0; xb < 16; xb += 1) {
+            const byte = bits[y * 16 + xb];
+            for (let bit = 0; bit < 8; bit += 1) {
+              if (byte & (0x80 >> bit)) ctx.fillRect(xb * 8 + bit, imgTop + y, 1, 1);
+            }
+          }
+        }
+      } else {
+        ctx.fillStyle = on;
+        ctx.fillRect(3, imgTop + 8, 122, 40);
+        ctx.fillStyle = '#000';
+        ctx.font = '9px "Microsoft YaHei", sans-serif';
+        ctx.fillText('点阵数据无效', 8, imgTop + 32);
+      }
+      ctx.fillStyle = on;
+    }
 
     const lines = espPreviewLines(page);
     ctx.font = '10px "Microsoft YaHei", sans-serif';
-    ctx.fillText(espClip(ctx, lines.title, 122), 3, 22);
+    ctx.fillText(espClip(ctx, lines.title, 122), 3, 22 + dy);
     ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
-    ctx.fillText(espClip(ctx, lines.main, 122), 3, 38);
+    ctx.fillText(espClip(ctx, lines.main, 122), 3, 38 + dy);
     ctx.font = '8px "Microsoft YaHei", sans-serif';
-    if (lines.sub) ctx.fillText(espClip(ctx, lines.sub, 122), 3, 50);
+    if (lines.sub) ctx.fillText(espClip(ctx, lines.sub, 122), 3, 50 + dy);
     if (lines.keys) {
       ctx.font = '8px monospace';
       ctx.fillText(espClip(ctx, lines.keys, 124), 3, 62);
@@ -511,7 +690,8 @@
     const buttonCount = (page.buttons || []).filter((item) => item.enabled !== false).length;
     const displayCount = ['tplMain', 'tplSub'].filter((slot) => page[slot] && String(page[slot]).trim()).length;
     $('espdev-preview-meta').innerHTML =
-      `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${displayCount} 行显示<br>超宽文字在设备上按各行节拍滚动（预览只显示首屏）`;
+      `页面 <b>${index}/${espDevDraft.pages.length}</b> · ${buttonCount} 个按键 · ${displayCount} 行显示`
+      + `<br>状态栏：${hasBar ? '显示' : '隐藏（内容上移）'} · 图片：${hasImg ? '显示' : '关闭'} · 超宽文字按节拍滚动`;
   }
 
   function renderEspPages() {
@@ -570,6 +750,9 @@
       return;
     }
     $('espdev-title').textContent = `页面配置 · ${page.name || '未命名'}`;
+    const sb = espStatusBarOf(page);
+    const imgData = String((page.image && page.image.data) || '');
+    const imgEnabled = !!(page.image && page.image.enabled && imgData);
     // 设备本机上报的槽位→GPIO。后台只展示，不反向下发；
     // 槽位 0 显示「—」，本机没启用的槽位显示「未映射」。
     const pinMap = new Map((espDevDraft.buttons || []).map((item) => [Number(item.slot), Number(item.pin)]));
@@ -750,7 +933,37 @@
             <button class="btn small" type="button" data-entmap-pick>插入实体</button>
           </div>
         </div>
-        <p class="hint">模板就是屏幕上要显示的内容：<b>直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个），<b>{title}</b> 是页面名。主状态模板显示在加粗大字行，副状态模板显示在下方小字行；留空的那行不显示。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），遥控状态字段同样适用（<b>remote.android_xxx.sleep: 关闭=未启用, 开启=关闭剩余</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
+        <p class="hint">模板就是屏幕上要显示的内容：<b>直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个），<b>{title}</b> 是页面名；也可点「插入实体」插入 <b>系统状态</b>变量（时间/农历/天气/有人 等），与实体同框混编。主状态模板显示在加粗大字行，副状态模板显示在下方小字行；留空的那行不显示。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），遥控状态字段同样适用（<b>remote.android_xxx.sleep: 关闭=未启用, 开启=关闭剩余</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
+        <div class="esp-image-box">
+          <div class="esp-field-row"><label>图片显示</label>
+            <div class="esp-ent-cell">
+              <label class="inline-check"><input type="checkbox" id="esp-image-enabled" ${imgEnabled ? 'checked' : ''} ${imgData ? '' : 'disabled'}> 显示图片</label>
+              <button class="btn small" type="button" id="esp-pick-image">上传图片</button>
+              <input type="file" id="esp-image-file" accept="image/*" style="display:none">
+              <label class="inline-check"><input type="checkbox" id="esp-image-invert" ${page.image && page.image.invert ? 'checked' : ''}> 反色</label>
+              <button class="btn small" type="button" id="esp-clear-image" ${imgData ? '' : 'disabled'}>清除</button>
+            </div>
+          </div>
+          <div class="esp-image-lock" id="esp-image-lock" ${imgEnabled ? '' : 'hidden'}>正在使用图片显示，上方内容编辑已锁定；取消勾选后可继续编辑（原内容会保留）。</div>
+          <p class="hint">图片转成 <b>128×64 黑白点阵</b>（无灰度）随配置下发，<b>不烧进固件</b>。上传后会自动勾选「显示图片」：整屏只显示这张图，页面名标题和文字都不再叠加。取消勾选则恢复按上面的模板显示，模板内容会保留。单图 ≤2KB。</p>
+        </div>
+      </div>
+      <div class="esp-section">
+        <h4>②b 状态栏 <span class="tag">本页独立</span></h4>
+        <div class="esp-field-row"><label>状态栏</label>
+          <label class="inline-check"><input type="checkbox" id="esp-sb-enabled" ${sb.enabled ? 'checked' : ''}> 显示</label>
+        </div>
+        <div class="esp-sb-elements" id="esp-sb-elements">
+          ${[
+            ['showPage', '页码'],
+            ['showTime', '时间'],
+            ['showWifiIcon', 'WiFi 图标'],
+            ['showRssi', '信号强度'],
+            ['showIp', 'IP'],
+          ].map(([k, label]) =>
+            `<label class="inline-check"><input type="checkbox" data-sb="${k}" ${sb[k] ? 'checked' : ''} ${sb.enabled ? '' : 'disabled'}> ${label}</label>`).join('')}
+        </div>
+        <p class="hint">状态栏为本页独立配置：隐藏时正文上移占满顶部。128px 单行放不下全部元素，勾选过多会截断——预览里可实时核对。</p>
       </div>
       <div class="esp-section">
         <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>
@@ -827,6 +1040,77 @@
       page.entityValueMap = event.target.value;
       drawEspPreview();
     });
+    // 状态栏：每页独立。关掉总开关时子项只读，隐藏后正文在预览里上移。
+    if (!page.statusBar) page.statusBar = espStatusBarOf(null);
+    $('esp-sb-enabled').addEventListener('change', (event) => {
+      page.statusBar.enabled = event.target.checked;
+      host.querySelectorAll('[data-sb]').forEach((box) => { box.disabled = !event.target.checked; });
+      drawEspPreview();
+    });
+    host.querySelectorAll('[data-sb]').forEach((box) => {
+      box.addEventListener('change', () => {
+        page.statusBar[box.dataset.sb] = box.checked;
+        drawEspPreview();
+      });
+    });
+    // 图片：浏览器本地转 128×64 1-bit，base64 随页面配置下发，不进固件。
+    if (!page.image) page.image = { data: '', invert: false, enabled: false };
+    const imgFile = $('esp-image-file');
+    const pickImgBtn = $('esp-pick-image');
+    const clearImgBtn = $('esp-clear-image');
+    const imgEnabledBox = $('esp-image-enabled');
+    const imgLock = $('esp-image-lock');
+    const contentFields = [$('esp-tpl-main'), $('esp-tpl-sub'), $('esp-value-map'), $('esp-entity-value-map')];
+    const contentPickers = [...host.querySelectorAll('[data-tpl-pick], [data-entmap-pick]')];
+    // 勾选「显示图片」后整页只出图：锁住上方四个内容框并给出明确提示，
+    // 避免用户以为文字还会显示。取消勾选即解锁，已填内容原样保留。
+    function applyImageLock() {
+      const on = !!(page.image.enabled && page.image.data);
+      imgEnabledBox.disabled = !page.image.data;
+      contentFields.forEach((el) => { if (el) el.disabled = on; });
+      contentPickers.forEach((el) => { el.disabled = on; });
+      imgLock.hidden = !on;
+    }
+    applyImageLock();
+    imgEnabledBox.addEventListener('change', (event) => {
+      page.image.enabled = event.target.checked;
+      applyImageLock();
+      drawEspPreview();
+    });
+    pickImgBtn.addEventListener('click', () => imgFile.click());
+    imgFile.addEventListener('change', async () => {
+      const file = imgFile.files && imgFile.files[0];
+      if (!file) return;
+      const restore = setBtnBusy(pickImgBtn, '转换中…');
+      try {
+        const data = await espImageToBits(file);
+        page.image.data = data;
+        // 上传即勾选「显示图片」，无需再在模板里写 {image}。
+        page.image.enabled = true;
+        imgEnabledBox.checked = true;
+        clearImgBtn.disabled = false;
+        applyImageLock();
+        drawEspPreview();
+        toast('图片已转成 128×64 黑白点阵并开启显示，记得点「保存并下发」', 'ok');
+      } catch (error) {
+        toast('图片转换失败：' + error.message, 'error');
+      } finally {
+        restore();
+        imgFile.value = '';
+      }
+    });
+    $('esp-image-invert').addEventListener('change', (event) => {
+      page.image.invert = event.target.checked;
+      drawEspPreview();
+    });
+    clearImgBtn.addEventListener('click', () => {
+      page.image.data = '';
+      page.image.enabled = false;
+      imgEnabledBox.checked = false;
+      clearImgBtn.disabled = true;
+      applyImageLock();
+      drawEspPreview();
+    });
     // 槽位显示名（设备级）：立即影响预览底部提示，保存后随页面配置一起下发。
     host.querySelectorAll('[data-slotname]').forEach((el) => {
       el.addEventListener('input', () => {
@@ -846,6 +1130,7 @@
         openEntityPicker({
           title: which === 'main' ? '插入实体到主状态模板' : '插入实体到副状态模板',
           quickTokens: espRemoteQuickTokens(page),
+          groups: espSysVarGroups(),
           extraEntities: espRemoteStatusEntities(),
           // 温度、亮度这类值在 HA 里是实体的属性而不是独立实体，列表里选不到，
           // 所以这里允许选中实体后再挑一个属性，插入 `{domain.entity.attr}`。
@@ -1084,6 +1369,12 @@
       })),
       loop: page.loop !== false,
       idle: Number(page.idle) || 0,
+      statusBar: espStatusBarOf(page),
+      image: {
+        data: String((page.image && page.image.data) || ''),
+        invert: !!(page.image && page.image.invert),
+        enabled: !!(page.image && page.image.enabled && page.image.data),
+      },
     }));
     if (!pages.length) pages.push(newEspPage(0));
     espDevDraft = {
@@ -1142,6 +1433,12 @@
         remoteTarget: page.remoteTarget || '',
         loop: page.loop !== false,
         idle: Number(page.idle) || 0,
+        statusBar: espStatusBarOf(page),
+        image: {
+          data: String((page.image && page.image.data) || ''),
+          invert: !!(page.image && page.image.invert),
+          enabled: !!(page.image && page.image.enabled && page.image.data),
+        },
         buttons: (page.buttons || []).map((button) => ({
           id: button.id,
           name: button.name || '',
@@ -1190,6 +1487,200 @@
       .then(() => { if (state.espDevEditId) return openEspDevEditor(state.espDevEditId); })
       .catch((error) => toast('刷新失败：' + error.message, 'error'));
   });
+
+  // ------------------------------------------------------------ 天气城市映射表
+
+  async function loadWeatherCities(force = false) {
+    if (state.weatherCities && !force) return state.weatherCities;
+    const data = await api('/api/admin/weather/cities');
+    state.weatherCities = data.cities || [];
+    state.weatherRefCounts = data.refCounts || {};
+    state.weatherCache = data.cache || null;
+    state.weatherSeedNames = data.seedNames || [];
+    return state.weatherCities;
+  }
+
+  function espCopyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return;
+    }
+    // admin 常跑在局域网 http 上，Clipboard API 不可用，退回 execCommand。
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (error) { /* 复制失败不打断主流程 */ }
+    ta.remove();
+  }
+
+  /**
+   * 城市表只在这里维护；home/tv 运行时不读这份配置。
+   * id 由服务端按「首字母 → 全拼 → 序号」生成，落库后不可改，改名不影响缓存 key。
+   */
+  async function openWeatherCitiesDialog() {
+    let data;
+    try {
+      data = await api('/api/admin/weather/cities');
+    } catch (error) {
+      toast('城市表加载失败：' + error.message, 'error');
+      return;
+    }
+    state.weatherCities = data.cities || [];
+    state.weatherRefCounts = data.refCounts || {};
+    state.weatherCache = data.cache || null;
+    state.weatherSeedNames = data.seedNames || [];
+
+    const layer = document.createElement('div');
+    layer.className = 'ent-pick-layer weather-city-layer';
+    layer.innerHTML = `
+      <div class="overlay">
+        <div class="card dialog wide" role="dialog" aria-modal="true">
+          <div class="dialog-head">
+            <h3>天气城市映射表</h3>
+            <button class="icon-btn" type="button" data-wc-close>×</button>
+          </div>
+          <div class="dialog-body">
+            <p class="hint">模板里写 <code>{sys.weather.gz}</code> 就会显示对应城市天气；一页可以写多个城市。<b>auto</b> 是固定项，取服务端出口 IP 定位，失败回退到默认城市。<br>
+            id 由城市名自动生成（首字母冲突时改全拼，再冲突加序号），<b>创建后不可修改</b>；改名只影响显示，不影响缓存。表内改动与 home/tv 无关。</p>
+            <div class="wc-add">
+              <label>城市名 <input type="text" id="wc-new-name" maxlength="20" placeholder="例：镇江"></label>
+              <label>查询地点（可空） <input type="text" id="wc-new-location" maxlength="40" placeholder="默认同城市名"></label>
+              <button class="btn small primary" type="button" id="wc-add-btn">＋ 新增城市</button>
+            </div>
+            <div class="wc-table-wrap">
+              <table class="wc-table">
+                <thead><tr><th>id（不可改）</th><th>城市名</th><th>查询地点</th><th>引用</th><th>操作</th></tr></thead>
+                <tbody id="wc-rows"></tbody>
+              </table>
+            </div>
+            <div class="wc-foot">
+              <span class="wc-cache" id="wc-cache"></span>
+              <button class="btn small" type="button" id="wc-reseed">从种子文件补入</button>
+              <button class="btn small primary" type="button" id="wc-save">保存修改</button>
+            </div>
+          </div>
+          <div class="dialog-foot">
+            <span class="hint">被引用的城市不能直接删，先把模板里的 <code>{sys.weather.id}</code> 换掉。</span>
+            <button class="btn" type="button" data-wc-close>关闭</button>
+          </div>
+        </div>
+      </div>`;
+    $('dialog-root').appendChild(layer);
+    const close = () => { layer.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (event) => { if (event.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    layer.querySelectorAll('[data-wc-close]').forEach((btn) => btn.addEventListener('click', close));
+    layer.querySelector('.overlay').addEventListener('click', (event) => {
+      if (event.target === layer.querySelector('.overlay')) close();
+    });
+
+    const rowsEl = layer.querySelector('#wc-rows');
+    const cacheEl = layer.querySelector('#wc-cache');
+    const renderRows = () => {
+      const refCounts = state.weatherRefCounts || {};
+      rowsEl.innerHTML = (state.weatherCities || []).map((c) => {
+        const fixed = c.id === 'auto';
+        const refs = Number(refCounts[c.id]) || 0;
+        return `<tr data-city="${esc(c.id)}">
+          <td><code>{sys.weather.${esc(c.id)}}</code><button class="wc-copy" type="button" data-copy="${esc(c.id)}" title="复制变量">复制</button></td>
+          <td><input type="text" data-field="name" maxlength="20" value="${esc(c.name)}" ${fixed ? 'disabled' : ''}></td>
+          <td><input type="text" data-field="location" maxlength="40" value="${esc(c.location || '')}" ${fixed ? 'disabled' : ''}></td>
+          <td>${fixed ? '固定' : (refs ? `<b class="wc-used">${refs} 处</b>` : '—')}</td>
+          <td><button class="btn small" type="button" data-del="${esc(c.id)}" ${fixed || refs ? 'disabled' : ''}>删除</button></td>
+        </tr>`;
+      }).join('');
+      const cache = state.weatherCache || {};
+      const items = cache.items || [];
+      const seeds = Array.from(new Set(state.weatherSeedNames || []));
+      const names = new Set((state.weatherCities || []).filter((c) => c.id !== 'auto').map((c) => c.name));
+      const seedDiff = seeds.length
+        ? ` · 种子 weather_cities.txt ${seeds.length} 项 · 多 ${seeds.filter((n) => !names.has(n)).length} / 少 ${[...names].filter((n) => !seeds.includes(n)).length}`
+        : ' · 种子文件不存在（可用下方按钮补入）';
+      cacheEl.innerHTML = `${cache.hasKey ? '天气接口已配置' : '<b class="wc-warn">未配置天气 API Key，天气变量会留空</b>'}
+        · 默认城市 ${esc(cache.defaultCity || '—')} · 缓存 ${items.length} 项${esc(seedDiff)}`
+        + (items.length ? `<br><span class="muted">${items.map((hit) => `${esc(hit.id)}:${esc(hit.source || '')}`).join(' · ')}</span>` : '');
+      rowsEl.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', () => {
+        espCopyText(`{sys.weather.${btn.dataset.copy}}`);
+        toast('变量已复制，粘到主状态/副状态模板即可', 'ok');
+      }));
+      rowsEl.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
+        if (!confirm(`删除城市「${btn.dataset.del}」？`)) return;
+        const restore = setBtnBusy(btn, '删除中…');
+        try {
+          const result = await api(`/api/admin/weather/cities/${encodeURIComponent(btn.dataset.del)}`, { method: 'DELETE' });
+          state.weatherCities = result.cities || [];
+          await loadWeatherCities(true);
+          renderRows();
+          drawEspPreview();
+          toast('城市已删除', 'ok');
+        } catch (error) { toast('删除失败：' + error.message, 'error'); restore(); }
+      }));
+    };
+    renderRows();
+
+    layer.querySelector('#wc-add-btn').addEventListener('click', async (event) => {
+      const nameInput = layer.querySelector('#wc-new-name');
+      const locInput = layer.querySelector('#wc-new-location');
+      const name = nameInput.value.trim();
+      if (!name) { toast('请填城市名', 'error'); return; }
+      const restore = setBtnBusy(event.currentTarget, '新增中…');
+      try {
+        const result = await api('/api/admin/weather/cities', {
+          method: 'POST',
+          body: JSON.stringify({ name, location: locInput.value.trim() }),
+        });
+        await loadWeatherCities(true);
+        renderRows();
+        drawEspPreview();
+        nameInput.value = '';
+        locInput.value = '';
+        toast(`已新增 ${result.city.name} → ${result.city.id}${result.note ? `（${result.note}）` : ''}`, 'ok');
+      } catch (error) { toast('新增失败：' + error.message, 'error'); }
+      finally { restore(); }
+    });
+
+    layer.querySelector('#wc-save').addEventListener('click', async (event) => {
+      const restore = setBtnBusy(event.currentTarget, '保存中…');
+      try {
+        let changed = 0;
+        for (const tr of rowsEl.querySelectorAll('tr[data-city]')) {
+          const id = tr.dataset.city;
+          if (id === 'auto') continue;
+          const original = (state.weatherCities || []).find((c) => c.id === id);
+          if (!original) continue;
+          const name = tr.querySelector('[data-field="name"]').value.trim();
+          const location = tr.querySelector('[data-field="location"]').value.trim();
+          if (name === original.name && location === (original.location || '')) continue;
+          await api(`/api/admin/weather/cities/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name, location }),
+          });
+          changed += 1;
+        }
+        await loadWeatherCities(true);
+        renderRows();
+        drawEspPreview();
+        toast(changed ? `已保存 ${changed} 个城市` : '没有需要保存的改动', 'ok');
+      } catch (error) { toast('保存失败：' + error.message, 'error'); }
+      finally { restore(); }
+    });
+
+    layer.querySelector('#wc-reseed').addEventListener('click', async (event) => {
+      const restore = setBtnBusy(event.currentTarget, '补入中…');
+      try {
+        const result = await api('/api/admin/weather/cities/reseed', { method: 'POST' });
+        await loadWeatherCities(true);
+        renderRows();
+        drawEspPreview();
+        toast(result.msg || `已补入 ${(result.added || []).length} 个城市`, 'ok');
+      } catch (error) { toast('补入失败：' + error.message, 'error'); }
+      finally { restore(); }
+    });
+  }
+
+  if ($('esp-weather-cities')) $('esp-weather-cities').addEventListener('click', openWeatherCitiesDialog);
 
   // ------------------------------------------------------------ Tab
 

@@ -71,7 +71,10 @@ static const char *DEVICE_NAME         = "ESP32-S3 小屏";
 //           后台显示「有人 / 无人 + 最近进入/离开时间」。
 // oled-3.3：修「亮屏后正文变空白、只剩顶栏页码/IP」——NetSnapshot 标量补默认值，
 //           感应上报不再顺延 60 秒心跳计时（否则定时拉页面永远不触发）。
-static const char *APP_VER             = "oled-3.3";
+// oled-4.0：系统状态变量支持——每页状态栏配置（BAR 行，逐页显示/隐藏 + 元素勾选、
+//           隐藏时内容上移重排）、状态栏时间（TIME 行）、图片点阵（IMG 行，128×64
+//           1-bit 服务端下发，不烧固件）。{sys.*} 本机变量在绘制时替换。老配置/老固件兼容。
+static const char *APP_VER             = "oled-4.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -112,6 +115,17 @@ BtnState buttons[MAX_BTN];
 // 默认初始化不会清零标量——而 String 成员每轮都会构造为空串。
 // 少了默认值就会出现「state 沿用上一轮的真值、文本却是空串」的假快照，
 // 发布出去会把屏幕正文刷成空白（只剩顶栏页码/IP）。oled-3.3 修的就是这个。
+// 每页状态栏配置（BAR 行，位掩码）：
+//   bit0 enabled / bit1 showPage / bit2 showTime / bit3 showWifiIcon / bit4 showRssi / bit5 showIp
+// 默认 = enabled+page+time+wifiIcon（0b0001111 = 15），与服务端 normalizeEspStatusBar 默认一致。
+#define SB_ENABLED   (1 << 0)
+#define SB_PAGE      (1 << 1)
+#define SB_TIME      (1 << 2)
+#define SB_WIFI_ICON (1 << 3)
+#define SB_RSSI      (1 << 4)
+#define SB_IP        (1 << 5)
+#define SB_DEFAULT   (SB_ENABLED | SB_PAGE | SB_TIME | SB_WIFI_ICON)
+
 struct NetSnapshot {
   bool valid = false;         // 本次拿到了有效的页面/按键/显示数据
   bool fwKnown = false;       // 本次成功查询了服务端固件版本
@@ -121,6 +135,11 @@ struct NetSnapshot {
   bool pageLoop = true;
   int idleSeconds = 0;
   int screenOnSec = 0;        // 人离开后熄屏秒数（0 = 常亮），来自 SCREEN 行
+  uint8_t statusBar = 15;     // 每页状态栏位掩码（BAR 行）；默认 15
+  String time = "";           // 状态栏时间 HH:MM（TIME 行，跨页共享）
+  bool hasImage = false;      // 收到 IMG 行且解码成功
+  uint8_t imageBits[1024];    // 128×64 1-bit 点阵（行优先，每行 16 字节，MSB 在前）
+  bool imageInvert = false;   // 反色（暂保留，服务端可下发）
   String title, main, sub, keys;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
@@ -141,6 +160,11 @@ volatile bool netBusy = false;      // 任务正在请求中（预取别重复�
 String scrTitle = "", scrMain = "", scrSub = "", scrKeys = "";
 bool haveDisplay = false;               // 收到过 DISPLAY 行（空主状态也要正常绘制）
 int  pageCount = 1, pageIndex = 1;      // 页码来自服务端（若下发）；>=1
+uint8_t curStatusBar = 15;              // 当前页状态栏位掩码（BAR 行）
+bool curHasImage = false;               // 当前页是否下发图片点阵
+uint8_t curImageBits[1024];             // 当前页 128×64 1-bit 点阵
+bool curImageInvert = false;
+String barTime = "";                    // 状态栏时间（服务端 TIME 行下发 HH:MM，设备本地走秒）
 uint32_t lastMarquee = 0;               // 跑马灯相位推进节拍（~10fps）
 uint32_t phaseTitle = 0, phaseMain = 0, phaseSub = 0, phaseKeys = 0;  // 各行独立相位
 
@@ -164,6 +188,9 @@ struct PageCache {
   bool valid;
   int pageCount;
   bool pageLoop;
+  uint8_t statusBar;          // 每页状态栏位掩码
+  bool hasImage;
+  uint8_t imageBits[1024];    // 128×64 1-bit 点阵
   String title, main, sub, keys;
   String label[MAX_BTN + 1];
   String name[MAX_BTN + 1];
@@ -275,26 +302,87 @@ void invertBlock(int x, int y, int w, int h) {
   for (int yy = y; yy < y + h; yy++) u8g2.drawHLine(x, yy, w);
 }
 
-// 顶部状态栏（E2）：页码 + 真实 IP（拿到前留空）+ WiFi 信号格。
-// 只有 WiFi 已连接才画 IP；断网/配网由 drawSysMessage 单独处理，不显示假 IP。
-void drawStatusBar() {
+// 顶部状态栏（v0.5）：元素按本页 BAR 位掩码逐项绘制。
+// enabled=0 时整条不画（内容区上移重排，见 drawScreen）。
+// 省电/省宽：只画勾选的元素；IP 仅 WiFi 已连接显示，绝不写死示例值。
+// 返回本页状态栏是否实际绘制，供 drawScreen 决定内容区起始 y。
+bool drawStatusBar() {
+  uint8_t sb = curStatusBar;
+  if (!(sb & SB_ENABLED)) return false;
   u8g2.setFont(u8g2_font_6x10_tf);
   u8g2.setClipWindow(0, 0, 128, 12);
-  // 左：页码
-  char pg[12];
-  snprintf(pg, sizeof(pg), "%d/%d", pageIndex, pageCount);
-  u8g2.drawStr(2, 9, pg);
-  // 中：真实 station IP（未连上则为空，绝不写死示例值）
-  if (WiFi.status() == WL_CONNECTED) {
-    String ip = WiFi.localIP().toString();
-    u8g2.drawStr(30, 9, ip.c_str());
+  int cursor = 2;
+  // 页码
+  if (sb & SB_PAGE) {
+    char pg[12];
+    snprintf(pg, sizeof(pg), "%d/%d", pageIndex, pageCount);
+    u8g2.drawStr(cursor, 9, pg);
+    cursor += strlen(pg) * 6 + 4;
   }
-  // 右：WiFi 信号格（3 条递增竖条）
-  int sx = 114;
-  u8g2.drawBox(sx, 6, 2, 3);
-  u8g2.drawBox(sx + 4, 4, 2, 5);
-  u8g2.drawBox(sx + 8, 2, 2, 7);
+  // 时间（服务端 TIME 行下发 HH:MM；未下发时留空，不显示假时间）
+  if ((sb & SB_TIME) && barTime.length()) {
+    u8g2.drawStr(cursor, 9, barTime.c_str());
+    cursor += barTime.length() * 6 + 4;
+  }
+  // 真实 station IP（未连上则为空）
+  if ((sb & SB_IP) && WiFi.status() == WL_CONNECTED) {
+    String ip = WiFi.localIP().toString();
+    u8g2.drawStr(cursor, 9, ip.c_str());
+    cursor += ip.length() * 6 + 4;
+  }
+  // RSSI 数值
+  if ((sb & SB_RSSI) && WiFi.status() == WL_CONNECTED) {
+    char rs[10];
+    snprintf(rs, sizeof(rs), "%ddBm", (int)WiFi.RSSI());
+    u8g2.drawStr(cursor, 9, rs);
+    cursor += strlen(rs) * 6 + 4;
+  }
+  // WiFi 信号格（3 条递增竖条），靠右画，不与左侧文字重叠时显示
+  if (sb & SB_WIFI_ICON) {
+    int sx = 114;
+    u8g2.drawBox(sx, 6, 2, 3);
+    u8g2.drawBox(sx + 4, 4, 2, 5);
+    u8g2.drawBox(sx + 8, 2, 2, 7);
+  }
   u8g2.setMaxClipWindow();
+  return true;
+}
+
+// 把正文里的本机 sys 变量 token 替换成实时值（服务端原样保留这些 token 下发）。
+// 只在固件侧能拿到：联网状态/RSSI/人体/IP/页码。缺值替换为空串。
+// 用字符串常量替换，避免临时 String::c_str() 悬垂指针。
+String resolveLocalSys(String s) {
+  if (s.indexOf("{sys.") < 0) return s;
+  bool online = WiFi.status() == WL_CONNECTED;
+  const int rssi = online ? WiFi.RSSI() : 0;
+  String wifiBars = !online ? "" : (rssi > -60 ? "▇▇" : (rssi > -75 ? "▃▅" : "▁▃"));
+  s.replace("{sys.online}",   online ? "已联网" : "未联网");
+  s.replace("{sys.wifi}",     wifiBars.c_str());
+  s.replace("{sys.rssi}",     online ? (String(rssi) + "dBm").c_str() : "");
+  s.replace("{sys.present}",  pirPin >= 0 ? (pirPresent ? "有人" : "无人") : "");
+  s.replace("{sys.occupied}", pirPin >= 0 ? (pirPresent ? "占用中" : "空闲") : "");
+  s.replace("{sys.ip}",       online ? WiFi.localIP().toString().c_str() : "");
+  s.replace("{sys.page}",     String(pageIndex).c_str());
+  s.replace("{sys.total}",    String(pageCount).c_str());
+  s.replace("{sys.pageOf}",   (String(pageIndex) + "/" + String(pageCount)).c_str());
+  return s;
+}
+
+// 绘制 128×64 1-bit 点阵（行优先，每行 16 字节，MSB 在前）。
+// 图片作为整屏内容：在状态栏下方的内容区居中绘制，超出部分裁剪。
+void drawImageBits(const uint8_t *bits, bool invert, int top, int contentH) {
+  if (!bits) return;
+  // 点阵是 128×64；内容区高度可能不足 64（有状态栏时约 52px），按比例裁掉底部。
+  int rows = contentH < 64 ? contentH : 64;
+  for (int y = 0; y < rows; y++) {
+    for (int xb = 0; xb < 16; xb++) {
+      uint8_t byte = bits[y * 16 + xb];
+      if (invert) byte = ~byte;
+      for (int bit = 0; bit < 8; bit++) {
+        if (byte & (0x80 >> bit)) u8g2.drawPixel(xb * 8 + bit, top + y);
+      }
+    }
+  }
 }
 
 // 主屏（E1/E2/E3/E4）：顶栏 + 标题 + 主状态 + 副状态 + 按键提示，四行分速滚动。
@@ -302,27 +390,42 @@ void drawStatusBar() {
 void drawScreen(const String &title, const String &main, const String &sub, const String &keys, bool abnormal) {
   if (!oledOk || screenOff) return;
   u8g2.clearBuffer();
-  drawStatusBar();
+  bool hasBar = drawStatusBar();
+
+  // 状态栏隐藏时内容区整体上移 12px，空出的顶部归还正文（v0.5 每页状态栏）。
+  int dy = hasBar ? 0 : -12;
+
+  // 图片：作为正文背景绘制在状态栏下方（有图时正文文字仍可叠加）。
+  // 整屏图片页通常把四个文本 token 留空，就是「哑巴显示」一张图。
+  if (curHasImage) {
+    int imgTop = hasBar ? 12 : 0;
+    drawImageBits(curImageBits, curImageInvert, imgTop, 64 - imgTop);
+  }
+
+  // 本机 sys 变量在绘制时替换（联网/信号/人体/IP/页码只有固件知道）。
+  String tTitle = resolveLocalSys(title);
+  String tMain  = resolveLocalSys(main);
+  String tSub   = resolveLocalSys(sub);
 
   // ① 标题（10px 中文）：
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  marqueeLine(title, 3, 22, 122, phaseTitle, MARQUEE_SPEED[0], true);
+  marqueeLine(tTitle, 3, 22 + dy, 122, phaseTitle, MARQUEE_SPEED[0], true);
 
   // ② 主状态：异常时整行反白（亮底黑字），否则正常亮字。
   if (abnormal) {
-    invertBlock(2, 27, 124, 14);
+    invertBlock(2, 27 + dy, 124, 14);
     u8g2.setDrawColor(0);
     u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-    marqueeLine(main, 3, 38, 122, phaseMain, MARQUEE_SPEED[1], true);
+    marqueeLine(tMain, 3, 38 + dy, 122, phaseMain, MARQUEE_SPEED[1], true);
     u8g2.setDrawColor(1);
   } else {
     u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-    marqueeLine(main, 3, 38, 122, phaseMain, MARQUEE_SPEED[1], true);
+    marqueeLine(tMain, 3, 38 + dy, 122, phaseMain, MARQUEE_SPEED[1], true);
   }
 
-  // ③ 副状态（8px 用小一号中文，wqy12 已是最小中文字库，靠 y 间距分层）：
+  // ③ 副状态（wqy12 已是最小中文字库，靠 y 间距分层）：
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  marqueeLine(sub, 3, 51, 122, phaseSub, MARQUEE_SPEED[2], true);
+  marqueeLine(tSub, 3, 51 + dy, 122, phaseSub, MARQUEE_SPEED[2], true);
 
   // ⑤ 按键提示行（底部 54..64）：
   if (keys.length()) {
@@ -511,6 +614,37 @@ String fieldAt(const String &line, int n) {
   return line.substring(start, end < 0 ? line.length() : end);
 }
 
+// base64 字符 → 6bit 值；非 base64 字符返回 -1。
+int b64val(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+// 把 base64 字符串解到 out[outLen]；返回写入字节数，输入非法返回 0。
+// 用于 IMG 行的 128×64 1-bit 点阵（1024 字节 → base64 约 1368 字符）。
+size_t base64Decode(const String &src, uint8_t *out, size_t outLen) {
+  size_t o = 0;
+  int buf = 0, bits = 0;
+  for (int i = 0; i < src.length(); i++) {
+    char c = src.charAt(i);
+    if (c == '=') break;
+    int v = b64val(c);
+    if (v < 0) continue;              // 跳过换行/空白等
+    buf = (buf << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      if (o >= outLen) return o;      // 超长保护
+      out[o++] = (uint8_t)((buf >> bits) & 0xFF);
+    }
+  }
+  return o;
+}
+
 /**
  * 拉取某页的显示与按键，解析进快照（不碰共享全局变量）。
  * 返回 true 表示本次 HTTP 成功；失败时快照保持 invalid，调用方不会覆盖旧内容。
@@ -524,6 +658,10 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
   snap.pageLoop = true;
   snap.idleSeconds = 0;
   snap.screenOnSec = 0;
+  snap.statusBar = SB_DEFAULT;
+  snap.hasImage = false;
+  snap.imageInvert = false;
+  for (int i = 0; i < 1024; i++) snap.imageBits[i] = 0;
   for (int i = 0; i <= MAX_BTN; i++) { snap.label[i] = ""; snap.name[i] = ""; snap.action[i] = ""; }
   if (WiFi.status() != WL_CONNECTED) return false;
   if (deviceId.isEmpty()) buildDeviceId();
@@ -560,6 +698,32 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
     if (line.startsWith("SCREEN|")) {
       int sec = fieldAt(line, 1).toInt();
       snap.screenOnSec = sec > 0 ? sec : 0;
+      continue;
+    }
+    // 每页状态栏：BAR|enabled|page|time|wifiIcon|rssi|ip（各 0/1）→ 位掩码。
+    // 老服务端不下发这一行，保持默认（页码+时间+WiFi图标），行为接近现状。
+    if (line.startsWith("BAR|")) {
+      uint8_t sb = 0;
+      if (fieldAt(line, 1) == "1") sb |= SB_ENABLED;
+      if (fieldAt(line, 2) == "1") sb |= SB_PAGE;
+      if (fieldAt(line, 3) == "1") sb |= SB_TIME;
+      if (fieldAt(line, 4) == "1") sb |= SB_WIFI_ICON;
+      if (fieldAt(line, 5) == "1") sb |= SB_RSSI;
+      if (fieldAt(line, 6) == "1") sb |= SB_IP;
+      snap.statusBar = sb;
+      continue;
+    }
+    // 状态栏时间：TIME|HH:MM（服务端按设备时区算好）。
+    if (line.startsWith("TIME|")) {
+      snap.time = fieldAt(line, 1);
+      continue;
+    }
+    // 图片点阵：IMG|pageId|base64(128×64 1-bit，1024 字节)|invert(0/1)。
+    // 第 4 段缺省按 0 处理，兼容尚未下发该段的旧服务端。
+    if (line.startsWith("IMG|")) {
+      String b64 = fieldAt(line, 2);
+      size_t n = base64Decode(b64, snap.imageBits, 1024);
+      if (n >= 1024) { snap.hasImage = true; snap.imageInvert = fieldAt(line, 3) == "1"; }
       continue;
     }
     // 显示层：DISPLAY|title|main|sub|keys —— 服务端按字典解析好的四行。
@@ -828,6 +992,9 @@ void switchPageLocal(int target) {
       btnAction[i] = c.action[i];
     }
     pageLoop = c.pageLoop;
+    curStatusBar = c.statusBar;
+    curHasImage  = c.hasImage;
+    for (int i = 0; i < 1024; i++) curImageBits[i] = c.imageBits[i];
     drawMain();
   } else {
     // 该页还没缓存（首次翻到）：先给页码反馈，不等 HTTP 返回。
@@ -890,6 +1057,9 @@ void applyNetSnapshot() {
       c.valid = true;
       c.pageCount = snap.pageCount;
       c.pageLoop  = snap.pageLoop;
+      c.statusBar = snap.statusBar;
+      c.hasImage  = snap.hasImage;
+      for (int i = 0; i < 1024; i++) c.imageBits[i] = snap.imageBits[i];
       c.title = snap.title;
       c.main  = snap.main;
       c.sub   = snap.sub;
@@ -919,6 +1089,11 @@ void applyNetSnapshot() {
       pageLoop    = snap.pageLoop;
       idleSeconds = snap.idleSeconds;
       screenOnSec = snap.screenOnSec;
+      curStatusBar = snap.statusBar;
+      curHasImage  = snap.hasImage;
+      curImageInvert = snap.imageInvert;
+      for (int i = 0; i < 1024; i++) curImageBits[i] = snap.imageBits[i];
+      if (snap.time.length()) barTime = snap.time;  // 时钟跨页共享
     }
     // 预取完成后把任务拉回当前页：心跳只刷新用户正在看的那一页。
     // 若有新的刷新请求在排队（requestPage/schedulePrefetch），不要覆盖页码。
