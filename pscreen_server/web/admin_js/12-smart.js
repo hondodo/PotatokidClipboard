@@ -59,9 +59,10 @@
     if (body && !state.scenes) body.innerHTML = '<div class="empty">加载中…</div>';
     const [data] = await Promise.all([
       api('/api/admin/scenes'),
-      // 动作编辑器要用：HA 实体目录 + 遥控目标能力表。失败不阻塞列表。
-      loadHaEntities().catch(() => {}),
-      loadSmartRemote().catch(() => {}),
+      // 动作编辑器要用：HA 实体目录 + 遥控目标能力表。已有缓存就不再重取——
+      // 实体目录上千条，每次保存都重拉会让「点保存」到「弹窗关闭」空好几秒。
+      state.haEntities ? null : loadHaEntities().catch(() => {}),
+      state.smartRemote ? null : loadSmartRemote().catch(() => {}),
     ]);
     state.scenes = data.scenes || [];
     state.sceneSettings = data.settings || { occupiedWindowSec: 90 };
@@ -176,7 +177,7 @@
       const act = trigger.dataset.act;
       if (act === 'edit') return openSceneEditor(scene);
       if (act === 'del') return deleteScene(scene);
-      if (act === 'run') return runSceneNow(scene);
+      if (act === 'run') return runSceneNow(scene, trigger);
     });
 
     $('smart-body').addEventListener('change', async (event) => {
@@ -218,8 +219,11 @@
   /**
    * 执行。成功只 toast，失败弹逐步结果 —— 日常点一次不该被弹窗打断，
    * 但失败必须能看清是哪一步、为什么，否则用户只能瞎猜。
+   *
+   * 动作里可能带「等待 N 秒」，点下去到出结果可能好几秒，按钮要自己说明在干活。
    */
-  async function runSceneNow(scene) {
+  async function runSceneNow(scene, btn) {
+    const restore = setBtnBusy(btn, '执行中…');
     try {
       const result = await api(`/api/admin/scenes/${encodeURIComponent(scene.id)}/run`, { method: 'POST' });
       scene.lastRunAt = Date.now();
@@ -233,6 +237,8 @@
       showSceneResult(scene, result);
     } catch (error) {
       toast(error.message, 'error');
+    } finally {
+      restore();
     }
   }
 
@@ -718,7 +724,12 @@
             holdSec: Number(draft.trigger.holdSec) || 0,
           };
         }
-        if (!payload.name) throw new Error('请填写名称');
+        if (!payload.name) {
+          // 就地提示比 toast 更清楚：错误就在字段下面，不会跟着 3 秒后消失。
+          errorEl.textContent = '请填写名称';
+          errorEl.hidden = false;
+          throw new Error('请填写名称');
+        }
         try {
           if (isNew) {
             await api('/api/admin/scenes', { method: 'POST', body: JSON.stringify(payload) });
@@ -733,7 +744,9 @@
           errorEl.hidden = false;
           throw error;
         }
-        await loadScenes(true);
+        // 写入成功即可关窗。列表刷新放后台：这里会顺带核对 HA 实体目录等，
+        // await 它会让「点保存」到「弹窗消失」之间空出几秒，看着像没点上。
+        loadScenes(true).catch((error) => toast(`列表刷新失败：${error.message}`, 'error'));
       },
     });
   }
