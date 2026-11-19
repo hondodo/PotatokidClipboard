@@ -97,7 +97,8 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           请求与回包分片传输；OTA 仍由从机直连下载。角色可在设置页切换。
 // oled-5.2：从机电池休眠——C6 从机空闲后关屏关 WiFi 深睡，按键低电平唤醒，
 //           唤醒后经主机重新注册；新增电池分压检测与电压上报。
-static const char *APP_VER             = "oled-5.2";
+// oled-5.3：后台访问期间自动推迟休眠；C6 的 GPIO15 允许接人体感应（不可作按键）。
+static const char *APP_VER             = "oled-5.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -278,6 +279,7 @@ int sleepSeconds = 0;
 int batPin = -1;
 int batDiv = 2;
 uint32_t lastActivityAt = 0;
+uint32_t sleepHoldUntil = 0;   // 访问后台后临时推迟休眠，避免编辑途中设备睡过去
 
 /* ---------------- OLED ---------------- */
 
@@ -311,6 +313,9 @@ static bool pinUsable(int pin) {
 // 人体感应可用的引脚：按键与 I2C 之外，再避开默认按键/启动脚。
 static bool pinUsableForPir(int pin) {
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // GPIO15 是板载 LED 引脚，也参与启动配置：只允许接人体感应这类纯输入，
+  // 不能配成按键；PIR 需为推挽输出，否则读数可能不稳。休眠时它不参与唤醒。
+  if (pin == 15) return true;
   if (!pinUsable(pin)) return false;
   return !(pin == 0 || pin == 1 || pin == 2);
 #else
@@ -1796,8 +1801,8 @@ String pageSettings(const String &listText, const String &err) {
   h += "<button class='mini' type='button' onclick='addSlot()' style='margin-top:8px'>＋ 添加槽位</button>";
   h += "<button type='submit'>保存按键映射并重启</button></form>";
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
-  h += "<div class='tip'>本机为 ESP32-C6：OLED 占用 GPIO19/20，可用按键/感应 0~3、6、7、10、11、14、16~18；"
-       "避开 4/5/8/9/15（启动配置脚）、12/13（USB）。</div>";
+  h += "<div class='tip'>本机为 ESP32-C6：OLED 占用 GPIO19/20，可用按键 0~3、6、7、10、11、14、16~18；"
+       "避开 4/5/8/9/15（启动配置脚）、12/13（USB）。GPIO15 只能接人体感应，不可配按键。</div>";
   h += "<script>function addSlot(){var ins=document.querySelectorAll('.pin');"
        "var used={};for(var i=0;i<ins.length;i++){if(ins[i].value!=='-1'&&ins[i].value!=='')used[ins[i].value]=1;}"
        "var cand=[3,6,7,10,11,14,16,17,18];"
@@ -1872,6 +1877,8 @@ void setupServer() {
   // 设置页：控制端地址 + 服务端已放行的控制项
   server.on("/settings", []() {
     if (authBlocked()) return;
+    // 访问后台后 5 分钟内不休眠，避免页面刚打开或保存途中设备睡过去。
+    sleepHoldUntil = millis() + 300000UL;
     if (deviceId.isEmpty()) buildDeviceId();
     String text, err;
     if (gApMode) {
@@ -1885,6 +1892,7 @@ void setupServer() {
 
   server.on("/settings/save", HTTP_POST, []() {
     if (authBlocked()) return;
+    sleepHoldUntil = millis() + 300000UL;
     String base = server.arg("base");
     base.trim();
     while (base.endsWith("/")) base.remove(base.length() - 1);
@@ -1902,6 +1910,7 @@ void setupServer() {
   // 角色切换：master 会自动解除原本机作为从机的绑定；slave 保留填写的所属主机。
   server.on("/settings/role", HTTP_POST, []() {
     if (authBlocked()) return;
+    sleepHoldUntil = millis() + 300000UL;
     String role = server.hasArg("role") ? server.arg("role") : String("master");
     role.trim();
     role.toLowerCase();
@@ -1925,6 +1934,7 @@ void setupServer() {
   // 电池与休眠（仅 C6）：校验引脚后写入 NVS，重启生效。
   server.on("/settings/power", HTTP_POST, []() {
     if (authBlocked()) return;
+    sleepHoldUntil = millis() + 300000UL;
     int sleepArg = server.hasArg("sleep") ? server.arg("sleep").toInt() : 0;
     if (sleepArg < 0) sleepArg = 0;
     if (sleepArg > 3600) sleepArg = 3600;
@@ -1947,6 +1957,7 @@ void setupServer() {
   // 按键槽位映射：槽位号 = 表单行号，空 / -1 / 重复引脚视为停用；保存后重启生效。
   server.on("/settings/buttons", HTTP_POST, []() {
     if (authBlocked()) return;
+    sleepHoldUntil = millis() + 300000UL;
     int pins[MAX_BTN];
     int maxSlot = 0;
     for (int i = 0; i < MAX_BTN; i++) {
@@ -2014,6 +2025,7 @@ void setupServer() {
   // 网页「测试」按钮：直接请服务端执行对应动作（同样受白名单约束）
   server.on("/settings/press", HTTP_POST, []() {
     if (authBlocked()) return;
+    sleepHoldUntil = millis() + 300000UL;
     if (deviceId.isEmpty()) buildDeviceId();
     String actionId = server.arg("actionId");
     String slot = server.arg("slot");
@@ -2208,6 +2220,7 @@ void loop() {
   // 从机电池休眠：按键/人在场会刷新 lastActivityAt；OTA 中或待自动更新时不睡。
   if (deviceRole == "slave" && sleepSeconds > 0 && !otaInProgress
       && !(autoUpdate && fwAvailable)
+      && (int32_t)(millis() - sleepHoldUntil) > 0
       && millis() - lastActivityAt > (uint32_t)sleepSeconds * 1000UL) {
     enterDeepSleep();
   }
