@@ -21,3 +21,6 @@ pscreen_server/backups/
 .tmp/
 # 一次性运维脚本（常含后台 session cookie，禁止入库）
 .tmp_*.sh
+
+# 本地验证截图（不入库）
+.tmp-shot/
