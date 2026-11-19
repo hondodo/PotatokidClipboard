@@ -331,14 +331,17 @@
     return map;
   }
 
-  /** 按实体的值替换表：`entity_id: on=有人, off=无人`（一行一个实体）。 */
+  /**
+   * 按实体的值替换表：`entity_id: on=有人, off=无人`（一行一个实体）。
+   * 键允许 HA 实体两段式，也允许遥控语义字段三段式（如 remote.android_x.sleep）。
+   */
   function espParseEntityValueMap(text) {
     const map = new Map();
     String(text || '').split('\n').forEach((line) => {
       const idx = line.search(/[:：]/);
       if (idx <= 0) return;
       const entityId = line.slice(0, idx).trim();
-      if (!/^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i.test(entityId)) return;
+      if (!/^(?:[a-z][a-z0-9_]*\.[a-z0-9_]+|remote\.[a-z0-9_]+\.[a-z]+)$/i.test(entityId)) return;
       const rules = espParseValueMap(line.slice(idx + 1));
       if (rules.size) map.set(entityId, rules);
     });
@@ -430,8 +433,14 @@
     while ((rm = remoteTplRe.exec(tplAll))) {
       const dev = remotes.get(rm[2] ? `remote.${rm[2]}` : rm[1]);
       const fields = dev && dev.fields ? dev.fields : null;
-      if (rm[3] && fields) ctx.entities[rm[1]] = fields[rm[3]] || '';
-      else if (!rm[3]) ctx.entities[rm[1]] = dev ? (dev.state || '') : '';
+      if (rm[3] && fields) {
+        // 遥控语义字段也走「按实体替换」→ 页面级兜底，键形如 remote.xxx.sleep。
+        let value = fields[rm[3]] || '';
+        const own = entityMaps.get(rm[1]);
+        if (own && own.has(value)) value = own.get(value);
+        else if (map.has(value)) value = map.get(value);
+        ctx.entities[rm[1]] = value;
+      } else if (!rm[3]) ctx.entities[rm[1]] = dev ? (dev.state || '') : '';
       else ctx.entities[rm[1]] = '';
     }
     // 其余 HA 实体（排除已被上面处理的 remote.*），支持可选第三段属性。
@@ -722,7 +731,7 @@
             <button class="btn small" type="button" data-entmap-pick>插入实体</button>
           </div>
         </div>
-        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
+        <p class="hint">模板留空就用设备类型字典。<b>推荐直接写实体 id</b>（如 <b>{switch.bedroom}</b>，可写多个，绑定不够时用这个）；<b>{main}</b> / <b>{s1}</b> / <b>{s2}</b> 只是三个绑定的快捷写法，<b>{title}</b> 是页面名。点「插入实体」可搜家庭/房间/设备；若上方绑了遥控设备，模板框下会直接显示一排<b>遥控状态标签按钮</b>（当前页/频道/音量/定时开关/定时剩余），点一下即插入到光标处。<br>「值替换」是页面级兜底（<b>on=开启, off=关闭</b>）；「按实体替换」一行一个实体（<b>entity_id: on=有人, off=无人</b>），遥控状态字段同样适用（<b>remote.android_xxx.sleep: 关闭=未启用, 开启=关闭剩余</b>），同一状态优先用实体自己的翻译。缺值的段会自动省略，不会留下 <b>--</b> 或 <b>·</b>。</p>
       </div>
       <div class="esp-section">
         <h4>③ 按键定义 <span class="tag">按页面切换</span></h4>

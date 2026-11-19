@@ -70,6 +70,9 @@ const MAX_ESP_PAGES = 12;
 const MAX_ESP_BUTTONS = 8;
 const MAX_ESP_BUTTONS_PER_PAGE = 8;
 const ESP_ENTITY_RE = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i;
+// 「值替换 / 按实体替换」的键：HA 实体 `domain.object_id`，或遥控语义字段
+// `remote.<设备>.<字段>`（对应模板里的三段式标签，如 remote.android_xxx.sleep）。
+const ESP_VALUE_TARGET_RE = /^(?:[a-z][a-z0-9_]*\.[a-z0-9_]+|remote\.[a-z0-9_]+\.[a-z]+)$/i;
 // S5：带参动作与系统动作一并纳入白名单，配合字典里 set_temperature(+0.5) 这类带值写法。
 // 解析时按「动作名(参数)」拆开，动作名必须落在白名单里才放行。
 const ESP_ACTION_KINDS = new Set([
@@ -423,7 +426,7 @@ function normalizeEspEntityValueMap(value) {
         .filter((line) => {
             const idx = line.search(/[:：]/);
             if (idx <= 0) return false;
-            return ESP_ENTITY_RE.test(line.slice(0, idx).trim());
+            return ESP_VALUE_TARGET_RE.test(line.slice(0, idx).trim());
         })
         .slice(0, 50)
         .join('\n')
@@ -3705,7 +3708,7 @@ function attachAdmin(app, options = {}) {
             const idx = line.search(/[:：]/);
             if (idx <= 0) continue;
             const entityId = line.slice(0, idx).trim();
-            if (!ESP_ENTITY_RE.test(entityId)) continue;
+            if (!ESP_VALUE_TARGET_RE.test(entityId)) continue;
             const rules = parseEspValueMap(line.slice(idx + 1));
             if (rules.size) map.set(entityId, rules);
         }
@@ -3819,12 +3822,12 @@ function attachAdmin(app, options = {}) {
                     title: pageObj.name,
                     entities: {},
                 };
+                // 值替换（全局 + 按实体）对字典、自定义模板与遥控语义字段同时生效。
+                const globalMap = parseEspValueMap(pageObj.valueMap);
+                const entityMap = parseEspEntityValueMap(pageObj.entityValueMap);
                 if (haIds.length) {
                     try {
                         const rawStates = await haCatalogService.getStates(haIds);
-                        // 值替换（全局 + 按实体）对字典与自定义模板同时生效。
-                        const globalMap = parseEspValueMap(pageObj.valueMap);
-                        const entityMap = parseEspEntityValueMap(pageObj.entityValueMap);
                         const states = mapEspStates(rawStates, globalMap, entityMap);
                         ctx.main = espStateValue(states[bindings.main], dict.mainAttr);
                         ctx.s1 = espStateValue(states[bindings.s1], 'state');
@@ -3870,7 +3873,14 @@ function attachAdmin(app, options = {}) {
                         ctx.entities[entityId] = fields ? fields.text : '';
                         // 语义字段 `{remote.xxx.page/channel/volume/sleep/sleepLeft}`。
                         for (const key of REMOTE_STATE_FIELDS) {
-                            ctx.entities[`${entityId}.${key}`] = fields ? (fields[key] || '') : '';
+                            const tokenKey = `${entityId}.${key}`;
+                            let value = fields ? (fields[key] || '') : '';
+                            // 遥控字段是「开启/关闭」这类中文值，按实体替换优先，
+                            // 再接页面级兜底；与 HA 属性的替换链路一致。
+                            const own = entityMap.get(tokenKey);
+                            if (own && own.has(value)) value = own.get(value);
+                            else if (globalMap.has(value)) value = globalMap.get(value);
+                            ctx.entities[tokenKey] = value;
                         }
                     }
                 }
