@@ -446,27 +446,35 @@ function normalizeEspButton(raw, index, usedSlots) {
     // 动作别名：原型里「回首页」写成 home，统一归一到 home_page。
     const rawActionText = String(raw.action || 'toggle').trim();
     const rawAction = rawActionText === 'home' ? 'home_page' : rawActionText;
-    const isSys = ESP_SYS_ACTIONS.has(rawAction);
+    // 手动控制（场景）：按下按键直接执行「智能」页里配好的那组动作，不用在
+    // 自动化的按键触发里把动作再抄一遍。sceneId 只做格式校验——场景可能已被
+    // 删除，这里丢掉整条按键会让用户的配置静默消失，改由按下时明确报错。
+    const isScene = raw.kind === 'scene';
+    const sceneId = isScene ? String(raw.sceneId || '').trim() : '';
+    if (isScene && !/^[A-Za-z0-9_-]{1,40}$/.test(sceneId)) return null;
+    const isSys = !isScene && ESP_SYS_ACTIONS.has(rawAction);
     // 遥控动作：命令必须登记在 REMOTE_COMMANDS 里，实体字段留空。
     const isRemote = raw.kind === 'remote';
     const remoteSpec = isRemote ? REMOTE_CMD_MAP.get(rawAction) : null;
     if (isRemote && !remoteSpec) return null;
-    const entityId = isRemote ? '' : String(raw.entityId || '').trim().slice(0, 128);
-    if (!isSys && !isRemote && !ESP_ENTITY_RE.test(entityId)) return null;
+    const entityId = isRemote || isScene ? '' : String(raw.entityId || '').trim().slice(0, 128);
+    if (!isSys && !isRemote && !isScene && !ESP_ENTITY_RE.test(entityId)) return null;
     // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
     // 拆成 {action, param}，只按动作名做白名单校验，参数原样留给 callHaService。
     const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
     const action = isRemote ? remoteSpec.cmd
-        : isSys ? rawAction : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
+        : isSys ? rawAction
+            : isScene ? 'run'
+                : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
     const param = isRemote ? normalizeRemoteParam(remoteSpec, raw.param)
-        : isSys ? ''
+        : (isSys || isScene) ? ''
             // 优先用动作串里的 `(+0.5)`；没有括号时回落到独立 param 字段，
             // 兼容「动作选 set_temperature、参数单独填」的配置。
             : ((m && m[2] != null ? m[2].slice(0, 40) : '')
                 || String(raw.param || '').trim().slice(0, 40));
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
-    const name = normalizeEspOnscreenText(String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40)) || entityId || action;
+    const name = normalizeEspOnscreenText(String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40)) || entityId || (isScene ? '手动控制' : action);
     // 名称就是屏幕上显示的文字，不再另存「短标签」：底部提示行本来就会按
     // 自己的节拍滚动，放不下时自动走马灯，不需要提前缩成两个字。
     // 旧数据里的 label 可能是被截断的短名，这里统一以完整 name 为准。
@@ -480,8 +488,10 @@ function normalizeEspButton(raw, index, usedSlots) {
         id,
         name,
         label,
-        entityId: isSys || isRemote ? '' : entityId,
-        kind: isRemote ? 'remote' : (isSys ? 'sys' : 'ha'),
+        entityId: isSys || isRemote || isScene ? '' : entityId,
+        kind: isRemote ? 'remote' : (isSys ? 'sys' : (isScene ? 'scene' : 'ha')),
+        // 只有手动控制按键带该字段；切到别的类型时自然清空，不留脏引用。
+        sceneId,
         // 遥控按键各自的目标设备；非遥控按键不留该字段。
         remoteTarget: isRemote && REMOTE_TARGET_RE.test(String(raw.remoteTarget || '').trim())
             ? String(raw.remoteTarget).trim() : '',
@@ -4156,6 +4166,34 @@ function attachAdmin(app, options = {}) {
             sceneEngine.onButton({ deviceId: id, slot: action.slot || 0, page: pageNo });
         } catch (error) {
             console.error('[scenes] 按键联动失败:', error.message);
+        }
+
+        // 手动控制（场景）：按下即执行「智能」页里那条场景的动作组。
+        // 尊重场景自己的 enabled 与冷却——冷却中如实回「冷却中」，不假装成功，
+        // 否则用户连按两下会以为按键坏了。
+        if (action.kind === 'scene') {
+            if (!action.sceneId) return jsonFail(res, '该按键还没选择手动控制，请先在后台选一个');
+            let result = null;
+            try {
+                result = await sceneEngine.run(action.sceneId, { reason: 'esp-button' });
+            } catch (error) {
+                console.error(`[esp] ${id} 手动控制执行失败:`, error.message);
+                return jsonFail(res, error.message);
+            }
+            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 手动控制 ${action.sceneId} ${result.result}`);
+            if (result.skipped) return jsonFail(res, result.reason || '本次未执行');
+            if (!result.ok) {
+                const failed = (result.steps || []).find((step) => step.status === 'failed');
+                return jsonFail(res, failed
+                    ? `${failed.label}：${failed.error || '执行失败'}`
+                    : (result.error || '执行失败'));
+            }
+            return jsonOk(res, {
+                name: action.name,
+                scene: action.sceneId,
+                steps: (result.steps || []).length,
+                page: pageNo,
+            }, `已执行 ${result.steps.length} 个动作`);
         }
 
         // 系统动作（翻页/回首页）：不改 HA，只回执让固件本地切页。

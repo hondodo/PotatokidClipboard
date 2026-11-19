@@ -28,7 +28,8 @@
         .catch((error) => { $('re-type-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
     }
     if (tab === 'esp-devices') {
-      Promise.all([loadDeviceTypes(), loadHaEntities().catch(() => {}), loadEspDevices()])
+      // 按键可以绑「手动控制」，所以这里要把场景列表一起拉好，否则下拉是空的。
+      Promise.all([loadDeviceTypes(), loadHaEntities().catch(() => {}), loadEspDevices(), loadScenes().catch(() => {})])
         .then(() => { if (state.espDevEditId) return openEspDevEditor(state.espDevEditId); })
         .catch((error) => { $('espdev-list').innerHTML = `<div class="empty">加载失败：${esc(error.message)}</div>`; });
     }

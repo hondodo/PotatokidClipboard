@@ -1,5 +1,12 @@
 'use strict';
 
+  // 手动控制（场景）在按键里的引用：只认「智能」页建的手动控制。
+  // 自动化有自己的触发条件，不该被按键当动作直接调起来。
+  function espSceneOf(sceneId) {
+    if (!sceneId) return null;
+    return (state.scenes || []).find((item) => item.id === sceneId && item.kind === 'manual') || null;
+  }
+
   const ESP_THEMES = {
     blue: { on: '#6cb6ff' },
     white: { on: '#ffffff' },
@@ -618,6 +625,9 @@
     const buttonRow = (button, index) => {
       const isSys = button.kind === 'sys';
       const isRemote = button.kind === 'remote';
+      // 手动控制：按下即执行「智能」页里那条场景的动作组。
+      const isScene = button.kind === 'scene';
+      const sceneObj = isScene ? espSceneOf(button.sceneId) : null;
       const pin = pinOf(button.slot);
       // 每个遥控按键各自绑定目标设备；旧配置按键没这字段时回退页面级 remoteTarget。
       const btnTarget = button.remoteTarget || page.remoteTarget || '';
@@ -669,18 +679,19 @@
         <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
         <td><div class="esp-action-cell">
           <select data-f="kind">
-            <option value="ha" ${!isSys && !isRemote ? 'selected' : ''}>HA 动作</option>
+            <option value="ha" ${!isSys && !isRemote && !isScene ? 'selected' : ''}>HA 动作</option>
             <option value="remote" ${isRemote ? 'selected' : ''}>设备遥控</option>
             <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
+            <option value="scene" ${isScene ? 'selected' : ''}>手动控制</option>
           </select>
           ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="${esc(remoteDev ? `本按键控制：${remoteDev.name}` : '本按键要控制的中控/电视')}"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
-          <select data-f="action">${actionOpts}</select>
+          ${isScene ? '<span class="esp-scene-hint" title="动作组在「智能」页维护，这里只选执行哪一个">执行所选场景</span>' : `<select data-f="action">${actionOpts}</select>`}
           ${needsHaParam ? `<input data-f="param" class="esp-ha-param" value="${esc(button.param || '')}"
             placeholder="参数：+0.5 / -0.5 / 制冷"
             title="该动作必须填参数，否则 HA 会拒绝"
             style="${button.param ? '' : 'border-color:rgba(248,113,113,.65);'}">` : ''}
         </div></td>
-        <td><div class="esp-ent-cell">${isRemote ? paramCell : isSys ? '<span class="hint">无需参数</span>' : `
+        <td><div class="esp-ent-cell">${isRemote ? paramCell : isScene ? espSceneCell(button, sceneObj) : isSys ? '<span class="hint">无需参数</span>' : `
           <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off">
           <button class="btn small" type="button" data-pickbtn="${esc(button.id)}">选择</button>`}
         </div></td>
@@ -690,6 +701,32 @@
           <button class="del-btn" type="button" data-delbtn="${esc(button.id)}" title="删除">×</button>
         </td>
       </tr>`;
+    };
+
+    /**
+     * 手动控制按键的「实体」列：选一条场景，并在下面写出它会做什么。
+     * 摘要很重要——按下按键前不用切回「智能」页确认这条场景到底改了哪些东西。
+     */
+    const espSceneCell = (button, scene) => {
+      const manuals = (state.scenes || []).filter((item) => item.kind === 'manual');
+      // 场景被删掉后必须留一个占位项：否则浏览器会自动选中第一条，
+      // 界面上看着像绑了另一条，实际存的还是那个不存在的 id，按下去只会报错。
+      const orphan = button.sceneId && !manuals.some((item) => item.id === button.sceneId);
+      const head = orphan
+        ? `<option value="${esc(button.sceneId)}" selected>（原场景已删除，请重选）</option>`
+        : '';
+      const list = manuals.length
+        ? manuals.map((item) => `<option value="${esc(item.id)}" ${!orphan && item.id === button.sceneId ? 'selected' : ''}>${esc(item.name)}</option>`).join('')
+        : (orphan ? '' : '<option value="">（还没有手动控制，先去「智能」页建一个）</option>');
+      const opts = head + list;
+      const cooldown = scene && Number(scene.cooldownSec) > 0 ? ` · 冷却 ${scene.cooldownSec} 秒` : '';
+      const desc = scene
+        ? `${(scene.actionTexts || []).join(' → ')}${cooldown}`
+        : (button.sceneId ? '这条手动控制已被删除，请重新选择' : '请选择一条手动控制');
+      return `<div class="esp-scene-cell">
+        <select data-f="sceneId">${opts}</select>
+        <span class="esp-scene-desc">${esc(desc)}</span>
+      </div>`;
     };
 
     // 遥控按键各自选目标设备：下拉选项在所有中控/电视里列，供每个按键独立选择。
@@ -705,7 +742,7 @@
         <h4>① 页面属性</h4>
         <div class="esp-field-row"><label>页面名称</label><input id="esp-page-name" maxlength="20" value="${esc(page.name)}"></div>
         <div class="esp-field-row"><label>图标</label><input id="esp-page-icon" maxlength="2" value="${esc(page.icon || '')}" style="width:70px"></div>
-        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作」——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
+        <p class="hint">名称显示在屏幕顶部标题行；图标只用于后台列表，不占屏幕像素。按键动作可独立选「HA 动作 / 设备遥控 / 系统动作 / 手动控制」（动作组在「智能」页维护）——遥控按键各自选目标中控或电视，一页可控制多台，也能与 HA 按键混用。遥控设备的状态（当前页/频道/音量/定时）可在下方模板的「插入实体」弹窗里跨设备选择。</p>
       </div>
       <div class="esp-section">
         <h4>② 屏幕显示内容 <span class="tag">由设备类型字典生成</span></h4>
@@ -940,6 +977,11 @@
             button.action = cap ? cap.cmd : '';
             button.param = espDefaultRemoteParam(cap);
             if (!button.name && cap) button.name = cap.label;
+          } else if (field === 'sceneId') {
+            button.sceneId = el.value;
+            button.action = 'run';
+            const scene = espSceneOf(button.sceneId);
+            if (!button.name && scene) button.name = scene.name;
           } else if (field === 'entity') {
             button.entityId = el.value.trim();
             // 名称留空时，选中已知实体就用它的人类可读名称自动补上。
@@ -952,11 +994,18 @@
               }
             }
           } else if (field === 'kind') {
-            const kind = el.value === 'sys' ? 'sys' : el.value === 'remote' ? 'remote' : 'ha';
+            const kind = el.value === 'sys' ? 'sys' : el.value === 'remote' ? 'remote'
+              : el.value === 'scene' ? 'scene' : 'ha';
             button.kind = kind;
             button.param = '';
             button.entityId = '';
-            if (kind === 'sys') {
+            if (kind === 'scene') {
+              // 默认选第一条手动控制，省掉「切了类型还要再选一次」的空状态。
+              const first = (state.scenes || []).find((item) => item.kind === 'manual');
+              button.sceneId = button.sceneId || (first ? first.id : '');
+              button.action = 'run';
+              if (!button.name) button.name = first ? first.name : '手动控制';
+            } else if (kind === 'sys') {
               button.action = 'next_page';
               if (!button.name) button.name = '下一页';
             } else if (kind === 'remote') {
@@ -990,7 +1039,7 @@
             button.param = el.value;
           }
           drawEspPreview();
-          if (field === 'kind' || field === 'action') renderEspPageEditor();
+          if (field === 'kind' || field === 'action' || field === 'sceneId') renderEspPageEditor();
         };
         el.addEventListener('change', commit);
         if (field === 'name' || field === 'entity' || field === 'param') el.addEventListener('input', commit);
@@ -1150,12 +1199,14 @@
           name: button.name || '',
           // label 仅保留给旧固件协议，值与完整名称一致，不再截短。
           label: button.name || button.label || '',
-          kind: button.kind === 'sys' ? 'sys' : button.kind === 'remote' ? 'remote' : 'ha',
+          kind: button.kind === 'sys' ? 'sys' : button.kind === 'remote' ? 'remote'
+            : button.kind === 'scene' ? 'scene' : 'ha',
+          sceneId: button.kind === 'scene' ? (button.sceneId || '') : '',
           remoteTarget: button.kind === 'remote' ? (button.remoteTarget || '') : '',
           action: button.kind === 'remote' ? button.action
-            : button.kind === 'sys'
-              ? button.action
-              : `${button.action}${button.param ? `(${button.param})` : ''}`,
+            : button.kind === 'sys' ? button.action
+              : button.kind === 'scene' ? 'run'
+                : `${button.action}${button.param ? `(${button.param})` : ''}`,
           param: button.param || '',
           entityId: button.kind === 'ha' ? (button.entityId || '') : '',
           slot: Number(button.slot) || 0,

@@ -665,6 +665,11 @@
     .esp-ent-cell { display: flex; gap: 6px; align-items: center; }
     .esp-ent-cell input { flex: 1 1 auto; min-width: 0; }
     .esp-ent-cell .btn { flex: 0 0 auto; }
+    /* 手动控制按键：场景下拉 + 动作摘要（摘要要能换行，不能省略号截断） */
+    .esp-scene-cell { display: grid; gap: 5px; min-width: 0; width: 100%; }
+    .esp-scene-cell select { max-width: 100%; }
+    .esp-scene-desc { font-size: 11px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+    .esp-scene-hint { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);
