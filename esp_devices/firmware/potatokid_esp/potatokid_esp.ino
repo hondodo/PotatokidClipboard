@@ -20,6 +20,7 @@
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 #include <esp_sleep.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -105,7 +106,16 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           3) 当前页持久化到 NVS，深睡清空 RAM 后唤醒仍能立刻显示；
 //           4) 后台可配置「查看键」槽位：按下仅亮屏看缓存，不触发动作、不主动联网；
 //           5) 自动更新默认开启（两个芯片轨道）。
-static const char *APP_VER             = "oled-5.4";
+// oled-5.5：从机唤醒分三档，去掉与普通键重复的「查看键」——
+//           1) 联网键（后台可选槽位）：按下连 AP、开后台、推迟休眠 5 分钟，不触发动作；
+//           2) 普通动作键：只开射频（不连 AP、不拿 IP），经 ESP-NOW 让主机代发，
+//              动作完成约 2.5 秒后回睡，不再空等 60 秒；
+//              翻页/回首页这类本地动作连射频都不开；
+//           3) PIR：亮屏看缓存 5 秒，不开射频；
+//           4) 定时唤醒（默认 6 小时）只开射频问主机最新版本，有新版才连 AP 下载。
+//           主机信道随 NVS 持久化：从机不关联 AP 时用它锁定 ESP-NOW 信道。
+// oled-5.6：修正唤醒键仍被按住时，主循环把它当成「新按下」而重复执行一次动作。
+static const char *APP_VER             = "oled-5.6";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -321,21 +331,28 @@ int batDiv = 2;
 uint32_t lastActivityAt = 0;
 uint32_t sleepHoldUntil = 0;   // 访问后台后临时推迟休眠，避免编辑途中设备睡过去
 
-// oled-5.4：唤醒来源识别 + 仅看缓存的 peek 模式。
-// 深睡唤醒后区分「人体感应 / 查看键」（只亮屏显示缓存、不开 WiFi、5 秒回睡）
-// 与「普通键 / 冷启动」（完整唤醒：联网 + 加载实时页）。
-int wakeSlot = 0;              // 查看键槽位：0=不启用；1..MAX_BTN=该槽位仅亮屏看缓存
-#define WAKE_COLD       0      // 上电 / 复位 / 定时器 / 未知来源 → 完整唤醒
-#define WAKE_PIR        1      // 人体感应唤醒 → peek
-#define WAKE_WAKEBUTTON 2      // 查看键唤醒 → peek
-#define WAKE_BUTTON     3      // 普通按键唤醒 → 完整唤醒
+// oled-5.5：唤醒分档
+//  联网键（netSlot）：连 AP、开后台、推迟休眠 5 分钟，不执行动作；
+//  普通动作键：只开射频（不连 AP），经主机中继执行动作，动作后约 2.5 秒回睡；
+//  PIR：亮屏看缓存 5 秒，不开射频；
+//  定时唤醒：只开射频问主机最新版本，有新版才连 AP 下载。
+int netSlot = 0;               // 联网键槽位：0=不启用；1..MAX_BTN=该槽位用于进后台
+#define WAKE_COLD     0        // 上电 / 复位 / 未知来源 → 连 AP 走完整流程
+#define WAKE_PIR      1        // 人体感应唤醒 → 只看缓存
+#define WAKE_BUTTON   2        // 按键唤醒（联网键或动作键，用 wakeSlotHit 区分）
+#define WAKE_TIMER    3        // RTC 定时唤醒 → 只开射频查 OTA
 uint8_t wakeReason = WAKE_COLD;
+int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
-static const uint32_t PEEK_MS = 5000;  // PIR / 查看键唤醒后显示缓存的时长
-// peek 期间与主循环通信的标志（onButtonPress 在 pollButtons 上下文里设置）
-volatile bool peekExtended = false;        // 查看键再次按下 → 延长 peek
-volatile int  peekActionSlot = 0;          // 普通键按下 → 退出 peek 并执行该槽位动作
+static const uint32_t PEEK_MS = 5000;      // PIR 唤醒后显示缓存的时长
+volatile int peekActionSlot = 0;            // PIR peek 期间按下动作键 → 升级执行
+
+uint8_t relayCh = 0;           // 主机所在 WiFi 信道（NVS 持久化）
+bool radioOnly = false;        // 本次唤醒不关联 AP，仅开射频
+uint32_t actionSleepAt = 0;    // 动作完成后到点回睡
+static const uint32_t ACTION_SLEEP_MS = 2500;   // 动作后停留多久再睡（让人看清结果）
+static const uint32_t OTA_CHECK_SEC   = 6UL * 3600UL;  // 定时唤醒查 OTA 的间隔
 
 /* ---------------- OLED ---------------- */
 
@@ -666,9 +683,12 @@ void loadCreds() {
   if (!pinUsableForBat(batPin)) batPin = -1;
   batDiv = prefs.getInt("batdiv", 2);
   if (batDiv < 1 || batDiv > 10) batDiv = 2;
-  // 查看键槽位（oled-5.4）：0 = 不启用；1..8 = 按下只亮屏显示缓存，不触发动作。
-  wakeSlot = prefs.getInt("wakeSlot", 0);
-  if (wakeSlot < 0 || wakeSlot > MAX_BTN) wakeSlot = 0;
+  // 联网键槽位（oled-5.5）：0 = 不启用；1..8 = 按下连 AP 进后台并推迟休眠。
+  netSlot = prefs.getInt("netslot", 0);
+  if (netSlot < 0 || netSlot > MAX_BTN) netSlot = 0;
+  // 主机所在信道：任意一次成功关联 AP 后记下来，供「只开射频」唤醒时锁定 ESP-NOW。
+  relayCh = prefs.getInt("ch", 0);
+  if (relayCh < 1 || relayCh > 13) relayCh = 0;
   prefs.end();
   if (serverBase.isEmpty()) serverBase = DEFAULT_SERVER_BASE;
 
@@ -686,15 +706,26 @@ void loadCreds() {
   }
   prefs.end();
 
-  // 查看键必须指向一个已启用的槽位，否则视为不启用。
-  if (wakeSlot > 0 && (wakeSlot > btnCount || btnPins[wakeSlot - 1] < 0)) wakeSlot = 0;
+  // 联网键必须指向一个已启用的槽位，否则视为不启用。
+  if (netSlot > 0 && (netSlot > btnCount || btnPins[netSlot - 1] < 0)) netSlot = 0;
 
   Serial.printf("credssid=%s pass=%s\n", ssid.c_str(), pass.isEmpty() ? "(empty)" : "***");
   Serial.printf("serverBase=%s\n", serverBase.c_str());
   Serial.printf("buttons=%d", btnCount);
   for (int i = 0; i < btnCount; i++) Serial.printf(" %d:GPIO%d", i + 1, btnPins[i]);
-  Serial.printf(" wakeSlot=%d", wakeSlot);
+  Serial.printf(" netslot=%d ch=%d", netSlot, relayCh);
   Serial.println();
+}
+
+// 关联成功后把当前 AP 信道记进 NVS：从机后续不连 AP 时靠它锁定 ESP-NOW 信道。
+void rememberChannel() {
+  int ch = WiFi.channel();
+  if (ch < 1 || ch > 13 || ch == relayCh) return;
+  relayCh = (uint8_t)ch;
+  prefs.begin("cfg", false);
+  prefs.putInt("ch", ch);
+  prefs.end();
+  Serial.printf("[wifi] channel saved: %d\n", ch);
 }
 
 bool connectSTA(uint32_t timeoutMs) {
@@ -704,14 +735,19 @@ bool connectSTA(uint32_t timeoutMs) {
   uint32_t t0 = millis();
   uint32_t drawn = 0;
   while (millis() - t0 < timeoutMs) {
-    if (WiFi.status() == WL_CONNECTED) return true;
+    if (WiFi.status() == WL_CONNECTED) {
+      rememberChannel();
+      return true;
+    }
     if (millis() - drawn > 1000) {
       drawn = millis();
       oledShow("WiFi connecting", ssid, String("waited ") + (int)((millis() - t0) / 1000) + "s");
     }
     delay(50);
   }
-  return WiFi.status() == WL_CONNECTED;
+  bool ok = WiFi.status() == WL_CONNECTED;
+  if (ok) rememberChannel();
+  return ok;
 }
 
 /* ---------------- ESP-NOW 主从中继 ----------------
@@ -774,11 +810,19 @@ bool parseMac(const String &text, uint8_t out[6]) {
   return true;
 }
 
+// ESP-NOW 的工作信道：已关联 AP 时以 AP 信道为准，否则用 NVS 里记下的主机信道。
+// 未关联时 WiFi.channel() 返回 0，直接拿来当 peer 信道会让帧发不出去。
+uint8_t relayChannel() {
+  int ch = WiFi.channel();
+  if (ch >= 1 && ch <= 13) return (uint8_t)ch;
+  return relayCh;
+}
+
 void relayAddPeer(const uint8_t *mac) {
   if (esp_now_is_peer_exist(mac)) return;
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, mac, 6);
-  peer.channel = WiFi.channel();
+  peer.channel = relayChannel();
   peer.encrypt = false;
   esp_now_add_peer(&peer);
 }
@@ -928,11 +972,44 @@ void initRelay() {
     }
     relayAddPeer(relayMasterMac);
     haveMasterMac = true;
-    Serial.printf("[relay] slave -> master %s ch=%d\n", masterMac.c_str(), WiFi.channel());
+    Serial.printf("[relay] slave -> master %s ch=%d\n", masterMac.c_str(), relayChannel());
   } else {
-    Serial.printf("[relay] master listen ch=%d mac=%s\n", WiFi.channel(), WiFi.macAddress().c_str());
+    Serial.printf("[relay] master listen ch=%d mac=%s\n", relayChannel(), WiFi.macAddress().c_str());
   }
   relayReady = true;
+}
+
+/**
+ * 只开射频，不关联 AP（不握手、不 DHCP、无 IP）。
+ * ESP-NOW 只需要「射频启动 + 与主机同信道 + 有 peer」，不需要连路由器。
+ * 信道优先用 NVS 里记下的主机信道；从未连过网时扫一次 AP 找到 SSID 对应信道。
+ */
+bool startRadioOnly() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  uint8_t ch = relayCh;
+  if (ch < 1 || ch > 13) {
+    int n = WiFi.scanNetworks(false, false);
+    for (int i = 0; i < n; i++) {
+      if (WiFi.SSID(i) == ssid) { ch = (uint8_t)WiFi.channel(i); break; }
+    }
+    WiFi.scanDelete();
+    if (ch >= 1 && ch <= 13) {
+      relayCh = ch;
+      prefs.begin("cfg", false);
+      prefs.putInt("ch", ch);
+      prefs.end();
+    }
+  }
+  if (ch < 1 || ch > 13) {
+    Serial.println("[radio] 不知道主机信道，无法只开射频");
+    return false;
+  }
+  esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+  Serial.printf("[radio] radio-only on ch=%d\n", ch);
+  initRelay();
+  radioOnly = true;
+  return relayReady;
 }
 
 /* ---------------- pscreen_server 上报 ---------------- */
@@ -1288,25 +1365,10 @@ void runOta() {
 }
 
 void onButtonPress(int slot) {
-  // peek 模式（PIR / 查看键刚唤醒，还没联网）：只区分「延长查看」与「升级完整唤醒」，
-  // 不在这里联网动作——等主循环连上 WiFi 后再执行该槽位。
+  // PIR peek 期间（还没开射频）：把槽位交给主循环，由它决定开射频执行还是进后台。
   if (peekMode) {
-    if (wakeSlot > 0 && slot == wakeSlot) {
-      peekExtended = true;
-      Serial.printf("[btn] peek extend (slot %d)\n", slot);
-    } else {
-      peekActionSlot = slot;
-      Serial.printf("[btn] peek -> full wake (slot %d)\n", slot);
-    }
-    return;
-  }
-
-  // 查看键：清醒状态下按下也只亮屏显示当前缓存，不触发动作、不主动联网刷新。
-  if (wakeSlot > 0 && slot == wakeSlot) {
-    lastActivityAt = millis();
-    wakeScreen();
-    drawMain();
-    Serial.printf("[btn] wake slot %d: peek only\n", slot);
+    peekActionSlot = slot;
+    Serial.printf("[btn] peek -> execute (slot %d)\n", slot);
     return;
   }
 
@@ -1952,14 +2014,14 @@ String pageSettings(const String &listText, const String &err) {
        "有人时 OUT 输出高电平，屏幕立即亮起；人持续在就一直亮，人离开后按后台设置的秒数熄屏。</div>";
   h += "<label>人体感应 OUT GPIO（-1 = 未接，屏幕常亮）</label>";
   h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
-  // oled-5.4：查看键——休眠下按下只亮屏显示缓存 5 秒，不触发动作、不主动联网；
-  // 清醒时按下也只亮屏看当前缓存。可选已启用的槽位，0 = 不启用。
-  h += "<label>查看键（仅亮屏显示缓存，不触发动作）</label>";
-  h += "<select name='wakeSlot'>";
-  h += String("<option value='0'") + (wakeSlot == 0 ? " selected" : "") + ">不启用</option>";
+  // oled-5.5：联网键——按下连 AP 进后台并推迟休眠 5 分钟，不执行该槽位的动作。
+  // 普通键只开射频走主机中继，所以进后台需要这颗专用键。
+  h += "<label>联网键（按下连 WiFi 进后台，不执行动作）</label>";
+  h += "<select name='netslot'>";
+  h += String("<option value='0'") + (netSlot == 0 ? " selected" : "") + ">不启用</option>";
   for (int i = 0; i < btnCount; i++) {
     if (btnPins[i] < 0) continue;
-    h += String("<option value='") + (i + 1) + "'" + (wakeSlot == i + 1 ? " selected" : "")
+    h += String("<option value='") + (i + 1) + "'" + (netSlot == i + 1 ? " selected" : "")
          + ">槽位 " + (i + 1) + "（GPIO" + btnPins[i] + "）</option>";
   }
   h += "</select>";
@@ -2164,16 +2226,16 @@ void setupServer() {
         if (!clash) pir = pin;
       }
     }
-    // 查看键槽位（oled-5.4）：0 = 不启用；必须指向一个已启用（pins[]>=0）的槽位。
-    int ws = server.hasArg("wakeSlot") ? server.arg("wakeSlot").toInt() : 0;
-    if (ws < 0 || ws > MAX_BTN) ws = 0;
-    if (ws > 0 && (ws > maxSlot || pins[ws - 1] < 0)) ws = 0;
+    // 联网键槽位（oled-5.5）：0 = 不启用；必须指向一个已启用（pins[]>=0）的槽位。
+    int ns = server.hasArg("netslot") ? server.arg("netslot").toInt() : 0;
+    if (ns < 0 || ns > MAX_BTN) ns = 0;
+    if (ns > 0 && (ns > maxSlot || pins[ns - 1] < 0)) ns = 0;
     prefs.begin("cfg", false);
     prefs.putInt("pir", pir);
-    prefs.putInt("wakeSlot", ws);
+    prefs.putInt("netslot", ns);
     prefs.end();
     Serial.printf("[pir] 人体感应 GPIO: %d\n", pir);
-    Serial.printf("[cfg] 查看键槽位: %d\n", ws);
+    Serial.printf("[cfg] 联网键槽位: %d\n", ns);
     server.send(200, "text/html; charset=utf-8",
                 "<meta charset='utf-8'><h3>已保存，设备正在重启…</h3>");
     delay(1200);
@@ -2278,17 +2340,20 @@ void portalRetry() {
 
 /* ---------------- 电池休眠（C6 从机） ---------------- */
 
-// 空闲到点后进入深度睡眠：关屏、关 WiFi。
-// 唤醒源（oled-5.4）：已配置按键（低电平）+ 人体感应（高电平，若接了）。
-// 唤醒 = 整机复位，setup() 里按唤醒来源决定「联网加载」还是「仅看缓存 5 秒」。
-void enterDeepSleep() {
-  Serial.printf("[sleep] idle %lus, deep sleep, wake pins:", (unsigned long)sleepSeconds);
+// 空闲到点后进入深度睡眠：关屏、关射频。
+// 唤醒源：已配置按键（低电平）+ 人体感应（高电平，若接了）+ 定时（查 OTA）。
+// quiet=true 时不亮屏、不提示（定时唤醒查 OTA 回来后静默入睡）。
+void enterDeepSleep(bool quiet = false) {
+  Serial.printf("[sleep] deep sleep, wake pins:");
   for (int i = 0; i < btnCount; i++) if (btnPins[i] >= 0) Serial.printf(" GPIO%d", btnPins[i]);
   if (pirPin >= 0) Serial.printf(" PIR=GPIO%d(H)", pirPin);
+  if (autoUpdate && deviceRole == "slave") Serial.printf(" timer=%luh", (unsigned long)(OTA_CHECK_SEC / 3600));
   Serial.println();
-  oledShow("Sleep", "key or PIR to wake", String(sleepSeconds) + "s idle");
-  delay(400);
-  if (oledOk) u8g2.setPowerSave(1);
+  if (!quiet) {
+    oledShow("Sleep", "key or PIR to wake", String(sleepSeconds) + "s idle");
+    delay(400);
+    if (oledOk) u8g2.setPowerSave(1);
+  }
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
   // 注：深睡唤醒 = 整机复位，按键/PIR 映射只能在重启后改变，
   // 故无需先禁用旧唤醒源（避免向 disable 接口传入不兼容枚举）。
@@ -2303,6 +2368,10 @@ void enterDeepSleep() {
   if (pirPin >= 0) {
     pinMode(pirPin, INPUT);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+  }
+  // 定时唤醒：只在「从机 + 自动更新开启」时启用，到点起来问主机有没有新版本。
+  if (autoUpdate && deviceRole == "slave") {
+    esp_sleep_enable_timer_wakeup((uint64_t)OTA_CHECK_SEC * 1000000ULL);
   }
 #endif
   WiFi.disconnect(true);
@@ -2322,11 +2391,13 @@ static uint64_t wakeGpioStatus() {
 #endif
 }
 
-// 识别深睡唤醒来源（冷启动返回 WAKE_COLD）。
-// 依据：唤醒原因是 GPIO/EXT1 时，用位掩码区分 PIR 脚（高电平）还是某个按键脚
-// （低电平）；其中查看键单独归类。S3 不深睡，恒为冷启动。
+// 识别深睡唤醒来源（冷启动返回 WAKE_COLD），并把命中的槽位记到 wakeSlotHit。
+// 依据：唤醒原因是 GPIO/EXT1 时用引脚位掩码判断是 PIR 脚还是某个按键脚。
+// S3 不深睡，恒为冷启动。
 uint8_t detectWakeReason() {
+  wakeSlotHit = 0;
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  if (cause == ESP_SLEEP_WAKEUP_TIMER) return WAKE_TIMER;
   bool gpioWake = (cause == ESP_SLEEP_WAKEUP_GPIO);
 #if !defined(CONFIG_IDF_TARGET_ESP32C6)
   gpioWake = gpioWake || (cause == ESP_SLEEP_WAKEUP_EXT1);
@@ -2334,9 +2405,58 @@ uint8_t detectWakeReason() {
   if (!gpioWake) return WAKE_COLD;
   uint64_t mask = wakeGpioStatus();
   if (pirPin >= 0 && (mask & (1ULL << pirPin))) return WAKE_PIR;
-  if (wakeSlot >= 1 && wakeSlot <= btnCount && btnPins[wakeSlot - 1] >= 0
-      && (mask & (1ULL << btnPins[wakeSlot - 1]))) return WAKE_WAKEBUTTON;
-  return WAKE_BUTTON;
+  for (int i = 0; i < btnCount; i++) {
+    if (btnPins[i] >= 0 && (mask & (1ULL << btnPins[i]))) {
+      wakeSlotHit = i + 1;
+      return WAKE_BUTTON;
+    }
+  }
+  return WAKE_COLD;
+}
+
+/**
+ * 唤醒键直接执行动作：不等 pollButtons，所以"按一下"就能生效，无需按住。
+ * 本地动作（翻页/回首页）连射频都不开；实体动作只开射频走主机中继。
+ */
+void executeActionOnWake(int slot) {
+  screenOff = false;
+  if (oledOk) u8g2.setPowerSave(0);
+  if (haveDisplay) drawMain();
+
+  const String act = btnAction[slot];
+  bool local = (act == "next_page" || act == "prev_page" || act == "home_page");
+  if (!local) {
+    // 实体动作要发给服务器：只开射频，不连 AP。
+    if (!startRadioOnly()) {
+      // 射频起不来（例如从未连过网、扫不到 AP）→ 退化为连 AP 后执行。
+      if (connectSTA(STA_TIMEOUT_MS)) showConnected();
+    }
+  }
+  onButtonPress(slot);
+  actionSleepAt = millis() + ACTION_SLEEP_MS;
+  Serial.printf("[wake] action slot %d done, sleep in %lums\n", slot, (unsigned long)ACTION_SLEEP_MS);
+}
+
+// 定时唤醒：只开射频问主机「最新固件版本」，有新版才连 AP 下载，否则立刻回睡。
+void timerWakeOtaCheck() {
+  Serial.println("[wake] timer: check OTA");
+  if (!startRadioOnly()) { enterDeepSleep(true); return; }
+  String text;
+  if (getText("/api/device/firmware/latest?format=text&target=" + String(CHIP_TAG), text)) {
+    text.trim();
+    int p1 = text.indexOf('|');
+    String ver = p1 > 0 ? text.substring(0, p1) : String();
+    Serial.printf("[wake] timer: latest=%s local=%s\n", ver.c_str(), APP_VER);
+    if (ver.length() && ver != String(APP_VER)) {
+      // 确实有新版本才值得连 AP 下载（TCP 大文件）。
+      if (connectSTA(STA_TIMEOUT_MS)) {
+        fwAvailable = true;
+        fwVersion = ver;
+        runOta();
+      }
+    }
+  }
+  enterDeepSleep(true);
 }
 
 void setup() {
@@ -2351,9 +2471,15 @@ void setup() {
   loadCreds();
 
   // 按键：槽位映射要先由 loadCreds 从 NVS 读出来，再按槽位配置上拉输入。
+  // down 取当前电平而不是一律 false：唤醒那颗键可能还按着，
+  // 若当成「新按下」，唤醒时已执行过一次的动作会被重复执行。
   for (int i = 0; i < MAX_BTN; i++) {
-    if (i < btnCount && btnPins[i] >= 0) pinMode(btnPins[i], INPUT_PULLUP);
-    buttons[i].down = false;
+    if (i < btnCount && btnPins[i] >= 0) {
+      pinMode(btnPins[i], INPUT_PULLUP);
+      buttons[i].down = digitalRead(btnPins[i]) == LOW;
+    } else {
+      buttons[i].down = false;
+    }
     buttons[i].changedAt = 0;
   }
 
@@ -2366,11 +2492,11 @@ void setup() {
   lastPresenceAt = millis();
   lastActivityAt = millis();
 
-  // oled-5.4：先识别唤醒来源 + 恢复缓存页，再决定要不要联网。
+  // 先识别唤醒来源 + 恢复缓存页，再决定要不要联网。
   wakeReason = detectWakeReason();
   bool restored = restorePage();
-  Serial.printf("[wake] reason=%d restored=%d page=%d\n",
-                wakeReason, restored ? 1 : 0, currentPage);
+  Serial.printf("[wake] reason=%d slot=%d restored=%d page=%d\n",
+                wakeReason, wakeSlotHit, restored ? 1 : 0, currentPage);
 
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。
   // C6 为单核，不能指定 core 1，直接创建普通任务。
@@ -2381,18 +2507,42 @@ void setup() {
   xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
 #endif
 
-  // PIR / 查看键唤醒：只亮屏显示缓存 5 秒，不开 WiFi；期间按普通键升级为完整唤醒。
-  if (wakeReason == WAKE_PIR || wakeReason == WAKE_WAKEBUTTON) {
+  // ① 定时唤醒：只查 OTA，不亮屏、不打扰。
+  if (wakeReason == WAKE_TIMER) {
+    timerWakeOtaCheck();
+    return;
+  }
+
+  // ② PIR 唤醒：只亮屏显示缓存 5 秒，不开射频；
+  //    期间按键则交给主循环去执行对应动作。
+  if (wakeReason == WAKE_PIR) {
     peekMode = true;
     peekUntil = millis() + PEEK_MS;
     screenOff = false;
     if (oledOk) u8g2.setPowerSave(0);
     if (restored) drawMain();
     else oledShow("Wake", "no cached page", "press key", "to load");
-    Serial.printf("[wake] peek %lums (reason=%d)\n", (unsigned long)PEEK_MS, wakeReason);
+    Serial.printf("[wake] peek %lums\n", (unsigned long)PEEK_MS);
     return;
   }
 
+  // ③ 按键唤醒：联网键进后台；动作键只开射频执行。
+  if (wakeReason == WAKE_BUTTON && wakeSlotHit > 0) {
+    if (netSlot > 0 && wakeSlotHit == netSlot) {
+      Serial.println("[wake] net key -> connect AP");
+      if (connectSTA(STA_TIMEOUT_MS)) {
+        showConnected();
+        sleepHoldUntil = millis() + 300000UL;   // 留 5 分钟操作后台
+      } else {
+        startPortal();
+      }
+      return;
+    }
+    executeActionOnWake(wakeSlotHit);
+    return;
+  }
+
+  // ④ 冷启动 / 认不出唤醒键：走完整联网流程（注册、后台、配网都需要）。
   if (connectSTA(STA_TIMEOUT_MS)) {
     showConnected();
   } else {
@@ -2413,7 +2563,8 @@ void loop() {
 
   if (serverStarted) server.handleClient();  // 局域网配置页需要持续处理请求
 
-  // peek 模式（PIR / 查看键唤醒）：只显示缓存，不联网；超时回睡，按普通键升级完整唤醒。
+  // peek 模式（PIR 唤醒）：只显示缓存，不开射频；超时回睡。
+  // 期间按键：联网键 → 连 AP 进后台；动作键 → 只开射频执行动作。
   // 必须在 WiFi 状态检查之前返回，否则未联网会被误判成「WiFi 掉线」去重连 / 开热点。
   if (peekMode) {
     pollButtons();
@@ -2421,14 +2572,16 @@ void loop() {
       int slot = peekActionSlot;
       peekActionSlot = 0;
       peekMode = false;
-      Serial.printf("[wake] peek -> full wake, connect WiFi (slot %d)\n", slot);
-      if (!connectSTA(STA_TIMEOUT_MS)) startPortal();
-      else showConnected();
-      if (!portal && WiFi.status() == WL_CONNECTED) onButtonPress(slot);
-    }
-    if (peekExtended) {
-      peekExtended = false;
-      peekUntil = millis() + PEEK_MS;
+      if (netSlot > 0 && slot == netSlot) {
+        Serial.println("[wake] net key -> connect AP");
+        if (!connectSTA(STA_TIMEOUT_MS)) startPortal();
+        else {
+          showConnected();
+          sleepHoldUntil = millis() + 300000UL;
+        }
+      } else {
+        executeActionOnWake(slot);
+      }
     }
     if (peekMode && (int32_t)(millis() - peekUntil) >= 0) {
       peekMode = false;
@@ -2438,7 +2591,8 @@ void loop() {
     return;
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
+  // 只开射频模式：本来就没打算关联 AP，不能走「WiFi 掉线 → 重连 / 开热点」。
+  if (!radioOnly && WiFi.status() != WL_CONNECTED) {
     if (lostSince == 0) {
       lostSince = millis();
       Serial.println("WiFi lost, reconnecting");
@@ -2468,6 +2622,13 @@ void loop() {
   schedulePrefetch();
 
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // 动作执行完（只开射频的那次唤醒）：停留一小会儿让人看清结果就回睡，
+  // 不等 sleepSeconds。对电池机来说这是每次按键的耗电大头。
+  if (actionSleepAt && (int32_t)(millis() - actionSleepAt) >= 0) {
+    actionSleepAt = 0;
+    Serial.println("[sleep] action done, back to sleep");
+    enterDeepSleep();
+  }
   // 从机电池休眠：按键/人在场会刷新 lastActivityAt；OTA 中或待自动更新时不睡。
   if (deviceRole == "slave" && sleepSeconds > 0 && !otaInProgress
       && !(autoUpdate && fwAvailable)
