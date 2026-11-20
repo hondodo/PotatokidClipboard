@@ -4656,9 +4656,26 @@ function attachAdmin(app, options = {}) {
     app.get('/api/admin/machines/:id/devicecfg', requireAdmin, (req, res) => {
         const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
         if (!machine) return undefined;
+        const cfg = normalizeEspCfg(machine.espCfg);
+        const now = machine.cfgNow || null;
+        // 从未下发过配置时，用设备自报的实际值预填；否则后台弹窗是空的，
+        // 直接点保存就会把设备现有配置（按键/角色/PIR 等）清空。
+        if (!cfg.ver && now) {
+            cfg.role = now.role === 'slave' ? 'slave' : 'master';
+            cfg.masterMac = typeof now.master === 'string' ? now.master : '';
+            cfg.autoUpdate = Number(now.auto) === 1;
+            cfg.idleSleep = Number(now.sleep) || 0;
+            const interval = Number(now.otachk);
+            cfg.otaCheckSec = interval >= 300 && interval <= 21600 ? interval : 21600;
+            cfg.pirPin = Number.isInteger(Number(now.pir)) ? Number(now.pir) : -1;
+            cfg.netSlot = Math.min(8, Math.max(0, Number(now.net) || 0));
+            cfg.batPin = Number.isInteger(Number(now.batpin)) ? Number(now.batpin) : -1;
+            cfg.batDiv = Math.min(10, Math.max(1, Number(now.batdiv) || 2));
+            cfg.pins = Array.isArray(now.pins) ? now.pins.slice(0, MAX_ESP_BUTTONS) : [];
+        }
         return jsonOk(res, {
-            cfg: normalizeEspCfg(machine.espCfg),
-            now: machine.cfgNow || null,
+            cfg,
+            now,
             applied: Number(machine.cfgApplied) || 0,
         });
     });
