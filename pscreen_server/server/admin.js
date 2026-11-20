@@ -1373,6 +1373,13 @@ function attachAdmin(app, options = {}) {
             espCfg: normalizeEspCfg(machine.espCfg),
             cfgNow: machine.cfgNow && typeof machine.cfgNow === 'object' ? machine.cfgNow : null,
             cfgApplied: Number(machine.cfgApplied) || 0,
+            // 唤醒诊断：最近一次唤醒来源 + PIR 唤醒累计次数。
+            lastWake: typeof machine.lastWake === 'string' ? machine.lastWake : '',
+            pirWakes: Number(machine.pirWakes) || 0,
+            pirLevel: Number(machine.pirLevel) === 1 ? 1 : 0,
+            slpErr: machine.slpErr && typeof machine.slpErr === 'object' ? machine.slpErr : null,
+            pirMode: Number(machine.pirMode) || 0,
+            diag: machine.diag && typeof machine.diag === 'object' ? machine.diag : null,
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
@@ -3799,6 +3806,14 @@ function attachAdmin(app, options = {}) {
         // 远程配置：本机已应用到的配置版本 + 本机当前实际值（供后台对照编辑）。
         if (Number.isFinite(Number(body.cfgVer))) machine.cfgApplied = Math.round(Number(body.cfgVer));
         if (body.cfgNow && typeof body.cfgNow === 'object') machine.cfgNow = body.cfgNow;
+        // 唤醒诊断：PIR 唤醒累计次数（RTC 内存），用来判断人体感应能否唤醒深睡。
+        if (Number.isFinite(Number(body.pirWakes))) machine.pirWakes = Math.round(Number(body.pirWakes));
+        if (typeof body.wake === 'string') machine.lastWake = body.wake.slice(0, 12);
+        if (Number.isFinite(Number(body.pirLevel))) machine.pirLevel = Math.round(Number(body.pirLevel));
+        if (body.slpErr && typeof body.slpErr === 'object') machine.slpErr = body.slpErr;
+        if (Number.isFinite(Number(body.pirMode))) machine.pirMode = Math.round(Number(body.pirMode));
+        // 唤醒原始诊断：复位原因 / 唤醒原因 / 两条唤醒通道的引脚掩码。
+        if (body.diag && typeof body.diag === 'object') machine.diag = body.diag;
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
@@ -4659,9 +4674,26 @@ function attachAdmin(app, options = {}) {
     app.get('/api/admin/machines/:id/devicecfg', requireAdmin, (req, res) => {
         const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
         if (!machine) return undefined;
+        const cfg = normalizeEspCfg(machine.espCfg);
+        const now = machine.cfgNow || null;
+        // 从未下发过配置时，用设备自报的实际值预填；否则后台弹窗是空的，
+        // 直接点保存就会把设备现有配置（按键/角色/PIR 等）清空。
+        if (!cfg.ver && now) {
+            cfg.role = now.role === 'slave' ? 'slave' : 'master';
+            cfg.masterMac = typeof now.master === 'string' ? now.master : '';
+            cfg.autoUpdate = Number(now.auto) === 1;
+            cfg.idleSleep = Number(now.sleep) || 0;
+            const interval = Number(now.otachk);
+            cfg.otaCheckSec = interval >= 300 && interval <= 21600 ? interval : 21600;
+            cfg.pirPin = Number.isInteger(Number(now.pir)) ? Number(now.pir) : -1;
+            cfg.netSlot = Math.min(8, Math.max(0, Number(now.net) || 0));
+            cfg.batPin = Number.isInteger(Number(now.batpin)) ? Number(now.batpin) : -1;
+            cfg.batDiv = Math.min(10, Math.max(1, Number(now.batdiv) || 2));
+            cfg.pins = Array.isArray(now.pins) ? now.pins.slice(0, MAX_ESP_BUTTONS) : [];
+        }
         return jsonOk(res, {
-            cfg: normalizeEspCfg(machine.espCfg),
-            now: machine.cfgNow || null,
+            cfg,
+            now,
             applied: Number(machine.cfgApplied) || 0,
         });
     });

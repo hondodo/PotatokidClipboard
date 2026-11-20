@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.3";
+static const char *APP_VER             = "oled-7.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -359,6 +359,22 @@ int netSlot = 0;               // 联网键槽位：0=不启用；1..MAX_BTN=该
 #define WAKE_BUTTON   2        // 按键唤醒（联网键或动作键，用 wakeSlotHit 区分）
 #define WAKE_TIMER    3        // RTC 定时唤醒 → 只开射频查 OTA
 uint8_t wakeReason = WAKE_COLD;
+// PIR 唤醒累计次数：放在 RTC 内存里，深睡不清零。
+// 用于诊断「人体感应到底有没有把芯片唤醒」——PIR 唤醒不联网，
+// 只能等下一次心跳把计数带上去，后台就能看出有没有增加。
+RTC_DATA_ATTR uint32_t pirWakeCount = 0;
+// 深睡唤醒注册的返回值（上一次入睡时记录，重启后上报）：
+// 0=OK，负值=错误码。-2 表示引脚超出可唤醒范围。
+RTC_DATA_ATTR int8_t rtcSlpErrBtn = 0;
+RTC_DATA_ATTR int8_t rtcSlpErrPir = 0;
+// PIR 实际走哪条唤醒通道：1=EXT1（RTC IO），2=GPIO wake。便于判断哪条生效。
+RTC_DATA_ATTR int8_t rtcPirWakeMode = 0;
+// 唤醒原始诊断（RTC 内存，重启后上报）：复位原因 / 唤醒原因 / 两条唤醒通道的
+// 原始引脚位掩码。用于判断「根本没醒」还是「醒了但掩码对不上引脚」。
+RTC_DATA_ATTR int8_t  rtcResetReason = 0;
+RTC_DATA_ATTR int8_t  rtcWakeCause   = 0;
+RTC_DATA_ATTR uint32_t rtcGpioMask   = 0;
+RTC_DATA_ATTR uint32_t rtcExt1Mask   = 0;
 int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
@@ -375,6 +391,24 @@ uint32_t otaCheckSec = 6UL * 3600UL;
 static const uint32_t OTA_CHECK_MIN_SEC = 300;      // 最短 5 分钟
 static const uint32_t OTA_CHECK_MAX_SEC = 21600;    // 最长 6 小时
 // 远程更新：后台下发的时间戳（毫秒）。比本机记录的新就强制升级一次。
+// 把 "oled-6.5" 解析成可比较的数字（主*100+次）。
+// 不能用字符串比较：那样会把服务端上的旧版本（如 6.3）当成「有新版」而自动降级。
+static long versionNumber(const String &v) {
+  int dash = v.lastIndexOf('-');
+  String tail = dash >= 0 ? v.substring(dash + 1) : v;
+  int dot = tail.indexOf('.');
+  long major = dot > 0 ? tail.substring(0, dot).toInt() : tail.toInt();
+  long minor = dot > 0 ? tail.substring(dot + 1).toInt() : 0;
+  if (major < 0) major = 0;
+  if (minor < 0) minor = 0;
+  return major * 100 + minor;
+}
+
+static bool isNewerVersion(const String &remote, const String &local) {
+  if (remote.length() == 0) return false;
+  return versionNumber(remote) > versionNumber(local);
+}
+
 uint64_t fwPushSeen = 0;      // 已处理过的 fwPush 时间戳（NVS 持久化）
 bool fwPushForced = false;    // 本次启动内是否收到过强制更新标记
 uint32_t cfgVerApplied = 0;   // 已应用的远程配置版本（NVS cfg.cfgver）
@@ -1140,6 +1174,21 @@ void reportToServer(bool isRegister) {
   body += "]";
   // 远程配置：本机已应用版本 + 当前实际值，后台据此对照并编辑「期望配置」。
   body += ",\"cfgVer\":" + String(cfgVerApplied);
+  // 唤醒诊断：本次唤醒来源 + PIR 唤醒累计次数（RTC 内存，深睡不清零）。
+  static const char *wakeTag[] = {"cold", "pir", "button", "timer"};
+  body += ",\"wake\":\"" + String(wakeTag[wakeReason <= 3 ? wakeReason : 0]) + "\"";
+  body += ",\"pirWakes\":" + String(pirWakeCount);
+  // 人体感应当前电平：用来区分「传感器没信号」和「能醒但没点亮屏幕」。
+  body += ",\"pirLevel\":" + String(pirPin >= 0 ? (digitalRead(pirPin) == HIGH ? 1 : 0) : -1);
+  // 上一次入睡时唤醒注册的返回值，排查 PIR 为什么唤不醒。
+  body += ",\"slpErr\":{\"btn\":" + String((int)rtcSlpErrBtn) + ",\"pir\":" + String((int)rtcSlpErrPir) + "}";
+  body += ",\"pirMode\":" + String((int)rtcPirWakeMode);
+  // 唤醒原始诊断：复位原因 / 唤醒原因 / 两条通道的引脚掩码（十进制位掩码）。
+  // 例：rst=4(deep sleep 退出) cause=7(GPIO) gpio=64(GPIO6) ext1=0
+  body += ",\"diag\":{\"rst\":" + String((int)rtcResetReason) +
+          ",\"cause\":" + String((int)rtcWakeCause) +
+          ",\"gpio\":" + String((unsigned long)rtcGpioMask) +
+          ",\"ext1\":" + String((unsigned long)rtcExt1Mask) + "}";
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
@@ -1376,7 +1425,7 @@ bool checkFirmwareInto(NetSnapshot &snap) {
   snap.fwVersion = text.substring(0, p1);
   if (p2 > 0) snap.fwSize = text.substring(p1 + 1, p2).toInt();
   if (p3 >= 0) snap.fwNotes = text.substring(p3 + 1);
-  snap.fwAvailable = snap.fwVersion.length() > 0 && snap.fwVersion != String(APP_VER);
+  snap.fwAvailable = isNewerVersion(snap.fwVersion, String(APP_VER));
   if (snap.fwAvailable) {
     Serial.printf("[ota] 可升级: %s -> %s (%uKB)\n", APP_VER, snap.fwVersion.c_str(), (unsigned)(snap.fwSize / 1024));
   }
@@ -1455,7 +1504,7 @@ void handleServerVars() {
   int e = lastPostResp.indexOf('"', s + 1);
   if (e < 0) return;
   String ver = lastPostResp.substring(s + 1, e);
-  if (ver.length() == 0 || ver == String(APP_VER)) return;
+  if (!isNewerVersion(ver, String(APP_VER))) return;
   fwAvailable = true;
   fwVersion = ver;
   fwNotes = "";
@@ -2247,6 +2296,10 @@ String pageSettings(const String &listText, const String &err) {
        "有人时 OUT 输出高电平，屏幕立即亮起；人持续在就一直亮，人离开后按后台设置的秒数熄屏。</div>";
   h += "<label>人体感应 OUT GPIO（-1 = 未接，屏幕常亮）</label>";
   h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  h += "<div class='tip'>省电考虑：C6 只有 <b>GPIO0~7</b> 能唤醒深睡，接在 8 以上的引脚"
+       "只能在本机已醒时起作用，睡着时按人体感应不会亮屏。</div>";
+#endif
   // oled-5.5：联网键——按下连 AP 进后台并推迟休眠 5 分钟，不执行该槽位的动作。
   // 普通键只开射频走主机中继，所以进后台需要这颗专用键。
   h += "<label>联网键（按下连 WiFi 进后台，不执行动作；不启用时所有按键都连 WiFi）</label>";
@@ -2617,11 +2670,31 @@ void enterDeepSleep(bool quiet = false) {
     pinMode(btnPins[i], INPUT_PULLUP);
     mask |= (1ULL << btnPins[i]);
   }
-  if (mask) esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+  rtcSlpErrBtn = 0;
+  rtcSlpErrPir = 0;
+  if (mask) rtcSlpErrBtn = (int8_t)esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
   // PIR 为高电平唤醒：与按键低电平分两次调用，各自设置引脚触发电平。
+  // 必须开内部下拉：未接传感器时引脚悬空会被拉高，导致「刚睡下就立刻被唤醒」
+  // 的循环（每次唤醒都联网，电池很快耗尽）。
+  // C6 只有 RTCIO 0~7 能作为深睡唤醒源，其它引脚配了也不会生效。
   if (pirPin >= 0) {
-    pinMode(pirPin, INPUT);
-    esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+    pinMode(pirPin, INPUT_PULLDOWN);
+    if (pirPin < 8) {
+      // 先试 EXT1（RTC IO 通道，专门用于 RTC 引脚电平唤醒），失败再退回 GPIO wake。
+      esp_err_t e = esp_sleep_enable_ext1_wakeup_io(1ULL << pirPin, ESP_EXT1_WAKEUP_ANY_HIGH);
+      if (e == ESP_OK) {
+        rtcPirWakeMode = 1;
+        rtcSlpErrPir = 0;
+      } else {
+        rtcPirWakeMode = 2;
+        rtcSlpErrPir = (int8_t)esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+        if (rtcSlpErrPir != 0) rtcSlpErrPir = (int8_t)e;   // 两条都失败时保留 EXT1 的错误码
+      }
+    } else {
+      rtcPirWakeMode = 0;
+      rtcSlpErrPir = -2;
+      Serial.printf("[sleep] PIR GPIO%d cannot wake this chip (only GPIO0-7)\n", pirPin);
+    }
   }
   // 定时唤醒：从机一律启用（即使关了自动更新也要定期上报状态、接收远程更新标记）。
   // 到点只开射频发一次心跳，有新版且允许更新时才连 AP。
@@ -2640,7 +2713,8 @@ void enterDeepSleep(bool quiet = false) {
 // （get_ext1_wakeup_status）。两者都返回引脚位掩码。
 static uint64_t wakeGpioStatus() {
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
-  return esp_sleep_get_gpio_wakeup_status();
+  // PIR 可能走 EXT1、按键走 GPIO wake，两条都要查，否则会把唤醒判成「冷启动」。
+  return esp_sleep_get_gpio_wakeup_status() | esp_sleep_get_ext1_wakeup_status();
 #else
   return esp_sleep_get_ext1_wakeup_status();
 #endif
@@ -2652,11 +2726,17 @@ static uint64_t wakeGpioStatus() {
 uint8_t detectWakeReason() {
   wakeSlotHit = 0;
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-  if (cause == ESP_SLEEP_WAKEUP_TIMER) return WAKE_TIMER;
-  bool gpioWake = (cause == ESP_SLEEP_WAKEUP_GPIO);
-#if !defined(CONFIG_IDF_TARGET_ESP32C6)
-  gpioWake = gpioWake || (cause == ESP_SLEEP_WAKEUP_EXT1);
+  // 原始诊断先记录，再判断，避免返回太早丢数据。
+  rtcWakeCause   = (int8_t)cause;
+  rtcResetReason = (int8_t)esp_reset_reason();
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  rtcGpioMask    = (uint32_t)esp_sleep_get_gpio_wakeup_status();
+#else
+  rtcGpioMask    = 0;
 #endif
+  rtcExt1Mask    = (uint32_t)esp_sleep_get_ext1_wakeup_status();
+  if (cause == ESP_SLEEP_WAKEUP_TIMER) return WAKE_TIMER;
+  bool gpioWake = (cause == ESP_SLEEP_WAKEUP_GPIO) || (cause == ESP_SLEEP_WAKEUP_EXT1);
   if (!gpioWake) return WAKE_COLD;
   uint64_t mask = wakeGpioStatus();
   if (pirPin >= 0 && (mask & (1ULL << pirPin))) return WAKE_PIR;
@@ -2777,6 +2857,7 @@ void setup() {
   // ② PIR 唤醒：只亮屏显示缓存 5 秒，不开射频；
   //    期间按键则交给主循环去执行对应动作。
   if (wakeReason == WAKE_PIR) {
+    pirWakeCount++;
     peekMode = true;
     peekUntil = millis() + PEEK_MS;
     screenOff = false;
@@ -2937,6 +3018,11 @@ void loop() {
   if (millis() - lastDraw > 5000) {
     lastDraw = millis();
     if (!toastUntil) drawMain();
+    // 放在联网之后打印：USB 原生串口在复位时会重新枚举，启动最早那几行常丢失。
+    static const char *wakeNames[] = {"cold", "pir", "button", "timer"};
+    Serial.printf("[boot] wake=%s slot=%d reset=%d\n",
+                  wakeNames[wakeReason <= 3 ? wakeReason : 0], wakeSlotHit,
+                  (int)esp_reset_reason());
     Serial.printf("online ip=%s rssi=%d heap=%u\n", WiFi.localIP().toString().c_str(),
                   WiFi.RSSI(), (unsigned)ESP.getFreeHeap());
   }
