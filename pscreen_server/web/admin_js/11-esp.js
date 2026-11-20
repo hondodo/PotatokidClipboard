@@ -1801,5 +1801,86 @@
 
   if ($('esp-weather-cities')) $('esp-weather-cities').addEventListener('click', openWeatherCitiesDialog);
 
+  // ------------------------------------------------------------ 远程设备配置
+
+  // 唤醒间隔候选：与设备设置页保持一致。
+  const ESP_CFG_INTERVALS = [
+    [300, '5 分钟'], [600, '10 分钟'], [1800, '30 分钟'],
+    [3600, '1 小时'], [7200, '2 小时'], [10800, '3 小时'], [21600, '6 小时'],
+  ];
+
+  /**
+   * 设备深睡后连不上它自己的设置页，所以在服务端存一份「期望配置」，
+   * 带版本号随心跳下发；设备醒来发现版本变了就拉取并写入 NVS。
+   * 设备当前实际值回显在输入框的占位提示里，便于对照。
+   */
+  async function editDeviceCfg(machine) {
+    let data;
+    try {
+      data = await api(`/api/admin/machines/${encodeURIComponent(machine.id)}/devicecfg`);
+    } catch (error) {
+      toast(error.message, 'error');
+      return;
+    }
+    const cfg = data.cfg || {};
+    const now = data.now || null;
+    const cfgPins = Array.isArray(cfg.pins) ? cfg.pins : [];
+    const nowPins = now && Array.isArray(now.pins) ? now.pins : [];
+    const pinRows = Array.from({ length: 8 }, (_, i) => {
+      const value = Number.isInteger(cfgPins[i]) && cfgPins[i] >= 0 ? cfgPins[i] : '';
+      const actual = Number.isInteger(nowPins[i]) && nowPins[i] >= 0 ? nowPins[i] : null;
+      return `<div class="esp-field-row"><label>槽位 ${i + 1} 引脚</label>
+        <input data-pin="${i + 1}" type="number" min="0" max="48" value="${value}" placeholder="空=不启用${actual !== null ? `（实际 GPIO${actual}）` : ''}"></div>`;
+    }).join('');
+    const intervalOptions = ESP_CFG_INTERVALS.map(([sec, label]) =>
+      `<option value="${sec}" ${Number(cfg.otaCheckSec) === sec ? 'selected' : ''}>${label}</option>`).join('');
+    const host = document.createElement('div');
+    host.innerHTML = `
+      <p class="hint">保存的是「期望配置」，设备下次心跳或唤醒时自动应用；涉及引脚/角色的改动会让设备重启一次。输入框占位提示是设备上报的实际值。</p>
+      <div class="esp-field-row"><label>角色</label>
+        <select data-field="role">
+          <option value="master" ${cfg.role !== 'slave' ? 'selected' : ''}>主机（常电）</option>
+          <option value="slave" ${cfg.role === 'slave' ? 'selected' : ''}>从机（电池休眠）</option>
+        </select></div>
+      <div class="esp-field-row"><label>主机 MAC</label>
+        <input data-field="masterMac" value="${esc(cfg.masterMac || '')}" placeholder="AA:BB:CC:DD:EE:FF${now && now.master ? `（实际 ${esc(now.master)}）` : ''}"></div>
+      <div class="esp-field-row"><label>空闲休眠（秒）</label>
+        <input data-field="idleSleep" type="number" min="0" max="3600" value="${Number(cfg.idleSleep) || 0}" placeholder="0=不休眠${now ? `（实际 ${Number(now.sleep) || 0}）` : ''}"></div>
+      <div class="esp-field-row"><label>唤醒间隔</label>
+        <select data-field="otaCheckSec">${intervalOptions}</select></div>
+      <label class="inline-check"><input data-field="autoUpdate" type="checkbox" ${cfg.autoUpdate !== false ? 'checked' : ''}> 自动更新</label>
+      <div class="esp-field-row"><label>人体感应引脚</label>
+        <input data-field="pirPin" type="number" min="-1" max="48" value="${Number(cfg.pirPin)}" placeholder="-1=未接${now ? `（实际 ${Number(now.pir)}）` : ''}"></div>
+      <div class="esp-field-row"><label>联网键槽位</label>
+        <input data-field="netSlot" type="number" min="0" max="8" value="${Number(cfg.netSlot) || 0}" placeholder="0=不启用${now ? `（实际 ${Number(now.net) || 0}）` : ''}"></div>
+      <div class="esp-field-row"><label>电池引脚 / 分压</label>
+        <input data-field="batPin" type="number" min="-1" max="48" value="${Number(cfg.batPin)}" placeholder="-1=未接${now ? `（实际 ${Number(now.batpin)}）` : ''}">
+        <input data-field="batDiv" type="number" min="1" max="10" value="${Number(cfg.batDiv) || 2}" placeholder="分压比"></div>
+      <h4 style="margin:14px 0 6px">按键引脚（槽位 → GPIO）</h4>
+      ${pinRows}`;
+    openDialog({
+      title: `远程配置 · ${machine.name || machine.id}`,
+      content: host,
+      wide: true,
+      onSave: async () => {
+        const field = (name) => host.querySelector(`[data-field="${name}"]`);
+        const payload = {
+          role: field('role').value,
+          masterMac: field('masterMac').value,
+          idleSleep: Number(field('idleSleep').value) || 0,
+          autoUpdate: field('autoUpdate').checked,
+          otaCheckSec: Number(field('otaCheckSec').value) || 21600,
+          pirPin: Number(field('pirPin').value),
+          netSlot: Number(field('netSlot').value) || 0,
+          batPin: Number(field('batPin').value),
+          batDiv: Number(field('batDiv').value) || 2,
+          pins: Array.from(host.querySelectorAll('[data-pin]'))
+            .map((el) => (el.value === '' ? -1 : Number(el.value))),
+        };
+        await api(`/api/admin/machines/${encodeURIComponent(machine.id)}/devicecfg`, { method: 'PUT', body: payload });
+      },
+    });
+  }
+
   // ------------------------------------------------------------ Tab
 
