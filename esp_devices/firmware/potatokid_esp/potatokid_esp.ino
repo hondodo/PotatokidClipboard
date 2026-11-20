@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.3";
+static const char *APP_VER             = "oled-6.5";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -375,6 +375,24 @@ uint32_t otaCheckSec = 6UL * 3600UL;
 static const uint32_t OTA_CHECK_MIN_SEC = 300;      // 最短 5 分钟
 static const uint32_t OTA_CHECK_MAX_SEC = 21600;    // 最长 6 小时
 // 远程更新：后台下发的时间戳（毫秒）。比本机记录的新就强制升级一次。
+// 把 "oled-6.5" 解析成可比较的数字（主*100+次）。
+// 不能用字符串比较：那样会把服务端上的旧版本（如 6.3）当成「有新版」而自动降级。
+static long versionNumber(const String &v) {
+  int dash = v.lastIndexOf('-');
+  String tail = dash >= 0 ? v.substring(dash + 1) : v;
+  int dot = tail.indexOf('.');
+  long major = dot > 0 ? tail.substring(0, dot).toInt() : tail.toInt();
+  long minor = dot > 0 ? tail.substring(dot + 1).toInt() : 0;
+  if (major < 0) major = 0;
+  if (minor < 0) minor = 0;
+  return major * 100 + minor;
+}
+
+static bool isNewerVersion(const String &remote, const String &local) {
+  if (remote.length() == 0) return false;
+  return versionNumber(remote) > versionNumber(local);
+}
+
 uint64_t fwPushSeen = 0;      // 已处理过的 fwPush 时间戳（NVS 持久化）
 bool fwPushForced = false;    // 本次启动内是否收到过强制更新标记
 uint32_t cfgVerApplied = 0;   // 已应用的远程配置版本（NVS cfg.cfgver）
@@ -1376,7 +1394,7 @@ bool checkFirmwareInto(NetSnapshot &snap) {
   snap.fwVersion = text.substring(0, p1);
   if (p2 > 0) snap.fwSize = text.substring(p1 + 1, p2).toInt();
   if (p3 >= 0) snap.fwNotes = text.substring(p3 + 1);
-  snap.fwAvailable = snap.fwVersion.length() > 0 && snap.fwVersion != String(APP_VER);
+  snap.fwAvailable = isNewerVersion(snap.fwVersion, String(APP_VER));
   if (snap.fwAvailable) {
     Serial.printf("[ota] 可升级: %s -> %s (%uKB)\n", APP_VER, snap.fwVersion.c_str(), (unsigned)(snap.fwSize / 1024));
   }
@@ -1455,7 +1473,7 @@ void handleServerVars() {
   int e = lastPostResp.indexOf('"', s + 1);
   if (e < 0) return;
   String ver = lastPostResp.substring(s + 1, e);
-  if (ver.length() == 0 || ver == String(APP_VER)) return;
+  if (!isNewerVersion(ver, String(APP_VER))) return;
   fwAvailable = true;
   fwVersion = ver;
   fwNotes = "";
@@ -2619,8 +2637,10 @@ void enterDeepSleep(bool quiet = false) {
   }
   if (mask) esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
   // PIR 为高电平唤醒：与按键低电平分两次调用，各自设置引脚触发电平。
+  // 必须开内部下拉：未接传感器时引脚悬空会被拉高，导致「刚睡下就立刻被唤醒」
+  // 的循环（每次唤醒都联网，电池很快耗尽）。
   if (pirPin >= 0) {
-    pinMode(pirPin, INPUT);
+    pinMode(pirPin, INPUT_PULLDOWN);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
   }
   // 定时唤醒：从机一律启用（即使关了自动更新也要定期上报状态、接收远程更新标记）。
@@ -2937,6 +2957,11 @@ void loop() {
   if (millis() - lastDraw > 5000) {
     lastDraw = millis();
     if (!toastUntil) drawMain();
+    // 放在联网之后打印：USB 原生串口在复位时会重新枚举，启动最早那几行常丢失。
+    static const char *wakeNames[] = {"cold", "pir", "button", "timer"};
+    Serial.printf("[boot] wake=%s slot=%d reset=%d\n",
+                  wakeNames[wakeReason <= 3 ? wakeReason : 0], wakeSlotHit,
+                  (int)esp_reset_reason());
     Serial.printf("online ip=%s rssi=%d heap=%u\n", WiFi.localIP().toString().c_str(),
                   WiFi.RSSI(), (unsigned)ESP.getFreeHeap());
   }
