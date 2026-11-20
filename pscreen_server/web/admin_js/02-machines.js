@@ -153,12 +153,42 @@
     return `<span class="muted">家长私有别名（仅本人可见，不影响设备备注与其他家长）：${items}</span>`;
   }
 
+  /** 深睡从机没有持续心跳，不能简单按「在线/离线」判断。 */
+  function formatLeft(ms) {
+    const minutes = Math.max(0, Math.round(ms / 60000));
+    if (minutes < 1) return '不到 1 分钟';
+    if (minutes < 60) return `${minutes} 分钟`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+  }
+
+  /**
+   * 深睡从机的「休眠中」状态：用最后上报时间 + 自报的定时唤醒间隔推算。
+   * 在预期唤醒点之后留 10 分钟宽限，超过就算「已超预期」，便于发现设备真的掉线。
+   */
+  function sleepStatus(machine) {
+    if (machine.platform !== 'esp32' || machine.role !== 'slave') return null;
+    const sleepSec = Number(machine.sleepSec) || 0;
+    const lastSeen = Number(machine.lastSeen) || 0;
+    if (sleepSec <= 0 || !lastSeen) return null;
+    const expected = lastSeen + sleepSec * 1000;
+    const now = Date.now();
+    if (now < expected + 10 * 60 * 1000) {
+      return { text: `休眠中 · 预计 ${formatLeft(expected - now)} 后唤醒` };
+    }
+    return { text: `休眠中 · 已超预期唤醒 ${formatLeft(now - expected)}` };
+  }
+
   function machineCells(machine) {
     const online = machine.online === true;
     const kind = machineKind(machine);
     const nameInfo = machineDisplay(machine);
+    const sleep = online ? null : sleepStatus(machine);
+    const statusText = online ? '在线' : (sleep ? sleep.text : '离线');
+    const statusClass = online ? 'on' : (sleep ? 'sleep' : '');
     return [
-      `<span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${online ? 'on' : ''}">${online ? '在线' : '离线'}</span>`,
+      `<span class="dot ${online ? 'on' : 'off'}"></span><span class="status-text ${statusClass}">${statusText}</span>`,
       `
         <div class="cell-stack">
           <span class="strong">${esc(nameInfo.name)}</span>
