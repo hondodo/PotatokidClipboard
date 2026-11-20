@@ -2429,15 +2429,26 @@ function attachAdmin(app, options = {}) {
      */
     app.get('/api/admin/esp/presence', requireParentOperator, (req, res) => {
         try {
+            // 感应四态（有人/无人/休眠/离线）统一走场景引擎的归一化，前端只管展示。
+            const entityById = new Map(sceneEngine.presenceEntities()
+                .map((entity) => [entity.deviceId, entity]));
             const devices = Object.values(readMachines())
                 .filter((machine) => isEspMachine(machine))
-                .map((machine) => ({
-                    id: machine.id,
-                    espPresence: normalizeEspPresence(machine.espPresence),
-                    // 在线判定与 admin 列表一致（90 秒心跳窗口）；后台徽标据此显示「离线」。
-                    online: Boolean(machine.lastSeen) && nowMs() - machine.lastSeen <= MACHINE_ONLINE_MS,
-                    lastSeen: machine.lastSeen || 0,
-                }));
+                .map((machine) => {
+                    const entity = entityById.get(machine.id);
+                    return {
+                        id: machine.id,
+                        espPresence: normalizeEspPresence(machine.espPresence),
+                        // 兼容旧字段：online = 心跳窗口内；sleeping = 深睡从机休眠窗口内。
+                        online: entity ? entity.online
+                            : (Boolean(machine.lastSeen) && nowMs() - machine.lastSeen <= MACHINE_ONLINE_MS),
+                        sleeping: entity ? Boolean(entity.sleeping) : false,
+                        // presenceState：present/absent/sleep/unknown，没上报过感应为 null。
+                        presenceState: entity ? entity.presence : null,
+                        presenceText: entity ? entity.presenceText : '',
+                        lastSeen: machine.lastSeen || 0,
+                    };
+                });
             return jsonOk(res, { devices });
         } catch (error) {
             console.error('[admin] 读取感应状态失败:', error);

@@ -328,7 +328,8 @@
               <small>${entity.occupied ? `还剩约 ${entity.occupiedLeftSec} 秒转空闲` : '已超过窗口'}</small>
             </div>
           </div>
-          ${entity.online === false ? '<div class="smart-note">⚠️ 设备离线（心跳超时），感应状态停留在最后一次上报值；离线期间涉及它的「有人/无人」条件一律不判定，恢复心跳后继续。</div>' : ''}
+          ${entity.presence === 'sleep' ? '<div class="smart-note">💤 深睡从机休眠中（预计唤醒时间见设备列表）。休眠按「无人」判定：人来了 PIR 会唤醒设备并立刻上报有人。</div>' : ''}
+          ${entity.presence === 'unknown' ? '<div class="smart-note">⚠️ 设备离线（心跳超时），感应状态停留在最后一次上报值；离线期间涉及它的「有人/无人」条件一律不判定，恢复心跳后继续。</div>' : ''}
           <div class="smart-presence-times">
             <span>进入 ${smartClock(entity.lastEnterAt)}</span>
             <span>离开 ${smartClock(entity.lastLeaveAt)}</span>

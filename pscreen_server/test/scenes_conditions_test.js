@@ -28,7 +28,10 @@ const HA_STATES = {
   'sensor.temp': { entity_id: 'sensor.temp', state: '26', attributes: {} },
 };
 const machines = [
-  { id: 'esp-a', name: '小屏A', lastSeen: Date.now(), espPresence: { present: true, lastEnterAt: Date.now(), lastLeaveAt: 0, updatedAt: Date.now() } },
+  { id: 'esp-a', name: '小屏A', role: 'master', lastSeen: Date.now(), espPresence: { present: true, lastEnterAt: Date.now(), lastLeaveAt: 0, updatedAt: Date.now() } },
+  // 深睡从机：1 小时定时唤醒，5 分钟前睡下去（上次心跳），睡前报了无人。
+  { id: 'esp-b', name: '从机B', role: 'slave', sleepSec: 3600, lastSeen: Date.now() - 5 * 60 * 1000,
+    espPresence: { present: false, lastEnterAt: Date.now() - 10 * 60 * 1000, lastLeaveAt: Date.now() - 6 * 60 * 1000, updatedAt: Date.now() - 5 * 60 * 1000 } },
 ];
 const getStates = async (ids) => {
   const out = {};
@@ -281,6 +284,57 @@ function sceneOf(trigger, name = 'T') {
     engine.setSettings({ haPollSec: 5 });
     await runTick();
     assert.ok(savedScene().runCount >= 1, `runCount=${savedScene().runCount}`);
+  });
+
+  // ---- 深睡从机休眠：四态（有人/无人/休眠/离线），休眠按「无人」判定 ----
+
+  ok('感应实体：休眠窗口内的从机报「休眠」，occupied 为空闲', () => {
+    // esp-b：slave + sleepSec=3600，5 分钟前心跳 → 距预期唤醒点还有 55 分钟
+    const entity = engine.presenceEntities().find((e) => e.deviceId === 'esp-b');
+    assert.ok(entity, '应返回 esp-b 的感应实体');
+    assert.strictEqual(entity.online, false);
+    assert.strictEqual(entity.sleeping, true);
+    assert.strictEqual(entity.presence, 'sleep');
+    assert.strictEqual(entity.presenceText, '休眠');
+    assert.strictEqual(entity.occupied, false);
+    assert.ok(entity.expectedWakeAt > Date.now(), '应能推算出预期唤醒时间');
+  });
+
+  await aok('休眠从机：「无人」条件照常触发（休眠 = 无人）', async () => {
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-b', state: 'absent', holdSec: 0 },
+      lightOn, // fixture 里 light.living = on
+    ] }] }, '休眠无人')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.ok(savedScene().runCount >= 1, `runCount=${savedScene().runCount}`);
+  });
+
+  await aok('休眠从机：「有人」条件不触发', async () => {
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-b', state: 'present', holdSec: 0 },
+      lightOn,
+    ] }] }, '休眠有人')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.strictEqual(savedScene().runCount, 0);
+  });
+
+  await aok('休眠超预期唤醒 +10 分钟宽限仍无心跳：判真离线，无人条件也不触发', async () => {
+    // lastSeen = now - 71min → 预期唤醒点 = lastSeen + 60min = now - 11min，已超 10 分钟宽限 1 分钟
+    machines[1].lastSeen = Date.now() - 71 * 60 * 1000;
+    const entity = engine.presenceEntities().find((e) => e.deviceId === 'esp-b');
+    assert.strictEqual(entity.presence, 'unknown');
+    assert.strictEqual(entity.presenceText, '离线');
+    assert.strictEqual(entity.sleeping, false);
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-b', state: 'absent', holdSec: 0 },
+      lightOff,
+    ] }] }, '掉线从机')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.strictEqual(savedScene().runCount, 0);
+    machines[1].lastSeen = Date.now() - 5 * 60 * 1000; // 还原成休眠窗口内
   });
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

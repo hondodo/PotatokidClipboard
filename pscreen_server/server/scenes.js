@@ -32,6 +32,8 @@ const DEFAULT_OCCUPIED_SEC = 90;
 // 设备在线判定窗口：与 admin.js 的 MACHINE_ONLINE_MS（90 秒）保持一致。
 // 心跳停了感应数据就冻结在最后一次上报，离线期间的旧电平不能拿来判自动化。
 const MACHINE_ONLINE_MS = 90 * 1000;
+// 深睡从机休眠宽限：预期唤醒点之后再等 10 分钟没心跳才算真掉线（与 admin 列表一致）。
+const SLEEP_GRACE_MS = 10 * 60 * 1000;
 const DEFAULT_HA_POLL_SEC = 15;
 const MIN_HA_POLL_SEC = 5;
 const MAX_HA_POLL_SEC = 60;
@@ -112,32 +114,45 @@ function withTimeout(promise, ms) {
 function presenceEntityOf(machine, occupiedWindowSec) {
     const raw = machine && machine.espPresence;
     if (!raw || typeof raw !== 'object') return null;
-    // 在线判定：最近一次心跳（lastSeen，注册/心跳/保活都会刷新）在窗口内才算在线。
-    // 设备断电/断网后 espPresence.present 会永远停在最后一次上报值——
-    // 离线时按「未知」处理：occupied 强制空闲、presence 报 unknown，
-    // 求值层（evalCondition）对离线设备有人/无人都不触发，避免拿旧电平反复点火。
+    // 四态：有人 / 无人 / 休眠 / 离线。
+    // 在线判定：最近一次心跳（lastSeen）在 90 秒窗口内（与 admin.js 的 MACHINE_ONLINE_MS 一致）。
+    // 深睡从机休眠判定：与 admin 列表（02-machines.js sleepStatus）同一规则——
+    // role=slave 且自报了 sleepSec，预期唤醒点（lastSeen + sleepSec）后留 10 分钟宽限，
+    // 窗口内算「休眠」而非离线；超过宽限还没心跳才是真的掉线。
+    const now = Date.now();
     const lastSeen = Number(machine.lastSeen) || 0;
-    const online = lastSeen > 0 && (Date.now() - lastSeen) < MACHINE_ONLINE_MS;
+    const online = lastSeen > 0 && (now - lastSeen) < MACHINE_ONLINE_MS;
+    const sleepSec = Number(machine.sleepSec) || 0;
+    const expectedWakeAt = lastSeen + sleepSec * 1000;
+    const sleeping = !online && machine.role === 'slave' && sleepSec > 0
+        && now < expectedWakeAt + SLEEP_GRACE_MS;
     const present = raw.present === true;
     const lastEnterAt = Number(raw.lastEnterAt) || 0;
     const lastLeaveAt = Number(raw.lastLeaveAt) || 0;
     const updatedAt = Number(raw.updatedAt) || 0;
     const windowMs = clampInt(occupiedWindowSec, 10, 3600, DEFAULT_OCCUPIED_SEC) * 1000;
-    const idleMs = lastEnterAt ? Math.max(0, Date.now() - lastEnterAt) : 0;
+    const idleMs = lastEnterAt ? Math.max(0, now - lastEnterAt) : 0;
+    // 设备断电/断网后 espPresence.present 会永远停在最后一次上报值——
+    // 离线时按「未知」处理：occupied 强制空闲，求值层有人/无人都不触发。
+    // 休眠是可预期的离线：按「无人」参与判定，人来了 PIR 会唤醒设备并立刻上报有人。
+    const state = online ? (present ? 'present' : 'absent') : (sleeping ? 'sleep' : 'unknown');
     const occupied = online && (present || Boolean(lastEnterAt && idleMs <= windowMs));
     return {
         entityId: `presence.${machine.id}`,
         deviceId: machine.id,
         name: machine.name || machine.id,
         online,
-        presence: !online ? 'unknown' : (present ? 'present' : 'absent'),
-        presenceText: !online ? '离线' : (present ? '有人' : '无人'),
+        sleeping,
+        state,
+        presence: state,
+        presenceText: { present: '有人', absent: '无人', sleep: '休眠', unknown: '离线' }[state],
         occupied,
-        occupiedText: !online ? '离线' : (occupied ? '占用中' : '空闲'),
+        occupiedText: state === 'sleep' ? '休眠（按无人判）' : (state === 'unknown' ? '离线' : (occupied ? '占用中' : '空闲')),
         lastEnterAt,
         lastLeaveAt,
         updatedAt,
         lastSeen,
+        expectedWakeAt: sleeping ? expectedWakeAt : 0,
         idleSec: lastEnterAt ? Math.round(idleMs / 1000) : null,
         // 距离「判空闲」还有多少秒，界面上用来解释为什么还显示占用中。
         occupiedLeftSec: online && occupied && lastEnterAt
@@ -754,9 +769,11 @@ function attachScenes(options = {}) {
         if (cond.type === 'presence') {
             const entity = presenceOf(cond.deviceId);
             if (!entity) return false;
-            // 设备离线（心跳超时）：感应状态已冻结，按未知处理，有人/无人都不触发。
-            // 否则断电的设备会一直拿最后一次上报的「有人」反复点火。
-            if (!entity.online) return false;
+            // 真离线（心跳超时且不是休眠中的从机）：感应状态已冻结，按未知处理，
+            // 有人/无人都不触发。否则断电的设备会拿最后一次上报的「有人」反复点火。
+            if (entity.presence === 'unknown') return false;
+            // 休眠按「无人」判定：人来了 PIR 会唤醒设备并立刻上报有人，
+            // 所以从机睡着期间「无人→关灯」类自动化照常工作。
             // 用 occupied 窗口判定（有人，或最近 N 秒内出现过有人）：
             // PIR 电平两秒就掉，用瞬时电平会让 AND 组合反复失效。
             const occupied = entity.occupied === true;

@@ -233,12 +233,18 @@
       const active = dev.id === state.espDevEditId ? ' active' : '';
       const pages = dev.espPages || [];
       const tag = pages.length ? `${pages.length} 页` : '未配置';
-      // 人体感应：固件只在 0/1 跳变时立即上报，服务端存最近一次跳变时间。
+      // 人体感应：四态（有人/无人/休眠/离线）由服务端归一化后下发。
       const pir = dev.espPresence;
-      // 离线（心跳超时）时徽标改显「离线」：旧电平已冻结，不能当真实状态看。
-      const pirTag = dev.online === false
-        ? '<span class="tag" data-pir title="心跳超时，感应状态已冻结">离线</span>'
-        : `<span class="tag${pir && pir.present ? ' pir-on' : ''}" data-pir${pir ? '' : ' style="display:none"'}>${pir && pir.present ? '有人' : '无人'}</span>`;
+      const stateText = dev.presenceText || (pir ? (pir.present ? '有人' : '无人') : '');
+      const stateClass = dev.presenceState === 'present' ? ' pir-on'
+        : (dev.presenceState === 'sleep' ? ' pir-sleep' : '');
+      const stateTitle = dev.presenceState === 'sleep'
+        ? '深睡从机休眠中，自动化按「无人」判定；人来了 PIR 会唤醒并立刻上报'
+        : (dev.presenceState === 'unknown' ? '心跳超时，感应状态已冻结，自动化不判定' : '');
+      // 标签常驻占位：新上报时增量更新就能显示出来，不必整列表重渲染。
+      const pirTag = stateText
+        ? `<span class="tag${stateClass}" data-pir${stateTitle ? ` title="${stateTitle}"` : ''}>${stateText}</span>`
+        : '<span class="tag" data-pir style="display:none"></span>';
       const pirLine = espPresenceLine(pir);
       // 电量：从机休眠前上报 batteryMv；未接检测脚时不显示。
       const batteryTag = dev.batteryMv > 0
@@ -273,8 +279,9 @@
     const pir = dev.espPresence;
     const tagEl = item.querySelector('.tag[data-pir]');
     if (tagEl) {
-      tagEl.textContent = dev.online === false ? '离线' : (pir.present ? '有人' : '无人');
-      tagEl.classList.toggle('pir-on', dev.online !== false && pir.present === true);
+      tagEl.textContent = dev.presenceText || (pir.present ? '有人' : '无人');
+      tagEl.classList.toggle('pir-on', dev.presenceState === 'present');
+      tagEl.classList.toggle('pir-sleep', dev.presenceState === 'sleep');
       tagEl.style.display = '';
     }
     const lineEl = item.querySelector('.espdev-pir');
@@ -300,6 +307,8 @@
       if (!fresh || !fresh.espPresence) continue;
       dev.espPresence = fresh.espPresence;
       dev.online = fresh.online !== false;
+      dev.presenceState = fresh.presenceState || '';
+      dev.presenceText = fresh.presenceText || '';
       applyEspPresence(dev);
     }
   }
