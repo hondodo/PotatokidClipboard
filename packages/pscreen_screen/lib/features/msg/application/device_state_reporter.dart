@@ -6,6 +6,7 @@ import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/core/utils/platform_channel_service.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 import 'package:pscreen_screen/features/msg/application/playback_state_provider.dart';
@@ -54,6 +55,12 @@ class DeviceStateReporter {
   /// 是否要补推一帧，让 ESP 屏幕的「定时剩余」标签按 ~10s 精度刷新。
   String _lastSleepSig = '';
 
+  /// 最近一次上报的录制状态签名（状态 + 频道 + 10 秒档时长）。
+  ///
+  /// [RecordingController.state] 每秒 tick 都会通知，直接每帧上报会造成
+  /// 无谓的 WS 流量；按 10 秒档节流，兼顾 start/stop 立即推送与时长刷新。
+  String _lastRecordingSig = '';
+
   void start() {
     if (_started) return;
     _started = true;
@@ -79,6 +86,10 @@ class DeviceStateReporter {
     // 播放状态变化（起播/正常/重试/失败）也要立刻推一次，否则设备头
     // 要等到下次场景变化才更新。
     PlaybackStateProvider.instance.notifier.addListener(_onPlaybackChanged);
+    // 录制状态变化（开/停/切台自动停/时长 tick）→ 节流后随 state 上报，
+    // 遥控端与 admin「录制频道/已录时长」标签据此刷新。
+    RecordingController.instance.state.addListener(_onRecordingChanged);
+    _lastRecordingSig = _recordingSignature();
     // 注册时通道可能已经连上（错过 connectionState 事件）。
     if (channel.isConnected) {
       unawaited(_pushWithVolume(full: true));
@@ -96,9 +107,12 @@ class DeviceStateReporter {
     _sceneChanges?.removeListener(_onSceneChanged);
     _sceneChanges = null;
     PlaybackStateProvider.instance.notifier.removeListener(_onPlaybackChanged);
+    RecordingController.instance.state.removeListener(_onRecordingChanged);
     _lastListVersion = null;
     _volume = null;
     _lastPlayback = null;
+    _lastSleepSig = '';
+    _lastRecordingSig = '';
   }
 
   /// 换台：丢弃上一频道的播放快照，避免新频道出结果前把旧状态当成当前。
@@ -128,6 +142,26 @@ class DeviceStateReporter {
   void _onPlaybackChanged() {
     if (!_started || !channel.isConnected) return;
     _push();
+  }
+
+  /// 录制状态签名：只在开/停、频道或 10 秒档时长变化时补推。
+  String _recordingSignature() {
+    final RecordingState rec = RecordingController.instance.state.value;
+    return '${rec.status.name}:${rec.channelName}:${rec.elapsed.inSeconds ~/ 10}';
+  }
+
+  void _onRecordingChanged() {
+    if (!_started || !channel.isConnected) return;
+    final String sig = _recordingSignature();
+    if (sig == _lastRecordingSig) return;
+    _lastRecordingSig = sig;
+    _push();
+  }
+
+  /// mm:ss 时长文案，与电视端录制胶囊一致。
+  static String _recordingLabel(Duration elapsed) {
+    final int s = elapsed.inSeconds;
+    return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
   }
 
   void _startListWatch() {
@@ -193,6 +227,16 @@ class DeviceStateReporter {
       };
       sceneJson['sleepTimer'] = sleepJson;
       _lastSleepSig = _sleepSignature(sleep);
+      // 录制状态并入 scene：遥控端按钮/胶囊与 admin 的「录制频道/已录时长」
+      // 标签都读这份快照，服务端只做原样缓存转发（无需改协议）。
+      final RecordingState rec = RecordingController.instance.state.value;
+      sceneJson['recording'] = <String, Object?>{
+        'active': rec.isRecording,
+        'channel': rec.channelName,
+        'elapsed': rec.elapsed.inSeconds,
+        'label': rec.isRecording ? _recordingLabel(rec.elapsed) : '',
+      };
+      _lastRecordingSig = _recordingSignature();
       final Map<String, Object?>? playbackNow =
           PlaybackStateProvider.instance.current?.toJson();
       if (playbackNow != null) _lastPlayback = playbackNow;

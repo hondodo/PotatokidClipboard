@@ -39,3 +39,9 @@ String buildSleepTimerCommand(int? minutes) => buildCommandEnvelope(
   'sleep_timer',
   <String, dynamic>{'minutes': minutes ?? 0},
 );
+
+/// 录制控制命令：`start` 用当前播放源开始录制，`stop` 停止并保存。
+///
+/// 被控端已开播时才有源可录；起播前发 start 会被按未受理处理（命令返回 false）。
+String buildRecordingCommand(String action) =>
+    buildCommandEnvelope('recording_${action == 'stop' ? 'stop' : 'start'}');

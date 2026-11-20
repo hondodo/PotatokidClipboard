@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/iptv/application/channel_info_provider.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/domain/models/iptv_channel.dart';
 import 'package:pscreen_screen/features/msg/application/current_scene_provider.dart';
 import 'package:pscreen_screen/features/msg/application/device_state_reporter.dart';
@@ -88,6 +89,7 @@ void main() {
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
+    RecordingController.instance.state.value = const RecordingState();
     PlaybackStateProvider.instance.clear();
     channel = _FakeChannel();
     scene = _FakeSceneProvider(_screensaver);
@@ -99,6 +101,7 @@ void main() {
 
   tearDown(() async {
     reporter.stop();
+    RecordingController.instance.state.value = const RecordingState();
     PlaybackStateProvider.instance.clear();
     ChannelInfoProvider.instance.setChannels(<IptvChannel>[]);
     await channel.dispose();
@@ -213,6 +216,66 @@ void main() {
       await pumpEventQueue();
 
       expect(channel.frames.last['playback'], isNull);
+    });
+  });
+
+  group('DeviceStateReporter 上报录制状态', () {
+    test('未录制时带 active=false 的空快照', () async {
+      reporter.start();
+      await pumpEventQueue();
+
+      final Map<String, Object?> rec =
+          lastSceneJson()['recording'] as Map<String, Object?>;
+      expect(rec['active'], isFalse);
+      expect(rec['channel'], '');
+      expect(rec['label'], '');
+    });
+
+    test('录制中带频道名与 mm:ss 时长', () async {
+      RecordingController.instance.state.value = const RecordingState(
+        status: RecordingStatus.recording,
+        channelName: '翡翠台',
+        elapsed: Duration(seconds: 125),
+      );
+      reporter.start();
+      await pumpEventQueue();
+
+      final Map<String, Object?> rec =
+          lastSceneJson()['recording'] as Map<String, Object?>;
+      expect(rec['active'], isTrue);
+      expect(rec['channel'], '翡翠台');
+      expect(rec['elapsed'], 125);
+      expect(rec['label'], '02:05');
+    });
+
+    test('状态变化立即补推，10 秒档内 tick 不重复推', () async {
+      reporter.start();
+      await pumpEventQueue();
+      final int before = channel.frames.length;
+
+      RecordingController.instance.state.value = const RecordingState(
+        status: RecordingStatus.recording,
+        channelName: '翡翠台',
+        elapsed: Duration(seconds: 40),
+      );
+      expect(channel.frames.length, before + 1);
+      expect((lastSceneJson()['recording'] as Map)['channel'], '翡翠台');
+
+      // 同一 10 秒档内的秒级 tick 不应产生额外 state 帧。
+      RecordingController.instance.state.value = const RecordingState(
+        status: RecordingStatus.recording,
+        channelName: '翡翠台',
+        elapsed: Duration(seconds: 41),
+      );
+      expect(channel.frames.length, before + 1);
+
+      // 进入下一档应再推一次。
+      RecordingController.instance.state.value = const RecordingState(
+        status: RecordingStatus.recording,
+        channelName: '翡翠台',
+        elapsed: Duration(seconds: 50),
+      );
+      expect(channel.frames.length, before + 2);
     });
   });
 }

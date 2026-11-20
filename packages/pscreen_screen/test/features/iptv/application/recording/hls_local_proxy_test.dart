@@ -18,6 +18,9 @@ class _FakeOrigin {
   bool redirectMode = false;
   int _redirectSeq = 100;
 
+  /// 前 N 次分片请求返回 500，用于验证预热失败后的有界重试。
+  int failSegFirstN = 0;
+
   Future<void> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     baseUrl = 'http://127.0.0.1:${_server!.port}';
@@ -58,6 +61,12 @@ class _FakeOrigin {
       if (path.startsWith('/seg') || path.startsWith('/real/seg')) {
         segmentHits[path] = (segmentHits[path] ?? 0) + 1;
         segmentQuerySeen.add(req.uri.query);
+        if (failSegFirstN > 0) {
+          failSegFirstN--;
+          req.response.statusCode = 500;
+          await req.response.close();
+          return;
+        }
         // 没有鉴权 query 就 404，模拟防盗链
         if (redirectMode && req.uri.query.isEmpty) {
           req.response.statusCode = 404;
@@ -116,6 +125,18 @@ void main() {
     }
   }
 
+  /// 等待后台预热把当前窗口的分片拉完（segmentHits 不再增长）。
+  Future<void> waitWarmup(int expectedSegments) async {
+    for (int i = 0;
+        i < 30 && origin.segmentHits.length < expectedSegments;
+        i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
+  int totalSegmentHits() =>
+      origin.segmentHits.values.fold(0, (int a, int b) => a + b);
+
   test('m3u8 分片 URL 被重写为本地地址', () async {
     final String body = await getLocalPlaylist();
     expect(body, contains('#EXTM3U'));
@@ -130,18 +151,44 @@ void main() {
     expect(segLines, 2);
   });
 
-  test('分片缓存命中：重复请求同一分片只回源一次', () async {
+  test('分片缓存命中：重复请求同一分片不再回源', () async {
     final String body = await getLocalPlaylist();
     final String segUrl = body
         .split('\n')
         .map((l) => l.trim())
         .firstWhere((l) => l.startsWith('http://127.0.0.1') && l.contains('/seg/'));
+    await waitWarmup(2);
+    final int before = totalSegmentHits();
 
     await fetchSegment(segUrl);
     await fetchSegment(segUrl);
     await fetchSegment(segUrl);
 
-    expect(origin.segmentHits.values.fold(0, (a, b) => a + b), 1);
+    // 预热已把窗口分片拉进缓存，播放器请求不应再产生回源。
+    expect(totalSegmentHits(), before);
+  });
+
+  test('预热：仅拉 playlist 未请求分片时，后台也会把窗口分片拉进缓存', () async {
+    // 只拉 playlist，不主动请求任何分片。预热应把窗口的 2 片都拉下来。
+    final String body = await getLocalPlaylist();
+    final List<String> segUrls = body
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.startsWith('http://127.0.0.1') && l.contains('/seg/'))
+        .toList();
+    expect(segUrls.length, 2);
+
+    // 预热是 fire-and-forget，轮询等它完成（最多 2s）。
+    for (int i = 0; i < 20 && origin.segmentHits.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(origin.segmentHits.length, 2, reason: '窗口 2 片都应被预热');
+
+    // 此时播放器再请求，应全部命中缓存，不再回源。
+    final int hitsBefore = origin.segmentHits.values.fold(0, (a, b) => a + b);
+    await fetchSegment(segUrls[0]);
+    await fetchSegment(segUrls[1]);
+    expect(origin.segmentHits.values.fold(0, (a, b) => a + b), hitsBefore);
   });
 
   test('playlist TTL：1 秒内重复请求只拉一次上游', () async {
@@ -150,7 +197,46 @@ void main() {
     expect(origin.playlistHits, 1);
   });
 
-  test('长窗口只输出尾部 6 片，MEDIA-SEQUENCE 前移，ENDLIST 去掉', () async {
+  test('预热失败后有界重试：一次失败不会永久欠缓存，也不会无限重试', () async {
+    // 首轮 2 片预热全部 500 失败；后续 playlist 重写时重试应成功。
+    origin.failSegFirstN = 2;
+    await getLocalPlaylist();
+
+    // 等首轮预热失败落地：2 片各失败一次 = 2 次回源。
+    for (int i = 0;
+        i < 20 && origin.segmentHits.values.fold(0, (a, b) => a + b) < 2;
+        i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(origin.segmentHits.values.fold(0, (a, b) => a + b), 2);
+
+    // 两次 playlist 重写触发重试（TTL 1s，间隔足够）。
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await getLocalPlaylist();
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await getLocalPlaylist();
+    // 等重试预热完成。
+    for (int i = 0;
+        i < 20 &&
+            origin.segmentHits.values.fold(0, (a, b) => a + b) < 4;
+        i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+
+    // 2 片各失败一次再成功一次 = 4 次回源；成功后进缓存不再增长。
+    final int afterRetry = origin.segmentHits.values.fold(0, (a, b) => a + b);
+    expect(afterRetry, 4, reason: '两片各失败一次、重试各成功一次');
+
+    // 再拉两次 playlist 不应继续重试已缓存的片（无无限重试）。
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await getLocalPlaylist();
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await getLocalPlaylist();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(origin.segmentHits.values.fold(0, (a, b) => a + b), afterRetry);
+  });
+
+  test('长窗口完整透传、不裁片，MEDIA-SEQUENCE 不变，ENDLIST 去掉', () async {
     final StringBuffer sb = StringBuffer('#EXTM3U\n#EXT-X-VERSION:3\n'
         '#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:100\n');
     for (int i = 0; i < 20; i++) {
@@ -165,14 +251,15 @@ void main() {
     final int segCount = lines
         .where((String l) => l.startsWith('http://127.0.0.1') && l.contains('/seg/'))
         .length;
-    expect(segCount, 6);
-    expect(body, contains('#EXT-X-MEDIA-SEQUENCE:114')); // 100 + (20 - 6)
+    // 2026-11-20：裁头是周期性卡顿根因，已移除；20 片必须原样全给播放器。
+    expect(segCount, 20);
+    expect(body, contains('#EXT-X-MEDIA-SEQUENCE:100')); // 不再前移
     expect(body, isNot(contains('#EXT-X-ENDLIST')));
-    // 保留的每片都要有自己的 #EXTINF，标签与 URL 不能错位。
-    expect(lines.where((String l) => l.startsWith('#EXTINF')).length, 6);
+    // 每片都要有自己的 #EXTINF，标签与 URL 不能错位。
+    expect(lines.where((String l) => l.startsWith('#EXTINF')).length, 20);
   });
 
-  test('窗口不足 6 片时原样保留，不误裁启动期短列表', () async {
+  test('短窗口也完整透传，不裁剪', () async {
     // setUp 的默认源就是 2 片。
     final String body = await getLocalPlaylist();
     final int segCount = body
@@ -207,6 +294,8 @@ void main() {
     proxy.bind('${origin.baseUrl}/live.m3u8');
 
     final String firstBody = await getLocalPlaylist();
+    await waitWarmup(2);
+    final int beforeReload = totalSegmentHits();
     final String hash1 = firstBody
         .split('\n')
         .map((String l) => l.trim())
@@ -228,7 +317,7 @@ void main() {
     expect(hash2, hash1);
     expect(origin.playlistHits, greaterThanOrEqualTo(2));
 
-    // 两次请求同一本地分片 URL：结果都来自缓存，上游只回源一次。
+    // 签名刷新后同一分片 hash 不变 → 两次请求都命中缓存，不再回源。
     await fetchSegment(firstBody
         .split('\n')
         .map((String l) => l.trim())
@@ -237,6 +326,6 @@ void main() {
         .split('\n')
         .map((String l) => l.trim())
         .firstWhere((String l) => l.startsWith('http://127.0.0.1') && l.contains('/seg/')));
-    expect(origin.segmentHits.values.fold(0, (int a, int b) => a + b), 1);
+    expect(totalSegmentHits(), beforeReload);
   });
 }

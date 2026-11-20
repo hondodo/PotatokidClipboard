@@ -7,6 +7,8 @@ import 'package:pscreen_screen/features/iptv/application/channel_info_provider.d
 import 'package:pscreen_screen/features/iptv/application/channel_number_input_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/home_now_playing_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/live_channel_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/recording_source_provider.dart';
 import 'package:pscreen_screen/features/iptv/domain/channel_name_normalizer.dart';
 
 /// 音量控制抽象（生产 PlatformChannelService implements 它；测试 Fake）。
@@ -107,6 +109,10 @@ class MessageCommandExecutor {
         return _sleepTimer(args);
       case 'live_float':
         return _liveFloat();
+      case 'recording_start':
+        return _startRecording();
+      case 'recording_stop':
+        return _stopRecording();
       case 'parental_unlock':
         return _parentalUnlock(args, actor);
       default:
@@ -164,6 +170,28 @@ class MessageCommandExecutor {
     final LiveStageControl? stage = liveStage;
     if (stage == null) return false;
     stage.toFloating();
+    return true;
+  }
+
+  /// 开始录制：取播放器上报的当前源（relay 改写前的原始 URL）。
+  ///
+  /// 与电视端「录制中心」按钮、中控端直播页按钮走同一条
+  /// [RecordingController.start]，儿童模式 / 无源 / 加密流等由 controller
+  /// 内部拒绝并返回 false。已在录制时按「已受理」处理，避免遥控端误判失败。
+  bool _startRecording() {
+    final RecordingController controller = RecordingController.instance;
+    if (controller.isRecording) return true;
+    final RecordingSource? source = RecordingSourceProvider.instance.current;
+    if (source == null) return false;
+    unawaited(controller.start(source));
+    return true;
+  }
+
+  /// 停止录制并保存：未录制时幂等返回 true。
+  bool _stopRecording() {
+    final RecordingController controller = RecordingController.instance;
+    if (!controller.isRecording) return true;
+    unawaited(controller.stop());
     return true;
   }
 

@@ -47,6 +47,17 @@ void main() {
     expect(m2['args']['index'], 5);
   });
 
+  test('录制 start/stop 命令信封与 TV 执行器命令名对齐', () {
+    final Map<String, dynamic> start =
+        jsonDecode(buildRecordingCommand('start')) as Map<String, dynamic>;
+    expect(start, <String, dynamic>{'t': 'cmd', 'name': 'recording_start'});
+    final Map<String, dynamic> stop =
+        jsonDecode(buildRecordingCommand('stop')) as Map<String, dynamic>;
+    expect(stop, <String, dynamic>{'t': 'cmd', 'name': 'recording_stop'});
+    // 非法 action 回落 start，和端上 switch 的两个 case 保持一致。
+    expect(jsonDecode(buildRecordingCommand('x'))['name'], 'recording_start');
+  });
+
   group('构造与解析闭环', () {
     test('命令信封能被屏幕端解析器识别为 command', () {
       final String body = buildCommandEnvelope(

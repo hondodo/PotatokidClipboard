@@ -123,6 +123,9 @@ const REMOTE_COMMANDS = [
         ],
     },
     { cmd: 'live_float', label: '直播悬浮', kind: 'home' },
+    // 录制开关：开始取被控端当前播放源，停止并保存。两端共享包都支持。
+    { cmd: 'recording_start', label: '开始录制' },
+    { cmd: 'recording_stop', label: '停止录制' },
     // 儿童模式开关（仅电视）：按下即幂等设为开/关，走服务端 device-local，
     // 不投 cmd 帧、不受短码解锁逻辑影响（见 esp/press 的专门分支）。
     { cmd: 'parental_on', label: '儿童模式·开启', kind: 'tv' },
@@ -572,7 +575,8 @@ function remoteCommandArgs(action) {
 }
 
 // 模板里 `{remote.<设备id>.<字段>}` 可用的语义字段（白名单，防注入）。
-const REMOTE_STATE_FIELDS = ['page', 'channel', 'volume', 'sleep', 'sleepLeft'];
+// 字段名必须全小写字母：REMOTE_TPL_TOKEN_RE 只认 [a-z]+。
+const REMOTE_STATE_FIELDS = ['page', 'channel', 'volume', 'sleep', 'sleepLeft', 'recchannel', 'rectime'];
 // 匹配三段式遥控标签：`remote.android_xxx.channel`。设备 id 只含小写/数字/下划线。
 const REMOTE_TPL_TOKEN_RE = /\{remote\.([a-z0-9_]+)\.([a-z]+)\}/g;
 
@@ -580,11 +584,14 @@ const REMOTE_TPL_TOKEN_RE = /\{remote\.([a-z0-9_]+)\.([a-z]+)\}/g;
  * 遥控设备实时状态拆成语义字段（ESP 模板标签用）。
  *
  * 上报帧的 scene 里：title=当前页、channelName=当前频道、volume=音量、
- * sleepTimer={active,remaining,label}=定时关闭。客户端旧版本没有 sleepTimer，
- * 缺失时定时字段回落空串，不报错。
+ * sleepTimer={active,remaining,label}=定时关闭、recording={active,channel,elapsed,label}=录制。
+ * 客户端旧版本没有 sleepTimer/recording，缺失时对应字段回落空串，不报错。
  */
 function remoteStateFields(state) {
-    const blank = { page: '', channel: '', volume: '', sleep: '', sleepLeft: '', text: '' };
+    const blank = {
+        page: '', channel: '', volume: '', sleep: '', sleepLeft: '',
+        recchannel: '', rectime: '', text: '',
+    };
     if (!state || typeof state !== 'object') return blank;
     const scene = state.scene && typeof state.scene === 'object' ? state.scene : null;
     if (!scene) return blank;
@@ -601,11 +608,23 @@ function remoteStateFields(state) {
     const sleepLeft = sleepActive
         ? (sleepTimer.label != null ? String(sleepTimer.label) : '')
         : '';
+    // 录制：仅在录制中暴露频道与时长，停录后回落空串（避免旧值误导）。
+    const recording = scene.recording && typeof scene.recording === 'object'
+        ? scene.recording : null;
+    const recordingActive = Boolean(recording && recording.active);
+    const recchannel = recordingActive && recording.channel != null
+        ? String(recording.channel) : '';
+    const rectime = recordingActive && recording.label != null
+        ? String(recording.label) : '';
     const parts = [];
     if (channel) parts.push(channel);
     else if (page) parts.push(page);
     if (volume) parts.push(`音量${volume}`);
-    return { page, channel, volume, sleep, sleepLeft, text: parts.join(' ') };
+    if (recordingActive) parts.push(`录制${recchannel} ${rectime}`.trim());
+    return {
+        page, channel, volume, sleep, sleepLeft, recchannel, rectime,
+        text: parts.join(' '),
+    };
 }
 
 /** 实时状态摘要：模板 `{remote.xxx}` 显示「珠江台 音量20」。 */

@@ -8,11 +8,13 @@ import 'package:pscreen_screen/core/media/sleep_timer_controller.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 
-/// 直播遥控的通用操作行：频道± / 切换播放源 / 频道列表 / 悬浮⇄全屏 /
-/// 定时关闭 / 发送消息（音量行已独立为 [VolumeControlsPanel] 常驻显示）。
+/// 直播遥控的通用操作行：频道± / 切换播放源 / 录制开关 / 频道列表 /
+/// 悬浮⇄全屏 / 定时关闭 / 发送消息（音量行已独立为 [VolumeControlsPanel] 常驻显示）。
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
 /// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
+/// 录制按钮文案与角标跟随设备上报的 `scene.recording`（开/停、频道、时长），
+/// 状态帧到达即重建，无需遥控端轮询。
 class LiveControlsPanel extends StatelessWidget {
   const LiveControlsPanel({
     super.key,
@@ -38,6 +40,8 @@ class LiveControlsPanel extends StatelessWidget {
     final int count = panel.device?.channels.length ?? 0;
     // 离线时一律禁用（服务端虽会排队，但按钮点了没反馈，容易误以为已生效）。
     final bool enabled = panel.online;
+    // 录制状态来自被控端随 state 帧上报的 scene.recording；离线时按未录制显示。
+    final bool recording = enabled && (panel.device?.recordingActive ?? false);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -48,6 +52,44 @@ class LiveControlsPanel extends StatelessWidget {
           label: '切换播放源',
           onTap: enabled ? () => panel.onCommand(buildCommandEnvelope('switch_source')) : null,
         ),
+        // 录制开关：开/停同一按钮，状态跟随设备上报，避免家长端需要记住当前状态。
+        OutlinedButton.icon(
+          onPressed: enabled ? () => _toggleRecording(recording) : null,
+          icon: Icon(
+            recording ? Icons.stop_circle_outlined : Icons.fiber_manual_record,
+            size: 20,
+            color: recording ? Theme.of(context).colorScheme.error : null,
+          ),
+          label: Text(recording ? '停止录制' : '开始录制'),
+        ),
+        if (recording)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.videocam_rounded,
+                    size: 16, color: Theme.of(context).colorScheme.onErrorContainer),
+                const SizedBox(width: 4),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    '${panel.device?.recordingChannel ?? ''} ${panel.device?.recordingLabel ?? ''}'.trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         OutlinedButton.icon(
           onPressed: enabled ? () => _openChannels(context) : null,
           icon: const Icon(Icons.list, size: 20),
@@ -76,6 +118,13 @@ class LiveControlsPanel extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  /// 发录制命令给被控端：开录制用其当前播放源，停录制保存已录部分。
+  /// 成功与否由被控端决定（儿童模式/无源等会拒绝），这里只给「已发送」提示。
+  void _toggleRecording(bool recording) {
+    panel.onCommand(buildRecordingCommand(recording ? 'stop' : 'start'));
+    panel.onHint?.call(recording ? '已发送：停止录制' : '已发送：开始录制');
   }
 
   void _openChannels(BuildContext context) {

@@ -216,6 +216,22 @@ class RealtimeDeviceState {
   /// 播放状态所属频道（可能与 [channelName] 短暂不一致）。
   String get playbackChannel => '${playback['channel'] ?? ''}';
 
+  /// 录制状态原始 map（scene.recording：active/channel/elapsed/label）。
+  /// 未上报时为空 map，调用方读字段即可，无需判空。
+  Map<dynamic, dynamic>? get _recording => scene['recording'] as Map?;
+
+  /// 设备是否正在录制（离线时为旧值，UI 需结合 online 判断）。
+  bool get recordingActive => _recording?['active'] == true;
+
+  /// 正在录制的频道名；未在录制时为空串。
+  String get recordingChannel => '${_recording?['channel'] ?? ''}';
+
+  /// 已录时长文案 mm:ss；未在录制时为空串。
+  String get recordingLabel => '${_recording?['label'] ?? ''}';
+
+  /// 已录时长（秒）。
+  int get recordingElapsed => (_recording?['elapsed'] as num?)?.toInt() ?? 0;
+
   RealtimeDeviceState copyWith({
     String? kind,
     String? app,

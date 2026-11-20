@@ -63,12 +63,10 @@ class LivePlayerWidget extends StatefulWidget {
   State<LivePlayerWidget> createState() => _LivePlayerWidgetState();
 }
 
-class _LivePlayerWidgetState extends State<LivePlayerWidget>
-    with WidgetsBindingObserver {
+class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBindingObserver {
   Player? _player;
   VideoController? _controller;
-  final LiveChannelController _channelController =
-      LiveChannelController.instance;
+  final LiveChannelController _channelController = LiveChannelController.instance;
   Timer? _toastTimer;
 
   /// 左下角频道名提示（ValueNotifier 避免 setState 导致整棵树重建而闪烁）
@@ -261,9 +259,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       if (trimmed.contains('Cannot seek in this stream') ||
           trimmed.contains('--force-seekable') ||
           trimmed.contains('Failed to recognize file format.')) {
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed',
-        );
+        Injection.get<LogService>().info('[LivePlayerWidget] 忽略非致命错误(不影响播放): $trimmed');
         return;
       }
       // 音轨解码失败但画面正常：重开整个流只会黑屏一下、声音中断，
@@ -272,15 +268,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       if (_isAudioDecodeError(trimmed) && _isPlaybackHealthy()) {
         if (!_audioDecodeErrorLogged) {
           _audioDecodeErrorLogged = true;
-          Injection.get<LogService>().info(
-            '[LivePlayerWidget] 忽略音频解码错误(画面正常，不重开该源): $trimmed',
-          );
+          Injection.get<LogService>().info('[LivePlayerWidget] 忽略音频解码错误(画面正常，不重开该源): $trimmed');
         }
         return;
       }
-      final String detail = trimmed.length > 120
-          ? '${trimmed.substring(0, 120)}…'
-          : trimmed;
+      final String detail = trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
       // 真实 open 失败（非 seek 类）跳过冷却，允许连续打不开的源一路回退。
       _onPlaybackIssue(reason: 'error: $detail', bypassCooldown: true);
     });
@@ -356,18 +348,14 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       }
     });
     // 每秒检查「持续缓冲卡死」：playing 且 buffering 连续累计超阈值才回退。
-    _bufferStallWatch = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _checkBufferStall(),
-    );
+    _bufferStallWatch = Timer.periodic(const Duration(seconds: 1), (_) => _checkBufferStall());
     // 同步频道数与当前选中频道，随后监听上/下键的切换。
     _syncChannels();
     // 「选中」立即刷新界面，「播放提交」延迟换源（两者分开的原因见控制器注释）。
     _channelController.addListener(_onChannelSelected);
     _channelController.onPlayCommit.addListener(_onPlayCommit);
     HomeNowPlayingController.instance.onSwitchSource = _switchSource;
-    HomeNowPlayingController.instance.onShowChannelInfo =
-        _showCurrentChannelInfo;
+    HomeNowPlayingController.instance.onShowChannelInfo = _showCurrentChannelInfo;
     HomeNowPlayingController.instance.onShowChannelPanel = _showChannelPanel;
     HomeNowPlayingController.instance.onHideChannelPanel = _hideChannelPanel;
     AppExitController.instance.attachPlaybackCleanup(_stopForAppExit);
@@ -412,9 +400,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final Player? p = _player;
     if (p == null) return;
     final bool playing = p.state.playing;
-    Injection.get<LogService>().info(
-      '[LivePlayerWidget] 闸门暂停 playing=$playing buffering=${p.state.buffering}',
-    );
+    Injection.get<LogService>().info('[LivePlayerWidget] 闸门暂停 playing=$playing buffering=${p.state.buffering}');
     if (playing) unawaited(p.pause());
   }
 
@@ -439,9 +425,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final bool reallyBackground = _allowBackgroundPlayback
         ? false
         : lifecycle == AppLifecycleState.paused ||
-            lifecycle == AppLifecycleState.hidden ||
-            lifecycle == AppLifecycleState.detached ||
-            (lifecycle == null && _appInBackground);
+              lifecycle == AppLifecycleState.hidden ||
+              lifecycle == AppLifecycleState.detached ||
+              (lifecycle == null && _appInBackground);
 
     // 闸门仍成立或确实还在后台：保持暂停，等回前台/闸门解除后再恢复（不能先清标记）。
     if (_pauseGateActive() || reallyBackground) {
@@ -462,11 +448,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     // 录制一次性事件（切源被拒 / 已保存 / 不支持 / 失败）由宿主弹提示（D-9）。
     RecordingController.instance.onEvent = _handleRecordingEvent;
     // 录制分片下载/写入耗时与补片诊断接到统一日志，与播放器卡顿日志同一出口，便于对表。
-    RecordingController.instance.onDiagnostic =
-        (String message) => Injection.get<LogService>().info(message);
+    RecordingController.instance.onDiagnostic = (String message) => Injection.get<LogService>().info(message);
     // 本地代理命中/回退诊断同样接入统一日志。
-    HlsLocalProxy.instance.onDiagnostic =
-        (String message) => Injection.get<LogService>().info(message);
+    HlsLocalProxy.instance.onDiagnostic = (String message) => Injection.get<LogService>().info(message);
   }
 
   /// 录制事件 → SnackBar。文案走 i18n，儿童模式用 kidSnackBar。
@@ -475,13 +459,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     String message;
     switch (event.type) {
       case RecordingEvent.started:
-        message = 'record_started'.tr(
-          namedArgs: <String, String>{'__NAME__': event.channelName},
-        );
+        message = 'record_started'.tr(namedArgs: <String, String>{'__NAME__': event.channelName});
       case RecordingEvent.saved:
-        message = 'record_saved'.tr(
-          namedArgs: <String, String>{'__NAME__': event.channelName},
-        );
+        message = 'record_saved'.tr(namedArgs: <String, String>{'__NAME__': event.channelName});
       case RecordingEvent.unsupported:
         message = 'record_unsupported'.tr();
       case RecordingEvent.failed:
@@ -499,11 +479,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     messenger?.showSnackBar(
       kidModeOn
           ? kidSnackBar(message, duration: const Duration(seconds: 2))
-          : SnackBar(
-              content: Text(message),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 2),
-            ),
+          : SnackBar(content: Text(message), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)),
     );
   }
 
@@ -514,9 +490,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       _syncChannels();
       // 后台改了列表顺序 / 缓存列表被网络列表替换：按「正在播放的频道名」
       // 把选中序号校准回同一个频道，再重开——否则会停留在旧序号而跳到别的台。
-      _channelController.relocateByName(
-        widget.channels.map((IptvChannel c) => c.name).toList(),
-      );
+      _channelController.relocateByName(widget.channels.map((IptvChannel c) => c.name).toList());
       _openChannel(
         _channelController.index.clamp(0, widget.channels.isEmpty ? 0 : widget.channels.length - 1),
         force: true,
@@ -551,9 +525,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   void _onChannelSelected() {
     // 频道名立即跟着选中走（此时源序号按首源显示，提交后会用真实源号再刷一次）。
     if (!mounted) return;
-    final bool inControls =
-        context.read<AppBloc>().state.homeRemoteLayer ==
-        HomeRemoteLayer.channelList;
+    final bool inControls = context.read<AppBloc>().state.homeRemoteLayer == HomeRemoteLayer.channelList;
     _showChannelToast(_selectedChannelLabel(), enterInfoLayer: !inControls);
     if (inControls) {
       _armChannelsHide();
@@ -619,11 +591,9 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final dynamic s = p.state;
     final bool playing = s.playing;
     final bool hasFrame = (s.width ?? 0) > 0;
-    final bool advanced =
-        (s.position - resumePos) >= const Duration(milliseconds: 500);
+    final bool advanced = (s.position - resumePos) >= const Duration(milliseconds: 500);
     // 只有「判定为音频」才放宽视频帧要求；unknown 仍按视频严格处理（默认视频）。
-    final bool healthy =
-        playing && advanced && (_mediaKind == MediaKind.audio || hasFrame);
+    final bool healthy = playing && advanced && (_mediaKind == MediaKind.audio || hasFrame);
     Injection.get<LogService>().info(
       '[LivePlayerWidget] 恢复前台健康检测 playing=$playing width=${s.width} '
       '媒体类型=${_mediaKind.name} '
@@ -643,9 +613,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final String? last = await ChannelSourceCache.instance.lastChannelName();
     if (_appExiting) return;
     if (last != null) {
-      final int idx = widget.channels.indexWhere(
-        (IptvChannel c) => c.name == last,
-      );
+      final int idx = widget.channels.indexWhere((IptvChannel c) => c.name == last);
       if (idx >= 0 && idx < widget.channels.length) target = idx;
     }
     // 目标即当前索引（如首台）时 select 不会触发 listener，需手动打开。
@@ -666,9 +634,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 频道列表操作（换台/滑动）：显示列表并重置 30 秒自动收起计时。
   void _markChannelsActivity() {
     if (!mounted) return;
-    context.read<AppBloc>().add(
-      const SetHomeRemoteLayer(HomeRemoteLayer.channelList),
-    );
+    context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.channelList));
     _armChannelsHide();
   }
 
@@ -679,18 +645,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
       if (!mounted) return;
       _toastTimer?.cancel();
       _toastNameVN.value = null;
-      context.read<AppBloc>().add(
-        const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
-      );
+      context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen));
     });
   }
 
   void _showCurrentChannelInfo() {
     if (!mounted) return;
-    _showChannelToast(
-      _channelSourceLabel(withNumber: true),
-      enterInfoLayer: true,
-    );
+    _showChannelToast(_channelSourceLabel(withNumber: true), enterInfoLayer: true);
   }
 
   /// 全屏换台时短暂展示频道列表（只显示、不接管按键），5 秒后自动收起。
@@ -715,10 +676,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (!mounted) return;
     // 正式面板接管后清除预览态，避免关闭面板时预览列表继续残留。
     _clearChannelPeek();
-    _showChannelToast(
-      _channelSourceLabel(withNumber: true),
-      enterInfoLayer: false,
-    );
+    _showChannelToast(_channelSourceLabel(withNumber: true), enterInfoLayer: false);
     _markChannelsActivity();
   }
 
@@ -729,9 +687,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     _toastNameVN.value = null;
     _channelsHideTimer?.cancel();
     _channelsHideTimer = null;
-    context.read<AppBloc>().add(
-      const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
-    );
+    context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen));
   }
 
   void _activateChannelFromPanel(int index) {
@@ -801,14 +757,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 顺序与遥控一致：先收起频道面板（内部会置 fullscreen），再置 capsuleControls。
   void _touchOpenCapsuleMenu() {
     if (!_touchShouldAccept()) return;
-    if (context.read<AppBloc>().state.homeRemoteLayer !=
-        HomeRemoteLayer.channelList) {
+    if (context.read<AppBloc>().state.homeRemoteLayer != HomeRemoteLayer.channelList) {
       return;
     }
     HomeNowPlayingController.instance.hideChannelPanel();
-    context.read<AppBloc>().add(
-      const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls),
-    );
+    context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.capsuleControls));
   }
 
   /// 频道列表层专用：单击 / 滑动不做任何事，避免与列表滚动、点选冲突。
@@ -823,10 +776,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 只在「频道信息」「频道列表」两层出现：这两层之后都有下一步动作，
   /// 全屏层没有需要提示的下一步。
   String? _touchHintFor(HomeRemoteLayer layer) {
-    final String key = touchHintKeyForLayer(
-      layer,
-      remoteOnly: AppFlavorConfig.flavor == AppFlavor.tv,
-    );
+    final String key = touchHintKeyForLayer(layer, remoteOnly: AppFlavorConfig.flavor == AppFlavor.tv);
     return key.isEmpty ? null : key.tr();
   }
 
@@ -845,8 +795,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     // 避免两次 open 交错（重复 open/stop 正是长按卡顿的成因）。
     final int seq = ++_openSeq;
     // 优先从上次可用源起播（记忆的 URL 已不在此频道则回落首源）。
-    final String? preferred = await ChannelSourceCache.instance
-        .preferredSourceOf(widget.channels[index].name);
+    final String? preferred = await ChannelSourceCache.instance.preferredSourceOf(widget.channels[index].name);
     if (!mounted || _appExiting || seq != _openSeq) return;
     if (preferred != null) {
       final int idx = widget.channels[index].sources.indexOf(preferred);
@@ -895,11 +844,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
         'audioParams=${_probe.audioParamsReady}',
       );
     }
-    _bufferStall.notifyState(
-      playing: s.playing,
-      buffering: s.buffering,
-      established: established,
-    );
+    _bufferStall.notifyState(playing: s.playing, buffering: s.buffering, established: established);
   }
 
   IptvChannel? _currentChannel() {
@@ -952,17 +897,11 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     await AppSettings.instance.ensureLoaded();
     if (player.platform is! NativePlayer) return;
     final bool enabled = AppSettings.instance.hwdecEnabled;
-    await (player.platform as NativePlayer).setProperty(
-      'hwdec',
-      enabled ? 'auto' : 'no',
-    );
+    await (player.platform as NativePlayer).setProperty('hwdec', enabled ? 'auto' : 'no');
     // media_kit 默认把 mpv 的 network-timeout 设为 5s：弱网 / 慢 CDN（珠江台的
     // 播放列表常要 10s+）会在起播前就被 ffurl_read ETIMEDOUT 掐断，表现成
     // 「一直打不开、每隔十来秒重试」。放宽到 30s；真正的坏源仍由打开看门狗兜底。
-    await (player.platform as NativePlayer).setProperty(
-      'network-timeout',
-      '30',
-    );
+    await (player.platform as NativePlayer).setProperty('network-timeout', '30');
   }
 
   /// 切换 Android 音频输出后端（仅 Android，且只在首次 open 前设一次）。
@@ -977,10 +916,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     try {
       if (defaultTargetPlatform != TargetPlatform.android) return;
       if (_player?.platform is! NativePlayer) return;
-      await (_player?.platform as NativePlayer).setProperty(
-        'ao',
-        'audiotrack,opensles',
-      );
+      await (_player?.platform as NativePlayer).setProperty('ao', 'audiotrack,opensles');
     } catch (_) {
       // 设置失败不阻断播放（回落 media_kit 默认的 opensles）。
     }
@@ -988,17 +924,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
 
   /// 是否为「音轨解码失败」类错误（画面可能完全正常）。
   static bool _isAudioDecodeError(String msg) =>
-      msg.contains('Error decoding audio') ||
-      msg.contains('Failed to decode audio');
+      msg.contains('Error decoding audio') || msg.contains('Failed to decode audio');
 
   /// 画面是否已经健康：出过真实视频帧、已判定为「有视频轨的节目」、或已在播放。
   ///
   /// 只有这种情况下的音轨报错才值得忽略。连视频都没起来的源仍按原逻辑回退，
   /// 交给看门狗与回退机制处理，避免「音轨坏 = 整个源不可用」的误判反过来漏掉真坏源。
-  bool _isPlaybackHealthy() =>
-      _playedVideo ||
-      _mediaKind == MediaKind.video ||
-      (_player?.state.playing ?? false);
+  bool _isPlaybackHealthy() => _playedVideo || _mediaKind == MediaKind.video || (_player?.state.playing ?? false);
 
   /// 打开当前频道的当前源。
   ///
@@ -1082,9 +1014,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
         // _lastPauseGate，闸门解除时 _onKidLockChanged 会因「状态没变」早退，
         // 之后不再恢复（只能换台重开才有声）。
         _lastPauseGate = true;
-        Injection.get<LogService>().info(
-          '[LivePlayerWidget] 新流打开时闸门暂停，同步 _lastPauseGate=true',
-        );
+        Injection.get<LogService>().info('[LivePlayerWidget] 新流打开时闸门暂停，同步 _lastPauseGate=true');
         await _player?.pause();
       }
     } catch (e) {
@@ -1118,8 +1048,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   ///
   /// 音频的判定由轨道表立刻给出，所以这里基本不会出现「画面在播、声条却不跳」的延迟。
   void _syncBarsActive() {
-    final bool outputReady =
-        _audioParamsReady || (_player?.state.playing ?? false);
+    final bool outputReady = _audioParamsReady || (_player?.state.playing ?? false);
     final bool active = _mediaKind == MediaKind.audio && outputReady;
     if (_barsActiveVN.value != active) _barsActiveVN.value = active;
   }
@@ -1178,9 +1107,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     if (!allowed) return;
     // 手动换源是用户主动重试：换源 + 本轮退避清零，并作废退避中的过期回退。
     _retry.setSource(next);
-    Injection.get<LogService>().info(
-      '[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)',
-    );
+    Injection.get<LogService>().info('[LivePlayerWidget] 手动切换频道:${channel.name},源(${_currentSource + 1}/$n)');
     _playCurrentSource();
     // 刷新提示并保持可见，便于连续左右切源。
     if (mounted) _showChannelToast(_channelSourceLabel(withNumber: true));
@@ -1191,9 +1118,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
   /// 见 [PlaybackRetryController]）。
   void _onPlaybackIssue({String reason = '', bool bypassCooldown = false}) {
     if (_appExiting) return;
-    unawaited(
-      _retry.handleIssue(reason: reason, bypassCooldown: bypassCooldown),
-    );
+    unawaited(_retry.handleIssue(reason: reason, bypassCooldown: bypassCooldown));
   }
 
   /// 退出前先静音式暂停，再停止媒体管线；stop 会关闭直播连接并释放音频输出。
@@ -1254,11 +1179,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
 
   /// 「清理失效源」开启时统计连续失败：达阈值会先探测确认（区分网络原因），
   /// 确认失效后由 [ChannelFailureGuard] 通知 IptvBloc 重新过滤频道列表。
-  void _recordInvalidFailure(
-    IptvChannel channel,
-    String failedUrl,
-    String reason,
-  ) {
+  void _recordInvalidFailure(IptvChannel channel, String failedUrl, String reason) {
     if (!AppSettings.instance.removeInvalidSources) return;
     ChannelFailureGuard.instance.recordFailure(
       channelName: channel.name,
@@ -1274,25 +1195,16 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     _toastTimer?.cancel();
     _toastNameVN.value = name;
     if (enterInfoLayer) {
-      final HomeRemoteLayer layer = context
-          .read<AppBloc>()
-          .state
-          .homeRemoteLayer;
-      if (layer == HomeRemoteLayer.fullscreen ||
-          layer == HomeRemoteLayer.channelInfo) {
-        context.read<AppBloc>().add(
-          const SetHomeRemoteLayer(HomeRemoteLayer.channelInfo),
-        );
+      final HomeRemoteLayer layer = context.read<AppBloc>().state.homeRemoteLayer;
+      if (layer == HomeRemoteLayer.fullscreen || layer == HomeRemoteLayer.channelInfo) {
+        context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.channelInfo));
       }
     }
     _toastTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
       _toastNameVN.value = null;
-      if (context.read<AppBloc>().state.homeRemoteLayer ==
-          HomeRemoteLayer.channelInfo) {
-        context.read<AppBloc>().add(
-          const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen),
-        );
+      if (context.read<AppBloc>().state.homeRemoteLayer == HomeRemoteLayer.channelInfo) {
+        context.read<AppBloc>().add(const SetHomeRemoteLayer(HomeRemoteLayer.fullscreen));
       }
     });
   }
@@ -1339,11 +1251,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
     final VideoController? controller = _controller;
     if (controller == null || widget.channels.isEmpty) {
       // 起播前的空场：儿童深蓝渐变 / 成人近黑蓝渐变，避免整屏纯黑。
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: kidModeOn ? KidPalette.background : AdultPalette.stage,
-        ),
-      );
+      return DecoratedBox(decoration: BoxDecoration(gradient: kidModeOn ? KidPalette.background : AdultPalette.stage));
     }
     return BlocListener<AppBloc, AppState>(
       listenWhen: (prev, curr) => prev.hwdecEnabled != curr.hwdecEnabled,
@@ -1351,10 +1259,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
         // 运行时切换硬解设置：立即应用到当前播放器（下一个频道/源生效）。
         final Player? p = _player;
         if (p != null && p.platform is NativePlayer) {
-          (p.platform as NativePlayer).setProperty(
-            'hwdec',
-            state.hwdecEnabled ? 'auto' : 'no',
-          );
+          (p.platform as NativePlayer).setProperty('hwdec', state.hwdecEnabled ? 'auto' : 'no');
         }
       },
       child: Stack(
@@ -1363,16 +1268,13 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           // 视频始终全屏铺满；fit/aspectRatio 跟随「我的」页的画面显示模式。
           BlocBuilder<AppBloc, AppState>(
             buildWhen: (previous, current) =>
-                previous.aspectMode != current.aspectMode ||
-                previous.backgroundPlayback != current.backgroundPlayback,
+                previous.aspectMode != current.aspectMode || previous.backgroundPlayback != current.backgroundPlayback,
             builder: (context, state) {
               final VideoAspectMode mode = state.aspectMode;
               final bool kid = kidModeOn;
               // 未出画面时（加载 / 音频台）透出舞台渐变，故 Video 填充透明。
               return DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: kid ? KidPalette.background : AdultPalette.stage,
-                ),
+                decoration: BoxDecoration(gradient: kid ? KidPalette.background : AdultPalette.stage),
                 child: Video(
                   controller: controller,
                   controls: NoVideoControls,
@@ -1391,12 +1293,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           // 所有动作复用现有控制器单例，与遥控同一真值源，遥控行为零影响。
           // 长按递进：全屏/频道信息层长按 → 呼出频道列表；频道列表层长按 → 功能菜单。
           BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) =>
-                previous.homeRemoteLayer != current.homeRemoteLayer,
+            buildWhen: (previous, current) => previous.homeRemoteLayer != current.homeRemoteLayer,
             builder: (context, state) {
               // 频道列表层：只保留长按，单击与滑动交还给列表自身。
-              final bool inChannelList =
-                  state.homeRemoteLayer == HomeRemoteLayer.channelList;
+              final bool inChannelList = state.homeRemoteLayer == HomeRemoteLayer.channelList;
               return Positioned.fill(
                 child: TouchGestureLayer(
                   enabled: _touchEnabled(state),
@@ -1433,8 +1333,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
             alignment: Alignment.centerRight,
             child: BlocBuilder<AppBloc, AppState>(
               buildWhen: (previous, current) =>
-                  previous.showChannels != current.showChannels ||
-                  previous.homeRemoteLayer != current.homeRemoteLayer,
+                  previous.showChannels != current.showChannels || previous.homeRemoteLayer != current.homeRemoteLayer,
               builder: (context, state) {
                 // interactive：OK 打开的「可操作」频道列表层。
                 final bool interactive = state.showChannels;
@@ -1442,8 +1341,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                 final bool layerAllowsPeek =
                     state.homeRemoteLayer == HomeRemoteLayer.fullscreen ||
                     state.homeRemoteLayer == HomeRemoteLayer.channelInfo;
-                final bool visible =
-                    interactive || (_listPeek && layerAllowsPeek);
+                final bool visible = interactive || (_listPeek && layerAllowsPeek);
                 // 列表处于可见时确保有 30 秒计时（初始显示也算）。
                 if (interactive && (mounted && _channelsHideTimer == null)) {
                   _armChannelsHide();
@@ -1501,9 +1399,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                       previous.homeRemoteLayer != current.homeRemoteLayer,
                   // 频道列表 / 快捷胶囊菜单占用右侧时隐藏，避免压住它们。
                   builder: (context, state) =>
-                      state.showChannels ||
-                          state.homeRemoteLayer ==
-                              HomeRemoteLayer.capsuleControls
+                      state.showChannels || state.homeRemoteLayer == HomeRemoteLayer.capsuleControls
                       ? const SizedBox.shrink()
                       : const _LiveUpdateIndicator(),
                 ),
@@ -1515,8 +1411,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           // 左上角操作提示：告诉用户下一步怎么走（长按 / 返回键，按 flavor 区分）。
           // 纯展示：IgnorePointer 不拦指针，自身无可聚焦节点，不影响遥控焦点链。
           BlocBuilder<AppBloc, AppState>(
-            buildWhen: (previous, current) =>
-                previous.homeRemoteLayer != current.homeRemoteLayer,
+            buildWhen: (previous, current) => previous.homeRemoteLayer != current.homeRemoteLayer,
             builder: (context, state) {
               final String? hint = _touchHintFor(state.homeRemoteLayer);
               if (hint == null) return const SizedBox.shrink();
@@ -1531,18 +1426,12 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
           // 占用时隐藏，避免遮挡。使用 ValueListenableBuilder 局部刷新。
           BlocBuilder<AppBloc, AppState>(
             buildWhen: (previous, current) =>
-                previous.showChannels != current.showChannels ||
-                previous.homeRemoteLayer != current.homeRemoteLayer,
+                previous.showChannels != current.showChannels || previous.homeRemoteLayer != current.homeRemoteLayer,
             builder: (context, state) {
-              if (state.showChannels ||
-                  state.homeRemoteLayer == HomeRemoteLayer.capsuleControls) {
+              if (state.showChannels || state.homeRemoteLayer == HomeRemoteLayer.capsuleControls) {
                 return const SizedBox.shrink();
               }
-              return const Positioned(
-                right: 16,
-                bottom: 76,
-                child: RecordingIndicator(),
-              );
+              return const Positioned(right: 16, bottom: 76, child: RecordingIndicator());
             },
           ),
           // 左下角频道名提示（30 秒后自动消失），ValueListenableBuilder 局部刷新。
@@ -1564,32 +1453,19 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
               }
               // 儿童模式：深蓝渐变 + 暖黄/浅蓝；普通模式：深蓝面板 + 品牌蓝层级文字。
               final bool kid = kidModeOn;
-              final Color tipsColor = kid
-                  ? KidPalette.softBlue
-                  : Colors.white54;
+              final Color tipsColor = kid ? KidPalette.softBlue : Colors.white54;
               final Color sourceColor = kid ? textColor : Colors.white70;
               return Positioned(
                 left: 16,
                 bottom: 24,
                 child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: kid ? 20 : 18,
-                    vertical: kid ? 14 : 12,
-                  ),
+                  padding: EdgeInsets.symmetric(horizontal: kid ? 20 : 18, vertical: kid ? 14 : 12),
                   decoration: BoxDecoration(
-                    gradient: kid
-                        ? KidPalette.dialog
-                        : AdultPalette.panelGradient,
+                    gradient: kid ? KidPalette.dialog : AdultPalette.panelGradient,
                     borderRadius: BorderRadius.circular(kid ? 20 : 16),
-                    border: Border.all(
-                      color: kid ? Colors.white24 : Colors.white12,
-                    ),
+                    border: Border.all(color: kid ? Colors.white24 : Colors.white12),
                     boxShadow: const <BoxShadow>[
-                      BoxShadow(
-                        color: Color(0x66000000),
-                        blurRadius: 18,
-                        offset: Offset(0, 6),
-                      ),
+                      BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6)),
                     ],
                   ),
                   child: Column(
@@ -1610,18 +1486,10 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                   style: TextStyle(
                                     color: textColor,
                                     fontSize: kid ? 16 : 18,
-                                    fontWeight: kid
-                                        ? FontWeight.normal
-                                        : FontWeight.w600,
+                                    fontWeight: kid ? FontWeight.normal : FontWeight.w600,
                                   ),
                                 ),
-                                Text(
-                                  sourceTips,
-                                  style: TextStyle(
-                                    color: sourceColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
+                                Text(sourceTips, style: TextStyle(color: sourceColor, fontSize: 14)),
                               ],
                             ),
                           ],
@@ -1635,34 +1503,20 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                           children: [
                             Column(
                               children: [
-                                DirectionWidget(
-                                  hotUp: true,
-                                  hotDown: true,
-                                  size: 52,
-                                ),
+                                DirectionWidget(hotUp: true, hotDown: true, size: 52),
                                 Text(
                                   'iptv_hint_change_channel'.tr(),
-                                  style: TextStyle(
-                                    color: tipsColor,
-                                    fontSize: kid ? 14 : 13,
-                                  ),
+                                  style: TextStyle(color: tipsColor, fontSize: kid ? 14 : 13),
                                 ),
                               ],
                             ),
                             SizedBox(width: 8),
                             Column(
                               children: [
-                                DirectionWidget(
-                                  hotLeft: true,
-                                  hotRight: true,
-                                  size: 52,
-                                ),
+                                DirectionWidget(hotLeft: true, hotRight: true, size: 52),
                                 Text(
                                   'iptv_hint_change_source'.tr(),
-                                  style: TextStyle(
-                                    color: tipsColor,
-                                    fontSize: kid ? 14 : 13,
-                                  ),
+                                  style: TextStyle(color: tipsColor, fontSize: kid ? 14 : 13),
                                 ),
                               ],
                             ),
@@ -1672,10 +1526,7 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget>
                                 DirectionWidget(hotOk: true, size: 52),
                                 Text(
                                   'iptv_hint_channel_list'.tr(),
-                                  style: TextStyle(
-                                    color: tipsColor,
-                                    fontSize: kid ? 14 : 13,
-                                  ),
+                                  style: TextStyle(color: tipsColor, fontSize: kid ? 14 : 13),
                                 ),
                               ],
                             ),
@@ -1710,8 +1561,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
     return ListenableBuilder(
       listenable: ChannelNumberInputController.instance,
       builder: (context, _) {
-        final ChannelNumberInputController input =
-            ChannelNumberInputController.instance;
+        final ChannelNumberInputController input = ChannelNumberInputController.instance;
         if (!input.visible) return const SizedBox.shrink();
         final bool outOfRange = input.outOfRange;
         final bool kid = kidModeOn;
@@ -1719,9 +1569,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
             // 普通模式沿用浮层的深蓝面板，与信息卡/列表统一。
-            color: kid
-                ? Colors.black.withValues(alpha: 0.65)
-                : AdultPalette.panel.withValues(alpha: 0.85),
+            color: kid ? Colors.black.withValues(alpha: 0.65) : AdultPalette.panel.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(12),
             border: kid ? null : Border.all(color: Colors.white12),
           ),
@@ -1733,9 +1581,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
               fontWeight: FontWeight.bold,
               height: 1.1,
               letterSpacing: outOfRange ? 0 : 4,
-              fontFeatures: outOfRange
-                  ? null
-                  : const <FontFeature>[FontFeature.tabularFigures()],
+              fontFeatures: outOfRange ? null : const <FontFeature>[FontFeature.tabularFigures()],
             ),
           ),
         );
@@ -1761,11 +1607,7 @@ class _ChannelNumberOverlay extends StatelessWidget {
 ///
 /// 显隐用淡入淡出避免切台瞬间突兀，且始终留在树上以便做过渡动画。
 class _AudioNowPlaying extends StatelessWidget {
-  const _AudioNowPlaying({
-    required this.label,
-    required this.visible,
-    required this.barsActive,
-  });
+  const _AudioNowPlaying({required this.label, required this.visible, required this.barsActive});
 
   /// 频道名与源序号（形如 `甘肃新闻综合\n源 1/2`，由
   /// `LivePlayerWidget._channelSourceLabel()` 生成）。
@@ -1782,9 +1624,7 @@ class _AudioNowPlaying extends StatelessWidget {
   Widget build(BuildContext context) {
     final List<String> lines = label.split('\n');
     final String name = lines.isNotEmpty ? lines.first : label;
-    final String sourceTips = lines.length > 1
-        ? lines.sublist(1).join(' ')
-        : '';
+    final String sourceTips = lines.length > 1 ? lines.sublist(1).join(' ') : '';
     // 以短边为基准缩放，TV 大屏与手机上都协调。
     final Size size = MediaQuery.sizeOf(context);
     final double shortSide = size.shortestSide;
@@ -1803,11 +1643,7 @@ class _AudioNowPlaying extends StatelessWidget {
         children: <Widget>[
           // 整屏底色：儿童深蓝渐变 / 成人近黑蓝渐变（盖上播放器底，不影响视频台）。
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: kid ? KidPalette.background : AdultPalette.stage,
-              ),
-            ),
+            child: DecoratedBox(decoration: BoxDecoration(gradient: kid ? KidPalette.background : AdultPalette.stage)),
           ),
           // 氛围层：贴底的跳动声条。低透明度，只做背景，不抢前景信息。
           // 用 ValueListenableBuilder 局部刷新：播放状态变化只重建这一层，
@@ -1820,13 +1656,12 @@ class _AudioNowPlaying extends StatelessWidget {
                 width: double.infinity,
                 child: ValueListenableBuilder<bool>(
                   valueListenable: barsActive,
-                  builder: (BuildContext context, bool active, Widget? _) =>
-                      _EqualizerBars(
-                        active: active,
-                        color: kid
-                            ? KidPalette.accent.withValues(alpha: 0.30)
-                            : AdultPalette.selection.withValues(alpha: 0.18),
-                      ),
+                  builder: (BuildContext context, bool active, Widget? _) => _EqualizerBars(
+                    active: active,
+                    color: kid
+                        ? KidPalette.accent.withValues(alpha: 0.30)
+                        : AdultPalette.selection.withValues(alpha: 0.18),
+                  ),
                 ),
               ),
             ),
@@ -1843,11 +1678,7 @@ class _AudioNowPlaying extends StatelessWidget {
                   children: <Widget>[
                     FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: _ClockPanel(
-                        color: Colors.white,
-                        timeSize: timeSize,
-                        horizontalSize: true,
-                      ),
+                      child: _ClockPanel(color: Colors.white, timeSize: timeSize, horizontalSize: true),
                     ),
                     const SizedBox(height: 20),
                     // 儿童模式：收音机图标放在半透明圆形底盘里，暖黄点亮。
@@ -1859,23 +1690,12 @@ class _AudioNowPlaying extends StatelessWidget {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.white.withValues(alpha: 0.08),
-                          border: Border.all(
-                            color: KidPalette.softBlue.withValues(alpha: 0.45),
-                            width: 2,
-                          ),
+                          border: Border.all(color: KidPalette.softBlue.withValues(alpha: 0.45), width: 2),
                         ),
-                        child: Icon(
-                          Icons.radio_rounded,
-                          size: iconSize,
-                          color: KidPalette.accent,
-                        ),
+                        child: Icon(Icons.radio_rounded, size: iconSize, color: KidPalette.accent),
                       )
                     else
-                      Icon(
-                        Icons.radio_rounded,
-                        size: iconSize,
-                        color: AdultPalette.selection.withValues(alpha: 0.92),
-                      ),
+                      Icon(Icons.radio_rounded, size: iconSize, color: AdultPalette.selection.withValues(alpha: 0.92)),
                     const SizedBox(height: 12),
                     Text(
                       name,
@@ -1895,9 +1715,7 @@ class _AudioNowPlaying extends StatelessWidget {
                         sourceTips,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: kid
-                              ? KidPalette.softBlue
-                              : Colors.white.withValues(alpha: 0.7),
+                          color: kid ? KidPalette.softBlue : Colors.white.withValues(alpha: 0.7),
                           fontSize: tipsSize,
                         ),
                       ),
@@ -1907,11 +1725,7 @@ class _AudioNowPlaying extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          WeatherNowPanel(),
-                          SizedBox(width: 24),
-                          WeatherDaysPanel(),
-                        ],
+                        children: <Widget>[WeatherNowPanel(), SizedBox(width: 24), WeatherDaysPanel()],
                       ),
                     ),
                   ],
@@ -1947,12 +1761,8 @@ class _EqualizerBars extends StatefulWidget {
   State<_EqualizerBars> createState() => _EqualizerBarsState();
 }
 
-class _EqualizerBarsState extends State<_EqualizerBars>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 6),
-  );
+class _EqualizerBarsState extends State<_EqualizerBars> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this, duration: const Duration(seconds: 6));
 
   @override
   void initState() {
@@ -1980,18 +1790,14 @@ class _EqualizerBarsState extends State<_EqualizerBars>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _EqualizerBarsPainter(
-        animation: _controller,
-        color: widget.color,
-      ),
+      painter: _EqualizerBarsPainter(animation: _controller, color: widget.color),
     );
   }
 }
 
 /// 声条绘制：把时间轴映射成每条柱子的高度。
 class _EqualizerBarsPainter extends CustomPainter {
-  _EqualizerBarsPainter({required this.animation, required this.color})
-    : super(repaint: animation);
+  _EqualizerBarsPainter({required this.animation, required this.color}) : super(repaint: animation);
 
   final Animation<double> animation;
   final Color color;
@@ -2015,17 +1821,12 @@ class _EqualizerBarsPainter extends CustomPainter {
       // 三条频率不同、相位按序号错开的正弦叠加：形成此起彼伏、不重复的跳动。
       final double phase = i * 0.9;
       final double wave =
-          0.5 * math.sin(t + phase) +
-          0.3 * math.sin(t * 1.7 + phase * 1.6) +
-          0.2 * math.sin(t * 3.1 + phase * 0.7);
+          0.5 * math.sin(t + phase) + 0.3 * math.sin(t * 1.7 + phase * 1.6) + 0.2 * math.sin(t * 3.1 + phase * 0.7);
       final double ratio = _minRatio + (1 - _minRatio) * ((wave + 1) / 2);
       final double barHeight = size.height * ratio;
       final double left = i * slot + (slot - barWidth) / 2;
       canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight),
-          radius,
-        ),
+        RRect.fromRectAndRadius(Rect.fromLTWH(left, size.height - barHeight, barWidth, barHeight), radius),
         paint,
       );
     }
@@ -2033,8 +1834,7 @@ class _EqualizerBarsPainter extends CustomPainter {
 
   /// 逐帧重绘由 `super(repaint: animation)` 驱动，这里只比较静态属性。
   @override
-  bool shouldRepaint(covariant _EqualizerBarsPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(covariant _EqualizerBarsPainter oldDelegate) => oldDelegate.color != color;
 }
 
 /// 时钟：`HH:mm:ss` + `年月日 农历 星期`，每秒刷新。
@@ -2042,11 +1842,7 @@ class _EqualizerBarsPainter extends CustomPainter {
 /// 时刻做成独立 StatefulWidget：定时刷新只重建这一小块，避免每秒
 /// `setState` 波及上层 Stack 里的 [Video]，造成播放器反复重建。
 class _ClockPanel extends StatefulWidget {
-  const _ClockPanel({
-    required this.color,
-    this.timeSize = 32,
-    this.horizontalSize = false,
-  });
+  const _ClockPanel({required this.color, this.timeSize = 32, this.horizontalSize = false});
 
   final Color color;
 
@@ -2085,14 +1881,9 @@ class _ClockPanelState extends State<_ClockPanel> {
   @override
   Widget build(BuildContext context) {
     // 农历按月日换算；超出农历表范围（1900~2099）时降级为只显示公历。
-    final LunarDate? lunar = lunarDateOf(
-      DateTime(_now.year, _now.month, _now.day),
-    );
+    final LunarDate? lunar = lunarDateOf(DateTime(_now.year, _now.month, _now.day));
     final String subtitle = <String>[_dateFmt.format(_now)].join(' ');
-    final String dateInChina = <String>[
-      if (lunar != null) lunar.fullCnString,
-      _weekdayFmt.format(_now),
-    ].join(' ');
+    final String dateInChina = <String>[if (lunar != null) lunar.fullCnString, _weekdayFmt.format(_now)].join(' ');
     // 副行字号跟随主时间缩放（提示条里 timeSize=32 → 14，与原来一致）。
     final double subSize = (widget.timeSize * 0.44).clamp(14.0, 28.0);
     if (widget.horizontalSize) {
@@ -2192,9 +1983,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
   /// 只在「就绪 / 安装中」计时；离开就绪态（如重新下载）时重新武装。
   void _syncReadyVisibility() {
     final AppUpdateState state = AppUpdateController.instance.state;
-    final bool ready =
-        state.phase == AppUpdatePhase.ready ||
-        state.phase == AppUpdatePhase.installing;
+    final bool ready = state.phase == AppUpdatePhase.ready || state.phase == AppUpdatePhase.installing;
     if (!ready) {
       _hideTimer?.cancel();
       _hideTimer = null;
@@ -2202,9 +1991,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
       _hidden = false;
       return;
     }
-    final DateTime deadline = _readyHideAt ??= DateTime.now().add(
-      _readyVisibleDuration,
-    );
+    final DateTime deadline = _readyHideAt ??= DateTime.now().add(_readyVisibleDuration);
     final Duration left = deadline.difference(DateTime.now());
     if (left <= Duration.zero) {
       _hidden = true;
@@ -2226,9 +2013,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
     if (!update.showPill || update.forceBlocked) {
       return const SizedBox.shrink();
     }
-    final bool ready =
-        update.phase == AppUpdatePhase.ready ||
-        update.phase == AppUpdatePhase.installing;
+    final bool ready = update.phase == AppUpdatePhase.ready || update.phase == AppUpdatePhase.installing;
     if (ready && _hidden) {
       return const SizedBox.shrink();
     }
@@ -2236,9 +2021,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
     final int percent = ((update.progress ?? 0) * 100).round();
     final Color accent = kid ? KidPalette.accent : AdultPalette.selection;
 
-    final String? title = ready
-        ? (kid ? 'kid_update_title_ready'.tr() : 'live_update_ready_title'.tr())
-        : null;
+    final String? title = ready ? (kid ? 'kid_update_title_ready'.tr() : 'live_update_ready_title'.tr()) : null;
     final String line;
     if (ready) {
       line = kid ? 'kid_capsule_back_hint'.tr() : 'live_update_ready_hint'.tr();
@@ -2246,12 +2029,8 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
       line = 'live_update_failed'.tr();
     } else {
       line = kid
-          ? 'kid_capsule_download_progress'.tr(
-              namedArgs: <String, String>{'__PROGRESS__': '$percent'},
-            )
-          : 'capsule_download_progress'.tr(
-              namedArgs: <String, String>{'__PROGRESS__': '$percent'},
-            );
+          ? 'kid_capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'})
+          : 'capsule_download_progress'.tr(namedArgs: <String, String>{'__PROGRESS__': '$percent'});
     }
 
     return IgnorePointer(
@@ -2260,18 +2039,10 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
           constraints: const BoxConstraints(maxWidth: 320),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: kid
-                ? KidPalette.capsule
-                : AdultPalette.panel.withValues(alpha: 0.9),
+            color: kid ? KidPalette.capsule : AdultPalette.panel.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: kid ? Colors.white24 : Colors.white12),
-            boxShadow: const <BoxShadow>[
-              BoxShadow(
-                color: Color(0x66000000),
-                blurRadius: 14,
-                offset: Offset(0, 4),
-              ),
-            ],
+            boxShadow: const <BoxShadow>[BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 4))],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -2280,20 +2051,12 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
               if (ready)
                 Icon(Icons.download_done_rounded, size: 18, color: accent)
               else if (failed)
-                Icon(
-                  Icons.error_outline_rounded,
-                  size: 18,
-                  color: Colors.white70,
-                )
+                Icon(Icons.error_outline_rounded, size: 18, color: Colors.white70)
               else
                 SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    value: update.progress,
-                    color: accent,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2, value: update.progress, color: accent),
                 ),
               const SizedBox(width: 10),
               Flexible(
@@ -2304,11 +2067,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
                     if (title != null) ...<Widget>[
                       Text(
                         title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 2),
                     ],
@@ -2317,9 +2076,7 @@ class _LiveUpdateIndicatorState extends State<_LiveUpdateIndicator> {
                       style: TextStyle(
                         color: title == null ? Colors.white : Colors.white70,
                         fontSize: title == null ? 14 : 12,
-                        fontWeight: title == null
-                            ? FontWeight.w600
-                            : FontWeight.normal,
+                        fontWeight: title == null ? FontWeight.w600 : FontWeight.normal,
                         height: 1.25,
                       ),
                     ),
@@ -2355,19 +2112,11 @@ class _TouchHintBanner extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(
-            Icons.info_outline_rounded,
-            color: Colors.white70,
-            size: 18,
-          ),
+          const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 18),
           const SizedBox(width: 8),
           Text(
             text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
+            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -2407,15 +2156,10 @@ TouchLongPressTarget touchLongPressTargetFor(HomeRemoteLayer layer) {
 ///
 /// [remoteOnly] 为 true（`tv` flavor，只有遥控）时提示「按返回键」，
 /// 否则（`phone` / `board`，有触屏）提示「长按」。
-String touchHintKeyForLayer(
-  HomeRemoteLayer layer, {
-  required bool remoteOnly,
-}) {
+String touchHintKeyForLayer(HomeRemoteLayer layer, {required bool remoteOnly}) {
   switch (layer) {
     case HomeRemoteLayer.channelInfo:
-      return remoteOnly
-          ? 'touch_hint_back_channels'
-          : 'touch_hint_longpress_channels';
+      return remoteOnly ? 'touch_hint_back_channels' : 'touch_hint_longpress_channels';
     case HomeRemoteLayer.channelList:
       return remoteOnly ? 'touch_hint_back_menu' : 'touch_hint_longpress_menu';
     case HomeRemoteLayer.fullscreen:

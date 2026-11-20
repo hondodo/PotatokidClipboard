@@ -89,20 +89,59 @@ class HlsLocalProxy {
   int _consecutiveFailures = 0;
   static const int _maxFailures = 3;
 
-  /// 交给播放器的 playlist 只保留尾部这些分片。
+  /// 窗口预热：每次重写 playlist 后，后台把窗口内尚未缓存的分片提前拉进来，
+  /// 让播放器请求时直接命中本地缓存。没有它时，只有录制在顺带预热窗口
+  /// （录制 poll 会拉全部落后分片）；不录制时缓存长期只有 4~5 片，播放器
+  /// 按需单片回源，偶发网络抖动即表现为 1~2s 卡顿（2026-11-20 实测）。
   ///
-  /// mpv 每次 open / 看门狗重载都会从 m3u8 第一行开始播。上游窗口再短也有
-  /// 十几秒历史，反复重载时用户看到的就是"同一段一直重复"。裁到尾部几片
-  /// 把回退压到几秒，重载后几乎无感。录制侧也读同一份裁剪后的列表——
-  /// poll 间隔 = targetDuration(2s)，尾部 6 片足够锚点不滑出。
-  static const int _playlistKeepSegments = 6;
+  /// 预热失败静默（只记诊断日志），绝不影响播放；与播放器请求共享
+  /// single-flight（_inflight），不会重复回源。
+  ///
+  /// 并发 4：单片 400KB 走公网要 1~2.5s，并发 2 的填充速率仅勉强跟上窗口
+  /// 每 2s 进 1 片，一次抖动就欠账，cache 常年停在 5~7 填不满 8（11-20 实测）。
+  static const int _warmupMaxConcurrent = 4;
+  int _warmupRunning = 0;
+  final List<MapEntry<String, String>> _warmupQueue = <MapEntry<String, String>>[];
+  final Set<String> _warmupQueued = <String>{};
+  /// 预热失败次数：同一片最多重试 [_warmupMaxRetries] 次，避免无限打上游；
+  /// 滑出窗口后清理。播放器真要这片时仍会走 [_getSegment] 正常回源兜底，
+  /// 所以放弃预热不影响播放。
+  static const int _warmupMaxRetries = 2;
+  final Map<String, int> _warmupFailCount = <String, int>{};
+
+  // 历史背景：这里曾有 _playlistKeepSegments 把 relay 的 8 片窗口再裁到尾部 6 片，
+  // 目的是压缩 mpv 重载时"从第一行重播"的回退量、并给录制留锚点。
+  //
+  // 2026-11-20 实测确认这是周期性卡顿的根因，已移除裁剪、完整透传 relay 窗口：
+  // - relay 侧 LIVE_HIDE_TAIL=4 已把播放器放在产出边缘后方约 8s 吸收抖动，
+  //   代理再掐头部等于双重压缩：窗口只剩 12s，播放器每隔 4s 贴到尾部等新片浮出，
+  //   表现为 1.4~2.8s 周期性卡顿；
+  // - A/B 验证：直连（无代理）不卡、保留代理但不裁剪（8片->8片）也不卡；
+  // - "mpv 每次 open 都从第一行播"的假设未成立，实测不裁剪也没出现重复播放。
+  //
+  // 若将来重载回退确实困扰，应只在 reload 那一次给短窗口，不要全局裁剪——
+  // singleReload 分支在 live_player_widget.dart 的 _openChannel(isReload) 有标记可复用。
 
   /// 动态签名参数：每次请求都会变（jsbt=时间戳、jsbk=签名、auth/token 等）。
   /// 这类参数不能进缓存 key，也不能用来生成 hash，否则签名一变缓存就永不命中、
   /// 本地分片 URL 每次都不同 → mpv 误判为全新分片、窗口乱跳、反复重载。
   static const Set<String> _authParamKeys = <String>{
-    'jsbt', 'jsbk', 'auth', 'token', 'sign', 'signature',
-    't', 'st', 'ts', 'time', 'timestamp', 'nonce', 'key', 'k', 'e', 'expires',
+    'jsbt',
+    'jsbk',
+    'auth',
+    'token',
+    'sign',
+    'signature',
+    't',
+    'st',
+    'ts',
+    'time',
+    'timestamp',
+    'nonce',
+    'key',
+    'k',
+    'e',
+    'expires',
   };
 
   final Dio _dio = Dio(
@@ -162,6 +201,7 @@ class HlsLocalProxy {
       _hashToUrl.clear();
       _inflight.clear();
       _activeHashes = <String>{};
+      _clearWarmup();
       _diag('bind upstream=$finalUrl (cache cleared)');
     }
   }
@@ -173,6 +213,13 @@ class HlsLocalProxy {
     _segmentCache.clear();
     _hashToUrl.clear();
     _inflight.clear();
+    _clearWarmup();
+  }
+
+  void _clearWarmup() {
+    _warmupQueue.clear();
+    _warmupQueued.clear();
+    _warmupFailCount.clear();
   }
 
   /// 停止服务（应用退出时调用）。
@@ -184,6 +231,7 @@ class HlsLocalProxy {
     _segmentCache.clear();
     _hashToUrl.clear();
     _inflight.clear();
+    _clearWarmup();
     _playlistAt = null;
     _playlistText = null;
     if (server != null) {
@@ -350,23 +398,31 @@ class HlsLocalProxy {
       mediaBase = variantFetch.realUri;
       mediaText = variantFetch.text;
       if (mediaBase != variant) {
-        _diag('variant redirect ${variant.host}${variant.path} -> '
-            '${mediaBase.host}${mediaBase.path}');
+        _diag(
+          'variant redirect ${variant.host}${variant.path} -> '
+          '${mediaBase.host}${mediaBase.path}',
+        );
       }
     }
 
-    final HlsPlaylist before = parsePlaylist(mediaText, mediaBase);
-    final String trimmed = _trimPlaylistTail(mediaText);
-    final String rewritten = _rewritePlaylist(trimmed, mediaBase);
-    final HlsPlaylist after = parsePlaylist(trimmed, mediaBase);
+    final HlsPlaylist parsed = parsePlaylist(mediaText, mediaBase);
+    // 完整透传上游窗口，不再裁头（详见 _playlistKeepSegments 移除说明）。
+    // ENDLIST 由 _rewritePlaylist 顺手剔除，直播不能有。
+    final String rewritten = _rewritePlaylist(mediaText, mediaBase);
     _pruneCache();
+    // 后台预热窗口分片：播放器和录制都还没请求的片提前拉进缓存。
+    // 不录制时这是唯一的热源，缺了它缓存长期 4~5 片、播放器按需回源易卡。
+    final int queued = _warmupWindow();
     // 日志带上首末片的 f 序号：现场对比相邻两次即可判断窗口是否在前进，
     // 区分「播放器反复重载回放」与「上游窗口停滞导致真重复」。
-    _diag('playlist rewritten: ${before.segments.length}片 -> ${after.segments.length}片 '
-        'seq=${before.mediaSequence}->${after.mediaSequence} '
-        'first=${_segTag(after.segments.isEmpty ? null : after.segments.first)} '
-        'last=${_segTag(after.segments.isEmpty ? null : after.segments.last)} '
-        'base=${base.host}${base.path} cache=${_segmentCache.length}');
+    // warmup=本轮新入队的预热数；cache 稳定在窗口大小即说明预热生效。
+    _diag(
+      'playlist rewritten: ${parsed.segments.length}片 '
+      'seq=${parsed.mediaSequence} '
+      'first=${_segTag(parsed.segments.isEmpty ? null : parsed.segments.first)} '
+      'last=${_segTag(parsed.segments.isEmpty ? null : parsed.segments.last)} '
+      'base=${base.host}${base.path} cache=${_segmentCache.length} warmup=$queued',
+    );
     return rewritten;
   }
 
@@ -374,78 +430,6 @@ class HlsLocalProxy {
   static String _segTag(Uri? u) {
     if (u == null) return '-';
     return u.queryParameters['f'] ?? u.pathSegments.last;
-  }
-
-  /// 裁掉 playlist 头部的历史分片，只留尾部 [_playlistKeepSegments] 片。
-  ///
-  /// 每片的伴随标签（#EXTINF 等）随片一起保留；全局标签里
-  /// `#EXT-X-MEDIA-SEQUENCE` 按被裁掉的数量前移，`#EXT-X-ENDLIST` 去掉
-  /// （直播不能有）。分片数不足时原样返回，不破坏启动期的短窗口。
-  String _trimPlaylistTail(String text) {
-    final List<String> lines = text.split(RegExp(r'\r?\n'));
-    final List<int> uriIdx = <int>[];
-    for (int i = 0; i < lines.length; i++) {
-      final String t = lines[i].trim();
-      if (t.isNotEmpty && !t.startsWith('#')) uriIdx.add(i);
-    }
-    if (uriIdx.length <= _playlistKeepSegments) return text;
-
-    final int cut = uriIdx.length - _playlistKeepSegments;
-    final int firstKeepUri = uriIdx[cut];
-    // 从第一片保留分片往前，把它自己的 #EXTINF 等标签收进来；
-    // 上一个 URI 行是天然边界，不会吃到全局标签。
-    int bodyStart = firstKeepUri;
-    while (bodyStart > 0 && lines[bodyStart - 1].trim().startsWith('#')) {
-      bodyStart--;
-    }
-
-    // 头部只保留全局标签；#EXTINF / #EXT-X-KEY 等属于第一片的伴随标签，
-    // 必须随 body 走，否则会留下无主标签让 mpv 的 EXTINF↔URI 配对错位。
-    const List<String> globalTags = <String>[
-      '#EXTM3U',
-      '#EXT-X-VERSION',
-      '#EXT-X-TARGETDURATION',
-      '#EXT-X-PLAYLIST-TYPE',
-      '#EXT-X-INDEPENDENT-SEGMENTS',
-      '#EXT-X-I-FRAMES-ONLY',
-      '#EXT-X-START',
-      '#EXT-X-ALLOW-CACHE',
-      '#EXT-X-DISCONTINUITY-SEQUENCE',
-      '#EXT-X-KEY',
-    ];
-    final int headEnd = uriIdx.first;
-    int sequence = 0;
-    final List<String> head = <String>[];
-    for (int i = 0; i < headEnd; i++) {
-      final String t = lines[i].trim();
-      if (t.isEmpty) continue;
-      final String upper = t.toUpperCase();
-      if (upper.startsWith('#EXT-X-ENDLIST')) continue;
-      if (upper.startsWith('#EXT-X-MEDIA-SEQUENCE')) {
-        sequence = int.tryParse(t.substring(t.lastIndexOf(':') + 1).trim()) ?? 0;
-        continue; // 下面按裁剪后的起点重算
-      }
-      if (upper.startsWith('#') && !globalTags.any(upper.startsWith)) continue;
-      head.add(lines[i]);
-    }
-    int insertAt = 1; // 默认跟在 #EXTM3U 后面
-    for (int i = 0; i < head.length; i++) {
-      if (head[i].trim().toUpperCase().startsWith('#EXT-X-TARGETDURATION')) {
-        insertAt = i + 1;
-        break;
-      }
-    }
-    head.insert(
-      insertAt.clamp(0, head.length),
-      '#EXT-X-MEDIA-SEQUENCE:${sequence + cut}',
-    );
-
-    final List<String> tail = lines
-        .sublist(bodyStart)
-        .where((String l) => !l.trim().toUpperCase().startsWith('#EXT-X-ENDLIST'))
-        .toList();
-    final List<String> out = <String>[...head, ...tail];
-    return '${out.join('\n')}\n';
   }
 
   /// 把 m3u8 里的分片 URL 重写为本地 seg URL 并登记 hash→上游，其他行原样保留。
@@ -460,6 +444,9 @@ class HlsLocalProxy {
     for (final String raw in text.split(RegExp(r'\r?\n'))) {
       final String line = raw.trimRight();
       final String trimmed = line.trim();
+      // 直播不能有 ENDLIST，否则播放器会当 VOD 播完即停。原先由
+      // _trimPlaylistTail 顺手去掉；裁剪移除后在这里兜底。
+      if (trimmed.toUpperCase().startsWith('#EXT-X-ENDLIST')) continue;
       if (trimmed.isEmpty || trimmed.startsWith('#')) {
         out.writeln(line);
         continue;
@@ -494,8 +481,7 @@ class HlsLocalProxy {
     if (add.isEmpty) return segment;
     final Map<String, String> merged = <String, String>{...existing, ...add};
     final String query = merged.entries
-        .map((MapEntry<String, String> e) =>
-            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+        .map((MapEntry<String, String> e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
         .join('&');
     return segment.replace(query: query);
   }
@@ -523,6 +509,74 @@ class HlsLocalProxy {
       return bytes;
     } finally {
       _inflight.remove(cacheKey);
+    }
+  }
+
+  /// 后台预热当前窗口里尚未缓存的分片。
+  ///
+  /// - 只预热 [_activeHashes]（本窗口的 hash），不碰历史；
+  /// - 已缓存或正在拉取（[_inflight]）的跳过 —— [_getSegment] 自身就会比对，
+  ///   这里再显式判一次是为了少建 Future；
+  /// - 并发上限 [_warmupMaxConcurrent]，避免和播放器/录制抢同一时刻的带宽；
+  /// - 完全 fire-and-forget：失败静默、不触发熔断（预热失败不该让播放回退直连），
+  ///   播放器真要这片时 [_getSegment] 仍会正常回源兜底。
+  /// 返回本轮新入队的预热分片数（用于诊断日志）。
+  int _warmupWindow() {
+    // 滑出窗口的失败片清掉计数，允许它下次再进窗口时重新尝试。
+    _warmupFailCount.removeWhere((String h, int _) => !_activeHashes.contains(h));
+    if (!isUsable) return 0;
+    final List<MapEntry<String, String>> pending = <MapEntry<String, String>>[];
+    for (final String hash in _activeHashes) {
+      if (_segmentCache.containsKey(hash) ||
+          _inflight.containsKey(hash) ||
+          _warmupQueued.contains(hash) ||
+          (_warmupFailCount[hash] ?? 0) >= _warmupMaxRetries) {
+        continue;
+      }
+      final String? url = _hashToUrl[hash];
+      if (url != null) pending.add(MapEntry<String, String>(hash, url));
+    }
+    if (pending.isEmpty) return 0;
+    // 从窗口尾部往回预热：播放器最可能先要新片，优先填尾部。
+    pending.sort((MapEntry<String, String> a, MapEntry<String, String> b) =>
+        _segTag(Uri.parse(b.value)).compareTo(_segTag(Uri.parse(a.value))));
+    for (final MapEntry<String, String> e in pending) {
+      _warmupQueue.add(e);
+      _warmupQueued.add(e.key);
+    }
+    _pumpWarmup();
+    return pending.length;
+  }
+
+  /// 按并发上限消费预热队列。
+  void _pumpWarmup() {
+    while (_warmupRunning < _warmupMaxConcurrent && _warmupQueue.isNotEmpty) {
+      final MapEntry<String, String> e = _warmupQueue.removeAt(0);
+      _warmupQueued.remove(e.key);
+      // 入队到出队间可能已被播放器/录制拉到，复查一次。
+      if (_segmentCache.containsKey(e.key) || _inflight.containsKey(e.key)) continue;
+      // 出队时重新取最新签名 URL：排队期间 playlist 可能已刷新多次，
+      // 入队时记下的 e.value 签名可能已过期导致 403/404（实测隐患）。
+      final String? freshUrl = _hashToUrl[e.key];
+      final String fetchUrl = freshUrl ?? e.value;
+      _warmupRunning++;
+      unawaited(
+        _getSegment(e.key, fetchUrl).then(
+          (Object? _) {},
+          onError: (Object error) {
+            // 预热失败只记日志，绝不 _recordFailure：不能因预热失败让播放降级。
+            // 有界重试：累计到上限才放弃本窗口，避免一次性失败就永久欠缓存，
+            // 又不会每次重写都重试同一片打爆上游。
+            final int count = (_warmupFailCount[e.key] ?? 0) + 1;
+            _warmupFailCount[e.key] = count;
+            _diag('warmup failed($count/${_warmupMaxRetries}) '
+                'seg=${_segTag(Uri.parse(fetchUrl))}: $error');
+          },
+        ).whenComplete(() {
+          _warmupRunning--;
+          _pumpWarmup();
+        }),
+      );
     }
   }
 
