@@ -76,11 +76,16 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
   /// 「手机桌面式：长按就跳动表示可拖」的手感。用 Listener 的指针事件
   /// 自己计时，避开 LongPressDraggable 内部长按识别器的手势竞技场竞争。
   void _startLongPress() {
+    debugPrint('[SpanGrid] pointer down -> start long press timer');
     _longPressTimer?.cancel();
-    _longPressTimer = Timer(const Duration(milliseconds: 500), _enterEditing);
+    _longPressTimer = Timer(const Duration(milliseconds: 500), () {
+      debugPrint('[SpanGrid] long press fired -> enter editing');
+      _enterEditing();
+    });
   }
 
   void _cancelLongPress() {
+    debugPrint('[SpanGrid] pointer up/cancel -> cancel long press timer');
     _longPressTimer?.cancel();
     _longPressTimer = null;
   }
