@@ -113,6 +113,8 @@ class MessageCommandExecutor {
         return _startRecording();
       case 'recording_stop':
         return _stopRecording();
+      case 'recording_toggle':
+        return _toggleRecording();
       case 'parental_unlock':
         return _parentalUnlock(args, actor);
       default:
@@ -193,6 +195,14 @@ class MessageCommandExecutor {
     if (!controller.isRecording) return true;
     unawaited(controller.stop());
     return true;
+  }
+
+  /// 录制切换：按被控端自身状态自动选开始/停止，等于远端按一下本机录制按钮。
+  ///
+  /// 用被控端 [RecordingController.isRecording] 而非控制端上报的状态判断，
+  /// 避免 state 帧滞后导致误判；两条分支本身已幂等，复用即可。
+  bool _toggleRecording() {
+    return RecordingController.instance.isRecording ? _stopRecording() : _startRecording();
   }
 
   /// 定时关闭：`minutes` ≤ 0 或缺失 = 取消；否则开始倒计时。

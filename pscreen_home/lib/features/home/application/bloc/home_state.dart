@@ -159,17 +159,27 @@ class HomeState {
   }
 
   /// 当前应展示的房间列表（受家庭筛选）。
+  ///
+  /// 家庭白名单与 HA 区域名里的家庭前缀可能不一致：例如后台只配了家庭、
+  /// 但区域名是「卧室 / 客厅」这种没有「家庭 」前缀的名字，或 .env 残留了
+  /// 无效家庭名。此时按家庭过滤会得到空列表，导致顶部房间切换条整个消失。
+  /// 为保证「即使只有一个家庭，也能快速切换房间卡片」，过滤无结果时回退到
+  /// 全部可用房间，房间条始终可用（网格由 _scopeAreaIds 独立控制，不受影响）。
   List<HaArea> get visibleAreas {
     final String home = effectiveHomeName;
     if (home.isNotEmpty) {
-      return availableAreas
+      final List<HaArea> scoped = availableAreas
           .where((HaArea area) => area.homeName == home)
           .toList(growable: false);
+      if (scoped.isNotEmpty) return scoped;
+    } else if (allowedHomes.isNotEmpty) {
+      final List<HaArea> scoped = availableAreas
+          .where((HaArea area) => allowedHomes.contains(area.homeName))
+          .toList(growable: false);
+      if (scoped.isNotEmpty) return scoped;
     }
-    if (allowedHomes.isEmpty) return availableAreas;
-    return availableAreas
-        .where((HaArea area) => allowedHomes.contains(area.homeName))
-        .toList(growable: false);
+    // 家庭过滤无匹配（家庭名与区域前缀不一致 / 区域无家庭前缀）时回退全部房间。
+    return availableAreas;
   }
 
   /// 可筛选家庭：含有任意实体的家庭，按注册表首次出现顺序；

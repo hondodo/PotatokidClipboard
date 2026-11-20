@@ -45,3 +45,7 @@ String buildSleepTimerCommand(int? minutes) => buildCommandEnvelope(
 /// 被控端已开播时才有源可录；起播前发 start 会被按未受理处理（命令返回 false）。
 String buildRecordingCommand(String action) =>
     buildCommandEnvelope('recording_${action == 'stop' ? 'stop' : 'start'}');
+
+/// 录制切换命令：不带动作，由被控端按自身录制状态自动开始或停止
+/// （状态最准，不受控制端上报滞后影响）。
+String buildRecordingToggleCommand() => buildCommandEnvelope('recording_toggle');

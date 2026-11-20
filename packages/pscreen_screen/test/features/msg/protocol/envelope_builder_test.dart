@@ -58,6 +58,12 @@ void main() {
     expect(jsonDecode(buildRecordingCommand('x'))['name'], 'recording_start');
   });
 
+  test('录制切换命令信封与执行器命令名对齐', () {
+    final Map<String, dynamic> toggle =
+        jsonDecode(buildRecordingToggleCommand()) as Map<String, dynamic>;
+    expect(toggle, <String, dynamic>{'t': 'cmd', 'name': 'recording_toggle'});
+  });
+
   group('构造与解析闭环', () {
     test('命令信封能被屏幕端解析器识别为 command', () {
       final String body = buildCommandEnvelope(

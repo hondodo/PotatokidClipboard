@@ -2137,6 +2137,71 @@ void main() {
       expect(bloc.state.isFromCache, isFalse);
     });
   });
+
+  group('HomeState 房间条回退（家庭名与区域前缀不一致）', () {
+    // HA 区域名无「家庭 」前缀（如「卧室 / 客厅」），家庭名解析为空串。
+    final HaRegistry noPrefixRegistry = HaRegistry(
+      areas: <HaArea>[
+        const HaArea(areaId: 'bedroom', name: '卧室'),
+        const HaArea(areaId: 'living', name: '客厅'),
+      ],
+      areaIdByEntity: <String, String>{
+        'light.bed': 'bedroom',
+        'light.living': 'living',
+      },
+    );
+    final Map<String, HaEntityStateModel> twoEntities = <String, HaEntityStateModel>{
+      'light.bed': _entity('light.bed', 'on'),
+      'light.living': _entity('light.living', 'on'),
+    };
+
+    test('白名单是与区域前缀不匹配的单个家庭名时，房间条回退显示全部房间', () {
+      final HomeState state = HomeState.initial().copyWith(
+        registry: noPrefixRegistry,
+        entities: twoEntities,
+        // 模拟 .env 里误把说明文字当家庭名，或后台只配了家庭但区域无前缀。
+        allowedHomes: const <String>['不默认显示任何家庭需要要后台设置'],
+      );
+
+      expect(state.availableHomes, isEmpty,
+          reason: '区域名无空格前缀 → homeName 全为空');
+      expect(state.effectiveHomeName, isEmpty);
+      // 修复点：过滤无结果不应让房间条消失，而应回退全部房间。
+      expect(state.visibleAreas.map((HaArea a) => a.areaId),
+          <String>['bedroom', 'living']);
+    });
+
+    test('白名单完全不匹配任何区域时房间条仍可用', () {
+      final HomeState state = HomeState.initial().copyWith(
+        registry: noPrefixRegistry,
+        entities: twoEntities,
+        allowedHomes: const <String>['不存在的家'],
+      );
+      expect(state.visibleAreas, hasLength(2));
+    });
+
+    test('白名单匹配到真实家庭时仍按该家庭过滤（回退不影响正常场景）', () {
+      final HaRegistry withPrefix = HaRegistry(
+        areas: <HaArea>[
+          const HaArea(areaId: 'a1', name: '金科1204 客厅'),
+          const HaArea(areaId: 'a2', name: '棠德304 卧室'),
+        ],
+        areaIdByEntity: <String, String>{
+          'light.a1': 'a1',
+          'light.a2': 'a2',
+        },
+      );
+      final HomeState state = HomeState.initial().copyWith(
+        registry: withPrefix,
+        entities: <String, HaEntityStateModel>{
+          'light.a1': _entity('light.a1', 'on'),
+          'light.a2': _entity('light.a2', 'on'),
+        },
+        allowedHomes: const <String>['金科1204'],
+      );
+      expect(state.visibleAreas.map((HaArea a) => a.areaId), <String>['a1']);
+    });
+  });
 }
 
 /// 可控连接状态：只提供 HomeBloc 需要的当前连接信息。

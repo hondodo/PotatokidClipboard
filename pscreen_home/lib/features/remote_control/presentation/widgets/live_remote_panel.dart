@@ -13,8 +13,9 @@ import 'package:pscreen_screen/features/msg/protocol/envelope_builder.dart';
 ///
 /// 电视端（`tv`）与中控屏直播场景（`home`）共用，保证两端遥控内容一致；
 /// 频道列表点按钮后打开底部弹窗（搜索 + 收藏 + 全量名单），不在原地展开。
-/// 录制按钮文案与角标跟随设备上报的 `scene.recording`（开/停、频道、时长），
-/// 状态帧到达即重建，无需遥控端轮询。
+/// 录制按钮文案跟随设备上报的 `scene.recording`（开/停），状态帧到达即重建；
+/// 录制中的「频道名 + 已录时长」属于状态信息，移到顶部信息栏
+/// （[TargetRemotePanel] 的 header）单独一行显示，避免挤在按钮行被截断。
 class LiveControlsPanel extends StatelessWidget {
   const LiveControlsPanel({
     super.key,
@@ -62,34 +63,6 @@ class LiveControlsPanel extends StatelessWidget {
           ),
           label: Text(recording ? '停止录制' : '开始录制'),
         ),
-        if (recording)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.errorContainer,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.videocam_rounded,
-                    size: 16, color: Theme.of(context).colorScheme.onErrorContainer),
-                const SizedBox(width: 4),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 140),
-                  child: Text(
-                    '${panel.device?.recordingChannel ?? ''} ${panel.device?.recordingLabel ?? ''}'.trim(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         OutlinedButton.icon(
           onPressed: enabled ? () => _openChannels(context) : null,
           icon: const Icon(Icons.list, size: 20),

@@ -154,6 +154,36 @@ class _TargetRemotePanelState extends State<TargetRemotePanel> {
               ],
             ],
           ),
+        // 录制信息属于「状态信息」：在顶部信息栏单独换行显示（频道名 + 已录时长），
+        // 不再挤在遥控按钮行里被 maxWidth 截断。颜色沿用原红底胶囊的文字色
+        // （onErrorContainer），加浅底误差别，仅保留图标 + 文字。
+        if (widget.showHeader &&
+            enabled &&
+            (info?.recordingActive ?? false))
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.videocam_rounded,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onErrorContainer),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    '${info?.recordingChannel ?? ''} ${info?.recordingLabel ?? ''}'
+                        .trim(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (widget.showHeader) const SizedBox(height: 8),
         if (!online)
           const Padding(

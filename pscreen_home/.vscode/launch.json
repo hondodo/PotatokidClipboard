@@ -21,11 +21,28 @@
             "deviceId": "192.168.31.56:5555"
         },
         {
-            "name": "potatokid_home M2102J2SC (Debug)",
+            "name": "potatokid_home M2102J2SC parent (Debug)",
             "request": "launch",
             "program": "lib/main.dart",
             "type": "dart",
-            "deviceId": "e724dd69"
+            "deviceId": "e724dd69",
+            "toolArgs": [
+                "--flavor",
+                "parent",
+                "--dart-define=APP_FLAVOR=parent"
+            ]
+        },
+        {
+            "name": "potatokid_home M2102J2SC phone (Debug)",
+            "request": "launch",
+            "program": "lib/main.dart",
+            "type": "dart",
+            "deviceId": "e724dd69",
+            "toolArgs": [
+                "--flavor",
+                "phone",
+                "--dart-define=APP_FLAVOR=phone"
+            ]
         },
         {
             "name": "potatokid_home 腾讯极光 Q601F (Debug)",

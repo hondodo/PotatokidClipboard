@@ -126,6 +126,9 @@ const REMOTE_COMMANDS = [
     // 录制开关：开始取被控端当前播放源，停止并保存。两端共享包都支持。
     { cmd: 'recording_start', label: '开始录制' },
     { cmd: 'recording_stop', label: '停止录制' },
+    // 录制切换：不带动作，由被控端按自身录制状态自动开始/停止（状态最准，
+    // 不受控制端上报滞后的影响）。等价于远端按一下本机录制按钮。
+    { cmd: 'recording_toggle', label: '录制切换' },
     // 儿童模式开关（仅电视）：按下即幂等设为开/关，走服务端 device-local，
     // 不投 cmd 帧、不受短码解锁逻辑影响（见 esp/press 的专门分支）。
     { cmd: 'parental_on', label: '儿童模式·开启', kind: 'tv' },
