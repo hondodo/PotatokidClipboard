@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-7.0";
+static const char *APP_VER             = "oled-7.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -369,6 +369,12 @@ RTC_DATA_ATTR int8_t rtcSlpErrBtn = 0;
 RTC_DATA_ATTR int8_t rtcSlpErrPir = 0;
 // PIR 实际走哪条唤醒通道：1=EXT1（RTC IO），2=GPIO wake。便于判断哪条生效。
 RTC_DATA_ATTR int8_t rtcPirWakeMode = 0;
+// 唤醒原始诊断（RTC 内存，重启后上报）：复位原因 / 唤醒原因 / 两条唤醒通道的
+// 原始引脚位掩码。用于判断「根本没醒」还是「醒了但掩码对不上引脚」。
+RTC_DATA_ATTR int8_t  rtcResetReason = 0;
+RTC_DATA_ATTR int8_t  rtcWakeCause   = 0;
+RTC_DATA_ATTR uint32_t rtcGpioMask   = 0;
+RTC_DATA_ATTR uint32_t rtcExt1Mask   = 0;
 int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
@@ -1177,6 +1183,12 @@ void reportToServer(bool isRegister) {
   // 上一次入睡时唤醒注册的返回值，排查 PIR 为什么唤不醒。
   body += ",\"slpErr\":{\"btn\":" + String((int)rtcSlpErrBtn) + ",\"pir\":" + String((int)rtcSlpErrPir) + "}";
   body += ",\"pirMode\":" + String((int)rtcPirWakeMode);
+  // 唤醒原始诊断：复位原因 / 唤醒原因 / 两条通道的引脚掩码（十进制位掩码）。
+  // 例：rst=4(deep sleep 退出) cause=7(GPIO) gpio=64(GPIO6) ext1=0
+  body += ",\"diag\":{\"rst\":" + String((int)rtcResetReason) +
+          ",\"cause\":" + String((int)rtcWakeCause) +
+          ",\"gpio\":" + String((unsigned long)rtcGpioMask) +
+          ",\"ext1\":" + String((unsigned long)rtcExt1Mask) + "}";
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
@@ -2714,6 +2726,15 @@ static uint64_t wakeGpioStatus() {
 uint8_t detectWakeReason() {
   wakeSlotHit = 0;
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  // 原始诊断先记录，再判断，避免返回太早丢数据。
+  rtcWakeCause   = (int8_t)cause;
+  rtcResetReason = (int8_t)esp_reset_reason();
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  rtcGpioMask    = (uint32_t)esp_sleep_get_gpio_wakeup_status();
+#else
+  rtcGpioMask    = 0;
+#endif
+  rtcExt1Mask    = (uint32_t)esp_sleep_get_ext1_wakeup_status();
   if (cause == ESP_SLEEP_WAKEUP_TIMER) return WAKE_TIMER;
   bool gpioWake = (cause == ESP_SLEEP_WAKEUP_GPIO) || (cause == ESP_SLEEP_WAKEUP_EXT1);
   if (!gpioWake) return WAKE_COLD;

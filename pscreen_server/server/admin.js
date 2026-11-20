@@ -1379,6 +1379,7 @@ function attachAdmin(app, options = {}) {
             pirLevel: Number(machine.pirLevel) === 1 ? 1 : 0,
             slpErr: machine.slpErr && typeof machine.slpErr === 'object' ? machine.slpErr : null,
             pirMode: Number(machine.pirMode) || 0,
+            diag: machine.diag && typeof machine.diag === 'object' ? machine.diag : null,
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
@@ -3808,6 +3809,8 @@ function attachAdmin(app, options = {}) {
         if (Number.isFinite(Number(body.pirLevel))) machine.pirLevel = Math.round(Number(body.pirLevel));
         if (body.slpErr && typeof body.slpErr === 'object') machine.slpErr = body.slpErr;
         if (Number.isFinite(Number(body.pirMode))) machine.pirMode = Math.round(Number(body.pirMode));
+        // 唤醒原始诊断：复位原因 / 唤醒原因 / 两条唤醒通道的引脚掩码。
+        if (body.diag && typeof body.diag === 'object') machine.diag = body.diag;
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
