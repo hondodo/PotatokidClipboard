@@ -1124,6 +1124,29 @@ class _ControlGridState extends State<_ControlGrid> {
 
         final List<HaDeviceGroup> groups = state.deviceGroups;
         if (groups.isEmpty) {
+          // 家庭白名单配了但 HA 里找不到对应家庭（.env 占位文案 / none /
+          // 不存在的家庭名）：给出明确提示，等待后台下发有效家庭配置。
+          if (state.isHomeUnassigned) {
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.house_outlined, size: 48, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('等待后台分配家庭'),
+                  SizedBox(height: 8),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      '当前未指定有效家庭，请在后台为本机分配家庭后重试',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
           return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

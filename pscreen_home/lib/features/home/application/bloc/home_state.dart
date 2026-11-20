@@ -158,14 +158,38 @@ class HomeState {
     ];
   }
 
+  /// 是否处于「未分配」状态：.env / 后台指定了家庭白名单，但这些家庭名在
+  /// HA 注册表里一个都找不到。
+  ///
+  /// 典型场景：.env 残留了「不默认显示任何家庭需要要后台设置」这类占位文案，
+  /// 或填了 none / 不存在的家庭名。此时按约定不显示任何家庭的卡片，
+  /// 等待后台下发有效的家庭配置（后台一旦下发 homes，allowedHomes 会被覆盖，
+  /// 本 getter 随之变为 false）。
+  ///
+  /// 判定用完整注册表 [registry.areas] 而非 [availableAreas]，避免把「家庭存在
+  /// 但暂时没有实体」误判为未分配；注册表尚未加载（空）时也不判定，防止加载
+  /// 过程中的瞬时空集把页面闪成空白。
+  bool get isHomeUnassigned {
+    if (allowedHomes.isEmpty) return false; // 「全部家庭」不是未分配
+    if (registry.areas.isEmpty) return false; // 注册表未加载，暂不判定
+    final Set<String> homesInRegistry = <String>{
+      for (final HaArea area in registry.areas)
+        if (area.homeName.isNotEmpty) area.homeName,
+    };
+    return !allowedHomes.any(homesInRegistry.contains);
+  }
+
   /// 当前应展示的房间列表（受家庭筛选）。
   ///
   /// 家庭白名单与 HA 区域名里的家庭前缀可能不一致：例如后台只配了家庭、
-  /// 但区域名是「卧室 / 客厅」这种没有「家庭 」前缀的名字，或 .env 残留了
-  /// 无效家庭名。此时按家庭过滤会得到空列表，导致顶部房间切换条整个消失。
-  /// 为保证「即使只有一个家庭，也能快速切换房间卡片」，过滤无结果时回退到
-  /// 全部可用房间，房间条始终可用（网格由 _scopeAreaIds 独立控制，不受影响）。
+  /// 但区域名是「卧室 / 客厅」这种没有「家庭 」前缀的名字。此时按家庭过滤
+  /// 会得不到结果，为保证「即使只有一个家庭，也能快速切换房间卡片」，
+  /// 过滤无结果时回退到全部可用房间（网格由 _scopeAreaIds 独立控制）。
+  ///
+  /// 唯一例外是 [isHomeUnassigned]：配置指向的家庭在 HA 里根本不存在时，
+  /// 房间条也一并隐藏，避免给出一个切了也没卡片的空壳筛选器。
   List<HaArea> get visibleAreas {
+    if (isHomeUnassigned) return const <HaArea>[];
     final String home = effectiveHomeName;
     if (home.isNotEmpty) {
       final List<HaArea> scoped = availableAreas
@@ -210,7 +234,12 @@ class HomeState {
   }
 
   /// 家庭 / 房间筛选后的区域 id 集合；空集合表示不限制。
+  ///
+  /// 未分配时返回一个不可能匹配到任何实体的哨兵集合，让 [_filteredEntities]
+  /// / [_filteredSwitchable] 都筛不出卡片（网格显示空态），而不是当成「不限制」
+  /// 把全部家庭卡片都放出来。
   Set<String> get _scopeAreaIds {
+    if (isHomeUnassigned) return const <String>{'__unassigned_no_match__'};
     final String home = effectiveHomeName;
     if (home.isNotEmpty) {
       return <String>{

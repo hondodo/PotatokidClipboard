@@ -2138,68 +2138,143 @@ void main() {
     });
   });
 
-  group('HomeState 房间条回退（家庭名与区域前缀不一致）', () {
-    // HA 区域名无「家庭 」前缀（如「卧室 / 客厅」），家庭名解析为空串。
-    final HaRegistry noPrefixRegistry = HaRegistry(
+  group('HomeState 家庭三态（全部 / 已分配 / 未分配）', () {
+    // 带家庭前缀的区域：金科1204 有客厅+卧室，棠德304 有卧室。
+    final HaRegistry prefixedRegistry = HaRegistry(
       areas: <HaArea>[
-        const HaArea(areaId: 'bedroom', name: '卧室'),
-        const HaArea(areaId: 'living', name: '客厅'),
+        const HaArea(areaId: 'jk_kt', name: '金科1204 客厅'),
+        const HaArea(areaId: 'jk_ws', name: '金科1204 卧室'),
+        const HaArea(areaId: 'td_ws', name: '棠德304 卧室'),
       ],
       areaIdByEntity: <String, String>{
-        'light.bed': 'bedroom',
-        'light.living': 'living',
+        'light.jk_kt': 'jk_kt',
+        'light.jk_ws': 'jk_ws',
+        'light.td_ws': 'td_ws',
       },
     );
-    final Map<String, HaEntityStateModel> twoEntities = <String, HaEntityStateModel>{
-      'light.bed': _entity('light.bed', 'on'),
-      'light.living': _entity('light.living', 'on'),
+    final Map<String, HaEntityStateModel> threeEntities =
+        <String, HaEntityStateModel>{
+      'light.jk_kt': _entity('light.jk_kt', 'on'),
+      'light.jk_ws': _entity('light.jk_ws', 'on'),
+      'light.td_ws': _entity('light.td_ws', 'on'),
     };
 
-    test('白名单是与区域前缀不匹配的单个家庭名时，房间条回退显示全部房间', () {
+    // ---- 态一：全部家庭（allowedHomes 为空）----
+    test('全部家庭：家庭条、房间条、卡片都显示所有数据', () {
       final HomeState state = HomeState.initial().copyWith(
-        registry: noPrefixRegistry,
-        entities: twoEntities,
-        // 模拟 .env 里误把说明文字当家庭名，或后台只配了家庭但区域无前缀。
+        registry: prefixedRegistry,
+        entities: threeEntities,
+        allowedHomes: const <String>[],
+      );
+      expect(state.isHomeUnassigned, isFalse);
+      expect(state.availableHomes, <String>['金科1204', '棠德304']);
+      expect(state.visibleAreas, hasLength(3));
+      expect(state.deviceGroups, hasLength(3));
+    });
+
+    // ---- 态二：已分配（白名单在 HA 里匹配到家庭）----
+    test('已分配单家庭：隐藏家庭条但保留房间条，只显示该家庭卡片', () {
+      final HomeState state = HomeState.initial().copyWith(
+        registry: prefixedRegistry,
+        entities: threeEntities,
+        allowedHomes: const <String>['金科1204'],
+        selectedHomeName: '金科1204',
+      );
+      expect(state.isHomeUnassigned, isFalse);
+      expect(state.effectiveHomeName, '金科1204');
+      // 房间条：只包含该家庭的房间（用户核心诉求：单家庭也要能切房间）。
+      expect(state.visibleAreas.map((HaArea a) => a.areaId),
+          <String>['jk_kt', 'jk_ws']);
+      // 卡片：只显示该家庭的 2 张，棠德304 的被过滤。
+      expect(state.deviceGroups, hasLength(2));
+    });
+
+    test('已分配多家庭白名单：只显示白名单内家庭', () {
+      final HomeState state = HomeState.initial().copyWith(
+        registry: prefixedRegistry,
+        entities: threeEntities,
+        allowedHomes: const <String>['棠德304'],
+      );
+      expect(state.isHomeUnassigned, isFalse);
+      expect(state.visibleAreas.map((HaArea a) => a.areaId), <String>['td_ws']);
+      expect(state.deviceGroups, hasLength(1));
+    });
+
+    // ---- 态三：未分配（白名单非空，但 HA 里找不到任何匹配家庭）----
+    test('未分配（.env 占位文案）：卡片、房间条全空，isHomeUnassigned 为真', () {
+      final HomeState state = HomeState.initial().copyWith(
+        registry: prefixedRegistry,
+        entities: threeEntities,
         allowedHomes: const <String>['不默认显示任何家庭需要要后台设置'],
       );
-
-      expect(state.availableHomes, isEmpty,
-          reason: '区域名无空格前缀 → homeName 全为空');
-      expect(state.effectiveHomeName, isEmpty);
-      // 修复点：过滤无结果不应让房间条消失，而应回退全部房间。
-      expect(state.visibleAreas.map((HaArea a) => a.areaId),
-          <String>['bedroom', 'living']);
+      expect(state.isHomeUnassigned, isTrue);
+      expect(state.availableHomes, isEmpty);
+      expect(state.visibleAreas, isEmpty);
+      expect(state.deviceGroups, isEmpty);
+      expect(state.quickControls, isEmpty);
     });
 
-    test('白名单完全不匹配任何区域时房间条仍可用', () {
-      final HomeState state = HomeState.initial().copyWith(
-        registry: noPrefixRegistry,
-        entities: twoEntities,
-        allowedHomes: const <String>['不存在的家'],
-      );
-      expect(state.visibleAreas, hasLength(2));
+    test('未分配（none / 不存在的家庭名）：同样判定为未分配', () {
+      for (final String bad in <String>['none', '不存在的家']) {
+        final HomeState state = HomeState.initial().copyWith(
+          registry: prefixedRegistry,
+          entities: threeEntities,
+          allowedHomes: <String>[bad],
+        );
+        expect(state.isHomeUnassigned, isTrue, reason: '$bad 应判未分配');
+        expect(state.deviceGroups, isEmpty);
+      }
     });
 
-    test('白名单匹配到真实家庭时仍按该家庭过滤（回退不影响正常场景）', () {
-      final HaRegistry withPrefix = HaRegistry(
-        areas: <HaArea>[
-          const HaArea(areaId: 'a1', name: '金科1204 客厅'),
-          const HaArea(areaId: 'a2', name: '棠德304 卧室'),
-        ],
-        areaIdByEntity: <String, String>{
-          'light.a1': 'a1',
-          'light.a2': 'a2',
-        },
+    test('未分配多白名单全部无效才算未分配；有一个有效则不隐藏', () {
+      final HomeState allBad = HomeState.initial().copyWith(
+        registry: prefixedRegistry,
+        entities: threeEntities,
+        allowedHomes: const <String>['a', 'b'],
       );
+      expect(allBad.isHomeUnassigned, isTrue);
+
+      final HomeState oneGood = HomeState.initial().copyWith(
+        registry: prefixedRegistry,
+        entities: threeEntities,
+        allowedHomes: const <String>['a', '金科1204'],
+      );
+      expect(oneGood.isHomeUnassigned, isFalse);
+      expect(oneGood.deviceGroups, hasLength(2));
+    });
+
+    test('注册表尚未加载时不判未分配（防止加载中闪空白）', () {
       final HomeState state = HomeState.initial().copyWith(
-        registry: withPrefix,
-        entities: <String, HaEntityStateModel>{
-          'light.a1': _entity('light.a1', 'on'),
-          'light.a2': _entity('light.a2', 'on'),
-        },
+        registry: HaRegistry.empty, // areas 为空 = 尚未加载
+        entities: threeEntities,
         allowedHomes: const <String>['金科1204'],
       );
-      expect(state.visibleAreas.map((HaArea a) => a.areaId), <String>['a1']);
+      expect(state.isHomeUnassigned, isFalse,
+          reason: '注册表空时不能断定家庭不存在');
+    });
+
+    test('区域名无家庭前缀 + 配了家庭名 → 视为未分配（HA 无该家庭）', () {
+      final HaRegistry noPrefix = HaRegistry(
+        areas: <HaArea>[
+          const HaArea(areaId: 'bedroom', name: '卧室'),
+          const HaArea(areaId: 'living', name: '客厅'),
+        ],
+        areaIdByEntity: <String, String>{
+          'light.bed': 'bedroom',
+          'light.living': 'living',
+        },
+      );
+      final HomeState state = HomeState.initial().copyWith(
+        registry: noPrefix,
+        entities: <String, HaEntityStateModel>{
+          'light.bed': _entity('light.bed', 'on'),
+          'light.living': _entity('light.living', 'on'),
+        },
+        allowedHomes: const <String>['某家庭'],
+      );
+      // HA 区域名全无前缀 → 注册表里没有任何家庭 → 配置指向的家庭不存在。
+      expect(state.isHomeUnassigned, isTrue);
+      expect(state.deviceGroups, isEmpty);
     });
   });
 }
