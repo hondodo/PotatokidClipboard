@@ -188,6 +188,7 @@
               : `<button class="btn small${machine.parental && machine.parental.mode === 'on' ? ' primary' : ''}" data-action="parental" type="button">儿童模式</button>`}
           <button class="btn small" data-action="rename" type="button">改名</button>
           ${kind === '' ? '<button class="btn small" data-action="esp" type="button">ESP 控制</button>' : ''}
+          ${machine.platform === 'esp32' ? '<button class="btn small" data-action="fwpush" type="button">远程更新</button>' : ''}
           <button class="btn small danger" data-action="delete" type="button">删除</button>
         </div>`,
     ];
@@ -433,6 +434,17 @@
         // 直接跳到「ESP 设备分类」Tab 并选中这台设备，统一在页面编辑器里配置。
         state.espDevEditId = machine.id;
         activateTab('esp-devices');
+      } else if (btn.dataset.action === 'fwpush') {
+        if (!confirm(`确定让「${machine.name}」立即检查并安装最新固件？\n设备离线或休眠时，会在下次联网/唤醒时执行。`)) return;
+        (async () => {
+          try {
+            await api(`/api/admin/machines/${encodeURIComponent(machine.id)}/fw_push`, { method: 'POST' });
+            toast('已下发远程更新标记', 'ok');
+            await loadOverview(false);
+          } catch (error) {
+            toast(error.message, 'error');
+          }
+        })();
       } else if (btn.dataset.action === 'delete') {
         if (!confirm(`确定删除设备「${machine.name}」？删除后它下次心跳会重新注册为未命名设备。`)) return;
         (async () => {

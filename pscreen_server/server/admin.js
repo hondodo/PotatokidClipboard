@@ -1359,6 +1359,9 @@ function attachAdmin(app, options = {}) {
             // 最后一次「建立连接」（ws 握手 / 首次建档）的时间，不被 ping/report
             // 这类保活刷新；与 lastSeen（最后活跃）分开，便于后台区分在线时长。
             lastConnectedAt: Number(machine.lastConnectedAt) || 0,
+            // 远程更新：后台点「远程更新」写入的时间戳，随心跳/注册下发。
+            // 设备据此强制检查并安装固件（即使本机把「自动更新」关了）。
+            fwPushAt: Number(machine.fwPushAt) || 0,
         };
     }
 
@@ -3643,6 +3646,25 @@ function attachAdmin(app, options = {}) {
         return jsonOk(res, null, '设备已删除');
     });
 
+    /**
+     * 远程更新：给设备打一个「立即升级」标记。
+     * 设备下次心跳（或下次唤醒并联网）会带着它，即使本机关掉了「自动更新」也会装。
+     * 只对 ESP 屏幕设备有意义（它们用 version 字符串比对固件版本）。
+     */
+    app.post('/api/admin/machines/:id/fw_push', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        if (!id) return jsonFail(res, '设备 ID 无效');
+        const machines = readMachines();
+        if (!machines[id]) return jsonFail(res, '设备不存在');
+        const machine = machines[id];
+        if (machine.platform !== 'esp32') return jsonFail(res, '只有 ESP 屏幕设备支持远程更新');
+        machine.fwPushAt = Date.now();
+        machines[id] = machine;
+        saveMachines(machines);
+        pushConfigToMachine(machines[id], { reason: 'fw-push' });
+        return jsonOk(res, { fwPushAt: machine.fwPushAt }, '已下发远程更新标记');
+    });
+
     app.put('/api/admin/layouts/:key', requireAdmin, (req, res) => {
         try {
             const key = String(req.params.key || '').trim();
@@ -3791,6 +3813,8 @@ function attachAdmin(app, options = {}) {
             config: {
                 ...config,
                 layoutUpdatedAt: layout ? layout.updatedAt : 0,
+                // 远程更新标记：设备心跳里看到比本地记录更新的时间戳就强制升级。
+                fwPush: Number(machine.fwPushAt) || 0,
             },
         };
     }
