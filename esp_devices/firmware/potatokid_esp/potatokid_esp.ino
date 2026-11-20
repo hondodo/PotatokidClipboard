@@ -117,7 +117,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-5.7：未配置联网键时，按键唤醒退回「连 AP」的旧行为，避免设备被锁在后台之外。
 // oled-5.8：砍掉开机固定的 0.7 秒空等（Serial 后 300ms + 开机画面 400ms）；
 //           只有冷启动才画开机图，动作/定时唤醒直接干活；睡前面板一律关闭。
-static const char *APP_VER             = "oled-5.8";
+// oled-5.9：定时唤醒查 OTA 时完全不初始化 OLED，屏幕保持熄灭、不闪屏；
+//           只有真的发现新版本并开始下载时才点亮面板显示进度。
+static const char *APP_VER             = "oled-5.9";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2453,6 +2455,8 @@ void timerWakeOtaCheck() {
     if (ver.length() && ver != String(APP_VER)) {
       // 确实有新版本才值得连 AP 下载（TCP 大文件）。
       if (connectSTA(STA_TIMEOUT_MS)) {
+        // 真要装的时候才点亮面板显示进度（平时定时唤醒不碰屏幕）。
+        initOled();
         fwAvailable = true;
         fwVersion = ver;
         runOta();
@@ -2467,7 +2471,6 @@ void setup() {
   // 对每次按键唤醒都是纯浪费。C6 走 USB CDC，最早几行日志可能丢，
   // 但随后的 [wake] 日志仍在，排查够用。
   Serial.begin(115200);
-  initOled();
   loadCreds();
 
   // 按键：槽位映射要先由 loadCreds 从 NVS 读出来，再按槽位配置上拉输入。
@@ -2496,7 +2499,11 @@ void setup() {
   wakeReason = detectWakeReason();
   bool restored = restorePage();
 
-  // 只有冷启动才画开机画面并短暂停留：按键 / PIR / 定时唤醒直接干活，
+  // 定时唤醒只查 OTA：连 OLED 都不初始化，面板保持熄灭，不闪屏也不耗电。
+  // 其余唤醒（冷启动 / 按键 / PIR）才点亮面板。
+  if (wakeReason != WAKE_TIMER) initOled();
+
+  // 只有冷启动才画开机画面并短暂停留：按键 / PIR 直接干活，
   // 不画开机图也不空等，省下这 0.4 秒。
   if (wakeReason == WAKE_COLD) {
     Serial.println("\n=== Potatokid screen boot ===");
