@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.7";
+static const char *APP_VER             = "oled-6.8";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -1166,6 +1166,8 @@ void reportToServer(bool isRegister) {
   static const char *wakeTag[] = {"cold", "pir", "button", "timer"};
   body += ",\"wake\":\"" + String(wakeTag[wakeReason <= 3 ? wakeReason : 0]) + "\"";
   body += ",\"pirWakes\":" + String(pirWakeCount);
+  // 人体感应当前电平：用来区分「传感器没信号」和「能醒但没点亮屏幕」。
+  body += ",\"pirLevel\":" + String(pirPin >= 0 ? (digitalRead(pirPin) == HIGH ? 1 : 0) : -1);
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
