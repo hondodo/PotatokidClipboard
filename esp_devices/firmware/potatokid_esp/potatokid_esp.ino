@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.8";
+static const char *APP_VER             = "oled-6.9";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -363,6 +363,10 @@ uint8_t wakeReason = WAKE_COLD;
 // 用于诊断「人体感应到底有没有把芯片唤醒」——PIR 唤醒不联网，
 // 只能等下一次心跳把计数带上去，后台就能看出有没有增加。
 RTC_DATA_ATTR uint32_t pirWakeCount = 0;
+// 深睡唤醒注册的返回值（上一次入睡时记录，重启后上报）：
+// 0=OK，负值=错误码。-2 表示引脚超出可唤醒范围。
+RTC_DATA_ATTR int8_t rtcSlpErrBtn = 0;
+RTC_DATA_ATTR int8_t rtcSlpErrPir = 0;
 int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
@@ -1168,6 +1172,8 @@ void reportToServer(bool isRegister) {
   body += ",\"pirWakes\":" + String(pirWakeCount);
   // 人体感应当前电平：用来区分「传感器没信号」和「能醒但没点亮屏幕」。
   body += ",\"pirLevel\":" + String(pirPin >= 0 ? (digitalRead(pirPin) == HIGH ? 1 : 0) : -1);
+  // 上一次入睡时唤醒注册的返回值，排查 PIR 为什么唤不醒。
+  body += ",\"slpErr\":{\"btn\":" + String((int)rtcSlpErrBtn) + ",\"pir\":" + String((int)rtcSlpErrPir) + "}";
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
@@ -2649,7 +2655,9 @@ void enterDeepSleep(bool quiet = false) {
     pinMode(btnPins[i], INPUT_PULLUP);
     mask |= (1ULL << btnPins[i]);
   }
-  if (mask) esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
+  rtcSlpErrBtn = 0;
+  rtcSlpErrPir = 0;
+  if (mask) rtcSlpErrBtn = (int8_t)esp_deep_sleep_enable_gpio_wakeup(mask, ESP_GPIO_WAKEUP_GPIO_LOW);
   // PIR 为高电平唤醒：与按键低电平分两次调用，各自设置引脚触发电平。
   // 必须开内部下拉：未接传感器时引脚悬空会被拉高，导致「刚睡下就立刻被唤醒」
   // 的循环（每次唤醒都联网，电池很快耗尽）。
@@ -2657,8 +2665,9 @@ void enterDeepSleep(bool quiet = false) {
   if (pirPin >= 0) {
     pinMode(pirPin, INPUT_PULLDOWN);
     if (pirPin < 8) {
-      esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+      rtcSlpErrPir = (int8_t)esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
     } else {
+      rtcSlpErrPir = -2;
       Serial.printf("[sleep] PIR GPIO%d cannot wake this chip (only GPIO0-7)\n", pirPin);
     }
   }
