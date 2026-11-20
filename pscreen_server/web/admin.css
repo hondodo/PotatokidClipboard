@@ -173,6 +173,7 @@
     .dot.off { background: #64748b; }
     .status-text { font-size: 12px; color: var(--muted); }
     .status-text.on { color: var(--ok); }
+    .status-text.sleep { color: var(--accent, #6b8afd); }
 
     .badges { display: flex; gap: 5px; flex-wrap: wrap; max-width: 320px; }
     .badge {

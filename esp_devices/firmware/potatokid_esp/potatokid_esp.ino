@@ -122,7 +122,12 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.0：OTA 定时查询间隔后台可配（NVS cfg.otachk，默认 6 小时）；
 //           新增「远程更新」：后台 admin 页可下发标记，设备随心跳取到后强制升级
 //           （即使本机把自动更新关了）。标记按时间戳去重，重启不重复触发。
-static const char *APP_VER             = "oled-6.0";
+// oled-6.1：定时唤醒改为「一次心跳」——上报状态（电量/唤醒原因/间隔）同时取回
+//           最新版本与远程更新标记，省掉单独的版本查询往返；
+//           唤醒间隔后台可选 5/10/30 分钟、1/2/3/6 小时；从机即使关了自动更新也保留
+//           定时唤醒（否则永远收不到后台的远程更新）；
+//           后台按「最后上报 + 唤醒间隔」显示休眠中与预计唤醒时间。
+static const char *APP_VER             = "oled-6.1";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -364,11 +369,11 @@ static const uint32_t ACTION_SLEEP_MS = 2500;   // 动作后停留多久再睡�
 // 定时唤醒查 OTA 的间隔（NVS cfg.otachk，秒）。后台可配，默认 6 小时。
 // 若改短（如 5 分钟），OTA 轮询会变成整机最大耗电项，设置页会给出提示。
 uint32_t otaCheckSec = 6UL * 3600UL;
-static const uint32_t OTA_CHECK_MIN_SEC = 600;      // 最短 10 分钟，避免误设成秒级
-static const uint32_t OTA_CHECK_MAX_SEC = 86400;    // 最长 24 小时
+static const uint32_t OTA_CHECK_MIN_SEC = 300;      // 最短 5 分钟
+static const uint32_t OTA_CHECK_MAX_SEC = 21600;    // 最长 6 小时
 // 远程更新：后台下发的时间戳（毫秒）。比本机记录的新就强制升级一次。
 uint64_t fwPushSeen = 0;      // 已处理过的 fwPush 时间戳（NVS 持久化）
-uint64_t fwPushPending = 0;   // 心跳响应里发现的新标记（待 netTask 处理）
+bool fwPushForced = false;    // 本次启动内是否收到过强制更新标记
 
 /* ---------------- OLED ---------------- */
 
@@ -1105,9 +1110,14 @@ void reportToServer(bool isRegister) {
     body += ",\"name\":\"" + String(DEVICE_NAME) + "\",\"platform\":\"esp32\",\"model\":\"" + String(CHIP_MODEL) + "\"";
   }
   body += ",\"appVersion\":\"" + String(APP_VER) + "\"";
+  // OTA 轨道：后台据此下发对应芯片的发布版本号，避免 S3/C6 互相装错固件。
+  body += ",\"target\":\"" + String(CHIP_TAG) + "\"";
   body += ",\"role\":\"" + deviceRole + "\"";
   if (deviceRole == "slave") body += ",\"masterMac\":\"" + masterMac + "\"";
-  body += ",\"rssi\":" + String(WiFi.RSSI());
+  // 定时唤醒间隔：后台用它推算「预计唤醒时间」，深睡设备不再笼统显示离线。
+  if (deviceRole == "slave") body += ",\"sleepSec\":" + String(otaCheckSec);
+  // 只在真正关联 AP 时上报信号强度；只开射频时 RSSI 无意义。
+  if (WiFi.status() == WL_CONNECTED) body += ",\"rssi\":" + String(WiFi.RSSI());
   // 人体感应状态（1=有人 / 0=无人）：未接感应时不上报，后台保持「未知」。
   if (pirPin >= 0) body += ",\"pir\":" + String(pirPresent ? 1 : 0);
   // 电池电压：未接检测脚时不上报。
@@ -1122,7 +1132,8 @@ void reportToServer(bool isRegister) {
     firstBtn = false;
   }
   body += "]";
-  body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+  if (WiFi.status() == WL_CONNECTED) body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+  else body += "}";
   srvOk = postJson(isRegister ? "/api/device/register" : "/api/device/heartbeat", body);
 }
 
@@ -1388,37 +1399,53 @@ void runOta() {
 }
 
 /**
- * 解析心跳响应里的远程更新标记（后台点「远程更新」时写入）。
- * 即使本机把 autoUpdate 关了，也强制检查一次并排队安装。
- * 只处理比上次记录更新的时间戳，所以同一标记只会触发一次。
+ * 解析注册/心跳响应里服务端下发的字段：
+ *  - fwPush：后台「远程更新」时间戳，比本机记录新就强制升级一次（无视 autoUpdate）
+ *  - latestFw：服务端当前发布版本，与本机不同就标记有新版
+ * 全部来自同一次上报的响应，不再额外请求 /firmware/latest，
+ * 所以从机定时唤醒只需一次往返就能同时完成「报状态 + 查版本」。
  */
-void handleFwPush() {
+void handleServerVars() {
   if (lastPostResp.length() == 0) return;
+
   int p = lastPostResp.indexOf("\"fwPush\"");
-  if (p < 0) return;
-  int c = lastPostResp.indexOf(':', p);
-  if (c < 0) return;
-  uint64_t v = strtoull(lastPostResp.c_str() + c + 1, nullptr, 10);
-  if (v == 0 || v <= fwPushSeen) return;
-  fwPushSeen = v;
-  prefs.begin("cfg", false);
-  prefs.putULong64("fwpush", fwPushSeen);
-  prefs.end();
-  Serial.printf("[ota] remote push %llu\n", (unsigned long long)fwPushSeen);
-  String text;
-  if (!getText("/api/device/firmware/latest?format=text&target=" + String(CHIP_TAG), text)) return;
-  text.trim();
-  int p1 = text.indexOf('|');
-  String ver = p1 > 0 ? text.substring(0, p1) : String();
-  if (ver.length() == 0 || ver == String(APP_VER)) {
-    Serial.println("[ota] remote push: already latest");
-    return;
+  if (p >= 0) {
+    int c = lastPostResp.indexOf(':', p);
+    if (c >= 0) {
+      uint64_t v = strtoull(lastPostResp.c_str() + c + 1, nullptr, 10);
+      if (v > 0 && v > fwPushSeen) {
+        fwPushSeen = v;
+        fwPushForced = true;
+        prefs.begin("cfg", false);
+        prefs.putULong64("fwpush", fwPushSeen);
+        prefs.end();
+        Serial.printf("[ota] remote push %llu\n", (unsigned long long)fwPushSeen);
+      }
+    }
   }
+
+  int q = lastPostResp.indexOf("\"latestFw\"");
+  if (q < 0) return;
+  int c2 = lastPostResp.indexOf(':', q);
+  if (c2 < 0) return;
+  int s = lastPostResp.indexOf('"', c2 + 1);
+  if (s < 0) return;
+  int e = lastPostResp.indexOf('"', s + 1);
+  if (e < 0) return;
+  String ver = lastPostResp.substring(s + 1, e);
+  if (ver.length() == 0 || ver == String(APP_VER)) return;
   fwAvailable = true;
   fwVersion = ver;
   fwNotes = "";
-  if (autoOtaAt == 0) autoOtaAt = millis() + 3000;
-  Serial.printf("[ota] remote push -> %s queued\n", ver.c_str());
+  Serial.printf("[ota] latest %s\n", ver.c_str());
+}
+
+// 有新版，且（开了自动更新 或 后台强制推送）时排队；主循环到点执行下载。
+void queueOtaIfNeeded() {
+  if (!fwAvailable || autoOtaAt != 0) return;
+  if (!autoUpdate && !fwPushForced) return;
+  autoOtaAt = millis() + 3000;
+  Serial.println("[ota] queued");
 }
 
 void onButtonPress(int slot) {
@@ -1819,8 +1846,11 @@ void netTask(void *) {
       // 省掉穿透链路上每个请求几百毫秒的往返，状态显示更快。
       if (heartbeatDue || pirDue) {
         reportToServer(false);
-        // 后台「远程更新」标记随心跳下发：即使关了自动更新也强制装一次。
-        if (heartbeatDue) handleFwPush();
+        // 心跳响应同时带回最新版本和远程更新标记：一次往返完成状态上报与版本检查。
+        if (heartbeatDue) {
+          handleServerVars();
+          queueOtaIfNeeded();
+        }
         // 只有「到点的 60 秒心跳」才顺延计时。感应跳变的即时上报不算心跳，
         // 否则 PIR 抖动时每几秒报一次，60 秒的心跳（也是唯一的定时拉页面时机）
         // 会被无限顺延，屏幕内容就再也不会自动刷新。
@@ -1877,7 +1907,8 @@ void showConnected() {
   buildDeviceId();
   initRelay();
   reportToServer(true);
-  handleFwPush();   // 注册响应里也可能带远程更新标记，联网后立刻检查
+  handleServerVars();      // 注册响应里也可能带最新版本和远程更新标记
+  queueOtaIfNeeded();
   // 注册完成后交给后台任务：首次拉取 + 之后每 REPORT_MS 一次心跳/配置。
   netEnabled = true;
   netPage = currentPage;
@@ -2122,18 +2153,18 @@ String pageSettings(const String &listText, const String &err) {
        (autoUpdate ? " checked" : "") + "> 自动更新</label>";
   h += "<div class='tip'>开启后检测到新版本会自动下载安装（约 20 秒，屏幕显示进度），完成后自动重启；"
        "失败会保留当前固件并在 30 分钟后重试。远程设备建议开启。</div>";
-  // OTA 定时查询间隔：从机深睡时唯一能发现新版本的途径。
-  h += "<label>休眠时检查新固件的间隔</label>";
+  // 定时唤醒间隔：从机深睡时唯一能上报状态 / 发现新版本的途径。
+  h += "<label>休眠时唤醒的间隔</label>";
   h += "<select name='otachk'>";
-  const uint32_t opts[] = {3600, 10800, 21600, 43200, 86400};
-  const char *names[] = {"1 小时", "3 小时", "6 小时（默认）", "12 小时", "24 小时"};
-  for (int i = 0; i < 5; i++) {
+  const uint32_t opts[] = {300, 600, 1800, 3600, 7200, 10800, 21600};
+  const char *names[] = {"5 分钟", "10 分钟", "30 分钟", "1 小时", "2 小时", "3 小时", "6 小时（默认）"};
+  for (int i = 0; i < 7; i++) {
     h += String("<option value='") + opts[i] + "'" +
          (otaCheckSec == opts[i] ? " selected" : "") + ">" + names[i] + "</option>";
   }
   h += "</select>";
-  h += "<div class='tip'>只对从机有效：到点唤醒、只开射频问主机版本，有新版才连 WiFi 下载。"
-       "间隔越短越费电（5 分钟约 6 mAh/天，6 小时约 0.1 mAh/天）。</div>";
+  h += "<div class='tip'>只对从机有效：到点唤醒发一次心跳（顺带上报状态、取最新版本），"
+       "有新版才连 WiFi 下载。间隔越短越费电（5 分钟约 6 mAh/天，6 小时约 0.1 mAh/天）。</div>";
   h += "<button type='submit'>保存自动更新设置</button></form>";
   h += "</div></body></html>";
   return h;
@@ -2427,6 +2458,7 @@ void enterDeepSleep(bool quiet = false) {
   for (int i = 0; i < btnCount; i++) if (btnPins[i] >= 0) Serial.printf(" GPIO%d", btnPins[i]);
   if (pirPin >= 0) Serial.printf(" PIR=GPIO%d(H)", pirPin);
   if (autoUpdate && deviceRole == "slave") Serial.printf(" timer=%lus", (unsigned long)otaCheckSec);
+  else if (deviceRole == "slave") Serial.printf(" timer=%lus(status only)", (unsigned long)otaCheckSec);
   Serial.println();
   if (!quiet) {
     oledShow("Sleep", "key or PIR to wake", String(sleepSeconds) + "s idle");
@@ -2449,8 +2481,9 @@ void enterDeepSleep(bool quiet = false) {
     pinMode(pirPin, INPUT);
     esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
   }
-  // 定时唤醒：只在「从机 + 自动更新开启」时启用，到点起来问主机有没有新版本。
-  if (autoUpdate && deviceRole == "slave") {
+  // 定时唤醒：从机一律启用（即使关了自动更新也要定期上报状态、接收远程更新标记）。
+  // 到点只开射频发一次心跳，有新版且允许更新时才连 AP。
+  if (deviceRole == "slave" && otaCheckSec > 0) {
     esp_sleep_enable_timer_wakeup((uint64_t)otaCheckSec * 1000000ULL);
   }
 #endif
@@ -2517,25 +2550,20 @@ void executeActionOnWake(int slot) {
   Serial.printf("[wake] action slot %d done, sleep in %lums\n", slot, (unsigned long)ACTION_SLEEP_MS);
 }
 
-// 定时唤醒：只开射频问主机「最新固件版本」，有新版才连 AP 下载，否则立刻回睡。
+// 定时唤醒：开射频发一次心跳（上报状态 + 拿最新版本 + 远程更新标记），
+// 有新版才连 AP 下载，否则立刻回睡。整个流程只有一次中继往返。
 void timerWakeOtaCheck() {
-  Serial.println("[wake] timer: check OTA");
+  Serial.println("[wake] timer: status + fw check");
   if (!startRadioOnly()) { enterDeepSleep(true); return; }
-  String text;
-  if (getText("/api/device/firmware/latest?format=text&target=" + String(CHIP_TAG), text)) {
-    text.trim();
-    int p1 = text.indexOf('|');
-    String ver = p1 > 0 ? text.substring(0, p1) : String();
-    Serial.printf("[wake] timer: latest=%s local=%s\n", ver.c_str(), APP_VER);
-    if (ver.length() && ver != String(APP_VER)) {
-      // 确实有新版本才值得连 AP 下载（TCP 大文件）。
-      if (connectSTA(STA_TIMEOUT_MS)) {
-        // 真要装的时候才点亮面板显示进度（平时定时唤醒不碰屏幕）。
-        initOled();
-        fwAvailable = true;
-        fwVersion = ver;
-        runOta();
-      }
+  reportToServer(false);
+  handleServerVars();
+  Serial.printf("[wake] timer: latest=%s local=%s forced=%d\n",
+                fwVersion.c_str(), APP_VER, fwPushForced ? 1 : 0);
+  if (fwAvailable && (autoUpdate || fwPushForced)) {
+    // 确实要装才连 AP（TCP 大文件），并点亮面板显示进度。
+    if (connectSTA(STA_TIMEOUT_MS)) {
+      initOled();
+      runOta();
     }
   }
   enterDeepSleep(true);

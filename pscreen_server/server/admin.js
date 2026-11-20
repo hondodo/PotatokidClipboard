@@ -1343,6 +1343,10 @@ function attachAdmin(app, options = {}) {
             // 远程更新：后台点「远程更新」写入的时间戳，随心跳/注册下发。
             // 设备据此强制检查并安装固件（即使本机把「自动更新」关了）。
             fwPushAt: Number(machine.fwPushAt) || 0,
+            // 设备自报的 OTA 轨道（esp32s3 / esp32c6）：后台据此找对应的发布版本。
+            fwTarget: typeof machine.fwTarget === 'string' ? machine.fwTarget.slice(0, 16) : '',
+            // 深睡从机自报的定时唤醒间隔（秒）：后台据此显示「预计唤醒时间」。
+            sleepSec: Number(machine.sleepSec) || 0,
         };
     }
 
@@ -3718,6 +3722,14 @@ function attachAdmin(app, options = {}) {
         if (typeof body.appVersion === 'string' && body.appVersion.trim()) {
             machine.appVersion = body.appVersion.trim().slice(0, 32);
         }
+        // OTA 轨道：设备自报 esp32s3 / esp32c6，后台按它下发对应版本号。
+        if (typeof body.target === 'string' && /^esp32[a-z0-9]+$/i.test(body.target.trim())) {
+            machine.fwTarget = body.target.trim().toLowerCase().slice(0, 16);
+        }
+        // 深睡从机自报的定时唤醒间隔（秒），用于后台显示「预计唤醒时间」。
+        if (Number.isFinite(Number(body.sleepSec)) && Number(body.sleepSec) > 0) {
+            machine.sleepSec = Math.round(Number(body.sleepSec));
+        }
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
@@ -3796,6 +3808,9 @@ function attachAdmin(app, options = {}) {
                 layoutUpdatedAt: layout ? layout.updatedAt : 0,
                 // 远程更新标记：设备心跳里看到比本地记录更新的时间戳就强制升级。
                 fwPush: Number(machine.fwPushAt) || 0,
+                // 当前发布版本：设备定时唤醒时一次往返即可完成「上报状态 + 查版本」，
+                // 不用再单独请求 /firmware/latest。轨道未知时不下发，避免装错固件。
+                latestFw: machine.fwTarget ? ((readFirmwareMeta(machine.fwTarget) || {}).version || '') : '',
             },
         };
     }
