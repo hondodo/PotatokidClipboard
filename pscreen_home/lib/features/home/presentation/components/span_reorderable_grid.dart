@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -59,9 +60,29 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
   bool _editing = false;
   int? _draggingIndex;
   int? _hoverIndex;
+  Timer? _longPressTimer;
+
+  @override
+  void dispose() {
+    _longPressTimer?.cancel();
+    super.dispose();
+  }
 
   void _enterEditing() {
     if (!_editing && mounted) setState(() => _editing = true);
+  }
+
+  /// 指针按下 500ms 后进入编辑态（抖动），不依赖是否真正拖动——
+  /// 「手机桌面式：长按就跳动表示可拖」的手感。用 Listener 的指针事件
+  /// 自己计时，避开 LongPressDraggable 内部长按识别器的手势竞技场竞争。
+  void _startLongPress() {
+    _longPressTimer?.cancel();
+    _longPressTimer = Timer(const Duration(milliseconds: 500), _enterEditing);
+  }
+
+  void _cancelLongPress() {
+    _longPressTimer?.cancel();
+    _longPressTimer = null;
   }
 
   void _exitEditing() {
@@ -182,39 +203,45 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
         }
       },
       onDrop: (int fromIndex) => _swap(fromIndex, index),
-      child: LongPressDraggable<int>(
-        data: index,
-        delay: const Duration(milliseconds: 500),
-        onDragStarted: () {
-          if (mounted) setState(() => _draggingIndex = index);
-          _enterEditing();
-        },
-        onDragEnd: (DraggableDetails details) {
-          if (mounted) {
-            setState(() {
-              _draggingIndex = null;
-              _hoverIndex = null;
-            });
-          }
-        },
-        feedback: Material(
-          color: Colors.transparent,
-          child: SizedBox(
-            width: math.min(width, 320),
-            height: math.min(height, 340),
-            child: Transform.scale(
-              scale: 1.05,
-              child: Card(
-                elevation: 12,
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                child: base,
+      child: Listener(
+        onPointerDown: (_) => _startLongPress(),
+        onPointerUp: (_) => _cancelLongPress(),
+        onPointerCancel: (_) => _cancelLongPress(),
+        child: LongPressDraggable<int>(
+          data: index,
+          delay: const Duration(milliseconds: 500),
+          onDragStarted: () {
+            _cancelLongPress();
+            if (mounted) setState(() => _draggingIndex = index);
+            _enterEditing();
+          },
+          onDragEnd: (DraggableDetails details) {
+            if (mounted) {
+              setState(() {
+                _draggingIndex = null;
+                _hoverIndex = null;
+              });
+            }
+          },
+          feedback: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: math.min(width, 320),
+              height: math.min(height, 340),
+              child: Transform.scale(
+                scale: 1.05,
+                child: Card(
+                  elevation: 12,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  child: base,
+                ),
               ),
             ),
           ),
+          childWhenDragging: const SizedBox.shrink(),
+          child: cell,
         ),
-        childWhenDragging: const SizedBox.shrink(),
-        child: cell,
       ),
     );
   }
