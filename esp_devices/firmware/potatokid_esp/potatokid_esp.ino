@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.6";
+static const char *APP_VER             = "oled-6.7";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -359,6 +359,10 @@ int netSlot = 0;               // 联网键槽位：0=不启用；1..MAX_BTN=该
 #define WAKE_BUTTON   2        // 按键唤醒（联网键或动作键，用 wakeSlotHit 区分）
 #define WAKE_TIMER    3        // RTC 定时唤醒 → 只开射频查 OTA
 uint8_t wakeReason = WAKE_COLD;
+// PIR 唤醒累计次数：放在 RTC 内存里，深睡不清零。
+// 用于诊断「人体感应到底有没有把芯片唤醒」——PIR 唤醒不联网，
+// 只能等下一次心跳把计数带上去，后台就能看出有没有增加。
+RTC_DATA_ATTR uint32_t pirWakeCount = 0;
 int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
@@ -1158,6 +1162,10 @@ void reportToServer(bool isRegister) {
   body += "]";
   // 远程配置：本机已应用版本 + 当前实际值，后台据此对照并编辑「期望配置」。
   body += ",\"cfgVer\":" + String(cfgVerApplied);
+  // 唤醒诊断：本次唤醒来源 + PIR 唤醒累计次数（RTC 内存，深睡不清零）。
+  static const char *wakeTag[] = {"cold", "pir", "button", "timer"};
+  body += ",\"wake\":\"" + String(wakeTag[wakeReason <= 3 ? wakeReason : 0]) + "\"";
+  body += ",\"pirWakes\":" + String(pirWakeCount);
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
@@ -2806,6 +2814,7 @@ void setup() {
   // ② PIR 唤醒：只亮屏显示缓存 5 秒，不开射频；
   //    期间按键则交给主循环去执行对应动作。
   if (wakeReason == WAKE_PIR) {
+    pirWakeCount++;
     peekMode = true;
     peekUntil = millis() + PEEK_MS;
     screenOff = false;

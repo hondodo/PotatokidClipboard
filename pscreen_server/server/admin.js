@@ -1373,6 +1373,9 @@ function attachAdmin(app, options = {}) {
             espCfg: normalizeEspCfg(machine.espCfg),
             cfgNow: machine.cfgNow && typeof machine.cfgNow === 'object' ? machine.cfgNow : null,
             cfgApplied: Number(machine.cfgApplied) || 0,
+            // 唤醒诊断：最近一次唤醒来源 + PIR 唤醒累计次数。
+            lastWake: typeof machine.lastWake === 'string' ? machine.lastWake : '',
+            pirWakes: Number(machine.pirWakes) || 0,
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
@@ -3796,6 +3799,9 @@ function attachAdmin(app, options = {}) {
         // 远程配置：本机已应用到的配置版本 + 本机当前实际值（供后台对照编辑）。
         if (Number.isFinite(Number(body.cfgVer))) machine.cfgApplied = Math.round(Number(body.cfgVer));
         if (body.cfgNow && typeof body.cfgNow === 'object') machine.cfgNow = body.cfgNow;
+        // 唤醒诊断：PIR 唤醒累计次数（RTC 内存），用来判断人体感应能否唤醒深睡。
+        if (Number.isFinite(Number(body.pirWakes))) machine.pirWakes = Math.round(Number(body.pirWakes));
+        if (typeof body.wake === 'string') machine.lastWake = body.wake.slice(0, 12);
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
