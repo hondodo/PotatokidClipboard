@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.5";
+static const char *APP_VER             = "oled-6.6";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2265,6 +2265,10 @@ String pageSettings(const String &listText, const String &err) {
        "有人时 OUT 输出高电平，屏幕立即亮起；人持续在就一直亮，人离开后按后台设置的秒数熄屏。</div>";
   h += "<label>人体感应 OUT GPIO（-1 = 未接，屏幕常亮）</label>";
   h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+  h += "<div class='tip'>省电考虑：C6 只有 <b>GPIO0~7</b> 能唤醒深睡，接在 8 以上的引脚"
+       "只能在本机已醒时起作用，睡着时按人体感应不会亮屏。</div>";
+#endif
   // oled-5.5：联网键——按下连 AP 进后台并推迟休眠 5 分钟，不执行该槽位的动作。
   // 普通键只开射频走主机中继，所以进后台需要这颗专用键。
   h += "<label>联网键（按下连 WiFi 进后台，不执行动作；不启用时所有按键都连 WiFi）</label>";
@@ -2639,9 +2643,14 @@ void enterDeepSleep(bool quiet = false) {
   // PIR 为高电平唤醒：与按键低电平分两次调用，各自设置引脚触发电平。
   // 必须开内部下拉：未接传感器时引脚悬空会被拉高，导致「刚睡下就立刻被唤醒」
   // 的循环（每次唤醒都联网，电池很快耗尽）。
+  // C6 只有 RTCIO 0~7 能作为深睡唤醒源，其它引脚配了也不会生效。
   if (pirPin >= 0) {
     pinMode(pirPin, INPUT_PULLDOWN);
-    esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+    if (pirPin < 8) {
+      esp_deep_sleep_enable_gpio_wakeup(1ULL << pirPin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+    } else {
+      Serial.printf("[sleep] PIR GPIO%d cannot wake this chip (only GPIO0-7)\n", pirPin);
+    }
   }
   // 定时唤醒：从机一律启用（即使关了自动更新也要定期上报状态、接收远程更新标记）。
   // 到点只开射频发一次心跳，有新版且允许更新时才连 AP。
