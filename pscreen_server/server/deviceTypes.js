@@ -112,10 +112,196 @@ const DEFAULT_RULES = {
 const CARD_DEFAULTS = {
     label: '当前值', mainAttr: 'state', mainFmt: '{v}', subTpl: '{state}',
     icon: '✦', color: '#4dd4ac', mainEntity: '主实体', buttons: [{ label: '开关', action: 'toggle' }],
-    // 灰度开关：默认 false（继续用 home 13 个专用卡片）。admin 里逐类型打开后，
-    // home 才用通用卡片渲染该类型——切一个验一个，全绿再整体切换。
+    // 灰度开关：home 端是否启用通用卡片渲染（全量切换后所有类型都为 true）。
     genericEnabled: false,
+    // 跨格尺寸：col/row 各 1~4；默认 1×1。
+    span: { col: 1, row: 1 },
+    // JSON 布局树：admin 可配；为空时 home 用 defaultLayoutFor 生成的通用布局。
+    layout: null,
 };
+
+// ---------------------------------------------------------------------------
+// 通用卡片布局协议（JSON 布局树）
+// ---------------------------------------------------------------------------
+// 节点类型（一期）：row / column / wrap / text / icon / button / chip /
+// progress / sparkline / repeat / divider。占位符在 home 端求值（{title}
+// {sub} {main} {label} {icon} {color} {state} {attr.xxx} {gangCount}
+// {gangOnCount}，repeat 项用 {item.xxx}），服务端只做白名单校验与透传。
+const LAYOUT_NODE_TYPES = new Set([
+    'row', 'column', 'wrap', 'text', 'icon', 'button', 'chip',
+    'progress', 'sparkline', 'repeat', 'divider',
+]);
+const LAYOUT_MAX_DEPTH = 8;
+const LAYOUT_MAX_NODES = 120;
+const LAYOUT_MAX_CHILDREN = 24;
+
+/** 递归清洗布局树：只保留白名单节点与已知字段，限深限宽，杜绝脏配置压垮渲染器。 */
+function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const type = String(value.type || '');
+    if (!LAYOUT_NODE_TYPES.has(type) || depth > LAYOUT_MAX_DEPTH) return null;
+    if (++counter.n > LAYOUT_MAX_NODES) return null;
+
+    const str = (v, max = 120) => clampText(v == null ? '' : v, max);
+    const num = (v, def, lo, hi) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def;
+    };
+    const node = { type };
+
+    // 通用样式字段（各节点按需取用，统一校验避免遗漏）
+    if (value.gap != null) node.gap = num(value.gap, 8, 0, 64);
+    if (value.crossAlign === 'start' || value.crossAlign === 'center' || value.crossAlign === 'end') {
+        node.crossAlign = value.crossAlign;
+    }
+    if (value.mainAlign === 'start' || value.mainAlign === 'center' || value.mainAlign === 'end') {
+        node.mainAlign = value.mainAlign;
+    }
+    if (value.expand === true) node.expand = true;
+    if (value.padding != null) {
+        const p = Array.isArray(value.padding) ? value.padding : [];
+        node.padding = [num(p[0], 12, 0, 48), num(p[1] != null ? p[1] : p[0], 10, 0, 48)];
+    }
+    switch (type) {
+        case 'text':
+            node.value = str(value.value, 160);
+            if (value.size != null) node.size = num(value.size, 14, 8, 48);
+            if (value.weight != null) node.weight = num(value.weight, 400, 100, 900);
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.maxLines != null) node.maxLines = num(value.maxLines, 1, 1, 6);
+            if (value.align === 'left' || value.align === 'center' || value.align === 'right') node.align = value.align;
+            break;
+        case 'icon':
+            node.value = str(value.value, 40);
+            if (value.size != null) node.size = num(value.size, 24, 8, 64);
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.box && typeof value.box === 'object') {
+                node.box = {
+                    size: num(value.box.size, 46, 16, 96),
+                    radius: num(value.box.radius, 12, 0, 32),
+                    bg: str(value.box.bg, 40),
+                    color: str(value.box.color, 40),
+                };
+            }
+            break;
+        case 'button':
+        case 'chip':
+            node.label = str(value.label, 40);
+            if (value.subLabel != null) node.subLabel = str(value.subLabel, 40);
+            if (value.icon != null) node.icon = str(value.icon, 40);
+            node.onClick = str(value.onClick, 120);
+            // style 可为固定枚举，或运行时占位符（如 {gang.style} → active/normal）。
+            const styleRaw = str(value.style, 40);
+            if (['filled', 'outlined', 'active', 'tonal', 'normal'].includes(styleRaw) || /\{[^}]+\}/.test(styleRaw)) {
+                node.style = styleRaw;
+            }
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
+            if (value.confirm != null) node.confirm = str(value.confirm, 60);
+            break;
+        case 'progress':
+            node.value = str(value.value, 40);
+            if (value.max != null) node.max = str(value.max, 40);
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.height != null) node.height = num(value.height, 6, 2, 24);
+            if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
+            break;
+        case 'sparkline':
+            node.metric = ['power', 'temperature', 'humidity'].includes(value.metric) ? value.metric : 'power';
+            if (value.window != null) node.window = str(value.window, 20);
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.height != null) node.height = num(value.height, 60, 24, 180);
+            node.showLabels = value.showLabels === true;
+            break;
+        case 'divider':
+            if (value.color != null) node.color = str(value.color, 40);
+            if (value.thickness != null) node.thickness = num(value.thickness, 1, 1, 8);
+            break;
+        case 'repeat':
+            node.source = str(value.source || 'gangs', 40);
+            node.item = str(value.item || 'item', 20).replace(/[^a-zA-Z0-9_]/g, '') || 'item';
+            if (value.columns != null) node.columns = num(value.columns, 2, 1, 4);
+            if (value.gap != null) node.gap = num(value.gap, 8, 0, 32);
+            if (value.template && typeof value.template === 'object') {
+                node.template = sanitizeLayout(value.template, depth + 1, counter);
+            }
+            return node;
+        case 'row':
+        case 'column':
+        case 'wrap':
+            break;
+    }
+    if (Array.isArray(value.children)) {
+        node.children = value.children.slice(0, LAYOUT_MAX_CHILDREN)
+            .map((c) => sanitizeLayout(c, depth + 1, counter))
+            .filter(Boolean);
+    }
+    return node;
+}
+
+/** 为未配 layout 的类型生成通用默认布局——保证全量切换后每张卡都能渲染。
+ *  复用 card 现有字段（icon/color/label/mainFmt 等），admin 可再逐个覆盖。 */
+function defaultLayoutFor(key, card) {
+    const c = card || {};
+    const header = {
+        type: 'row', gap: 10, crossAlign: 'center',
+        children: [
+            {
+                type: 'icon', value: c.icon || '✦', size: 24,
+                box: { size: 46, radius: 12, bg: '{color}', color: '{color}' },
+            },
+            {
+                type: 'column', expand: 1, gap: 2,
+                children: [
+                    { type: 'text', value: '{title}', size: 14, weight: 600, maxLines: 1 },
+                    { type: 'text', value: '{sub}', size: 12, color: '{color}', maxLines: 1 },
+                ],
+            },
+        ],
+    };
+    // 多路开关：主区换成 N 个大按钮（每路一个），去掉「已开启路数」与总电源键。
+    if (key === 'multi_switch') {
+        return {
+            type: 'column', gap: 8, padding: [12, 10],
+            children: [
+                header,
+                {
+                    type: 'repeat', source: 'gangs', item: 'gang', columns: 2, gap: 8,
+                    template: {
+                        type: 'button', label: '{gang.label}',
+                        subLabel: '{gang.stateLabel}', style: '{gang.style}',
+                        onClick: 'toggle@' + '{gang.entityId}',
+                    },
+                },
+            ],
+        };
+    }
+    // 通用卡片：主数值行（label + main + 可选电源键）+ 按钮组。
+    const mainChildren = [
+        {
+            type: 'column', expand: 1, gap: 1,
+            children: [
+                { type: 'text', value: '{label}', size: 11, color: 'outline', maxLines: 1 },
+                { type: 'text', value: '{main}', size: 24, weight: 700, color: '{color}', maxLines: 1 },
+            ],
+        },
+    ];
+    mainChildren.push({
+        type: 'button', icon: 'power_settings_new', style: 'filled',
+        onClick: 'toggle', visibleWhen: '{primary.switchable}',
+    });
+    const children = [header, { type: 'row', crossAlign: 'end', gap: 8, children: mainChildren }];
+    if (Array.isArray(c.buttons) && c.buttons.length) {
+        children.push({
+            type: 'wrap', gap: 6,
+            children: c.buttons.slice(0, 4).map((b, i) => ({
+                type: 'chip', label: b.label || ('按钮' + (i + 1)),
+                onClick: b.action || 'toggle', style: 'outlined',
+            })),
+        });
+    }
+    return { type: 'column', gap: 8, padding: [12, 10], children };
+}
 
 const TYPE_KEYS = new Set(DEVICE_TYPES.map((t) => t.key));
 const DICT_FIELDS = Object.keys(DICT_DEFAULTS);
@@ -159,7 +345,11 @@ function normalizeCard(value, key) {
         icon: meta.icon || CARD_DEFAULTS.icon,
         color: meta.color || CARD_DEFAULTS.color,
     });
-    if (!value || typeof value !== 'object') return base;
+    // 默认布局依赖 base 的 icon/buttons 等字段，这里先算好。
+    const fallbackLayout = sanitizeLayout(defaultLayoutFor(key, base));
+    if (!value || typeof value !== 'object') {
+        return Object.assign({}, base, { span: { col: 1, row: 1 }, layout: fallbackLayout });
+    }
     const out = Object.assign({}, base);
     for (const f of ['label', 'mainAttr', 'mainFmt', 'subTpl', 'icon', 'color', 'mainEntity']) {
         if (value[f] != null) out[f] = clampText(value[f], f === 'mainEntity' ? 120 : 80);
@@ -171,6 +361,20 @@ function normalizeCard(value, key) {
         }));
     }
     out.genericEnabled = value.genericEnabled === true;
+    // 跨格：col/row 各 1~4，默认 1×1。
+    if (value.span && typeof value.span === 'object') {
+        const col = Number(value.span.col), row = Number(value.span.row);
+        out.span = {
+            col: Number.isFinite(col) ? Math.max(1, Math.min(4, Math.round(col))) : 1,
+            row: Number.isFinite(row) ? Math.max(1, Math.min(4, Math.round(row))) : 1,
+        };
+    } else {
+        out.span = { col: 1, row: 1 };
+    }
+    // 布局树：配了就清洗；没配则服务端直接生成默认布局下发，
+    // 这样 admin 编辑时能立刻看到当前布局、home 收到即渲染无需再算。
+    // home 端仍保留一份同样的默认逻辑作为服务端不可达时的 fallback。
+    out.layout = sanitizeLayout(value.layout) || fallbackLayout;
     return out;
 }
 

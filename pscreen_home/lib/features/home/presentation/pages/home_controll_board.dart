@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_reorderable_grid_view/widgets/reorderable_builder.dart';
 import 'package:pscreen_home/app/config/ha_config.dart';
 import 'package:pscreen_home/core/di/injection.dart';
 import 'package:pscreen_home/core/network/ha_connection_label.dart';
@@ -20,6 +19,7 @@ import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
+import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
@@ -44,7 +44,8 @@ import 'package:pscreen_home/features/home/presentation/components/button_widget
 import 'package:pscreen_home/features/home/presentation/components/climate_display.dart';
 import 'package:pscreen_home/features/home/presentation/components/climate_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/device_widget.dart';
-import 'package:pscreen_home/features/home/presentation/components/generic_rule_card.dart';
+import 'package:pscreen_home/features/home/presentation/components/json_card_renderer.dart';
+import 'package:pscreen_home/features/home/presentation/components/span_reorderable_grid.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/fan_light_widget.dart';
 import 'package:pscreen_home/features/home/presentation/components/air_fryer_widget.dart';
@@ -66,6 +67,9 @@ import 'package:pscreen_screen/features/weather/application/bloc/weather_bloc.da
 import 'package:pscreen_screen/features/weather/application/bloc/weather_state.dart';
 import 'package:pscreen_screen/features/weather/data/weather_data_convert.dart';
 import 'package:pscreen_screen/features/weather/domain/models/weather_models.dart';
+
+/// 临时调试开关：true 时用彩色占位块代替真实卡片，验证跨格布局。
+const bool _debugGridPlaceholder = false;
 
 /// 打开设备详情并上报「点击卡片」；卡片本身不直接下发 HA 指令。
 void _openDeviceDetail(BuildContext context, HaDeviceGroup group) {
@@ -1190,54 +1194,65 @@ class _ControlGridState extends State<_ControlGrid> {
             group.primary?.entityId ?? group.entities.first.entityId,
           );
 
-          // 灰度：admin 在「设备判定规则」里给该类型打开「通用卡片」开关后，
-          // home 按服务端下发的 card 配置渲染，取代下面 13 个专用 Summary。
-          // 未开启（默认）时全部走原有专用卡片，行为完全不变。
+          // 全量动态卡片：所有设备统一走服务端下发的 JSON 布局渲染器。
+          // 13 个专用 Summary 保留在下方作为代码兜底，但正常路径不再命中。
           final DeviceTypeDictionary ruleDict = DeviceTypeDictionary.active;
           final String? classifiedType = group.deviceId == null
               ? null
               : ruleDict.classifiedTypeOf(group.deviceId!);
-          if (classifiedType != null && ruleDict.useGenericCard(classifiedType)) {
-            final DeviceTypeRule? typeRule = ruleDict.rule(classifiedType);
-            final DeviceCardConfig? cardCfg = typeRule?.card;
-            if (typeRule != null && cardCfg != null) {
-              final String primaryId = group.primary?.entityId ?? '';
-              return GenericRuleCard(
-                group: group,
-                rule: typeRule,
-                card: cardCfg,
-                areaLabel: areaLabel,
-                showAreaInTitle: state.selectedAreaId.isEmpty,
-                isToggling: primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
-                onTogglePrimary: group.primary != null && group.primary!.isSwitchable
-                    ? () => context.read<HomeBloc>().add(ToggleEntity(entityId: primaryId))
-                    : null,
-                onAction: (String action) {
-                  final HomeBloc bloc = context.read<HomeBloc>();
-                  final String kind = action.split('(').first.trim();
-                  if (primaryId.isEmpty) return;
-                  switch (kind) {
-                    case 'toggle':
-                    case 'turn_on':
-                    case 'turn_off':
-                      bloc.add(ToggleEntity(entityId: primaryId));
-                      break;
-                    case 'press':
-                      bloc.add(PressEntityButton(entityId: primaryId));
-                      break;
-                    case 'notify':
-                      bloc.add(PressNotifyAction(entityId: primaryId, message: action));
-                      break;
-                    default:
-                      // 带参动作（set_temperature / select_option / brightness 等）
-                      // 走详情页由专用面板处理，通用卡片只下发简单动作。
-                      _openDeviceDetail(context, group);
+          final String typeKey = classifiedType ?? '';
+          final DeviceTypeRule? typeRule = ruleDict.rule(typeKey);
+          // 兜底配置：服务端未下发时用一份内联默认，保证任何设备都能渲染。
+          final DeviceCardConfig cardCfg = typeRule?.card ?? const DeviceCardConfig();
+          final String primaryId = group.primary?.entityId ?? '';
+
+          // sparkline 节点通过全局 provider 取历史服务（避免逐层传参）。
+          JsonCardRenderer.historyServiceProvider ??= () => Injection.get<HistoryService>();
+          return JsonCardRenderer(
+            group: group,
+            card: cardCfg,
+            typeKey: typeKey,
+            areaLabel: areaLabel,
+            showAreaInTitle: state.selectedAreaId.isEmpty,
+            isToggling: primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
+            onAction: (String action) {
+              final HomeBloc bloc = context.read<HomeBloc>();
+              final String trimmed = action.trim();
+              // toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。
+              if (trimmed.startsWith('toggle@')) {
+                final String target = trimmed.substring('toggle@'.length).trim();
+                if (target.isNotEmpty) bloc.add(ToggleEntity(entityId: target));
+                return;
+              }
+              // press@<entityId>：按指定实体按钮。
+              if (trimmed.startsWith('press@')) {
+                final String target = trimmed.substring('press@'.length).trim();
+                if (target.isNotEmpty) bloc.add(PressEntityButton(entityId: target));
+                return;
+              }
+              final String kind = trimmed.split('(').first.trim();
+              switch (kind) {
+                case 'toggle':
+                case 'turn_on':
+                case 'turn_off':
+                  if (primaryId.isNotEmpty) bloc.add(ToggleEntity(entityId: primaryId));
+                  break;
+                case 'press':
+                  if (primaryId.isNotEmpty) bloc.add(PressEntityButton(entityId: primaryId));
+                  break;
+                case 'notify':
+                  if (primaryId.isNotEmpty) {
+                    bloc.add(PressNotifyAction(entityId: primaryId, message: trimmed));
                   }
-                },
-                onOpenDetail: () => _openDeviceDetail(context, group),
-              );
-            }
-          }
+                  break;
+                default:
+                  // 带参动作（set_temperature / select_option / brightness 等）
+                  // 走详情页由专用面板处理。
+                  _openDeviceDetail(context, group);
+              }
+            },
+            onOpenDetail: () => _openDeviceDetail(context, group),
+          );
 
           // 门锁：上锁状态 + 电池电量 + 电量更新时间（无快捷开关按钮）
           final LockSummary? lock = group.deviceId == null
@@ -1666,59 +1681,69 @@ class _ControlGridState extends State<_ControlGrid> {
           );
         }
 
-        return ReorderableBuilder.builder(
-          itemCount: groups.length,
-          scrollController: _scrollController,
-          onReorderPositions: (positions) {
-            final List<String> keys = groups
-                .map((HaDeviceGroup group) => group.orderKey)
-                .toList(growable: true);
-            for (final position in positions) {
-              if (position.oldIndex < 0 || position.oldIndex >= keys.length) {
-                continue;
-              }
-              final String key = keys.removeAt(position.oldIndex);
-              final int newIndex = position.newIndex
-                  .clamp(0, keys.length)
-                  .toInt();
-              keys.insert(newIndex, key);
+        // 跨格 + 长按编辑态拖拽网格：取代原 150ms ReorderableBuilder。
+        // span 来自该设备类型的 card.span（admin 后台可配）；长按 500ms
+        // 进入编辑态（卡片抖动浮起）才可拖动，解决误触/拖不到的痛点。
+        final DeviceTypeDictionary spanDict = DeviceTypeDictionary.active;
+        return SpanReorderableGrid<HaDeviceGroup>(
+          items: groups,
+          keyOf: (HaDeviceGroup g) => g.orderKey,
+          spanOf: (HaDeviceGroup g) {
+            if (_debugGridPlaceholder) {
+              // 占位测试：按序号循环 1x1 / 2x1 / 1x2 / 2x2 验证跨格。
+              const List<List<int>> pattern = <List<int>>[
+                <int>[1, 1], <int>[2, 1], <int>[1, 1], <int>[1, 2],
+                <int>[2, 2], <int>[1, 1], <int>[1, 1], <int>[2, 1],
+              ];
+              final int i = groups.indexOf(g);
+              final List<int> s = pattern[i % pattern.length];
+              return CardGridSpan(col: s[0], row: s[1]);
             }
+            final String? type = g.deviceId == null ? null : spanDict.classifiedTypeOf(g.deviceId!);
+            final CardSpan? span = type == null ? null : spanDict.rule(type)?.card?.span;
+            return CardGridSpan(col: span?.col ?? 1, row: span?.row ?? 1);
+          },
+          crossAxisCount: 4,
+          cellExtent: 188,
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
+          padding: const EdgeInsets.all(16),
+          scrollController: _scrollController,
+          itemBuilder: (BuildContext context, int index, HaDeviceGroup group) {
+            if (_debugGridPlaceholder) {
+              final List<Color> colors = <Color>[
+                Colors.teal, Colors.orange, Colors.purple, Colors.blue,
+                Colors.red, Colors.green, Colors.amber, Colors.indigo,
+              ];
+              final Color c = colors[index % colors.length];
+              return Container(
+                decoration: BoxDecoration(
+                  color: c.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: c, width: 2),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '#$index\n${groups.indexOf(group)} ${group.title.substring(0, group.title.length.clamp(0, 6))}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: c),
+                ),
+              );
+            }
+            return KeyedSubtree(
+              key: ValueKey<String>(group.orderKey),
+              child: buildCard(context, index),
+            );
+          },
+          onReorder: (List<int> order) {
+            final List<String> keys = order
+                .map((int i) => groups[i].orderKey)
+                .toList(growable: false);
             context.read<HomeBloc>().add(
               ReorderCards(
                 visibleKeys: keys,
                 homeName: state.effectiveHomeName,
               ),
-            );
-          },
-          // 包默认长按 500ms，挂墙屏上手指微动即被 GridView 滚动或卡片内
-          // 滑块抢走手势导致拖动不启动；降到 150ms 提高容错。
-          // 不能用 Duration.zero（即触即拖会破坏卡片点击）。
-          longPressDelay: const Duration(milliseconds: 150),
-          onDragStarted: (int index) =>
-              debugPrint('[看板] 开始拖动 index=$index'),
-          onDragEnd: (int index) =>
-              debugPrint('[看板] 结束拖动 index=$index'),
-          childBuilder: (wrapItem) {
-            return GridView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 300,
-                mainAxisExtent: 188,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-              ),
-              itemCount: groups.length,
-              itemBuilder: (BuildContext context, int index) {
-                final HaDeviceGroup group = groups[index];
-                return wrapItem(
-                  KeyedSubtree(
-                    key: ValueKey<String>(group.orderKey),
-                    child: buildCard(context, index),
-                  ),
-                  index,
-                );
-              },
             );
           },
         );

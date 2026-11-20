@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
+
 /// 设备类型字典（home 端与 ESP 端共用的「规则源」在服务端）。
 ///
 /// 背景：home 端原来靠 entity_id 后缀猜设备类型，`_status_p_2_2` 同时被
@@ -153,6 +155,8 @@ class DeviceCardConfig {
     this.mainEntity = '',
     this.buttons = const <DeviceCardButton>[],
     this.genericEnabled = false,
+    this.layout,
+    this.span = const CardSpan(),
   });
 
   final String label;
@@ -165,6 +169,12 @@ class DeviceCardConfig {
   final List<DeviceCardButton> buttons;
   final bool genericEnabled;
 
+  /// 服务端下发的 JSON 布局树。为 null 时渲染器按类型生成默认布局。
+  final CardLayoutNode? layout;
+
+  /// 卡片跨格尺寸（1~4）。
+  final CardSpan span;
+
   factory DeviceCardConfig.fromJson(Map<String, dynamic> json) {
     final dynamic rawBtns = json['buttons'];
     final List<DeviceCardButton> buttons = <DeviceCardButton>[];
@@ -176,6 +186,7 @@ class DeviceCardConfig {
         }
       }
     }
+    final dynamic rawLayout = json['layout'];
     return DeviceCardConfig(
       label: '${json['label'] ?? '当前值'}',
       mainAttr: '${json['mainAttr'] ?? 'state'}',
@@ -186,6 +197,14 @@ class DeviceCardConfig {
       mainEntity: '${json['mainEntity'] ?? ''}',
       buttons: buttons,
       genericEnabled: json['genericEnabled'] == true,
+      layout: rawLayout is Map
+          ? CardLayoutNode.fromJson(
+              rawLayout.map((dynamic k, dynamic v) => MapEntry<String, dynamic>('$k', v)))
+          : null,
+      span: json['span'] is Map
+          ? CardSpan.fromJson(
+              (json['span'] as Map).map((dynamic k, dynamic v) => MapEntry<String, dynamic>('$k', v)))
+          : const CardSpan(),
     );
   }
 }

@@ -442,6 +442,42 @@
             </div>
             <div id="re-rules"><div class="empty">请选择左侧类型</div></div>
             <div class="re-btn-row"><button class="btn small" type="button" id="re-add-rule">＋ 添加规则</button></div>
+
+            <!-- 卡片布局配置：跨格 + JSON 布局树（服务端 card 配置） -->
+            <details class="re-card-details" id="re-card-details" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+              <summary style="cursor:pointer;font-weight:600;color:var(--accent)">▸ 卡片布局（跨格 + JSON 布局树）</summary>
+              <div style="margin-top:10px">
+                <div class="re-card-span-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                  <span class="hint">占用格数：</span>
+                  <select id="re-span" title="卡片占用的网格格数（列×行）">
+                    <option value="1x1">1×1（默认）</option>
+                    <option value="2x1">2×1（宽）</option>
+                    <option value="1x2">1×2（高）</option>
+                    <option value="2x2">2×2（大）</option>
+                    <option value="3x1">3×1（超宽）</option>
+                    <option value="3x2">3×2</option>
+                    <option value="4x1">4×1（整行）</option>
+                    <option value="4x2">4×2（整行大）</option>
+                  </select>
+                  <label class="inline-check" style="margin-left:auto">
+                    <input type="checkbox" id="re-generic-enabled">
+                    <span>启用通用卡片渲染</span>
+                  </label>
+                </div>
+                <p class="hint" style="margin:0 0 6px">
+                  布局树为 JSON：节点 <code>row/column/wrap/text/icon/button/chip/progress/sparkline/repeat/divider</code>；
+                  占位符 <code>{title} {sub} {main} {label} {icon} {color} {state} {gangCount} {gangOnCount}</code>；
+                  每路大按钮用 <code>repeat</code> + <code>{gang.*}</code>；动作 <code>toggle@实体ID</code> 控制指定实体。留空恢复默认布局。
+                </p>
+                <textarea id="re-layout" spellcheck="false" placeholder="留空 = 使用该类型默认布局" style="width:100%;min-height:200px;background:#14161c;color:#9fe1cb;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;resize:vertical"></textarea>
+                <div class="re-btn-row" style="margin-top:6px">
+                  <button class="btn small" type="button" id="re-layout-format">格式化</button>
+                  <button class="btn small" type="button" id="re-layout-validate">校验</button>
+                  <button class="btn small" type="button" id="re-layout-default">载入默认布局</button>
+                  <span id="re-layout-status" class="hint" style="margin-left:8px"></span>
+                </div>
+              </div>
+            </details>
             <div class="re-btn-row" style="margin-top:12px">
               <button class="btn primary small" type="button" id="re-save">保存并生效</button>
               <button class="btn small" type="button" id="re-reset">恢复默认</button>

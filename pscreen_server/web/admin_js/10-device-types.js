@@ -110,6 +110,48 @@
     if ($('re-meta')) $('re-meta').textContent = `${types.length} 种类型 · ${types.reduce((n, t) => n + reRulesOf(t).length, 0)} 条规则`;
   }
 
+  /** 把当前类型的 card 配置（span / layout / 灰度开关）填进卡片布局编辑区。 */
+  function renderReCard(t) {
+    const card = (t && t.card) || {};
+    const span = card.span || { col: 1, row: 1 };
+    const spanSel = $('re-span');
+    if (spanSel) spanSel.value = `${span.col || 1}x${span.row || 1}`;
+    const ge = $('re-generic-enabled');
+    if (ge) ge.checked = card.genericEnabled === true;
+    const layoutEl = $('re-layout');
+    if (layoutEl) {
+      layoutEl.value = card.layout ? JSON.stringify(card.layout, null, 2) : '';
+    }
+    const status = $('re-layout-status');
+    if (status) status.textContent = card.layout ? '已配置自定义布局' : '使用默认布局';
+  }
+
+  /** 从编辑区读取 card 配置；layout 文本解析失败时抛出，交调用方提示。 */
+  function readReCard() {
+    const spanSel = $('re-span');
+    const parts = String((spanSel && spanSel.value) || '1x1').split('x').map(Number);
+    const span = { col: parts[0] || 1, row: parts[1] || 1 };
+    const ge = $('re-generic-enabled');
+    const layoutEl = $('re-layout');
+    let layout = null;
+    if (layoutEl && layoutEl.value.trim()) {
+      layout = JSON.parse(layoutEl.value); // 解析失败由调用方 catch
+    }
+    return {
+      span,
+      layout,
+      genericEnabled: !!(ge && ge.checked),
+    };
+  }
+
+  function setLayoutStatus(msg, ok = true) {
+    const el = $('re-layout-status');
+    if (el) {
+      el.textContent = msg;
+      el.style.color = ok ? 'var(--accent)' : '#ff8080';
+    }
+  }
+
   function renderReRules() {
     const host = $('re-rules');
     const t = reCurType();
@@ -117,6 +159,7 @@
     if (!t) { host.innerHTML = '<div class="empty">无类型</div>'; return; }
     if ($('re-title')) $('re-title').textContent = `判定规则 · ${t.label || t.key || '通用兜底'}`;
     if ($('re-priority')) $('re-priority').value = Number(t.priority) || 5;
+    renderReCard(t);
     const rules = reRulesOf(t);
     if (!rules.length) {
       host.innerHTML = '<div class="empty">该类型暂无规则，点下方「添加规则」。</div>';
@@ -259,17 +302,18 @@
       const priorityEl = $('re-priority');
       const priority = priorityEl ? (Number(priorityEl.value) || 0) : (Number(t.priority) || 5);
       t.priority = priority;
+      const card = readReCard(); // layout JSON 非法时抛错，避免保存脏数据
       await api('/api/admin/device-types', {
         method: 'POST',
         body: JSON.stringify({
-          key: t.key, rules: reRulesOf(t), priority,
+          key: t.key, rules: reRulesOf(t), priority, card,
           meta: t.dynamic ? { label: t.label, icon: t.icon, color: t.color } : undefined,
         }),
       });
       state.deviceTypes = null;
       await loadDeviceTypes();
       renderReTypeList(); renderReRules();
-      toast('判定规则已保存，即时生效');
+      toast('判定规则与卡片布局已保存，即时生效');
     } catch (error) { toast('保存失败：' + error.message, 'error'); }
   }
 
@@ -379,6 +423,47 @@
   $('re-global-run').addEventListener('click', runGlobalClassify);
   const reTestOnly = $('re-test-only-visible');
   if (reTestOnly) reTestOnly.addEventListener('change', () => { state.reTestIdx = 0; renderReTestSel(); });
+
+  // 卡片布局编辑：格式化 / 校验 / 载入默认（清空=用默认布局）
+  const VALID_NODES = new Set(['row', 'column', 'wrap', 'text', 'icon', 'button', 'chip', 'progress', 'sparkline', 'repeat', 'divider']);
+  function validateLayoutTree(node, path = 'root', errors = []) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) { errors.push(`${path}: 节点必须是对象`); return errors; }
+    if (!VALID_NODES.has(node.type)) errors.push(`${path}: 未知节点类型 ${node.type}`);
+    if (node.template) validateLayoutTree(node.template, path + '.template', errors);
+    if (Array.isArray(node.children)) {
+      node.children.forEach((c, i) => validateLayoutTree(c, `${path}.children[${i}]`, errors));
+    }
+    return errors;
+  }
+  const fmtBtn = $('re-layout-format');
+  if (fmtBtn) fmtBtn.addEventListener('click', () => {
+    const el = $('re-layout');
+    if (!el) return;
+    try {
+      if (!el.value.trim()) { setLayoutStatus('当前为空（使用默认布局）'); return; }
+      el.value = JSON.stringify(JSON.parse(el.value), null, 2);
+      setLayoutStatus('已格式化');
+    } catch (e) { setLayoutStatus('JSON 格式错误：' + e.message, false); }
+  });
+  const valBtn = $('re-layout-validate');
+  if (valBtn) valBtn.addEventListener('click', () => {
+    const el = $('re-layout');
+    if (!el) return;
+    try {
+      if (!el.value.trim()) { setLayoutStatus('空布局合法（使用默认布局）'); return; }
+      const tree = JSON.parse(el.value);
+      const errs = validateLayoutTree(tree);
+      if (errs.length) setLayoutStatus('校验未通过：' + errs.slice(0, 3).join('; '), false);
+      else setLayoutStatus(`校验通过（根类型 ${tree.type}）`);
+    } catch (e) { setLayoutStatus('JSON 格式错误：' + e.message, false); }
+  });
+  const defBtn = $('re-layout-default');
+  if (defBtn) defBtn.addEventListener('click', () => {
+    const el = $('re-layout');
+    if (el) { el.value = ''; setLayoutStatus('已清空，保存后将恢复默认布局'); }
+    const spanSel = $('re-span');
+    if (spanSel) spanSel.value = '1x1';
+  });
 
   // ------------------------------------------------------------ ESP 设备分类（一页 = 一台被控设备）
 

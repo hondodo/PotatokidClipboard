@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>动态卡片布局协议 · 设计稿</title>
+<style>
+  :root {
+    --bg: #0f1115; --surface: #1a1d24; --surface2: #22262f; --border: #2e3340;
+    --text: #e8eaed; --muted: #9aa0ab; --accent: #4dd4ac; --accent-amber: #facc15;
+    --accent-blue: #60a5fa; --chip: #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    line-height: 1.6; padding: 32px 40px 60px; }
+  h1 { font-size: 24px; margin: 0 0 6px; font-weight: 600; }
+  h2 { font-size: 18px; margin: 38px 0 14px; font-weight: 600; color: var(--text); }
+  h3 { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .panel { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; margin-bottom: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+  /* 卡片：完全按协议节点渲染的样子 */
+  .card { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px;
+    padding: 12px 10px; display: flex; flex-direction: column; gap: 8px; min-height: 190px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .col { display: flex; flex-direction: column; gap: 2px; }
+  .expand { flex: 1; min-width: 0; }
+  .icon-box { width: 46px; height: 46px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+  .t-title { font-size: 14px; font-weight: 600; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .t-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-label { font-size: 11px; color: var(--muted); }
+  .t-main { font-size: 24px; font-weight: 700; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { height: 28px; padding: 0 9px; border: 1px solid; border-radius: 8px;
+    background: transparent; font-size: 11px; display: inline-flex; align-items: center; }
+  .power { width: 34px; height: 34px; border-radius: 50%; border: none; font-size: 20px; }
+  .off { opacity: 0.45; }
+
+  /* 多路开关：每路一个大按钮（repeat 节点按 {gangs} 生成） */
+  .gang-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .gang-grid.g3 { grid-template-columns: repeat(3, 1fr); }
+  .gang-btn { position: relative; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); color: var(--muted); padding: 10px 12px 10px 40px;
+    text-align: left; min-height: 52px; display: flex; flex-direction: column;
+    justify-content: center; }
+  .gang-btn::before { content: ''; position: absolute; left: 12px; top: 50%;
+    transform: translateY(-50%); width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--border); }
+  .gang-btn.on { background: rgba(77,212,172,0.14); border-color: rgba(77,212,172,0.5); color: #9fe1cb; }
+  .gang-btn.on::before { background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(77,212,172,0.2); }
+  .gang-btn .g-name { font-size: 13px; font-weight: 600; }
+  .gang-btn .g-state { font-size: 11px; opacity: 0.75; }
+  .tag { display: inline-block; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; background: #14161c; color: #9fe1cb; border: 1px solid var(--border);
+    border-radius: 6px; padding: 1px 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td code { font-family: ui-monospace, Menlo, Consolas, monospace; color: #f0b98a; font-size: 12px; }
+  .note { font-size: 13px; color: var(--muted); }
+
+  /* 跨格示意：4 列网格，卡片占不同格数 */
+  .span-grid { display: grid; grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 96px; gap: 10px; }
+  .span-cell { border-radius: 12px; padding: 10px 12px; display: flex;
+    flex-direction: column; justify-content: space-between; overflow: hidden; }
+  .s-11 { grid-column: span 1; grid-row: span 1; }
+  .s-21 { grid-column: span 2; grid-row: span 1; }
+  .s-12 { grid-column: span 1; grid-row: span 2; }
+  .s-22 { grid-column: span 2; grid-row: span 2; }
+  .span-cell .cap { font-size: 11px; opacity: 0.75; }
+  .span-cell .big { font-size: 20px; font-weight: 700; }
+  .span-cell.bg-teal { background: rgba(77,212,172,0.12); border: 1px solid rgba(77,212,172,0.4); }
+  .span-cell.bg-blue { background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.4); }
+  .span-cell.bg-amber { background: rgba(250,204,21,0.12); border: 1px solid rgba(250,204,21,0.4); }
+  .span-cell.bg-coral { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.4); }
+  .span-cell.bg-gray { background: var(--surface2); border: 1px solid var(--border); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+
+<h1>动态卡片布局协议 · 设计稿</h1>
+<div class="sub">服务端下发 JSON 布局树，客户端通用渲染器解释执行 — 原生性能、后台可配、不发版</div>
+
+<div class="panel">
+  <h3>这三类卡片，都由同一份协议描述（下面是渲染效果示意）</h3>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--accent)"></i>结构/样式/数据/状态/交互 五层全可配</span>
+    <span><i class="dot" style="background:var(--accent-blue)"></i>数据绑定 <span class="tag">{state}</span> <span class="tag">{attr.x}</span></span>
+    <span><i class="dot" style="background:var(--accent-amber)"></i>动作走白名单，不执行任意代码</span>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 卡片1：多路开关（来自本次真实设备） -->
+  <div class="panel">
+    <h3>多路开关 · multi_switch</h3>
+    <div class="note" style="margin-bottom:12px">协议：row(icon+col) + <b style="color:var(--accent)">repeat({gangs})</b> → 每路一个大按钮</div>
+    <div class="card">
+      <div class="row">
+        <div class="icon-box" style="background:rgba(163,163,163,0.16);color:#c9c9c9">▦</div>
+        <div class="col expand">
+          <div class="t-title">小米米家智能开关（双开）</div>
+          <div class="t-sub" style="color:#c9c9c9">棠德304 客厅</div>
+        </div>
+      </div>
+      <div class="gang-grid" style="margin-top:6px">
+        <button class="gang-btn on"><span class="g-name">左键</span><span class="g-state">已开启 · 点击关闭</span></button>
+        <button class="gang-btn"><span class="g-name">右键</span><span class="g-state">已关闭 · 点击开启</span></button>
+      </div>
+    </div>
+    <div class="note" style="margin-top:10px">
+      N 路由 <span class="tag">{gangs}</span> 自动推断（= 设备下 switch 实体数），双开渲染 2 个、四开渲染 4 个，<b>同一份 JSON</b>。
+    </div>
+  </div>
+
+  <!-- 卡片2：热水器 -->
+  <div class="panel">
+    <h3>热水器 · water_heater</h3>
+    <div class="note" style="margin-bottom:12px">协议：同一渲染器，换 JSON 即换布局</div>
+    <div class="card">
+      <div class="row">
+        <div class="icon-box" style="background:rgba(255,107,107,0.16);color:#ff6b6b">♨</div>
+        <div class="col expand">
+          <div class="t-title">米家热水器</div>
+          <div class="t-sub" style="color:#ff6b6b">制热中 · 目标 45°C</div>
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-end">
+        <div class="col expand">
+          <div class="t-label">当前水温</div>
+          <div class="t-main" style="color:#ff6b6b">42.5°C</div>
+        </div>
+        <button class="power" style="color:#ff6b6b">⏻</button>
+      </div>
+      <div class="wrap">
+        <button class="chip" style="border-color:#ff6b6b80;color:#ff6b6b">温度 −</button>
+        <button class="chip" style="border-color:#ff6b6b80;color:#ff6b6b">温度 +</button>
+        <button class="chip" style="border-color:#ff6b6b80;color:#ff6b6b">预热</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 卡片3：灯光（条件显隐演示） -->
+  <div class="panel">
+    <h3>灯光 · light</h3>
+    <div class="note" style="margin-bottom:12px">协议：visibleWhen 控制亮度滑块仅在开灯时显示</div>
+    <div class="card">
+      <div class="row">
+        <div class="icon-box" style="background:rgba(250,204,21,0.16);color:#facc15">☀</div>
+        <div class="col expand">
+          <div class="t-title">客厅主灯</div>
+          <div class="t-sub" style="color:#facc15">已开启 · 4000K</div>
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-end">
+        <div class="col expand">
+          <div class="t-label">亮度</div>
+          <div class="t-main" style="color:#facc15">80%</div>
+        </div>
+        <button class="power" style="color:#facc15">⏻</button>
+      </div>
+      <div style="height:6px;border-radius:3px;background:#2a2f3a;overflow:hidden">
+        <div style="width:80%;height:100%;background:#facc15"></div>
+      </div>
+      <div class="wrap">
+        <button class="chip" style="border-color:#facc1580;color:#facc15">亮度 +</button>
+        <button class="chip" style="border-color:#facc1580;color:#facc15">亮度 −</button>
+        <button class="chip" style="border-color:#facc1580;color:#facc15">场景</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<h2>每路一个大按钮（repeat 节点）</h2>
+<div class="panel">
+  <div class="note" style="margin-bottom:14px">
+    多路开关<b style="color:var(--accent)">不再显示「已开启路数」统计和总电源按钮</b> —— 每路就是一个独立 switch 实体，
+    直接渲染成一个大按钮：按钮文字 = 路名，点亮态 = 该路 state，点击 = 切换该路。路数由 <code style="color:#9fe1cb">{gangs}</code> 自动推断，
+    <code style="color:#9fe1cb">repeat</code> 节点按列表长度循环生成 N 个按钮，双开 / 四开是同一份 JSON。
+  </div>
+  <div class="grid" style="grid-template-columns: 1fr 1fr">
+    <div>
+      <h3 style="margin-bottom:8px">效果：双开（2 个大按钮）</h3>
+      <div class="card" style="min-height:120px">
+        <div class="gang-grid" style="margin-top:0">
+          <button class="gang-btn on"><span class="g-name">左键</span><span class="g-state">已开启 · 点击关闭</span></button>
+          <button class="gang-btn"><span class="g-name">右键</span><span class="g-state">已关闭 · 点击开启</span></button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3 style="margin-bottom:8px">效果：四开（4 个大按钮，同一 JSON）</h3>
+      <div class="card" style="min-height:120px">
+        <div class="gang-grid" style="margin-top:0">
+          <button class="gang-btn on"><span class="g-name">1 路</span><span class="g-state">已开启</span></button>
+          <button class="gang-btn"><span class="g-name">2 路</span><span class="g-state">已关闭</span></button>
+          <button class="gang-btn on"><span class="g-name">3 路</span><span class="g-state">已开启</span></button>
+          <button class="gang-btn"><span class="g-name">4 路</span><span class="g-state">已关闭</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <h3 style="margin:18px 0 8px;color:var(--accent)">协议示例</h3>
+  <pre style="font-size:11px;color:#9fe1cb;background:#14161c;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:0;line-height:1.5">{ "type": "repeat", "source": "{gangs}", "item": "gang",
+  "gap": 8, "columns": 2,
+  "template": {
+    "type": "button",
+    "label": "{gang.label}",
+    "subLabel": "{gang.isOn ? '已开启 · 点击关闭' : '已关闭 · 点击开启'}",
+    "style": "{gang.isOn ? 'active' : 'normal'}",
+    "onClick": "toggle({gang.entityId})"
+  }
+}</pre>
+  <div class="note" style="margin-top:10px">
+    <b style="color:var(--accent-blue)">要点</b>：<code style="color:#9fe1cb">{gangs}</code> 从组内 switch 实体实时求值（含 label / isOn / entityId），
+    <code style="color:#9fe1cb">columns</code> 控制每行几个按钮（双开 2 列、四开 2 列两行、八开可用 3 列）。
+    <code style="color:#9fe1cb">onClick</code> 带每路自己的 entityId，仍走 toggle 白名单 —— 动态布局，但交互安全不变。
+  </div>
+</div>
+
+<h2>卡片跨格尺寸（span）</h2>
+<div class="panel">
+  <div class="note" style="margin-bottom:14px">
+    跨格是卡片外壳属性，与内部布局协议正交。后台在每个类型的 card 配置里填 <code style="color:#9fe1cb">span: {col, row}</code>，
+    默认 1×1。下方是 4 列网格里混排 1×1 / 2×1 / 1×2 / 2×2 的效果示意：
+  </div>
+  <div class="span-grid">
+    <div class="span-cell s-11 bg-teal"><div class="cap">温度 1×1</div><div class="big">26°C</div></div>
+    <div class="span-cell s-21 bg-blue"><div class="cap">空调 · 2×1</div><div class="big">26°C · 制冷</div><div class="wrap"><button class="chip" style="border-color:#60a5fa80;color:#60a5fa">温度 −</button><button class="chip" style="border-color:#60a5fa80;color:#60a5fa">温度 +</button></div></div>
+    <div class="span-cell s-11 bg-gray"><div class="cap">插座 1×1</div><div class="big">开</div></div>
+    <div class="span-cell s-12 bg-amber"><div class="cap">灯光 1×2</div><div class="big">80%</div><div style="height:6px;border-radius:3px;background:#2a2f3a"><div style="width:80%;height:100%;background:#facc15;border-radius:3px"></div></div></div>
+    <div class="span-cell s-22 bg-coral"><div class="cap">多路开关 · 2×2（4 个大按钮，每路一个）</div><div class="gang-grid" style="margin-top:4px"><button class="gang-btn on"><span class="g-name">1 路</span></button><button class="gang-btn"><span class="g-name">2 路</span></button><button class="gang-btn on"><span class="g-name">3 路</span></button><button class="gang-btn"><span class="g-name">4 路</span></button></div></div>
+    <div class="span-cell s-11 bg-gray"><div class="cap">窗帘 1×1</div><div class="big">60%</div></div>
+  </div>
+  <div class="note" style="margin-top:14px">
+    <b style="color:var(--accent-blue)">span 配置示例</b>：<code style="color:#9fe1cb">"span": {"col": 2, "row": 2}</code> &nbsp;·&nbsp;
+    大卡片自动获得更多空间，内部 JSON 布局里的节点按可用宽高自适应排布（wrap 自动多列、大字号）。
+  </div>
+</div>
+
+<h2>实时功率曲线（sparkline 节点）</h2>
+<div class="panel">
+  <div class="note" style="margin-bottom:14px">
+    接项目已有的 <code style="color:#9fe1cb">PowerStats → HistoryService.watch() → MetricSparkline</code> 链路，
+    后台只需配一个 sparkline 节点 + 2×1 大卡片。下面是效果示意（模拟近 30 分钟功率曲线）：
+  </div>
+  <div class="grid" style="grid-template-columns: 1fr 1fr">
+    <div class="card" style="min-height:150px">
+      <div class="row">
+        <div class="icon-box" style="background:rgba(77,212,172,0.16);color:#4dd4ac">⏻</div>
+        <div class="col expand">
+          <div class="t-title">客厅插座</div>
+          <div class="t-sub" style="color:#4dd4ac">实时功率</div>
+        </div>
+        <div class="t-main" style="color:#4dd4ac;font-size:20px">65 W</div>
+      </div>
+      <svg viewBox="0 0 300 60" width="100%" height="60" preserveAspectRatio="none" aria-label="功率趋势曲线">
+        <line x1="0" y1="20" x2="300" y2="20" stroke="#2e3340" stroke-width="0.5"/>
+        <line x1="0" y1="40" x2="300" y2="40" stroke="#2e3340" stroke-width="0.5"/>
+        <path d="M0 45 L20 42 L40 44 L60 30 L80 32 L100 18 L120 22 L140 25 L160 12 L180 15 L200 28 L220 26 L240 20 L260 35 L280 33 L300 38 L300 60 L0 60 Z" fill="rgba(77,212,172,0.15)"/>
+        <polyline points="0,45 20,42 40,44 60,30 80,32 100,18 120,22 140,25 160,12 180,15 200,28 220,26 240,20 260,35 280,33 300,38" fill="none" stroke="#4dd4ac" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+      <div class="t-label" style="display:flex;justify-content:space-between"><span>-30min</span><span>现在</span></div>
+    </div>
+    <div class="panel" style="margin:0">
+      <h3 style="color:var(--accent)">协议示例</h3>
+      <pre style="font-size:11px;color:#9fe1cb;background:#14161c;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:0;line-height:1.5">{ "type": "sparkline",
+  "metric": "power",
+  "window": "30min",
+  "showLabels": true,
+  "color": "{color}",
+  "height": 60 }</pre>
+      <div class="note" style="margin-top:10px">metric 还可用 temperature / humidity，同一节点复用在气候卡、水温卡上。</div>
+    </div>
+  </div>
+</div>
+
+<h2>支持的节点类型（一期）</h2>
+<div class="panel">
+<table>
+  <tr><th>节点</th><th>关键属性</th><th>说明</th></tr>
+  <tr><td><code>row / column / wrap</code></td><td>gap, crossAlign, expand, padding</td><td>布局容器，可任意嵌套；wrap 自动换行</td></tr>
+  <tr><td><code>repeat</code></td><td>source, item, columns, gap, template</td><td>按列表（如 {gangs}）循环生成节点；每路一个大按钮即用它</td></tr>
+  <tr><td><code>text</code></td><td>value, size, weight, color, maxLines, overflow</td><td>文本，value 支持 {占位符} 绑定</td></tr>
+  <tr><td><code>icon</code></td><td>value, size, box{size,radius,bg,color}</td><td>图标，来自 card.icon 或 Material 图标名</td></tr>
+  <tr><td><code>button</code></td><td>icon/label, onClick, visibleWhen, loading</td><td>动作按钮，白名单派发</td></tr>
+  <tr><td><code>chip</code></td><td>label, onClick, style(outlined/filled)</td><td>小按钮，用于多动作组</td></tr>
+  <tr><td><code>progress</code></td><td>value, max, color, height</td><td>进度条（亮度/音量/电量）</td></tr>
+  <tr><td><code>sparkline</code></td><td>metric, window, showLabels, color, height</td><td>实时趋势曲线（功率/温度/湿度），接现有 MetricSparkline</td></tr>
+  <tr><td><code>divider</code></td><td>color, thickness</td><td>分隔线</td></tr>
+</table>
+</div>
+
+<h2>颗粒度边界</h2>
+<div class="panel note">
+  <p style="margin:0 0 10px"><b style="color:var(--accent)">能做到</b>：任意行列嵌套布局、间距对齐权重、字号颜色圆角、数据绑定与模板拼接、条件显隐、进度条、按钮动作 + 二次确认、主题色联动。新增一种卡片 = 后台配一份 JSON，不用改 Dart、不用发版装机。</p>
+  <p style="margin:0 0 10px"><b style="color:var(--teal);color:var(--accent)">图表可做</b>：实时功率/温度/湿度曲线通过 <code style="color:#9fe1cb">sparkline</code> 节点接入项目已有的 PowerStats + HistoryService + MetricSparkline 链路（插座卡片已在用），非重造，配 <code style="color:#9fe1cb">2×1 / 2×2</code> 大卡片展示。</p>
+  <p style="margin:0"><b style="color:var(--accent-amber)">刻意不做</b>：任意 JS/脚本执行（安全）、高度定制的复杂可视化（多轴/饼图/甘特）、跨卡片联动、手势拖拽——这些留给少数编译期专用 Widget 兜底（现有 13 个 Summary 即是此角色）。</p>
+</div>
+
+</body>
+</html>
