@@ -115,7 +115,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           4) 定时唤醒（默认 6 小时）只开射频问主机最新版本，有新版才连 AP 下载。
 //           主机信道随 NVS 持久化：从机不关联 AP 时用它锁定 ESP-NOW 信道。
 // oled-5.7：未配置联网键时，按键唤醒退回「连 AP」的旧行为，避免设备被锁在后台之外。
-static const char *APP_VER             = "oled-5.7";
+// oled-5.8：砍掉开机固定的 0.7 秒空等（Serial 后 300ms + 开机画面 400ms）；
+//           只有冷启动才画开机图，动作/定时唤醒直接干活；睡前面板一律关闭。
+static const char *APP_VER             = "oled-5.8";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2352,8 +2354,9 @@ void enterDeepSleep(bool quiet = false) {
   if (!quiet) {
     oledShow("Sleep", "key or PIR to wake", String(sleepSeconds) + "s idle");
     delay(400);
-    if (oledOk) u8g2.setPowerSave(1);
   }
+  // 不论是否静默，睡之前都要把面板关掉：OLED 保持点亮会持续耗电。
+  if (oledOk) u8g2.setPowerSave(1);
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
   // 注：深睡唤醒 = 整机复位，按键/PIR 映射只能在重启后改变，
   // 故无需先禁用旧唤醒源（避免向 disable 接口传入不兼容枚举）。
@@ -2460,14 +2463,11 @@ void timerWakeOtaCheck() {
 }
 
 void setup() {
+  // 不再固定空等。原来「Serial 后 300ms + 开机画面 400ms」共 0.7 秒，
+  // 对每次按键唤醒都是纯浪费。C6 走 USB CDC，最早几行日志可能丢，
+  // 但随后的 [wake] 日志仍在，排查够用。
   Serial.begin(115200);
-  delay(300);
-  Serial.println("\n=== Potatokid screen boot ===");
-
   initOled();
-  oledShow("Booting", "OLED test ok");
-  delay(400);
-
   loadCreds();
 
   // 按键：槽位映射要先由 loadCreds 从 NVS 读出来，再按槽位配置上拉输入。
@@ -2492,9 +2492,17 @@ void setup() {
   lastPresenceAt = millis();
   lastActivityAt = millis();
 
-  // 先识别唤醒来源 + 恢复缓存页，再决定要不要联网。
+  // 先识别唤醒来源 + 恢复缓存页，再决定要不要亮屏/联网。
   wakeReason = detectWakeReason();
   bool restored = restorePage();
+
+  // 只有冷启动才画开机画面并短暂停留：按键 / PIR / 定时唤醒直接干活，
+  // 不画开机图也不空等，省下这 0.4 秒。
+  if (wakeReason == WAKE_COLD) {
+    Serial.println("\n=== Potatokid screen boot ===");
+    oledShow("Booting", "OLED test ok");
+    delay(150);
+  }
   Serial.printf("[wake] reason=%d slot=%d restored=%d page=%d\n",
                 wakeReason, wakeSlotHit, restored ? 1 : 0, currentPage);
 
@@ -2639,7 +2647,7 @@ void loop() {
   if (actionSleepAt && (int32_t)(millis() - actionSleepAt) >= 0) {
     actionSleepAt = 0;
     Serial.println("[sleep] action done, back to sleep");
-    enterDeepSleep();
+    enterDeepSleep(true);   // 静默入睡：不再画 Sleep 页、不多等 0.4 秒
   }
   // 从机电池休眠：按键/人在场会刷新 lastActivityAt；OTA 中或待自动更新时不睡。
   if (deviceRole == "slave" && sleepSeconds > 0 && !otaInProgress
