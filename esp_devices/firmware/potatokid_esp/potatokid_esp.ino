@@ -130,7 +130,7 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-6.2";
+static const char *APP_VER             = "oled-6.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -1498,7 +1498,9 @@ bool applyDeviceConfig(const String &text) {
     k.trim();
     v.trim();
     if (k == "ver") {
-      ver = (uint32_t)v.toInt();
+      // 必须用 strtoul：String::toInt() 是 32 位有符号，秒级时间戳在 2038 年后才溢出，
+      // 但用毫秒会立刻被夹成 LONG_MAX，导致版本永远对不上、设备反复拉取重启。
+      ver = (uint32_t)strtoul(v.c_str(), nullptr, 10);
     } else if (k == "role") {
       role = (v == "slave") ? "slave" : "master";
     } else if (k == "master") {
@@ -1575,7 +1577,8 @@ void checkRemoteConfig() {
   int c = lastPostResp.indexOf(':', p);
   if (c < 0) return;
   uint32_t ver = (uint32_t)strtoul(lastPostResp.c_str() + c + 1, nullptr, 10);
-  if (ver == 0 || ver == cfgVerApplied) return;
+  // 0 = 未配置；超过 10 位数的值像是毫秒时间戳（旧格式），忽略以免反复重启。
+  if (ver == 0 || ver > 4000000000UL || ver == cfgVerApplied) return;
   Serial.printf("[cfg] remote ver=%lu local=%lu, fetching\n",
                 (unsigned long)ver, (unsigned long)cfgVerApplied);
   String text;

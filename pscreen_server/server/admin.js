@@ -773,7 +773,11 @@ function normalizeEspCfg(value) {
         batPin: Number.isInteger(Number(src.batPin)) ? Number(src.batPin) : -1,
         batDiv: clamp(src.batDiv, 1, 10, 2),
         pins,
-        ver: Number(src.ver) || 0,
+        // 版本号用「秒级时间戳」：设备端是 uint32，毫秒会溢出。
+        ver: (() => {
+            const raw = Number(src.ver) || 0;
+            return raw > 4000000000 ? Math.floor(raw / 1000) : raw;
+        })(),
     };
 }
 
@@ -3871,7 +3875,7 @@ function attachAdmin(app, options = {}) {
                 // 不用再单独请求 /firmware/latest。轨道未知时不下发，避免装错固件。
                 latestFw: machine.fwTarget ? ((readFirmwareMeta(machine.fwTarget) || {}).version || '') : '',
                 // 远程配置版本号：与本机已应用版本不同就去 /api/device/esp/config 拉取。
-                cfgVer: Number(machine.espCfg && machine.espCfg.ver) || 0,
+                cfgVer: normalizeEspCfg(machine.espCfg).ver,
             },
         };
     }
@@ -4662,7 +4666,7 @@ function attachAdmin(app, options = {}) {
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
         const cfg = normalizeEspCfg(req.body || {});
-        cfg.ver = Date.now();
+        cfg.ver = Math.floor(Date.now() / 1000);   // 秒级：设备端是 uint32
         const machines = readMachines();
         machines[id].espCfg = cfg;
         saveMachines(machines);
