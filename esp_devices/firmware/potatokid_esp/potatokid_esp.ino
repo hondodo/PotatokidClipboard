@@ -127,7 +127,10 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           唤醒间隔后台可选 5/10/30 分钟、1/2/3/6 小时；从机即使关了自动更新也保留
 //           定时唤醒（否则永远收不到后台的远程更新）；
 //           后台按「最后上报 + 唤醒间隔」显示休眠中与预计唤醒时间。
-static const char *APP_VER             = "oled-6.1";
+// oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
+//           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
+//           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
+static const char *APP_VER             = "oled-6.2";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -374,6 +377,7 @@ static const uint32_t OTA_CHECK_MAX_SEC = 21600;    // 最长 6 小时
 // 远程更新：后台下发的时间戳（毫秒）。比本机记录的新就强制升级一次。
 uint64_t fwPushSeen = 0;      // 已处理过的 fwPush 时间戳（NVS 持久化）
 bool fwPushForced = false;    // 本次启动内是否收到过强制更新标记
+uint32_t cfgVerApplied = 0;   // 已应用的远程配置版本（NVS cfg.cfgver）
 
 /* ---------------- OLED ---------------- */
 
@@ -715,6 +719,8 @@ void loadCreds() {
   if (otaCheckSec < OTA_CHECK_MIN_SEC || otaCheckSec > OTA_CHECK_MAX_SEC) otaCheckSec = 6UL * 3600UL;
   // 远程更新：已处理过的下发时间戳，重启后不重复触发。
   fwPushSeen = prefs.getULong64("fwpush", 0);
+  // 远程配置：已应用到的服务端配置版本，0 表示从未应用过。
+  cfgVerApplied = prefs.getUInt("cfgver", 0);
   prefs.end();
   if (serverBase.isEmpty()) serverBase = DEFAULT_SERVER_BASE;
 
@@ -1132,6 +1138,22 @@ void reportToServer(bool isRegister) {
     firstBtn = false;
   }
   body += "]";
+  // 远程配置：本机已应用版本 + 当前实际值，后台据此对照并编辑「期望配置」。
+  body += ",\"cfgVer\":" + String(cfgVerApplied);
+  body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
+  body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
+  body += ",\"sleep\":" + String(sleepSeconds);
+  body += ",\"otachk\":" + String(otaCheckSec);
+  body += ",\"pir\":" + String(pirPin);
+  body += ",\"net\":" + String(netSlot);
+  body += ",\"batpin\":" + String(batPin);
+  body += ",\"batdiv\":" + String(batDiv);
+  body += ",\"pins\":[";
+  for (int i = 0; i < btnCount; i++) {
+    if (i) body += ",";
+    body += String(btnPins[i]);
+  }
+  body += "]}";
   if (WiFi.status() == WL_CONNECTED) body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
   else body += "}";
   srvOk = postJson(isRegister ? "/api/device/register" : "/api/device/heartbeat", body);
@@ -1446,6 +1468,121 @@ void queueOtaIfNeeded() {
   if (!autoUpdate && !fwPushForced) return;
   autoOtaAt = millis() + 3000;
   Serial.println("[ota] queued");
+}
+
+/**
+ * 应用服务端下发的远程配置（key=value 逐行）。
+ * 设备深睡后连不上自己的设置页，这些值只能靠心跳带回来。
+ * 写入 NVS 后由调用方重启，让引脚/角色等按新配置重新初始化。
+ */
+bool applyDeviceConfig(const String &text) {
+  String role = deviceRole, master = masterMac;
+  bool autoUpd = autoUpdate;
+  int sleepS = sleepSeconds, pir = pirPin, net = netSlot, batp = batPin, batd = batDiv;
+  int count = btnCount;
+  int pins[MAX_BTN];
+  for (int i = 0; i < MAX_BTN; i++) pins[i] = btnPins[i];
+  uint32_t ver = 0;
+
+  int start = 0;
+  while (start < (int)text.length()) {
+    int end = text.indexOf('\n', start);
+    if (end < 0) end = text.length();
+    String line = text.substring(start, end);
+    line.trim();
+    start = end + 1;
+    int eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    String k = line.substring(0, eq);
+    String v = line.substring(eq + 1);
+    k.trim();
+    v.trim();
+    if (k == "ver") {
+      ver = (uint32_t)v.toInt();
+    } else if (k == "role") {
+      role = (v == "slave") ? "slave" : "master";
+    } else if (k == "master") {
+      master = v;
+      master.toUpperCase();
+    } else if (k == "auto") {
+      autoUpd = (v == "1");
+    } else if (k == "sleep") {
+      sleepS = v.toInt();
+    } else if (k == "otachk") {
+      uint32_t t = (uint32_t)v.toInt();
+      if (t >= OTA_CHECK_MIN_SEC && t <= OTA_CHECK_MAX_SEC) otaCheckSec = t;
+    } else if (k == "pir") {
+      int p = v.toInt();
+      if (p < 0) pir = -1;
+      else if (pinUsableForPir(p)) pir = p;
+    } else if (k == "net") {
+      net = v.toInt();
+    } else if (k == "batpin") {
+      int p = v.toInt();
+      if (p < 0) batp = -1;
+      else if (pinUsableForBat(p)) batp = p;
+    } else if (k == "batdiv") {
+      int d = v.toInt();
+      if (d >= 1 && d <= 10) batd = d;
+    } else if (k == "npins") {
+      count = v.toInt();
+    } else if (k.length() >= 2 && k[0] == 'p' && isdigit((unsigned char)k[1])) {
+      int idx = k.substring(1).toInt() - 1;
+      if (idx >= 0 && idx < MAX_BTN) {
+        int p = v.toInt();
+        pins[idx] = pinUsable(p) ? p : -1;
+      }
+    }
+  }
+  if (ver == 0) return false;
+  if (sleepS < 0 || sleepS > 3600) sleepS = 0;
+  if (count < 0) count = 0;
+  if (count > MAX_BTN) count = MAX_BTN;
+  if (net < 0 || net > count) net = 0;
+
+  prefs.begin("cfg", false);
+  prefs.putString("role", role);
+  prefs.putString("master", master);
+  prefs.putBool("auto", autoUpd);
+  prefs.putInt("sleep", sleepS);
+  prefs.putInt("pir", pir);
+  prefs.putInt("netslot", net);
+  prefs.putInt("batpin", batp);
+  prefs.putInt("batdiv", batd);
+  prefs.putUInt("otachk", otaCheckSec);
+  prefs.putUInt("cfgver", ver);
+  prefs.end();
+  prefs.begin("btns", false);
+  prefs.putInt("n", count);
+  for (int i = 0; i < MAX_BTN; i++) {
+    String key = "p" + String(i + 1);
+    prefs.putInt(key.c_str(), pins[i]);
+  }
+  prefs.end();
+  Serial.printf("[cfg] applied ver=%lu role=%s pins=%d\n",
+                (unsigned long)ver, role.c_str(), count);
+  return true;
+}
+
+/**
+ * 心跳/注册响应里带 cfgVer：与本机已应用版本不同就拉取远程配置并重启应用。
+ * 设备深睡时后台改不了它的设置，靠的就是这条通道。
+ */
+void checkRemoteConfig() {
+  if (lastPostResp.length() == 0) return;
+  int p = lastPostResp.indexOf("\"cfgVer\"");
+  if (p < 0) return;
+  int c = lastPostResp.indexOf(':', p);
+  if (c < 0) return;
+  uint32_t ver = (uint32_t)strtoul(lastPostResp.c_str() + c + 1, nullptr, 10);
+  if (ver == 0 || ver == cfgVerApplied) return;
+  Serial.printf("[cfg] remote ver=%lu local=%lu, fetching\n",
+                (unsigned long)ver, (unsigned long)cfgVerApplied);
+  String text;
+  if (!getText("/api/device/esp/config?format=text&deviceId=" + deviceId, text)) return;
+  if (!applyDeviceConfig(text)) return;
+  delay(200);
+  ESP.restart();
 }
 
 void onButtonPress(int slot) {
@@ -1849,6 +1986,7 @@ void netTask(void *) {
         // 心跳响应同时带回最新版本和远程更新标记：一次往返完成状态上报与版本检查。
         if (heartbeatDue) {
           handleServerVars();
+          checkRemoteConfig();   // 远程配置有更新就拉取并重启
           queueOtaIfNeeded();
         }
         // 只有「到点的 60 秒心跳」才顺延计时。感应跳变的即时上报不算心跳，
@@ -1908,6 +2046,7 @@ void showConnected() {
   initRelay();
   reportToServer(true);
   handleServerVars();      // 注册响应里也可能带最新版本和远程更新标记
+  checkRemoteConfig();     // 后台改了设备配置就拉取并应用（会重启）
   queueOtaIfNeeded();
   // 注册完成后交给后台任务：首次拉取 + 之后每 REPORT_MS 一次心跳/配置。
   netEnabled = true;
@@ -2557,6 +2696,7 @@ void timerWakeOtaCheck() {
   if (!startRadioOnly()) { enterDeepSleep(true); return; }
   reportToServer(false);
   handleServerVars();
+  checkRemoteConfig();   // 后台改了配置，醒来时顺手应用（会重启）
   Serial.printf("[wake] timer: latest=%s local=%s forced=%d\n",
                 fwVersion.c_str(), APP_VER, fwPushForced ? 1 : 0);
   if (fwAvailable && (autoUpdate || fwPushForced)) {

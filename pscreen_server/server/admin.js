@@ -744,6 +744,39 @@ function migrateEspActionsToPages(actions, display, deviceName) {
     return pages;
 }
 
+/**
+ * 设备本地配置（远程下发）：按键映射、角色、休眠、自动更新等原本只能在设备
+ * 自己的设置页改，设备深睡后根本连不上。这里在服务端存一份「期望值」，
+ * 带版本号 ver；设备心跳发现版本变了就拉取并写入 NVS。
+ */
+function normalizeEspCfg(value) {
+    const src = value && typeof value === 'object' ? value : {};
+    const clamp = (n, min, max, fallback) => {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return fallback;
+        return Math.min(max, Math.max(min, Math.round(v)));
+    };
+    const pins = Array.isArray(src.pins)
+        ? src.pins.slice(0, MAX_ESP_BUTTONS).map((p) => {
+            const n = Number(p);
+            return Number.isInteger(n) && n >= 0 && n <= 48 ? n : -1;
+        })
+        : [];
+    return {
+        role: src.role === 'slave' ? 'slave' : 'master',
+        masterMac: typeof src.masterMac === 'string' ? src.masterMac.trim().toUpperCase().slice(0, 32) : '',
+        autoUpdate: src.autoUpdate !== false,
+        idleSleep: clamp(src.idleSleep, 0, 3600, 0),
+        otaCheckSec: clamp(src.otaCheckSec, 300, 21600, 21600),
+        pirPin: Number.isInteger(Number(src.pirPin)) ? Number(src.pirPin) : -1,
+        netSlot: clamp(src.netSlot, 0, MAX_ESP_BUTTONS, 0),
+        batPin: Number.isInteger(Number(src.batPin)) ? Number(src.batPin) : -1,
+        batDiv: clamp(src.batDiv, 1, 10, 2),
+        pins,
+        ver: Number(src.ver) || 0,
+    };
+}
+
 /** 设备上报的槽位→GPIO 映射：`[{slot:1,pin:4}]`，只做展示与诊断，不反向下发。 */
 function normalizeEspButtons(value) {
     if (!Array.isArray(value)) return [];
@@ -1329,6 +1362,10 @@ function attachAdmin(app, options = {}) {
                 nameInfo.nameSet ? nameInfo.name : ''),
             // 设备本地上报的按键槽位→GPIO（只读展示，后台不反向下发）。
             espButtons: normalizeEspButtons(machine.espButtons),
+            // 远程配置下发：期望值（espCfg，带 ver）+ 设备最近一次自报（cfgNow、已应用版本）。
+            espCfg: normalizeEspCfg(machine.espCfg),
+            cfgNow: machine.cfgNow && typeof machine.cfgNow === 'object' ? machine.cfgNow : null,
+            cfgApplied: Number(machine.cfgApplied) || 0,
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
@@ -3749,6 +3786,9 @@ function attachAdmin(app, options = {}) {
         if (Number.isFinite(Number(body.sleepSec)) && Number(body.sleepSec) > 0) {
             machine.sleepSec = Math.round(Number(body.sleepSec));
         }
+        // 远程配置：本机已应用到的配置版本 + 本机当前实际值（供后台对照编辑）。
+        if (Number.isFinite(Number(body.cfgVer))) machine.cfgApplied = Math.round(Number(body.cfgVer));
+        if (body.cfgNow && typeof body.cfgNow === 'object') machine.cfgNow = body.cfgNow;
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
@@ -3830,6 +3870,8 @@ function attachAdmin(app, options = {}) {
                 // 当前发布版本：设备定时唤醒时一次往返即可完成「上报状态 + 查版本」，
                 // 不用再单独请求 /firmware/latest。轨道未知时不下发，避免装错固件。
                 latestFw: machine.fwTarget ? ((readFirmwareMeta(machine.fwTarget) || {}).version || '') : '',
+                // 远程配置版本号：与本机已应用版本不同就去 /api/device/esp/config 拉取。
+                cfgVer: Number(machine.espCfg && machine.espCfg.ver) || 0,
             },
         };
     }
@@ -4573,6 +4615,58 @@ function attachAdmin(app, options = {}) {
         }
         devices.sort((a, b) => (Number(b.online) - Number(a.online)) || a.name.localeCompare(b.name));
         return jsonOk(res, { devices });
+    });
+
+    /**
+     * 设备侧：拉取远程配置。用 key=value 纯文本逐行下发，固件按行解析即可，
+     * 不需要在 MCU 上引入 JSON 解析器。
+     */
+    app.get('/api/device/esp/config', (req, res) => {
+        const id = safeDeviceId(req.query.deviceId);
+        const machines = readMachines();
+        const machine = id ? machines[id] : null;
+        if (!machine) return res.status(404).send('device not found');
+        const cfg = normalizeEspCfg(machine.espCfg);
+        const lines = [
+            `ver=${cfg.ver}`,
+            `role=${cfg.role}`,
+            `master=${cfg.masterMac}`,
+            `auto=${cfg.autoUpdate ? 1 : 0}`,
+            `sleep=${cfg.idleSleep}`,
+            `otachk=${cfg.otaCheckSec}`,
+            `pir=${cfg.pirPin}`,
+            `net=${cfg.netSlot}`,
+            `batpin=${cfg.batPin}`,
+            `batdiv=${cfg.batDiv}`,
+            `npins=${cfg.pins.length}`,
+        ];
+        cfg.pins.forEach((pin, index) => lines.push(`p${index + 1}=${pin}`));
+        res.setHeader('Cache-Control', 'no-store');
+        return res.type('text/plain; charset=utf-8').send(`${lines.join('\n')}\n`);
+    });
+
+    /** admin 页：读取远程配置（期望值 + 设备当前实际值）。 */
+    app.get('/api/admin/machines/:id/devicecfg', requireAdmin, (req, res) => {
+        const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
+        if (!machine) return undefined;
+        return jsonOk(res, {
+            cfg: normalizeEspCfg(machine.espCfg),
+            now: machine.cfgNow || null,
+            applied: Number(machine.cfgApplied) || 0,
+        });
+    });
+
+    /** admin 页：保存远程配置。写入后 ver 变化，设备下次心跳拉取并应用。 */
+    app.put('/api/admin/machines/:id/devicecfg', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const cfg = normalizeEspCfg(req.body || {});
+        cfg.ver = Date.now();
+        const machines = readMachines();
+        machines[id].espCfg = cfg;
+        saveMachines(machines);
+        return jsonOk(res, { cfg }, '已保存，设备下次心跳或唤醒时生效');
     });
 
     /** admin 页：读取某台 ESP 设备的页面配置 + 可选设备类型。 */
