@@ -29,12 +29,12 @@ class MultiSwitchSummary {
       name: name,
       gangs: <SwitchGang>[
         SwitchGang(
-          label: _label(left, name, '左键'),
+          label: labelFor(left, name, '左键'),
           entityId: left.entityId,
           isOn: left.isOn,
         ),
         SwitchGang(
-          label: _label(right, name, '右键'),
+          label: labelFor(right, name, '右键'),
           entityId: right.entityId,
           isOn: right.isOn,
         ),
@@ -52,7 +52,10 @@ class MultiSwitchSummary {
       .map((SwitchGang gang) => '${gang.label} ${gang.isOn ? '开' : '关'}')
       .join(' · ');
 
-  static String _label(
+  /// 由实体显示名生成每路短标签：剥离设备名前缀，识别左键/右键，
+  /// 其余取第一段。旧专用卡片与通用 JSON 卡片的 repeat 大按钮共用，
+  /// 避免两处逻辑分叉（通用卡片若直接用 displayName 会得到超长文本）。
+  static String labelFor(
     HaEntityStateModel entity,
     String deviceName,
     String fallback,

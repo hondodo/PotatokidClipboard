@@ -1,6 +1,7 @@
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.dart';
 
 /// 通用卡片布局树（服务端 deviceTypes.js 下发，字段与之对齐）。
 ///
@@ -315,10 +316,12 @@ List<Map<String, String>> gangValues(HaDeviceGroup group) {
   final List<Map<String, String>> out = <Map<String, String>>[];
   int idx = 0;
   for (final HaEntityStateModel e in group.switchableEntities) {
-    final String name = e.displayName;
+    // 复用旧专用卡片的短名逻辑：剥离设备名前缀、识别左键/右键，避免
+    // repeat 大按钮上出现「设备名 右键-设备名-右键」这种超长文本。
+    final String label = MultiSwitchSummary.labelFor(e, group.title, '${idx + 1} 路');
     final bool on = e.isOn;
     out.add(<String, String>{
-      'label': name.isEmpty ? '${idx + 1} 路' : name,
+      'label': label,
       'state': e.state,
       'stateLabel': on ? '已开启 · 点击关闭' : '已关闭 · 点击开启',
       'style': on ? 'active' : 'normal',

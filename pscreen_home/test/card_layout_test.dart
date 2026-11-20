@@ -139,6 +139,35 @@ void main() {
       expect(left['style'], 'active');
       expect(right['style'], 'normal');
     });
+
+    test('长 friendly_name 剥离设备名前缀，不出现超长文本', () {
+      const String device = '小米米家智能开关（双开单控）';
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev_dhkg02',
+        title: device,
+        entities: <HaEntityStateModel>[
+          _entity(
+            'switch.dhkg02_on_p_2_1',
+            'off',
+            name: '$device 右键-$device-右键',
+          ),
+          _entity(
+            'switch.dhkg02_on_p_3_1',
+            'on',
+            name: '$device 客厅灯 左键',
+          ),
+        ],
+      );
+      final List<Map<String, String>> gangs = gangValues(group);
+      final Map<String, String> right = gangs.firstWhere((Map<String, String> g) => g['entityId'] == 'switch.dhkg02_on_p_2_1');
+      final Map<String, String> left = gangs.firstWhere((Map<String, String> g) => g['entityId'] == 'switch.dhkg02_on_p_3_1');
+      expect(right['label'], '右键');
+      expect(left['label'], '客厅灯');
+      // 绝不把完整实体名当按钮标签。
+      for (final Map<String, String> g in gangs) {
+        expect(g['label']!.contains(device), isFalse);
+      }
+    });
   });
 
   group('默认布局', () {
