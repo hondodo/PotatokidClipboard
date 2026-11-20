@@ -14,7 +14,8 @@
 - Windows CRLF vs Linux LF：比对用 `diff --strip-trailing-cr`；上传前 `tr -d '\r'`、`node --check`、备份、`install -m` 保权限、md5 对齐后再重启。
 - `server/*.js` → `/home/honghao/services/tools/server/`；`web/admin.html` → `build/web/admin.html`（machines.json 在 `datas/admin/`）。
 - 契约改动（客户端 API）必须同步部署服务端，否则新旧错配（已踩两次）。
-- 家长端管理接口鉴权：`POST /api/admin/login` 拿 `pk_admin` cookie；m10s 口令 `12345678`。machines.json 会被心跳持续写，md5 不同≠残留，清理走接口。
+- **部署前先 `git fetch`**：部署机共享，远端若有新提交（别人已部署的更动）必须先在本地合并再上传，否则旧基线覆盖会把对方改动回退（2026-11-20 已发生一次 admin.js）。
+- 家长端管理接口鉴权：`POST /api/admin/login` 拿 `pk_admin` cookie，需 `username`+`password` 两个字段（实际账号名不是 m10s，别乱猜）；machines.json 会被心跳持续写，md5 不同≠残留，清理走接口。
 
 ## 关键约定
 - 设备型号：WS 握手上报一次，取不到返回空串；禁止 Process.run 调 ps（闪黑框），用 FFI 注册表/sysfs；`device_info_plus ^13.3.0` + `win32_registry ^3.0.3`。
