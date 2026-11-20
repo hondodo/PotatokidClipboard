@@ -1378,6 +1378,7 @@ function attachAdmin(app, options = {}) {
             pirWakes: Number(machine.pirWakes) || 0,
             pirLevel: Number(machine.pirLevel) === 1 ? 1 : 0,
             slpErr: machine.slpErr && typeof machine.slpErr === 'object' ? machine.slpErr : null,
+            pirMode: Number(machine.pirMode) || 0,
             // 槽位显示名（1..8）：设备级，屏幕底部提示用名字代替数字。
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
@@ -3806,6 +3807,7 @@ function attachAdmin(app, options = {}) {
         if (typeof body.wake === 'string') machine.lastWake = body.wake.slice(0, 12);
         if (Number.isFinite(Number(body.pirLevel))) machine.pirLevel = Math.round(Number(body.pirLevel));
         if (body.slpErr && typeof body.slpErr === 'object') machine.slpErr = body.slpErr;
+        if (Number.isFinite(Number(body.pirMode))) machine.pirMode = Math.round(Number(body.pirMode));
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
