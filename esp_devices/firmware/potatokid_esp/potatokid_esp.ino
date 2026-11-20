@@ -114,8 +114,8 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           3) PIR：亮屏看缓存 5 秒，不开射频；
 //           4) 定时唤醒（默认 6 小时）只开射频问主机最新版本，有新版才连 AP 下载。
 //           主机信道随 NVS 持久化：从机不关联 AP 时用它锁定 ESP-NOW 信道。
-// oled-5.6：修正唤醒键仍被按住时，主循环把它当成「新按下」而重复执行一次动作。
-static const char *APP_VER             = "oled-5.6";
+// oled-5.7：未配置联网键时，按键唤醒退回「连 AP」的旧行为，避免设备被锁在后台之外。
+static const char *APP_VER             = "oled-5.7";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2016,7 +2016,7 @@ String pageSettings(const String &listText, const String &err) {
   h += "<input name='pir' inputmode='numeric' value='" + String(pirPin) + "'>";
   // oled-5.5：联网键——按下连 AP 进后台并推迟休眠 5 分钟，不执行该槽位的动作。
   // 普通键只开射频走主机中继，所以进后台需要这颗专用键。
-  h += "<label>联网键（按下连 WiFi 进后台，不执行动作）</label>";
+  h += "<label>联网键（按下连 WiFi 进后台，不执行动作；不启用时所有按键都连 WiFi）</label>";
   h += "<select name='netslot'>";
   h += String("<option value='0'") + (netSlot == 0 ? " selected" : "") + ">不启用</option>";
   for (int i = 0; i < btnCount; i++) {
@@ -2538,6 +2538,13 @@ void setup() {
       }
       return;
     }
+    // 没配联网键时，动作键仍按旧行为联网：否则用户没有任何途径打开后台去配它。
+    if (netSlot == 0) {
+      Serial.println("[wake] no net key configured -> connect AP");
+      if (connectSTA(STA_TIMEOUT_MS)) showConnected();
+      else startPortal();
+      return;
+    }
     executeActionOnWake(wakeSlotHit);
     return;
   }
@@ -2579,6 +2586,11 @@ void loop() {
           showConnected();
           sleepHoldUntil = millis() + 300000UL;
         }
+      } else if (netSlot == 0) {
+        // 没配联网键：保持旧行为（按键即联网），保证后台始终可达。
+        if (!connectSTA(STA_TIMEOUT_MS)) startPortal();
+        else showConnected();
+        onButtonPress(slot);
       } else {
         executeActionOnWake(slot);
       }
