@@ -328,6 +328,7 @@
               <small>${entity.occupied ? `还剩约 ${entity.occupiedLeftSec} 秒转空闲` : '已超过窗口'}</small>
             </div>
           </div>
+          ${entity.online === false ? '<div class="smart-note">⚠️ 设备离线（心跳超时），感应状态停留在最后一次上报值；离线期间涉及它的「有人/无人」条件一律不判定，恢复心跳后继续。</div>' : ''}
           <div class="smart-presence-times">
             <span>进入 ${smartClock(entity.lastEnterAt)}</span>
             <span>离开 ${smartClock(entity.lastLeaveAt)}</span>

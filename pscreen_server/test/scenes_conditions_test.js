@@ -28,7 +28,7 @@ const HA_STATES = {
   'sensor.temp': { entity_id: 'sensor.temp', state: '26', attributes: {} },
 };
 const machines = [
-  { id: 'esp-a', name: '小屏A', espPresence: { present: true, lastEnterAt: Date.now(), lastLeaveAt: 0, updatedAt: Date.now() } },
+  { id: 'esp-a', name: '小屏A', lastSeen: Date.now(), espPresence: { present: true, lastEnterAt: Date.now(), lastLeaveAt: 0, updatedAt: Date.now() } },
 ];
 const getStates = async (ids) => {
   const out = {};
@@ -228,6 +228,59 @@ function sceneOf(trigger, name = 'T') {
     assert.strictEqual(s.haPollSec, 60);
     const s2 = engine.setSettings({ haPollSec: 1 });
     assert.strictEqual(s2.haPollSec, 5);
+  });
+
+  // ---- 设备离线时的感应判定（2026-11-20 修的 bug：断电设备冻结在「有人」反复点火）----
+
+  ok('感应实体：在线设备沿用上报电平，present=true 报「有人」', () => {
+    machines[0].lastSeen = Date.now();
+    const entity = engine.presenceEntities().find((e) => e.deviceId === 'esp-a');
+    assert.ok(entity, '应返回 esp-a 的感应实体');
+    assert.strictEqual(entity.online, true);
+    assert.strictEqual(entity.presence, 'present');
+    assert.strictEqual(entity.occupied, true);
+  });
+
+  ok('感应实体：设备离线时报 unknown/离线，occupied 强制空闲', () => {
+    machines[0].lastSeen = Date.now() - 120 * 1000; // 心停 2 分钟 > 90 秒窗口
+    const entity = engine.presenceEntities().find((e) => e.deviceId === 'esp-a');
+    assert.strictEqual(entity.online, false);
+    assert.strictEqual(entity.presence, 'unknown');
+    assert.strictEqual(entity.presenceText, '离线');
+    assert.strictEqual(entity.occupied, false);
+  });
+
+  await aok('离线设备：「有人持续」条件不触发', async () => {
+    machines[0].lastSeen = Date.now() - 120 * 1000;
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-a', state: 'present', holdSec: 0 },
+      lightOn,
+    ] }] }, '离线有人')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.strictEqual(savedScene().runCount, 0);
+  });
+
+  await aok('离线设备：「无人」条件同样不触发（状态未知 ≠ 无人）', async () => {
+    machines[0].lastSeen = Date.now() - 120 * 1000;
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-a', state: 'absent', holdSec: 0 },
+      lightOff,
+    ] }] }, '离线无人')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.strictEqual(savedScene().runCount, 0);
+  });
+
+  await aok('恢复心跳后：有人条件重新按真实上报判定', async () => {
+    machines[0].lastSeen = Date.now(); // present=true 仍在上报
+    write([sceneOf({ rules: [{ conditions: [
+      { type: 'presence', deviceId: 'esp-a', state: 'present', holdSec: 0 },
+      lightOn,
+    ] }] }, '恢复有人')]);
+    engine.setSettings({ haPollSec: 5 });
+    await runTick();
+    assert.ok(savedScene().runCount >= 1, `runCount=${savedScene().runCount}`);
   });
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败`);

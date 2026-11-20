@@ -2427,6 +2427,9 @@ function attachAdmin(app, options = {}) {
                 .map((machine) => ({
                     id: machine.id,
                     espPresence: normalizeEspPresence(machine.espPresence),
+                    // 在线判定与 admin 列表一致（90 秒心跳窗口）；后台徽标据此显示「离线」。
+                    online: Boolean(machine.lastSeen) && nowMs() - machine.lastSeen <= MACHINE_ONLINE_MS,
+                    lastSeen: machine.lastSeen || 0,
                 }));
             return jsonOk(res, { devices });
         } catch (error) {

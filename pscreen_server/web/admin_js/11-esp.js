@@ -235,8 +235,10 @@
       const tag = pages.length ? `${pages.length} 页` : '未配置';
       // 人体感应：固件只在 0/1 跳变时立即上报，服务端存最近一次跳变时间。
       const pir = dev.espPresence;
-      // 标签常驻占位：新上报时增量更新就能显示出来，不必整列表重渲染。
-      const pirTag = `<span class="tag${pir && pir.present ? ' pir-on' : ''}" data-pir${pir ? '' : ' style="display:none"'}>${pir && pir.present ? '有人' : '无人'}</span>`;
+      // 离线（心跳超时）时徽标改显「离线」：旧电平已冻结，不能当真实状态看。
+      const pirTag = dev.online === false
+        ? '<span class="tag" data-pir title="心跳超时，感应状态已冻结">离线</span>'
+        : `<span class="tag${pir && pir.present ? ' pir-on' : ''}" data-pir${pir ? '' : ' style="display:none"'}>${pir && pir.present ? '有人' : '无人'}</span>`;
       const pirLine = espPresenceLine(pir);
       // 电量：从机休眠前上报 batteryMv；未接检测脚时不显示。
       const batteryTag = dev.batteryMv > 0
@@ -271,8 +273,8 @@
     const pir = dev.espPresence;
     const tagEl = item.querySelector('.tag[data-pir]');
     if (tagEl) {
-      tagEl.textContent = pir.present ? '有人' : '无人';
-      tagEl.classList.toggle('pir-on', pir.present === true);
+      tagEl.textContent = dev.online === false ? '离线' : (pir.present ? '有人' : '无人');
+      tagEl.classList.toggle('pir-on', dev.online !== false && pir.present === true);
       tagEl.style.display = '';
     }
     const lineEl = item.querySelector('.espdev-pir');
@@ -297,6 +299,7 @@
       const fresh = rows.find((item) => item.id === dev.id);
       if (!fresh || !fresh.espPresence) continue;
       dev.espPresence = fresh.espPresence;
+      dev.online = fresh.online !== false;
       applyEspPresence(dev);
     }
   }
