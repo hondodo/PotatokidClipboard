@@ -145,7 +145,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           跨城市隧道下每次心跳省掉约 190ms 的三次握手。
 // oled-7.6：隧道代理在 25~30 秒之间掐掉空闲连接，所以心跳从 60 秒改成 20 秒，
 //           让连接始终是热的；按键/PIR 中继请求直接复用，省掉三次握手。
-static const char *APP_VER             = "oled-7.6";
+// oled-7.7：PIR「有人」上报失败时不再置去重标志——之前一次失败会让整段有人
+//           期间的后续挥手都不再上报（表现为连挥好几次灯都不亮）。
+static const char *APP_VER             = "oled-7.7";
 static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2839,7 +2841,8 @@ void timerWakeOtaCheck() {
   reportToServer(false);
   // 同步 presence 去重标志：定时唤醒读到 pir 为低，说明人已离开，
   // 允许下一次 PIR 唤醒重新上报「有人」；读到高则保持已上报状态。
-  rtcPirReportedHigh = pirPresent;
+  // 上报失败（srvOk=false）时不置位，下次唤醒继续重试。
+  rtcPirReportedHigh = pirPresent && srvOk;
   handleServerVars();
   checkRemoteConfig();   // 后台改了配置，醒来时顺手应用（会重启）
   Serial.printf("[wake] timer: latest=%s local=%s forced=%d\n",
@@ -2933,8 +2936,10 @@ void setup() {
     if (pirPresent && !rtcPirReportedHigh) {
       if (startRadioOnly()) {
         reportToServer(false);   // body.pir=1，服务端更新 espPresence 并联动自动化
-        rtcPirReportedHigh = true;
-        Serial.println("[wake] pir presence reported (radio-only)");
+        // 只有真的送达才置去重标志。否则这一次挥手被吞掉后，
+        // 整段「有人」期间的后续挥手都不会再上报（要等一次读到低电平才解锁）。
+        rtcPirReportedHigh = srvOk;
+        Serial.printf("[wake] pir presence reported ok=%d\n", (int)srvOk);
       } else {
         Serial.println("[wake] pir presence report skipped (radio init failed)");
       }
