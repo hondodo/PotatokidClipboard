@@ -123,6 +123,9 @@ class _ProfilePageState extends State<ProfilePage> {
   /// 「远程」行（实时通道账号登录：常态展示账号+状态，激活后行内输入框）的序号。
   static const int _remoteRow = 13;
 
+  /// 「本地代理转发」行（直播是否走进程内 HLS 代理）的序号。
+  static const int _localProxyRow = 14;
+
   /// 「版本」行（只读说明行，展示 `v1.0.0+1`，值来自平台打包信息）。
   static const int _versionRow = ProfileFocusController.rowCount - 3;
 
@@ -394,6 +397,10 @@ class _ProfilePageState extends State<ProfilePage> {
       case _remoteRow: // 远程：左/右键打开行内输入框
         _beginInlineEdit(_remoteRow);
         break;
+      case _localProxyRow: // 本地代理转发：开/关切换
+        final bool isOn = context.read<AppBloc>().state.localProxyEnabled;
+        context.read<AppBloc>().add(SetLocalProxyEnabled(!isOn));
+        break;
       case _copyInvalidRow: // 复制失效源：只读动作行，仅 OK（activate）触发复制
         break;
       case _disclaimerRow: // 免责声明：只读说明，无值可切换
@@ -452,6 +459,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     KeyedSubtree(key: _rowKeys[_resetRow], child: _buildResetRow(inContent, c)),
                     const SizedBox(height: 12),
                     KeyedSubtree(key: _rowKeys[_remoteRow], child: _buildRemoteLoginRow(inContent, c)),
+                    const SizedBox(height: 12),
+                    KeyedSubtree(key: _rowKeys[_localProxyRow], child: _buildLocalProxyRow(inContent, c)),
                     const SizedBox(height: 12),
                     KeyedSubtree(key: _rowKeys[_versionRow], child: _buildVersionRow(inContent, c)),
                     const SizedBox(height: 12),
@@ -886,6 +895,36 @@ class _ProfilePageState extends State<ProfilePage> {
           onStepRight: () {
             c.select(_remoteRow);
             _beginInlineEdit(_remoteRow);
+          },
+        );
+      },
+    );
+  }
+
+  /// 「本地代理转发」行：开/关切换（默认开）。
+  ///
+  /// 控制播放器是否把最终直播地址交给进程内 HLS 本地代理。
+  /// 关闭后普通直播直连，只有录制会临时启用代理（录制开始时自行拉起，
+  /// 录完释放）。用于弱机器规避代理预热/转发的额外开销。
+  Widget _buildLocalProxyRow(bool inContent, ProfileFocusController c) {
+    return BlocBuilder<AppBloc, AppState>(
+      builder: (context, state) {
+        final bool isOn = state.localProxyEnabled;
+        return _SettingRow(
+          highlighted: inContent && c.row == _localProxyRow,
+          label: 'settings_local_proxy'.tr(),
+          value: isOn ? 'common_on'.tr() : 'common_off'.tr(),
+          canStepLeft: isOn,
+          canStepRight: !isOn,
+          onTap: () => c.select(_localProxyRow),
+          onTapAction: () => c.step(1),
+          onStepLeft: () {
+            c.select(_localProxyRow);
+            c.step(-1);
+          },
+          onStepRight: () {
+            c.select(_localProxyRow);
+            c.step(1);
           },
         );
       },

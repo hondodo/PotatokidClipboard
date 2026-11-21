@@ -271,6 +271,32 @@ class RecordingController {
   // 生命周期
   // ---------------------------------------------------------------------------
 
+  bool _ownsProxy = false;
+
+  /// 录制需要代理但播放未启用时，自行拉起进程内代理并绑定原始源（D-3）。
+  ///
+  /// - 单测注入了 fetchText/fetchBytes：不碰代理单例，保持纯 Dart 可测；
+  /// - 代理已由播放器启用（开关开）：直接复用，不接管、不释放；
+  /// - 代理启动失败：静默回落直连原始源（既有录制行为），不影响录制。
+  Future<void> _ensureProxyForRecording(String originalUrl) async {
+    if (_fetchText != null || _fetchBytes != null) return;
+    final HlsLocalProxy proxy = HlsLocalProxy.instance;
+    if (proxy.isUsable) return;
+    final bool ok = await proxy.ensureStarted();
+    if (!ok) return;
+    proxy.bind(originalUrl);
+    _ownsProxy = true;
+    _diag('本地代理未由播放启用，录制自行拉起并绑定原始源');
+  }
+
+  /// 释放录制自行拉起的代理（播放启用时 [_ownsProxy] 为 false，不干预）。
+  Future<void> _releaseOwnedProxy() async {
+    if (!_ownsProxy) return;
+    _ownsProxy = false;
+    await HlsLocalProxy.instance.stop();
+    _diag('录制释放自行拉起的本地代理');
+  }
+
   /// 开始录制。已在录制 / 儿童模式 / 源不支持时返回 false。
   Future<bool> start(RecordingSource source) async {
     if (isRecording) {
@@ -279,6 +305,20 @@ class RecordingController {
     }
     if (!_isParentMode()) return false;
 
+    // 播放侧关闭本地代理后代理未运行：录制自己拉起（绑定原始源），录完释放。
+    await _ensureProxyForRecording(source.originalUrl);
+    bool enteredRecording = false;
+    try {
+      return await _startAfterProxyReady(source, () => enteredRecording = true);
+    } finally {
+      // 任何早退（解析失败 / 加密 / 低空间 / 建文件失败）都要归还代理。
+      // 成功进入 recording 后由 stop() 释放；首片失败也走 stop()。
+      if (!enteredRecording) await _releaseOwnedProxy();
+    }
+  }
+
+  /// 代理就绪后的实际起录流程（从原 start 拆出，便于 finally 统一清理）。
+  Future<bool> _startAfterProxyReady(RecordingSource source, void Function() onEntered) async {
     HlsPlaylist playlist;
     try {
       playlist = await _resolveMediaPlaylist(source.originalUrl);
@@ -328,6 +368,7 @@ class RecordingController {
         channelName: source.channelName,
       ),
     );
+    onEntered();
     _emit(RecordingEvent.started, channelName: source.channelName, path: sink.location);
 
     // 从最后一个分片开始（"正在观看"从此刻起），不回录已有内容。
@@ -421,6 +462,8 @@ class RecordingController {
     _lastSegmentUrl = null;
     _startedAt = null;
     _set(const RecordingState());
+    // 释放录制自行拉起的代理；播放启用时 owns=false，不影响播放链路。
+    await _releaseOwnedProxy();
 
     if (!silent && save) {
       _emit(event ?? RecordingEvent.saved, channelName: source?.channelName ?? '', path: path);

@@ -76,3 +76,10 @@ class SetBackgroundPlayback extends AppEvent {
 
   final bool enabled;
 }
+
+/// 设置是否开启「直播本地代理转发」（默认开）
+class SetLocalProxyEnabled extends AppEvent {
+  const SetLocalProxyEnabled(this.enabled);
+
+  final bool enabled;
+}

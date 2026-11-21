@@ -996,14 +996,25 @@ class _LivePlayerWidgetState extends State<LivePlayerWidget> with WidgetsBinding
         if (devId.isNotEmpty) source = '$source&dev=$devId';
       }
 
-      // 进程内本地代理：把最终地址（relay 改写后或原始直连）交给代理，
-      // 播放器改为 open 本地地址，录制从同一缓存取流 —— 外网只拉一路。
+      // 进程内本地代理：默认把最终地址（relay 改写后或原始直连）交给代理，
+      // 播放器 open 本地地址，录制从同一缓存取流 —— 外网只拉一路。
+      // 「我的 → 本地代理转发」关闭后：播放直连最终地址，代理停止预热空转；
+      // 录制仍会在 start 时自行拉起代理（绑定原始源），录完释放。
       // 代理启动/绑定失败时 prepare 原样返回 finalUrl，回退直连不影响播放。
-      final String openUrl = await HlsLocalProxy.instance.prepare(source);
+      final bool useLocalProxy = AppSettings.instance.localProxyEnabled;
+      if (!useLocalProxy && HlsLocalProxy.instance.isRunning && !RecordingController.instance.isRecording) {
+        // 关闭开关后下一次起播：停掉上一次开启时残留的代理（含窗口预热），
+        // 避免弱机器上无消费者仍在后台拉流。录制中的代理由录制自己释放。
+        await HlsLocalProxy.instance.stop();
+        if (_appExiting) return;
+      }
+      final String openUrl = useLocalProxy
+          ? await HlsLocalProxy.instance.prepare(source)
+          : source;
       if (_appExiting) return;
       Injection.get<LogService>().info(
         '[LivePlayerWidget] 播放频道:${channel.name},源(${idx + 1}/${channel.sources.length}) '
-        '${openUrl == source ? source : '$source -> 本地代理'}',
+        '${openUrl == source ? source : '$source -> 本地代理'}${useLocalProxy ? '' : '（本地代理已关闭）'}',
       );
       await _player?.open(Media(openUrl));
       _reportPlayback('play_start');

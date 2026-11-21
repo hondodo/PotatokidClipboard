@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pscreen_screen/features/iptv/application/recording/hls_local_proxy.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_platform.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_sink.dart';
@@ -155,6 +156,23 @@ void main() {
         isTrue,
         reason: '录制文件应落在私有目录',
       );
+    });
+
+    test('注入 fetchText/fetchBytes 时不启动本地代理（纯 Dart 隔离）', () async {
+      final _FakeNetwork net = _FakeNetwork(
+        playlists: <String, String>{
+          'https://cdn/x/0.m3u8': '#EXTM3U\n#EXT-X-TARGETDURATION:4\nseg0.ts\n',
+        },
+        segments: <String, List<int>>{'https://cdn/x/seg0.ts': <int>[1, 2, 3, 4]},
+      );
+      final HlsLocalProxy proxy = HlsLocalProxy.instance;
+      if (proxy.isRunning) await proxy.stop();
+      final RecordingController c = _controller(net, dir);
+
+      expect(await c.start(_source()), isTrue);
+      expect(proxy.isRunning, isFalse, reason: '注入 fetch 时录制不应碰代理单例');
+      await c.stop();
+      expect(proxy.isRunning, isFalse, reason: '注入 fetch 时 stop 不应停任何代理');
     });
 
     test('已在录制时再次 start 被拒（互斥）', () async {

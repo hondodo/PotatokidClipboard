@@ -66,6 +66,7 @@
   "settings_hwdec": "硬件解码",
   "settings_sleep_timer": "定时关闭",
   "settings_background_playback": "后台播放",
+  "settings_local_proxy": "本地代理转发",
   "sleep_timer_minutes": "{}分钟",
   "settings_refresh_channels": "刷新频道",
   "settings_refreshing": "刷新中…",

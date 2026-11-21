@@ -244,6 +244,30 @@ Home 端（硬编码中文）：「录制 / 停止录制 mm:ss」「正在录制
 5. **阶段五（验证）**：两端 analyze + 全量测试 + 真机走查
 
 
+## 附录 F：本地代理开关（2026-11-21）
+
+### 背景
+弱机器（无法连开发机看日志）上直播容易卡顿，怀疑进程内 HLS 代理（`HlsLocalProxy`）的窗口预热/转发是额外开销。需要一个开关：关闭后**普通直播直连、不走代理**，但**录制仍走代理**（保留录制从缓存取流、合并外网的收益）。
+
+### 语义（用户 2026-11-21 确认）
+- 开关位于 TV「我的」页，名「本地代理转发」，**默认开**（保持既有行为）。
+- **开**：播放器 `HlsLocalProxy.prepare(source)` → open 本地地址；录制复用同一代理缓存（外网只拉一路）。
+- **关**：播放器直接 open 最终地址（relay 改写后或原始直连）；若代理仍残留且无录制，下次起播时 `stop()` 停掉预热空转；**录制开始时若代理未运行则自行 `ensureStarted() + bind(原始源)`，录完/失败 `stop()` 释放**。
+
+### 改动文件
+- 共享包 `core/utils/app_settings.dart`：`localProxyEnabled`（默认 true，SharedPreferences 持久化，reset 复位）。
+- TV `app_state/app_event/app_bloc`：加 `localProxyEnabled` 字段 + `SetLocalProxyEnabled` 事件。
+- TV `profile_page.dart`：新增开关行（第 14 行），`ProfileFocusController.rowCount` 17→18；四语加 `settings_local_proxy`。
+- TV `live_player_widget.dart`：`_playCurrentSource` 按 `AppSettings.instance.localProxyEnabled` 决定是否 `prepare`；关且无录制时停残留代理。
+- 共享包 `recording_controller.dart`：`start()` 拆出 `_startAfterProxyReady`，包 try/finally 保证所有早退归还代理；新增 `_ensureProxyForRecording` / `_releaseOwnedProxy` + `_ownsProxy`。注入 fetchText/fetchBytes 时跳过代理，保持纯 Dart 单测隔离。
+
+### 验证
+- 共享包 analyze 4 info（基线）、TV analyze 0 issue、home analyze 2 基线 issue。
+- 录制单测 16/16（新增「注入 fetch 不碰代理单例」1 条）、录制目录全量 42/42。
+- **待真机**：弱机器上关开关后播放是否不再卡；开/关状态下录制的 `.ts` 是否都可回放。
+
+---
+
 ## 附录 E：存储位置 / 空间检测 / USB 与设置入口（2026-11-17 第二轮增强）
 
 ### 背景与修复的前提缺陷

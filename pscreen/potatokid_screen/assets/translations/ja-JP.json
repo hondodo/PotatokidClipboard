@@ -66,6 +66,7 @@
   "settings_hwdec": "ハードウェアデコード",
   "settings_sleep_timer": "スリープタイマー",
   "settings_background_playback": "バックグラウンド再生",
+  "settings_local_proxy": "ローカルプロキシ転送",
   "sleep_timer_minutes": "{}分",
   "settings_refresh_channels": "チャンネルを更新",
   "settings_refreshing": "更新中…",

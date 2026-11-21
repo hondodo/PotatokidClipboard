@@ -17,6 +17,7 @@ class AppState {
     required this.weatherCity,
     required this.removeInvalidSources,
     required this.backgroundPlayback,
+    required this.localProxyEnabled,
   });
 
   /// 初始状态：主题默认**深色**（用户可在「我的」页改为浅色/跟随系统），
@@ -35,6 +36,7 @@ class AppState {
     weatherCity: '',
     removeInvalidSources: false,
     backgroundPlayback: false,
+    localProxyEnabled: true,
   );
 
   final ThemeMode themeMode;
@@ -70,6 +72,9 @@ class AppState {
   /// 是否开启「后台播放」（关闭时 App 退到后台即暂停，默认关闭）
   final bool backgroundPlayback;
 
+  /// 是否开启「直播本地代理转发」（默认开；关闭后播放直连，录制仍走代理）
+  final bool localProxyEnabled;
+
   AppState copyWith({
     ThemeMode? themeMode,
     bool? isChromeVisible,
@@ -81,6 +86,7 @@ class AppState {
     String? weatherCity,
     bool? removeInvalidSources,
     bool? backgroundPlayback,
+    bool? localProxyEnabled,
   }) => AppState._(
         themeMode: themeMode ?? this.themeMode,
         isChromeVisible: isChromeVisible ?? this.isChromeVisible,
@@ -92,5 +98,6 @@ class AppState {
         weatherCity: weatherCity ?? this.weatherCity,
         removeInvalidSources: removeInvalidSources ?? this.removeInvalidSources,
         backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
+        localProxyEnabled: localProxyEnabled ?? this.localProxyEnabled,
       );
 }

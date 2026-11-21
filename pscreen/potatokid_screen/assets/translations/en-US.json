@@ -66,6 +66,7 @@
   "settings_hwdec": "Hardware Decode",
   "settings_sleep_timer": "Sleep Timer",
   "settings_background_playback": "Background Playback",
+  "settings_local_proxy": "Local Proxy",
   "sleep_timer_minutes": "{} min",
   "settings_refresh_channels": "Refresh Channels",
   "settings_refreshing": "Refreshing…",

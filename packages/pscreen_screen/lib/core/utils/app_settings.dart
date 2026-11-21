@@ -15,6 +15,7 @@ import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
 /// - 天气城市（weatherCity）
 /// - 清理失效源开关（removeInvalidSources）
 /// - 代理重试开关（proxyRetryEnabled）
+/// - 直播本地代理转发开关（localProxyEnabled）
 ///
 /// 语言设置由 easy_localization 自行持久化，不在此处管理。
 class AppSettings {
@@ -31,6 +32,11 @@ class AppSettings {
   static const String _keyWeatherCity = 'app_weather_city_v1';
   static const String _keyRemoveInvalidSources = 'app_remove_invalid_sources_v1';
   static const String _keyBackgroundPlayback = 'app_background_playback_v1';
+
+  /// 直播是否走进程内 HLS 本地代理（默认开，保持既有行为）。
+  /// 关闭后播放器直连最终地址；录制开始时会自行拉起代理并绑定原始源，
+  /// 录完释放。用于弱机器规避代理预热/转发的额外开销。
+  static const String _keyLocalProxyEnabled = 'app_local_proxy_enabled_v1';
   static const String _keyRemoteAccount = 'app_remote_account_v1';
   static const String _keyRemotePassword = 'app_remote_password_v1';
   static const String _keyDisplayName = 'app_display_name_v1';
@@ -81,6 +87,9 @@ class AppSettings {
   /// 后台播放：默认**关闭**（关闭时 App 退到后台即暂停，与系统默认行为一致）。
   bool _backgroundPlayback = false;
 
+  /// 直播本地代理转发：默认**开启**，与引入代理后的既有行为一致。
+  bool _localProxyEnabled = true;
+
   /// 实时通道「远程」账号；**空串表示未设置**。
   String _remoteAccount = '';
 
@@ -128,6 +137,9 @@ class AppSettings {
 
   /// 是否开启「后台播放」（关闭时退到后台即暂停）。
   bool get backgroundPlayback => _backgroundPlayback;
+
+  /// 是否开启直播本地代理转发（关闭后播放直连，录制仍走代理）。
+  bool get localProxyEnabled => _localProxyEnabled;
 
   /// 实时通道「远程」账号：空串表示未设置。
   String get remoteAccount => _remoteAccount;
@@ -190,6 +202,8 @@ class AppSettings {
 
       // 后台播放
       _backgroundPlayback = prefs.getBool(_keyBackgroundPlayback) ?? false;
+      // 直播本地代理：默认开（保持既有行为）
+      _localProxyEnabled = prefs.getBool(_keyLocalProxyEnabled) ?? true;
       _remoteAccount = prefs.getString(_keyRemoteAccount) ?? '';
       _remotePassword = prefs.getString(_keyRemotePassword) ?? '';
       _displayName = prefs.getString(_keyDisplayName) ?? '';
@@ -293,6 +307,17 @@ class AppSettings {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyBackgroundPlayback, enabled);
+    } catch (_) {
+      // 写入失败不影响运行。
+    }
+  }
+
+  /// 保存「直播本地代理转发」开关。
+  Future<void> setLocalProxyEnabled(bool enabled) async {
+    _localProxyEnabled = enabled;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyLocalProxyEnabled, enabled);
     } catch (_) {
       // 写入失败不影响运行。
     }
@@ -448,6 +473,7 @@ class AppSettings {
     _weatherCity = '';
     _removeInvalidSources = false;
     _backgroundPlayback = false;
+    _localProxyEnabled = true;
     _remoteAccount = '';
     _remotePassword = '';
     _displayName = '';
