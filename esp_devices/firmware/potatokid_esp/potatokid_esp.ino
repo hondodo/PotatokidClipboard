@@ -136,7 +136,11 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           用于区分「根本没醒」与「醒了但识别错」。
 // oled-7.2：PIR 唤醒时开射频（不连 AP）经主机中继上报一次「有人」（pir=1），
 //           后台人体感应与自动化秒级触发；跨深睡去重，同一段有人只报一次。
-static const char *APP_VER             = "oled-7.2";
+// oled-7.3：人在场时改进检测——PIR 引脚仍为高就不再注册电平唤醒
+//           （电平唤醒会立刻自唤醒，形成 5 秒一轮的重启循环），
+//           改为 60 秒定时轮询：只读引脚、不开射频；人走后立刻上报无人。
+//           这样「关灯」不再依赖 otachk（配 1 小时也只延迟约 60 秒）。
+static const char *APP_VER             = "oled-7.3";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -373,7 +377,7 @@ RTC_DATA_ATTR uint32_t pirWakeCount = 0;
 // 0=OK，负值=错误码。-2 表示引脚超出可唤醒范围。
 RTC_DATA_ATTR int8_t rtcSlpErrBtn = 0;
 RTC_DATA_ATTR int8_t rtcSlpErrPir = 0;
-// PIR 实际走哪条唤醒通道：1=EXT1（RTC IO），2=GPIO wake。便于判断哪条生效。
+// PIR 实际走哪条唤醒通道：1=EXT1（RTC IO），2=GPIO wake，3=有人在改用定时轮询。
 RTC_DATA_ATTR int8_t rtcPirWakeMode = 0;
 // PIR 唤醒 presence 上报去重：同一段「有人」期间只开射频上报一次（pir=1），
 // 人离开（pir 变低，由定时唤醒或醒着时轮询发现）后才允许下一次上报。
@@ -389,6 +393,10 @@ int wakeSlotHit = 0;           // 唤醒引脚对应的槽位（0 = 认不出）
 bool peekMode = false;
 uint32_t peekUntil = 0;
 static const uint32_t PEEK_MS = 5000;      // PIR 唤醒后显示缓存的时长
+// 人在场时的紧凑轮询间隔：PIR 引脚仍为高电平就说明人可能还在，
+// 此时深睡只能靠定时唤醒去读引脚（电平唤醒会立刻自唤醒）。
+// 60 秒一次只读引脚、不开射频，耗电远小于频繁开 WiFi。
+static const uint32_t PIR_POLL_SEC = 60;
 volatile int peekActionSlot = 0;            // PIR peek 期间按下动作键 → 升级执行
 
 uint8_t relayCh = 0;           // 主机所在 WiFi 信道（NVS 持久化）
@@ -2688,8 +2696,19 @@ void enterDeepSleep(bool quiet = false) {
   // 必须开内部下拉：未接传感器时引脚悬空会被拉高，导致「刚睡下就立刻被唤醒」
   // 的循环（每次唤醒都联网，电池很快耗尽）。
   // C6 只有 RTCIO 0~7 能作为深睡唤醒源，其它引脚配了也不会生效。
+  //
+  // 人在场（引脚仍为高）时不注册电平唤醒：电平唤醒是「当前为高就立刻醒」，
+  // 入睡后会被自身电平立刻叫醒，形成 5 秒一轮的隐形循环（每次都要重启+开屏）。
+  // 改为 60 秒紧凑定时轮询：醒来读一次引脚，人走了就上报无人并恢复成 otachk。
+  bool pirHoldHigh = false;
+  uint32_t timerSec = 0;
+  if (deviceRole == "slave" && otaCheckSec > 0) timerSec = otaCheckSec;
   if (pirPin >= 0) {
     pinMode(pirPin, INPUT_PULLDOWN);
+    pirHoldHigh = digitalRead(pirPin) == HIGH;
+  }
+  if (pirHoldHigh && timerSec > PIR_POLL_SEC) timerSec = PIR_POLL_SEC;
+  if (pirPin >= 0 && (!pirHoldHigh || timerSec == 0)) {
     if (pirPin < 8) {
       // 先试 EXT1（RTC IO 通道，专门用于 RTC 引脚电平唤醒），失败再退回 GPIO wake。
       esp_err_t e = esp_sleep_enable_ext1_wakeup_io(1ULL << pirPin, ESP_EXT1_WAKEUP_ANY_HIGH);
@@ -2706,11 +2725,14 @@ void enterDeepSleep(bool quiet = false) {
       rtcSlpErrPir = -2;
       Serial.printf("[sleep] PIR GPIO%d cannot wake this chip (only GPIO0-7)\n", pirPin);
     }
+  } else if (pirHoldHigh) {
+    rtcPirWakeMode = 3;   // 3 = 有人在，不注册电平唤醒，改用定时轮询
   }
   // 定时唤醒：从机一律启用（即使关了自动更新也要定期上报状态、接收远程更新标记）。
   // 到点只开射频发一次心跳，有新版且允许更新时才连 AP。
-  if (deviceRole == "slave" && otaCheckSec > 0) {
-    esp_sleep_enable_timer_wakeup((uint64_t)otaCheckSec * 1000000ULL);
+  if (timerSec > 0) {
+    esp_sleep_enable_timer_wakeup((uint64_t)timerSec * 1000000ULL);
+    if (pirHoldHigh) Serial.printf("[sleep] PIR high -> poll every %lus\n", (unsigned long)timerSec);
   }
 #endif
   WiFi.disconnect(true);
@@ -2787,6 +2809,13 @@ void executeActionOnWake(int slot) {
 // 有新版才连 AP 下载，否则立刻回睡。整个流程只有一次中继往返。
 void timerWakeOtaCheck() {
   Serial.println("[wake] timer: status + fw check");
+  // 有人在时的紧凑轮询（rtcPirWakeMode=3）：引脚仍是高、与上次上报一致，
+  // 说明人还在，无需开射频上报；直接再睡 60 秒继续轮询，省掉整轮 WiFi/中继。
+  if (rtcPirWakeMode == 3 && pirPresent && rtcPirReportedHigh) {
+    Serial.println("[wake] presence poll: still high, skip radio");
+    enterDeepSleep(true);
+    return;
+  }
   if (!startRadioOnly()) { enterDeepSleep(true); return; }
   reportToServer(false);
   // 同步 presence 去重标志：定时唤醒读到 pir 为低，说明人已离开，
