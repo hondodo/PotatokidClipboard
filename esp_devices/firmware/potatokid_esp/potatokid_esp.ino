@@ -130,7 +130,13 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-6.2：新增远程配置下发——按键引脚/角色/主机 MAC/休眠/自动更新/唤醒间隔/
 //           PIR/联网键/电池分压都存在服务端，带版本号随心跳下发；
 //           设备发现版本变化就拉取纯文本配置写 NVS 并重启应用。
-static const char *APP_VER             = "oled-7.1";
+// oled-7.0：PIR 深睡唤醒改走 EXT1（RTC IO）通道，GPIO wake 作兜底；
+//           C6 上 GPIO6 等高电平唤醒脚只有 EXT1 能真正触发。
+// oled-7.1：唤醒原始诊断上报（复位原因/唤醒原因/两条通道引脚掩码），
+//           用于区分「根本没醒」与「醒了但识别错」。
+// oled-7.2：PIR 唤醒时开射频（不连 AP）经主机中继上报一次「有人」（pir=1），
+//           后台人体感应与自动化秒级触发；跨深睡去重，同一段有人只报一次。
+static const char *APP_VER             = "oled-7.2";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -369,6 +375,10 @@ RTC_DATA_ATTR int8_t rtcSlpErrBtn = 0;
 RTC_DATA_ATTR int8_t rtcSlpErrPir = 0;
 // PIR 实际走哪条唤醒通道：1=EXT1（RTC IO），2=GPIO wake。便于判断哪条生效。
 RTC_DATA_ATTR int8_t rtcPirWakeMode = 0;
+// PIR 唤醒 presence 上报去重：同一段「有人」期间只开射频上报一次（pir=1），
+// 人离开（pir 变低，由定时唤醒或醒着时轮询发现）后才允许下一次上报。
+// 避免人在前面晃动时每次 PIR 唤醒都开一次射频，白白耗电。
+RTC_DATA_ATTR bool rtcPirReportedHigh = false;
 // 唤醒原始诊断（RTC 内存，重启后上报）：复位原因 / 唤醒原因 / 两条唤醒通道的
 // 原始引脚位掩码。用于判断「根本没醒」还是「醒了但掩码对不上引脚」。
 RTC_DATA_ATTR int8_t  rtcResetReason = 0;
@@ -1772,6 +1782,7 @@ void pollPir() {
   if (present != pirPresent) {
     pirPresent = present;
     pirReportPending = true;
+    if (!present) rtcPirReportedHigh = false;   // 人离开：允许下次 PIR 唤醒重新上报
   }
 }
 
@@ -2778,6 +2789,9 @@ void timerWakeOtaCheck() {
   Serial.println("[wake] timer: status + fw check");
   if (!startRadioOnly()) { enterDeepSleep(true); return; }
   reportToServer(false);
+  // 同步 presence 去重标志：定时唤醒读到 pir 为低，说明人已离开，
+  // 允许下一次 PIR 唤醒重新上报「有人」；读到高则保持已上报状态。
+  rtcPirReportedHigh = pirPresent;
   handleServerVars();
   checkRemoteConfig();   // 后台改了配置，醒来时顺手应用（会重启）
   Serial.printf("[wake] timer: latest=%s local=%s forced=%d\n",
@@ -2854,7 +2868,9 @@ void setup() {
     return;
   }
 
-  // ② PIR 唤醒：只亮屏显示缓存 5 秒，不开射频；
+  // ② PIR 唤醒：亮屏显示缓存 5 秒；并且开射频（不连 AP）经主机中继上报一次
+  //    「有人」（pir=1），让后台人体感应状态和自动化能秒级触发，不必等定时唤醒。
+  //    去重：同一段有人期间只报一次（rtcPirReportedHigh），人离开后才允许再报。
   //    期间按键则交给主循环去执行对应动作。
   if (wakeReason == WAKE_PIR) {
     pirWakeCount++;
@@ -2864,6 +2880,16 @@ void setup() {
     if (oledOk) u8g2.setPowerSave(0);
     if (restored) drawMain();
     else oledShow("Wake", "no cached page", "press key", "to load");
+    // 先亮屏再上报：人挥手后期望立刻看到内容，上报在显示期间完成。
+    if (pirPresent && !rtcPirReportedHigh) {
+      if (startRadioOnly()) {
+        reportToServer(false);   // body.pir=1，服务端更新 espPresence 并联动自动化
+        rtcPirReportedHigh = true;
+        Serial.println("[wake] pir presence reported (radio-only)");
+      } else {
+        Serial.println("[wake] pir presence report skipped (radio init failed)");
+      }
+    }
     Serial.printf("[wake] peek %lums\n", (unsigned long)PEEK_MS);
     return;
   }
