@@ -133,10 +133,13 @@ function presenceEntityOf(machine, occupiedWindowSec) {
     const windowMs = clampInt(occupiedWindowSec, 10, 3600, DEFAULT_OCCUPIED_SEC) * 1000;
     const idleMs = lastEnterAt ? Math.max(0, now - lastEnterAt) : 0;
     // 设备断电/断网后 espPresence.present 会永远停在最后一次上报值——
-    // 离线时按「未知」处理：occupied 强制空闲，求值层有人/无人都不触发。
-    // 休眠是可预期的离线：按「无人」参与判定，人来了 PIR 会唤醒设备并立刻上报有人。
+    // 真离线（unknown）按「未知」处理：occupied 强制空闲，求值层有人/无人都不触发。
+    // 休眠是可预期的离线：深睡从机只在 PIR 跳变 / 定时唤醒时才发心跳，
+    // 不能因为「90 秒没心跳」就翻成无人——否则每次上报有人后 1 分半就判无人，
+    // 「有人开灯 / 无人关灯」两条自动化会来回抖，表现成灯打不开。
+    // 休眠期间以最后一次上报的 present 为准；人离开要等它下次唤醒报 pir=0 才知道。
     const state = online ? (present ? 'present' : 'absent') : (sleeping ? 'sleep' : 'unknown');
-    const occupied = online && (present || Boolean(lastEnterAt && idleMs <= windowMs));
+    const occupied = state !== 'unknown' && (present || Boolean(lastEnterAt && idleMs <= windowMs));
     return {
         entityId: `presence.${machine.id}`,
         deviceId: machine.id,
@@ -147,7 +150,9 @@ function presenceEntityOf(machine, occupiedWindowSec) {
         presence: state,
         presenceText: { present: '有人', absent: '无人', sleep: '休眠', unknown: '离线' }[state],
         occupied,
-        occupiedText: state === 'sleep' ? '休眠（按无人判）' : (state === 'unknown' ? '离线' : (occupied ? '占用中' : '空闲')),
+        occupiedText: state === 'sleep'
+            ? (occupied ? '休眠（保持有人）' : '休眠（按无人判）')
+            : (state === 'unknown' ? '离线' : (occupied ? '占用中' : '空闲')),
         lastEnterAt,
         lastLeaveAt,
         updatedAt,
@@ -772,8 +777,8 @@ function attachScenes(options = {}) {
             // 真离线（心跳超时且不是休眠中的从机）：感应状态已冻结，按未知处理，
             // 有人/无人都不触发。否则断电的设备会拿最后一次上报的「有人」反复点火。
             if (entity.presence === 'unknown') return false;
-            // 休眠按「无人」判定：人来了 PIR 会唤醒设备并立刻上报有人，
-            // 所以从机睡着期间「无人→关灯」类自动化照常工作。
+            // 休眠中的从机沿用最后一次上报的状态（不算无人），
+            // 人来了 PIR 会唤醒设备立刻上报有人，人走了要等下次唤醒报无人。
             // 用 occupied 窗口判定（有人，或最近 N 秒内出现过有人）：
             // PIR 电平两秒就掉，用瞬时电平会让 AND 组合反复失效。
             const occupied = entity.occupied === true;
