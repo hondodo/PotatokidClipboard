@@ -28,7 +28,10 @@ const MAX_HOLD_SEC = 3600;
 const ACTION_TIMEOUT_MS = 10 * 1000;
 const DEFAULT_HOLD_SEC = 10;
 const DEFAULT_COOLDOWN_SEC = 30;
-const DEFAULT_OCCUPIED_SEC = 90;
+// 有人保持窗口：设备上报「无人」后，还要在这么多秒内没有再次上报有人，才判无人。
+// 从 90 秒降到 30 秒——现在 PIR 从机走 60 秒紧凑轮询、离开会立刻上报，
+// 90 秒的保守等待只会让「无人关灯」多等一分半。
+const DEFAULT_OCCUPIED_SEC = 30;
 // 设备在线判定窗口：与 admin.js 的 MACHINE_ONLINE_MS（90 秒）保持一致。
 // 心跳停了感应数据就冻结在最后一次上报，离线期间的旧电平不能拿来判自动化。
 const MACHINE_ONLINE_MS = 90 * 1000;
