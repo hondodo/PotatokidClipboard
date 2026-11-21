@@ -143,8 +143,10 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-7.4：轮询间隔 60 秒 → 30 秒。
 // oled-7.5：直连 HTTP 复用 TCP 连接（配合服务端 90 秒 keep-alive），
 //           跨城市隧道下每次心跳省掉约 190ms 的三次握手。
-static const char *APP_VER             = "oled-7.5";
-static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
+// oled-7.6：隧道代理在 25~30 秒之间掐掉空闲连接，所以心跳从 60 秒改成 20 秒，
+//           让连接始终是热的；按键/PIR 中继请求直接复用，省掉三次握手。
+static const char *APP_VER             = "oled-7.6";
+static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
 // 用 SSD1306 驱动会出现左移 2px + 右侧几列乱码，故用 SH1106 构造。

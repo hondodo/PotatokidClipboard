@@ -4028,6 +4028,12 @@ function attachAdmin(app, options = {}) {
             return jsonFail(res, error.message);
         }
     });
+    // 极轻量保活：主机每 25 秒打一次，让经隧道的 TCP 连接不因空闲被代理掐掉，
+    // 这样按键/中继请求能复用热连接（省掉跨城市的三次握手）。
+    app.get('/api/device/ping', (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        return jsonOk(res, { t: Date.now() }, 'pong');
+    });
     app.post('/api/device/heartbeat', (req, res) => {
         try {
             const machine = upsertMachine(req, req.body || {});
