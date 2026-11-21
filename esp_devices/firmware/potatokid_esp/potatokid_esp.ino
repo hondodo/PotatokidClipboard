@@ -147,7 +147,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           让连接始终是热的；按键/PIR 中继请求直接复用，省掉三次握手。
 // oled-7.7：PIR「有人」上报失败时不再置去重标志——之前一次失败会让整段有人
 //           期间的后续挥手都不再上报（表现为连挥好几次灯都不亮）。
-static const char *APP_VER             = "oled-7.7";
+// oled-7.8：只要服务端还认为有人，入睡后一律 30 秒轮询一次引脚（原来只在
+//           入睡瞬间引脚为高时才轮询），保证离开事件不会被拖到 otachk 那么久。
+static const char *APP_VER             = "oled-7.8";
 static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -2728,7 +2730,11 @@ void enterDeepSleep(bool quiet = false) {
     pinMode(pirPin, INPUT_PULLDOWN);
     pirHoldHigh = digitalRead(pirPin) == HIGH;
   }
-  if (pirHoldHigh && timerSec > PIR_POLL_SEC) timerSec = PIR_POLL_SEC;
+  // 只要「服务端还认为有人」（rtcPirReportedHigh）就把定时唤醒压到 30 秒，
+  // 即便入睡瞬间引脚已经变低也一样——否则人刚走就睡下，要等 otachk（可能 1 小时）
+  // 才会有人读到低电平并上报「无人」，灯就一直不灭。
+  if (pirPin >= 0 && (pirHoldHigh || rtcPirReportedHigh) && timerSec > PIR_POLL_SEC)
+    timerSec = PIR_POLL_SEC;
   if (pirPin >= 0 && (!pirHoldHigh || timerSec == 0)) {
     if (pirPin < 8) {
       // 先试 EXT1（RTC IO 通道，专门用于 RTC 引脚电平唤醒），失败再退回 GPIO wake。
