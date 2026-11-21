@@ -2150,6 +2150,11 @@ app.use((req, res) => {
 
 // 启动服务器（HTTP + WebSocket 共用同一端口）
 const httpServer = http.createServer(app);
+// ESP 设备跨城市经隧道访问，每次新建 TCP 要 ~190ms。设备侧改成复用连接后，
+// 60 秒一次的心跳正好落在 keep-alive 窗口内，后续请求（按键/中继）直接复用。
+// Node 默认 5 秒就关，必须调大，否则设备拿到的是已关闭的套接字。
+httpServer.keepAliveTimeout = 90000;
+httpServer.headersTimeout = 95000;
 realtimeHandle = attachRealtime(httpServer, {
     path: config.realtime.path,
     accountStore,

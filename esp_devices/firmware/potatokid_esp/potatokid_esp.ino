@@ -141,7 +141,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           改为定时轮询：只读引脚、不开射频；人走后立刻上报无人。
 //           这样「关灯」不再依赖 otachk（配 1 小时也只延迟一个轮询周期）。
 // oled-7.4：轮询间隔 60 秒 → 30 秒。
-static const char *APP_VER             = "oled-7.4";
+// oled-7.5：直连 HTTP 复用 TCP 连接（配合服务端 90 秒 keep-alive），
+//           跨城市隧道下每次心跳省掉约 190ms 的三次握手。
+static const char *APP_VER             = "oled-7.5";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -219,6 +221,11 @@ struct NetSnapshot {
   uint32_t fwSize = 0;
 };
 SemaphoreHandle_t netMux = nullptr;
+// 直连 HTTP 复用同一条 TCP 连接：跨城市 + 公网隧道下单次建连约 190ms，
+// 心跳 60 秒一次，正好落在服务端 90 秒 keep-alive 窗口内。
+// setup 与 netTask 都可能调用 postJson，用互斥锁保证不会同时操作同一个 socket。
+SemaphoreHandle_t httpMux = nullptr;
+WiFiClient httpReuseClient;
 NetSnapshot netPending;
 volatile bool netEnabled = false;   // 注册成功后才开始周期拉取
 volatile uint32_t netRefreshAt = 0; // 到点后立即拉一次（0 = 无排队；按键执行后延迟刷新）
@@ -1111,14 +1118,23 @@ bool postJson(const String &path, const String &body) {
     Serial.println(pass ? " -> relay ok" : " -> relay fail");
     return pass;
   }
-  WiFiClient client;
-  HTTPClient http;
-  if (!http.begin(client, serverBase + path)) return false;
-  http.setTimeout(6000);
-  http.addHeader("Content-Type", "application/json");
-  int code = http.POST((uint8_t *)body.c_str(), body.length());
-  String resp = code > 0 ? http.getString() : String();
-  http.end();
+  // 直连：复用同一条 TCP 连接（第一次失败时丢掉旧 socket 再试一次，
+  // 覆盖服务端/隧道把空闲连接关掉的情况）。
+  int code = -1;
+  String resp;
+  if (httpMux) xSemaphoreTake(httpMux, portMAX_DELAY);
+  for (int attempt = 0; attempt < 2 && code <= 0; attempt++) {
+    if (attempt) httpReuseClient.stop();
+    HTTPClient http;
+    http.setReuse(true);
+    if (!http.begin(httpReuseClient, serverBase + path)) break;
+    http.setTimeout(6000);
+    http.addHeader("Content-Type", "application/json");
+    code = http.POST((uint8_t *)body.c_str(), body.length());
+    resp = code > 0 ? http.getString() : String();
+    http.end();
+  }
+  if (httpMux) xSemaphoreGive(httpMux);
   bool ok = (code == 200 && resp.indexOf("\"code\":0") >= 0);
   if (ok) lastPostResp = resp;   // 供远程更新标记解析
   Serial.print("[srv] ");
@@ -2886,6 +2902,7 @@ void setup() {
   // 网络任务固定在 core 0：主循环（绘制/I2C/按键）留在 core 1，互不打断。
   // C6 为单核，不能指定 core 1，直接创建普通任务。
   netMux = xSemaphoreCreateMutex();
+  httpMux = xSemaphoreCreateMutex();
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
   xTaskCreate(netTask, "net", 12288, nullptr, 1, nullptr);
 #else
