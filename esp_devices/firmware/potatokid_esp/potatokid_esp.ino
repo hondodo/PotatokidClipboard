@@ -138,9 +138,10 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           后台人体感应与自动化秒级触发；跨深睡去重，同一段有人只报一次。
 // oled-7.3：人在场时改进检测——PIR 引脚仍为高就不再注册电平唤醒
 //           （电平唤醒会立刻自唤醒，形成 5 秒一轮的重启循环），
-//           改为 60 秒定时轮询：只读引脚、不开射频；人走后立刻上报无人。
-//           这样「关灯」不再依赖 otachk（配 1 小时也只延迟约 60 秒）。
-static const char *APP_VER             = "oled-7.3";
+//           改为定时轮询：只读引脚、不开射频；人走后立刻上报无人。
+//           这样「关灯」不再依赖 otachk（配 1 小时也只延迟一个轮询周期）。
+// oled-7.4：轮询间隔 60 秒 → 30 秒。
+static const char *APP_VER             = "oled-7.4";
 static const uint32_t REPORT_MS        = 60000;  // 心跳间隔
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -395,8 +396,8 @@ uint32_t peekUntil = 0;
 static const uint32_t PEEK_MS = 5000;      // PIR 唤醒后显示缓存的时长
 // 人在场时的紧凑轮询间隔：PIR 引脚仍为高电平就说明人可能还在，
 // 此时深睡只能靠定时唤醒去读引脚（电平唤醒会立刻自唤醒）。
-// 60 秒一次只读引脚、不开射频，耗电远小于频繁开 WiFi。
-static const uint32_t PIR_POLL_SEC = 60;
+// 30 秒一次只读引脚、不开射频，耗电远小于频繁开 WiFi。
+static const uint32_t PIR_POLL_SEC = 30;
 volatile int peekActionSlot = 0;            // PIR peek 期间按下动作键 → 升级执行
 
 uint8_t relayCh = 0;           // 主机所在 WiFi 信道（NVS 持久化）
@@ -2699,7 +2700,7 @@ void enterDeepSleep(bool quiet = false) {
   //
   // 人在场（引脚仍为高）时不注册电平唤醒：电平唤醒是「当前为高就立刻醒」，
   // 入睡后会被自身电平立刻叫醒，形成 5 秒一轮的隐形循环（每次都要重启+开屏）。
-  // 改为 60 秒紧凑定时轮询：醒来读一次引脚，人走了就上报无人并恢复成 otachk。
+  // 改为紧凑定时轮询：醒来读一次引脚，人走了就上报无人并恢复成 otachk。
   bool pirHoldHigh = false;
   uint32_t timerSec = 0;
   if (deviceRole == "slave" && otaCheckSec > 0) timerSec = otaCheckSec;
