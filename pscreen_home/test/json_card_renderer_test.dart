@@ -481,9 +481,28 @@ void main() {
         'gap': 8,
         'children': <dynamic>[
           <String, dynamic>{
-            'type': 'text',
-            'value': '左键{s:_p_2_1}  右键{s:_p_3_1}',
-            'map': 'on=开,off=关',
+            'type': 'row',
+            'gap': 6,
+            'children': <dynamic>[
+              <String, dynamic>{
+                'type': 'text',
+                'value': '左键{s:_p_2_1}',
+                'map': 'on=开,off=关',
+                'visibleWhen': '{id:_p_2_1}',
+              },
+              <String, dynamic>{
+                'type': 'text',
+                'value': '右键{s:_p_3_1}',
+                'map': 'on=开,off=关',
+                'visibleWhen': '{id:_p_3_1}',
+              },
+              <String, dynamic>{
+                'type': 'text',
+                'value': '3路{s:_p_4_1}',
+                'map': 'on=开,off=关',
+                'visibleWhen': '{id:_p_4_1}',
+              },
+            ],
           },
           <String, dynamic>{
             'type': 'row',
@@ -528,7 +547,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('左键开  右键关'), findsOneWidget);
+    expect(find.text('左键开'), findsOneWidget);
+    expect(find.text('右键关'), findsOneWidget);
+    expect(find.textContaining('3路'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, '关闭'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, '开启'), findsOneWidget);
 
