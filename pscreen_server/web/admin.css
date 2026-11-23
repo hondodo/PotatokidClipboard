@@ -1009,3 +1009,18 @@
     .smart-ent-pick input { flex: 1 1 150px; min-width: 0; }
     .smart-weekdays { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 4px 0 8px; }
     .smart-day { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }
+
+    /* ---- 卡片布局实时预览（设备类型判定编辑器） ---- */
+    .card-preview-block { }
+    .card-preview-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .card-preview-state { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
+    .card-preview-state .inline-check input[type=checkbox] { width: auto; }
+    .card-preview-state input[type=range] { accent-color: var(--accent); }
+    .card-preview-stage { min-height: 96px; display: flex; align-items: flex-start; }
+    .card-preview-canvas {
+      position: relative; width: 300px; min-height: 150px; box-sizing: border-box;
+      background: #292c33; border-radius: 16px; padding: 16px; color: #e7eef6;
+      box-shadow: 0 6px 22px rgba(0,0,0,.35); font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    .card-preview-canvas.wide { width: 460px; }

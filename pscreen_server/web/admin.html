@@ -444,9 +444,16 @@
             <div class="re-btn-row"><button class="btn small" type="button" id="re-add-rule">＋ 添加规则</button></div>
 
             <!-- 卡片布局配置：跨格 + JSON 布局树（服务端 card 配置） -->
-            <details class="re-card-details" id="re-card-details" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
-              <summary style="cursor:pointer;font-weight:600;color:var(--accent)">▸ 卡片布局（跨格 + JSON 布局树）</summary>
+            <details class="re-card-details" id="re-card-details" open style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+              <summary style="cursor:pointer;font-weight:600;color:var(--accent)">▾ 卡片布局（跨格 + JSON 布局树）</summary>
               <div style="margin-top:10px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                  <label for="re-card-icon" class="hint">卡片图标：</label>
+                  <input type="text" id="re-card-icon" maxlength="80" placeholder="☀ / lightbulb / 图片路径" style="width:170px" title="写入 card.icon；布局里 icon 节点用 {icon} 占位符引用。支持符号（☀ ❄ ✦）、Material 名和上传后的图片路径">
+                  <button class="btn small" type="button" id="re-card-icon-upload">上传图片</button>
+                  <input type="file" id="re-card-icon-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+                  <span class="hint">png/jpg/webp/gif ≤2MB，上传到 yuntu 后自动填入相对路径</span>
+                </div>
                 <div class="re-card-span-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
                   <span class="hint">占用格数：</span>
                   <select id="re-span" title="卡片占用的网格格数（列×行）">
@@ -476,6 +483,23 @@
                   <button class="btn small" type="button" id="re-layout-default">载入默认布局</button>
                   <span id="re-layout-status" class="hint" style="margin-left:8px"></span>
                 </div>
+                <!-- 卡片实时预览：用 mock 数据渲染当前布局树，改 JSON 即时刷新，无需启动 app -->
+                <div class="card-preview-block" style="margin-top:12px;border-top:1px dashed var(--line);padding-top:10px">
+                  <div class="card-preview-head">
+                    <span style="font-weight:600;color:var(--accent)">▸ 卡片预览</span>
+                    <span class="hint">用示例数据渲染当前布局（改动即刷新），无需启动 app 先看效果</span>
+                  </div>
+                  <div class="card-preview-state">
+                    <label class="inline-check"><input type="checkbox" id="re-pv-online" checked><span>在线</span></label>
+                    <label class="inline-check"><input type="checkbox" id="re-pv-on" checked><span>开启(on)</span></label>
+                    <label style="display:inline-flex;align-items:center;gap:5px;margin-left:auto">
+                      <span class="hint">亮度</span>
+                      <input type="range" id="re-pv-bright" min="0" max="100" value="10" style="width:110px">
+                      <span id="re-pv-bright-v" class="hint">10%</span>
+                    </label>
+                  </div>
+                  <div id="re-layout-preview" class="card-preview-stage"><div class="empty">在上方编辑布局树，这里实时预览。</div></div>
+                </div>
               </div>
             </details>
             <div class="re-btn-row" style="margin-top:12px">
@@ -489,7 +513,7 @@
             <div class="re-global-head">
               <div>
                 <h3>全局判定测试</h3>
-                <p class="hint">用<b>当前编辑器里的规则</b>（含未保存改动）对全部 HA 设备跑一遍判定，列出每台设备被识别的类型；<b>高亮</b>的行是当前编辑类型命中的设备。</p>
+                <p class="hint">用<b>当前编辑器里的规则</b>（含未保存改动）对全部 HA 设备跑一遍判定，列出每台设备被识别的类型；当前编辑类型命中的设备会<b>高亮并自动置顶</b>，无需滚动查找。</p>
               </div>
               <div class="re-global-actions">
                 <label class="inline-check ha-only-free">

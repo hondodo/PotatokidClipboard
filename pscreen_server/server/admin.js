@@ -15,6 +15,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
 const multer = require('multer');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
@@ -1198,6 +1200,11 @@ function attachAdmin(app, options = {}) {
     const avatarFile = path.join(adminDir, 'parental_avatars.json');
     const avatarImageDir = path.join(adminDir, 'parental-avatars');
     const MAX_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024; // 客户端已压到 ≤300KB，留余量
+    // 设备类型卡片图标：和头像走同一条镜像转发链路，但只存相对路径，避免 yuntu IP 写死在配置里。
+    const cardIconFile = path.join(adminDir, 'card_icons.json');
+    const cardIconDir = path.join(adminDir, 'card-icons');
+    const MAX_CARD_ICON_BYTES = 2 * 1024 * 1024;
+    const CARD_ICON_URL_RE = /^\/api\/files\/[A-Za-z0-9_-]{1,80}\/avatar$/;
 
     // D-02 家庭级主档案存储：按 childId 全局唯一，分配/本台设置按 deviceId。
     // 仅 USE_FAMILY_MODEL 开启时参与读路径；首次启用会从旧 machine.parental 迁移。
@@ -1672,6 +1679,26 @@ function attachAdmin(app, options = {}) {
 
     function saveAvatarStore(store) {
         writeJson(avatarFile, store);
+    }
+
+    // ------------------------------------------------------------ 卡片图标索引（sha256 → 相对路径）
+    function readCardIconStore() {
+        const raw = readJson(cardIconFile, {});
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        const out = {};
+        for (const [sha, item] of Object.entries(raw)) {
+            if (!/^[0-9a-f]{64}$/i.test(sha) || !item || typeof item !== 'object') continue;
+            const url = typeof item.url === 'string' ? item.url.trim() : '';
+            if (!CARD_ICON_URL_RE.test(url)) continue;
+            out[sha.toLowerCase()] = {
+                id: typeof item.id === 'string' ? item.id : '',
+                url,
+                mime: typeof item.mime === 'string' ? item.mime : 'image/png',
+                size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
+                createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+            };
+        }
+        return out;
     }
 
     /** 按 family 维度合并头像（同一家长能管的所有 tv 的头像，按 sha256 去重）。 */
@@ -3592,6 +3619,108 @@ function attachAdmin(app, options = {}) {
             console.error('[avatar] 删除失败:', error);
             return jsonFail(res, error.message);
         }
+    });
+
+    /** 设备类型卡片图标上传：与头像共用镜像转发链路，但只返回相对路径。
+     *  配置里存 /api/files/<id>/avatar，客户端按当前 serverBaseUrl 拼接，
+     *  yuntu IP 变化只需改 forward_config.json，旧图标不会失效。 */
+    app.post('/api/admin/device-type/icon', requireAdmin, async (req, res) => {
+        try {
+            const body = req.body || {};
+            let data = typeof body.data === 'string' ? body.data : '';
+            const dataUrl = data.match(/^data:(image\/[a-z+]+);base64,([\s\S]*)$/i);
+            if (dataUrl) data = dataUrl[2];
+            if (!data) return jsonFail(res, '图片内容为空');
+            const buffer = Buffer.from(data, 'base64');
+            if (!buffer.length) return jsonFail(res, '图片内容为空');
+            if (buffer.length > MAX_CARD_ICON_BYTES) {
+                return jsonFail(res, `图片不能超过 ${MAX_CARD_ICON_BYTES / 1024 / 1024}MB`);
+            }
+            const mime = detectImageMime(buffer);
+            if (!mime) return jsonFail(res, '仅支持 PNG / JPEG / WebP / GIF 图片（magic bytes 校验未通过）');
+
+            const sha = crypto.createHash('sha256').update(buffer).digest('hex');
+            const store = readCardIconStore();
+            if (store[sha]) {
+                const old = store[sha];
+                return jsonOk(res, {
+                    url: old.url, sha256: sha, id: old.id, mime: old.mime, reused: true,
+                }, '图标已存在');
+            }
+            if (!forward || typeof forward.mirrorAndWait !== 'function') {
+                return jsonFail(res, '上传镜像转发未配置（请检查 datas/forward_config.json）');
+            }
+            const extMap = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+            const localName = `${sha.slice(0, 16)}.${extMap[mime] || 'png'}`;
+            fs.mkdirSync(cardIconDir, { recursive: true });
+            const localPath = path.join(cardIconDir, localName);
+            if (!fs.existsSync(localPath)) fs.writeFileSync(localPath, buffer);
+            const mirrorResult = await forward.mirrorAndWait(localPath, `device-type-icons/${localName}`, { 'x-pinned': 'true' });
+
+            let url = '';
+            try {
+                let pathname = new URL(mirrorResult.downloadUrl).pathname;
+                if (pathname.endsWith('/download')) {
+                    pathname = pathname.slice(0, -'/download'.length) + '/avatar';
+                }
+                if (CARD_ICON_URL_RE.test(pathname)) url = pathname;
+            } catch (_) { /* 返回值不合法时下面统一报错 */ }
+            if (!url) return jsonFail(res, '镜像转发成功但未返回有效的资源路径');
+
+            const record = {
+                id: mirrorResult.id || '',
+                url,
+                mime,
+                size: buffer.length,
+                createdAt: new Date().toISOString(),
+            };
+            store[sha] = record;
+            writeJson(cardIconFile, store);
+            console.log(`[card-icon] 上传图标 ${sha.slice(0, 12)} → ${url}`);
+            return jsonOk(res, {
+                url, sha256: sha, id: record.id, mime,
+            }, '图标已上传');
+        } catch (error) {
+            console.error('[card-icon] 上传失败:', error);
+            return jsonFail(res, error.message);
+        }
+    });
+
+    /** 公共资源代理：客户端只存 /api/files/:id/avatar；这里按当前 forward 配置
+     *  解析到 yuntu。IP / 端口变化只改 forward_config.json，历史图标路径不变。 */
+    app.get('/api/files/:id/avatar', (req, res) => {
+        const id = String(req.params.id || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return res.status(400).end();
+        let base = '';
+        try {
+            base = String((forward && typeof forward.status === 'function' ? forward.status().baseUrl : '') || '')
+                .replace(/\/+$/, '');
+        } catch (_) { /* forward 未注入 */ }
+        if (!base) return res.status(503).end();
+        let target;
+        try {
+            target = new URL(`${base}/api/files/${encodeURIComponent(id)}/avatar`);
+        } catch (_) {
+            return res.status(502).end();
+        }
+        const client = target.protocol === 'https:' ? https : http;
+        const upstream = client.get(target, (upstreamRes) => {
+            const status = upstreamRes.statusCode || 502;
+            if (status >= 300 && status < 400 && upstreamRes.headers.location) {
+                upstreamRes.resume();
+                return res.redirect(302, upstreamRes.headers.location);
+            }
+            res.status(status);
+            for (const key of ['content-type', 'content-length', 'cache-control', 'etag', 'last-modified']) {
+                if (upstreamRes.headers[key]) res.setHeader(key, upstreamRes.headers[key]);
+            }
+            upstreamRes.pipe(res);
+        });
+        upstream.on('error', (error) => {
+            console.error('[card-icon] 代理失败:', error.message);
+            if (!res.headersSent) res.status(502).end();
+            else res.end();
+        });
     });
 
     /**

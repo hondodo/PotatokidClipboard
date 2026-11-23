@@ -31,6 +31,7 @@ class CardLayoutNode {
     this.visibleWhen,
     this.confirm,
     this.max,
+    this.min,
     this.height,
     this.metric,
     this.window,
@@ -39,6 +40,9 @@ class CardLayoutNode {
     this.source,
     this.item,
     this.columns,
+    this.map,
+    this.round = false,
+    this.interactive = false,
     this.children = const <CardLayoutNode>[],
     this.template,
   });
@@ -64,6 +68,7 @@ class CardLayoutNode {
   final String? visibleWhen;
   final String? confirm;
   final String? max;
+  final String? min;
   final double? height;
   final String? metric;
   final String? window;
@@ -72,6 +77,14 @@ class CardLayoutNode {
   final String? source;
   final String? item;
   final int? columns;
+
+  /// 节点级值替换表：写法与 ESP 一致，如 "on=着灯,off=关闭"。
+  /// 只作用于本节点 value/label 里占位符求值出来的原始值，不影响条件判断。
+  final String? map;
+  /// button 节点渲染成圆形（电源键用）。
+  final bool round;
+  /// progress 节点可拖动/点击调节（亮度条用），松手时发 onAction。
+  final bool interactive;
   final List<CardLayoutNode> children;
   final CardLayoutNode? template;
 
@@ -113,6 +126,7 @@ class CardLayoutNode {
       visibleWhen: json['visibleWhen'] as String?,
       confirm: json['confirm'] as String?,
       max: json['max'] == null ? null : '${json['max']}',
+      min: json['min'] == null ? null : '${json['min']}',
       height: _num(json['height']),
       metric: json['metric'] as String?,
       window: json['window'] as String?,
@@ -121,6 +135,9 @@ class CardLayoutNode {
       source: json['source'] as String?,
       item: json['item'] as String?,
       columns: (json['columns'] as num?)?.toInt(),
+      map: json['map'] == null ? null : '${json['map']}',
+      round: json['round'] == true,
+      interactive: json['interactive'] == true,
       children: children,
       template: rawTpl is Map
           ? CardLayoutNode.fromJson(
@@ -222,6 +239,9 @@ class CardEvalContext {
       'gangOnCount': '${group.onCount}',
       'primary.entityId': primary?.entityId ?? '',
       'primary.switchable': primary != null ? 'true' : 'false',
+      // 灯光亮度：brightnessPercent 0-100（无亮度能力时为 0），brightness 原始 0-255。
+      'brightnessPercent': '${primary?.brightnessPercent ?? 0}',
+      'brightness': '${primary?.brightnessValue ?? 0}',
     };
     // 组内实体属性：attr.xxx 指向主实体，entity.0.state / entity.1.state 等。
     if (primary != null) {
@@ -263,15 +283,44 @@ class CardEvalContext {
   }
 
   /// 替换字符串里的 {占位符}。未知占位符替换为空串。
-  String resolve(String raw) {
+  /// [valueMap] 传入时对「占位符求值出来的原始值」做替换（如 off→关闭）；
+  /// 条件判断（visibleWhen / 三元）不传它，始终基于原始值比较。
+  String resolve(String raw, [Map<String, String>? valueMap]) {
     return raw.replaceAllMapped(RegExp(r'\{([^}]+)\}'), (Match m) {
       final String key = m.group(1)!.trim();
       // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
       final String? direct = _values[key];
-      if (direct != null) return direct;
-      if (key.contains('?')) return _resolveTernary(key);
+      if (direct != null) return _applyValueMap(direct, valueMap);
+      if (key.contains('?')) return _applyValueMap(_resolveTernary(key), valueMap);
       return '';
     });
+  }
+
+  /// 把原始值按 map（"on=着灯,off=关闭"）替换；解析规则与 ESP 一致。
+  static Map<String, String>? parseValueMap(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final Map<String, String> out = <String, String>{};
+    // 逗号 / 中文逗号 / 分号 / 换行分隔；等号支持 = 与 ＝。
+    for (final String part in raw.split(RegExp(r'[,，;；\n]+'))) {
+      final String seg = part.trim();
+      if (seg.isEmpty) continue;
+      final int eq = seg.indexOf('=');
+      if (eq <= 0) continue;
+      final String key = seg.substring(0, eq).trim();
+      String val = seg.substring(eq + 1).trim();
+      if (val.length >= 2 &&
+          ((val.startsWith("'") && val.endsWith("'")) ||
+              (val.startsWith('"') && val.endsWith('"')))) {
+        val = val.substring(1, val.length - 1);
+      }
+      if (key.isNotEmpty) out[key] = val;
+    }
+    return out.isEmpty ? null : out;
+  }
+
+  String _applyValueMap(String raw, Map<String, String>? valueMap) {
+    if (valueMap == null || valueMap.isEmpty) return raw;
+    return valueMap[raw] ?? valueMap[raw.toLowerCase()] ?? raw;
   }
 
   String _resolveTernary(String expr) {

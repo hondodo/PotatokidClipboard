@@ -118,12 +118,15 @@
     if (spanSel) spanSel.value = `${span.col || 1}x${span.row || 1}`;
     const ge = $('re-generic-enabled');
     if (ge) ge.checked = card.genericEnabled === true;
+    const iconEl = $('re-card-icon');
+    if (iconEl) iconEl.value = card.icon || t.icon || '';
     const layoutEl = $('re-layout');
     if (layoutEl) {
       layoutEl.value = card.layout ? JSON.stringify(card.layout, null, 2) : '';
     }
     const status = $('re-layout-status');
     if (status) status.textContent = card.layout ? '已配置自定义布局' : '使用默认布局';
+    if (typeof refreshCardPreview === 'function') refreshCardPreview();
   }
 
   /** 从编辑区读取 card 配置；layout 文本解析失败时抛出，交调用方提示。 */
@@ -132,6 +135,8 @@
     const parts = String((spanSel && spanSel.value) || '1x1').split('x').map(Number);
     const span = { col: parts[0] || 1, row: parts[1] || 1 };
     const ge = $('re-generic-enabled');
+    const iconEl = $('re-card-icon');
+    const icon = iconEl ? String(iconEl.value || '').trim() : '';
     const layoutEl = $('re-layout');
     let layout = null;
     if (layoutEl && layoutEl.value.trim()) {
@@ -140,6 +145,7 @@
     return {
       span,
       layout,
+      icon,
       genericEnabled: !!(ge && ge.checked),
     };
   }
@@ -391,13 +397,17 @@
       const rows = data.results || [];
       const currentKey = cur ? cur.key : '';
       const matched = rows.filter((r) => r.key === currentKey).length;
-      if (meta) meta.textContent = `共 ${data.total} 台设备 · 当前类型「${esc(cur ? (cur.label || cur.key) : '')}」命中 ${matched} 台`;
+      if (meta) meta.textContent = `共 ${data.total} 台设备 · 当前类型「${esc(cur ? (cur.label || cur.key) : '')}」命中 ${matched} 台（已置顶）`;
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的设备。</td></tr>';
         return;
       }
+      // 命中当前编辑类型的行排到最前面，省去逐屏滚动找匹配项；
+      // 现代浏览器 sort 是稳定排序，命中组内部保持原顺序。
+      const ordered = rows.slice().sort((a, b) =>
+        (a.key === currentKey ? 0 : 1) - (b.key === currentKey ? 0 : 1));
       const frag = document.createDocumentFragment();
-      rows.forEach((r, i) => {
+      ordered.forEach((r, i) => {
         const tr = document.createElement('tr');
         const hit = r.key === currentKey;
         if (hit) tr.className = 're-global-hit';
@@ -464,6 +474,278 @@
     const spanSel = $('re-span');
     if (spanSel) spanSel.value = '1x1';
   });
+
+  // ------------------------------------------------------------ 卡片布局实时预览（mock 数据渲染）
+  // 用示例数据把 textarea 里的布局树渲染成一张卡片，改 JSON / 切换在线开关即时刷新。
+  // 渲染规则对齐 Flutter 端 JsonCardRenderer：占位符 {xxx}、节点 map 值替换、row/column/progress 等。
+  // Flutter _materialIcons 里的图标名在预览里用相近字形表示，避免显示一长串英文。
+  const PV_ICON_GLYPHS = {
+    brightness: '☀', lightbulb: '💡', power: '⏻', power_settings_new: '⏻',
+    thermostat: '🌡', device_thermostat: '🌡', ac_unit: '❄', water_drop: '💧',
+    wind: '✦', tv: '▣', local_fire_department: '🔥', microwave: '▣',
+    washing_machine: '◉', electric_bolt: '⚡', lock: '🔒', lock_open: '🔓',
+    grid_view: '▦', show_chart: '📈', volume_up: '🔊', cloud: '☁',
+  };
+  function previewContext() {
+    const t = reCurType() || {};
+    const card = t.card || {};
+    const onEl = $('re-pv-on');
+    const brightEl = $('re-pv-bright');
+    const onlineEl = $('re-pv-online');
+    const isOn = !onEl || onEl.checked;
+    const isOnline = !onlineEl || onlineEl.checked;
+    const bright = brightEl ? Number(brightEl.value) : 10;
+    const state = isOn ? 'on' : 'off';
+    const iconEl = $('re-card-icon');
+    // 输入框存在时以它为准（清空就显示空，和 App 的 {icon} 求值一致）。
+    const icon = iconEl
+      ? String(iconEl.value || '').trim()
+      : (card.icon || t.icon || '☀');
+    return {
+      title: '客厅 大灯',
+      icon,
+      color: card.color || t.color || '#facc15',
+      label: card.label || t.label || '灯光',
+      state,
+      main: isOn ? '已开启' : '已关闭',
+      sub: isOn ? '亮度 ' + bright + '%' : 'off',
+      s1: state, s2: '', status: isOnline ? '已连接' : '离线',
+      brightnessPercent: String(bright),
+      brightness: String(Math.round(bright * 255 / 100)),
+      gangCount: '5', gangOnCount: isOn ? '1' : '0',
+      'primary.entityId': 'light.living',
+      'primary.switchable': 'true',
+      'attr.percentage': String(bright),
+      _online: isOnline,
+    };
+  }
+  // 对齐 Flutter CardEvalContext.parseValueMap：支持逗号/中文逗号/分号/换行分隔，
+  // 等号 = / ＝，值可带单双引号；匹配时先原值、再小写兜底。
+  function pvValueMap(node) {
+    if (!node || !node.map) return null;
+    const out = {};
+    for (const part of String(node.map).split(/[,，;；\n]+/)) {
+      const seg = part.trim();
+      if (!seg) continue;
+      const eq = seg.indexOf('=');
+      if (eq <= 0) continue;
+      const key = seg.slice(0, eq).trim();
+      let val = seg.slice(eq + 1).trim();
+      if (val.length >= 2 && ((val[0] === "'" && val[val.length - 1] === "'")
+        || (val[0] === '"' && val[val.length - 1] === '"'))) {
+        val = val.slice(1, -1);
+      }
+      if (key) out[key] = val;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  function pvResolve(raw, ctx, node) {
+    const map = pvValueMap(node);
+    // 与 Flutter 一致：map 作用在「每个占位符求值出来的值」上，
+    // 这样 "{state} · 亮度{brightnessPercent}%" 里的 on 也会变成「着灯」。
+    return String(raw == null ? '' : raw).replace(/\{([^}]+)\}/g, (m, k) => {
+      const key = String(k).trim();
+      let v = Object.prototype.hasOwnProperty.call(ctx, key) ? String(ctx[key]) : '';
+      if (map) v = Object.prototype.hasOwnProperty.call(map, v)
+        ? map[v]
+        : (Object.prototype.hasOwnProperty.call(map, v.toLowerCase()) ? map[v.toLowerCase()] : v);
+      return v;
+    });
+  }
+  function pvColor(raw, ctx, node, fallback) {
+    const v = pvResolve(raw, ctx, node).trim();
+    if (!v) return fallback || '';
+    // 支持 #RRGGBB / 8 位 #RRGGBBAA（如 {color}26 → 透明度）
+    if (/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return v;
+    return fallback || v;
+  }
+  function pvFlexDir(node) {
+    const t = node.type;
+    if (t === 'row') return 'row';
+    if (t === 'wrap') return 'row;flex-wrap:wrap';
+    return 'column';
+  }
+  function pvMainAlign(node) {
+    return ({
+      center: 'center', end: 'flex-end', start: 'flex-start',
+      spaceBetween: 'space-between', spaceAround: 'space-around', spaceEvenly: 'space-evenly',
+    })[node.mainAlign] || 'flex-start';
+  }
+  function pvCrossAlign(node) {
+    return ({ center: 'center', end: 'flex-end', start: 'flex-start', stretch: 'stretch' })[node.crossAlign]
+      || (node.type === 'column' ? 'stretch' : 'center');
+  }
+  function renderPreviewNode(node, ctx) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return '';
+    const type = node.type;
+    const online = ctx._online;
+    try {
+      if (type === 'row' || type === 'column' || type === 'wrap') {
+        const kids = (node.children || []).map((c) => renderPreviewNode(c, ctx)).join('');
+        const gap = node.gap != null ? Number(node.gap) : 0;
+        const pad = Array.isArray(node.padding)
+          ? `padding:${Number(node.padding[0]) || 0}px ${Number(node.padding[1] != null ? node.padding[1] : node.padding[0]) || 0}px;`
+          : '';
+        const flexCss = node.expand ? 'flex:1;min-width:0;' : '';
+        return `<div style="display:flex;flex-direction:${pvFlexDir(node)};gap:${gap}px;`
+          + `justify-content:${pvMainAlign(node)};align-items:${pvCrossAlign(node)};${pad}${flexCss}">${kids}</div>`;
+      }
+      if (type === 'text') {
+        const txt = pvResolve(node.value, ctx, node);
+        const size = node.size != null ? Number(node.size) : 14;
+        const weight = node.weight != null ? Number(node.weight) : 400;
+        const color = pvColor(node.color, ctx, node, '#e7eef6');
+        const align = node.align || 'left';
+        const lines = node.maxLines != null ? Number(node.maxLines) : 1;
+        return `<div style="font-size:${size}px;font-weight:${weight};color:${color};`
+          + `text-align:${align};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
+          + `max-width:100%;line-height:1.4">${esc(txt)}</div>`;
+      }
+      if (type === 'icon') {
+        const rawIcon = pvResolve(node.value, ctx, node);
+        const size = node.size != null ? Number(node.size) : 26;
+        // 上传后的图片是相对路径（同源代理）或绝对 URL，预览直接显示图片。
+        if (/^(https?:\/\/|\/api\/files\/)/i.test(rawIcon)) {
+          return `<img src="${esc(rawIcon)}" width="${size}" height="${size}" `
+            + `style="object-fit:contain;display:block" alt="icon">`;
+        }
+        const val = PV_ICON_GLYPHS[String(rawIcon).toLowerCase()] || rawIcon;
+        const box = node.box || {};
+        const boxSize = box.size != null ? Number(box.size) : 0;
+        const radius = box.radius != null ? Number(box.radius) : 12;
+        const bg = box.bg ? pvColor(box.bg, ctx, node, '') : '';
+        const fg = box.color ? pvColor(box.color, ctx, node, ctx.color) : ctx.color;
+        const inner = `<span style="font-size:${size}px;line-height:1;color:${fg}">${esc(val)}</span>`;
+        if (boxSize) {
+          return `<div style="width:${boxSize}px;height:${boxSize}px;flex:none;display:flex;`
+            + `align-items:center;justify-content:center;border-radius:${radius}px;`
+            + `background:${bg || 'transparent'}">${inner}</div>`;
+        }
+        return inner;
+      }
+      if (type === 'button' || type === 'chip') {
+        const round = node.round === true;
+        const label = pvResolve(node.label || node.subLabel || node.value || '', ctx, node);
+        const color = pvColor(node.color, ctx, node, ctx.color);
+        const sz = node.size != null ? Number(node.size) : 0;
+        if (round) {
+          const d = sz || 52;
+          return `<div style="width:${d}px;height:${d}px;flex:none;border-radius:50%;`
+            + `border:2px solid ${color};color:${color};display:flex;align-items:center;`
+            + `justify-content:center;font-size:${Math.round(d * 0.46)}px;background:rgba(0,0,0,.15)">⏻</div>`;
+        }
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;`
+          + `border:1px solid ${color};border-radius:14px;color:${color};font-size:13px">${esc(label)}</span>`;
+      }
+      if (type === 'progress') {
+        const val = Number(pvResolve(node.value, ctx, node)) || 0;
+        const max = Number(pvResolve(node.max, ctx, node)) || 100;
+        const pct = max > 0 ? Math.max(0, Math.min(100, val / max * 100)) : 0;
+        const h = node.height != null ? Number(node.height) : 6;
+        const interactive = node.interactive === true;
+        const color = online ? pvColor(node.color, ctx, node, ctx.color) : '#6b7d8e';
+        const thumbH = h + 14;
+        const fill = `<div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;`
+          + `border-radius:${h / 2}px;background:${color}"></div>`;
+        const thumb = `<div style="position:absolute;left:calc(${pct}% - 6px);top:${-(thumbH - h) / 2}px;`
+          + `width:12px;height:${thumbH}px;border-radius:6px;background:${online ? '#fff' : '#93a4b5'};`
+          + `border:1.5px solid ${online ? '#cfcfcf' : '#6b7d8e'};box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>`;
+        return `<div style="position:relative;width:100%;height:${h}px;`
+          + `background:${online ? 'rgba(148,163,184,.28)' : 'rgba(148,163,184,.14)'};`
+          + `border-radius:${h / 2}px;margin:7px 0">${fill}${thumb}</div>`;
+      }
+      if (type === 'divider') {
+        return `<hr style="border:0;border-top:1px solid var(--line);width:100%;margin:4px 0">`;
+      }
+      if (type === 'sparkline') {
+        return `<div style="height:${node.height || 40}px;display:flex;align-items:center;`
+          + `justify-content:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px;`
+          + `font-size:12px">📈 ${esc(node.metric || 'power')}</div>`;
+      }
+      if (type === 'repeat') {
+        const tpl = node.template || {};
+        const n = Math.max(1, Math.min(4, node.columns || 2));
+        const sample = ['客厅 大灯', '卧室 灯', '餐厅 灯', '阳台 灯'].slice(0, n);
+        return `<div style="display:grid;grid-template-columns:repeat(${n},1fr);gap:8px">`
+          + sample.map((nm) => renderPreviewNode(tpl, Object.assign({}, ctx, {
+              'item.name': nm, 'item.state': ctx.state, 'gang.name': nm, 'gang.isOn': ctx.state,
+            }))).join('') + `</div>`;
+      }
+    } catch (e) {
+      return `<span style="color:var(--danger);font-size:12px">节点渲染失败: ${esc(e.message)}</span>`;
+    }
+    return '';
+  }
+  function refreshCardPreview() {
+    const stage = $('re-layout-preview');
+    if (!stage) return;
+    const el = $('re-layout');
+    const brightEl = $('re-pv-bright');
+    const brightV = $('re-pv-bright-v');
+    if (brightEl && brightV) brightV.textContent = brightEl.value + '%';
+    if (!el || !el.value.trim()) { stage.innerHTML = '<div class="empty">当前使用默认布局（留空）。可点「载入默认布局」查看默认值，或直接编辑 JSON。</div>'; return; }
+    let tree;
+    try { tree = JSON.parse(el.value); }
+    catch (e) { stage.innerHTML = `<div style="color:var(--danger);font-size:12px">JSON 格式错误：${esc(e.message)}</div>`; return; }
+    const errs = validateLayoutTree(tree);
+    if (errs.length) { stage.innerHTML = `<div style="color:var(--danger);font-size:12px">布局校验未通过：${esc(errs.slice(0, 3).join('; '))}</div>`; return; }
+    const ctx = previewContext();
+    const t = reCurType() || {};
+    const span = (t.card && t.card.span) || { col: 1, row: 1 };
+    const wide = (span.col || 1) > 1;
+    stage.innerHTML = `<div class="card-preview-canvas${wide ? ' wide' : ''}">${renderPreviewNode(tree, ctx)}</div>`;
+  }
+  const layoutEl = $('re-layout');
+  if (layoutEl) layoutEl.addEventListener('input', refreshCardPreview);
+  ['re-pv-online', 're-pv-on', 're-pv-bright', 're-card-icon'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('input', refreshCardPreview);
+  });
+  // 切换类型时 renderReCard 末尾会调用 refreshCardPreview；载入默认/按钮操作也刷新
+  if (fmtBtn) fmtBtn.addEventListener('click', () => setTimeout(refreshCardPreview, 0));
+  if (defBtn) defBtn.addEventListener('click', () => setTimeout(refreshCardPreview, 0));
+
+  // 卡片图标上传：local server 校验后转发 yuntu，返回相对路径写入 card.icon。
+  const iconUploadBtn = $('re-card-icon-upload');
+  const iconFileInput = $('re-card-icon-file');
+  if (iconUploadBtn && iconFileInput) {
+    iconUploadBtn.addEventListener('click', () => iconFileInput.click());
+    iconFileInput.addEventListener('change', async () => {
+      const file = iconFileInput.files && iconFileInput.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        setLayoutStatus('图片不能超过 2MB', false);
+        return;
+      }
+      const originalText = iconUploadBtn.textContent;
+      iconUploadBtn.disabled = true;
+      iconUploadBtn.textContent = '上传中…';
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('读取图片失败'));
+          reader.readAsDataURL(file);
+        });
+        const result = await api('/api/admin/device-type/icon', {
+          method: 'POST',
+          body: JSON.stringify({ data: dataUrl }),
+        });
+        const iconEl = $('re-card-icon');
+        if (iconEl) {
+          iconEl.value = result.url;
+          iconEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        setLayoutStatus(`图标已上传：${result.url}`, true);
+      } catch (e) {
+        setLayoutStatus(`图标上传失败：${e.message}`, false);
+      } finally {
+        iconFileInput.value = '';
+        iconUploadBtn.disabled = false;
+        iconUploadBtn.textContent = originalText;
+      }
+    });
+  }
 
   // ------------------------------------------------------------ ESP 设备分类（一页 = 一台被控设备）
 

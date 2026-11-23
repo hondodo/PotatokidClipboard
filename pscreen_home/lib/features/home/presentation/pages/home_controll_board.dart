@@ -1230,6 +1230,23 @@ class _ControlGridState extends State<_ControlGrid> {
                 if (target.isNotEmpty) bloc.add(PressEntityButton(entityId: target));
                 return;
               }
+              // brightness@<entityId>:<percent>：卡片亮度条松手时下发。
+              // 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。
+              if (trimmed.startsWith('brightness@')) {
+                final String rest = trimmed.substring('brightness@'.length).trim();
+                final int sep = rest.lastIndexOf(':');
+                if (sep > 0) {
+                  final String target = rest.substring(0, sep).trim();
+                  final int? percent = int.tryParse(rest.substring(sep + 1).trim());
+                  if (target.isNotEmpty && percent != null) {
+                    final HaEntityStateModel? lightEntity = state.entities[target];
+                    if (lightEntity == null || lightEntity.supportsBrightness) {
+                      bloc.add(SetLightBrightness(entityId: target, percent: percent));
+                    }
+                  }
+                }
+                return;
+              }
               final String kind = trimmed.split('(').first.trim();
               switch (kind) {
                 case 'toggle':

@@ -4,9 +4,12 @@ import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
+import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
 import 'package:pscreen_home/features/home/domain/models/metric.dart';
 import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
+import 'package:pscreen_home/features/home/presentation/components/cached_card_icon.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
+import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 通用 JSON 卡片渲染器：递归解释服务端下发的布局树，生成原生 Flutter Widget。
@@ -171,7 +174,7 @@ class JsonCardRenderer extends StatelessWidget {
   Widget _buildText(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
     final ThemeData theme = Theme.of(context);
     final String raw = node.value ?? '';
-    final String text = eval.resolve(raw);
+    final String text = eval.resolve(raw, CardEvalContext.parseValueMap(node.map));
     // title 占位符交给 cardTitle 拼房间名；其余直接显示。
     final String shown = raw.trim() == '{title}'
         ? cardTitle(title: text, areaLabel: areaLabel, showArea: showAreaInTitle)
@@ -207,9 +210,35 @@ class JsonCardRenderer extends StatelessWidget {
 
   Widget _buildIcon(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
     final ThemeData theme = Theme.of(context);
-    final IconData iconData = _iconData(eval.resolve(node.value ?? ''));
+    final String raw = eval.resolve(node.value ?? '').trim();
     final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
-    final Widget icon = Icon(iconData, size: node.size ?? 24, color: available ? accent : theme.colorScheme.outline);
+    final Color iconColor = available ? accent : theme.colorScheme.outline;
+    final double size = node.size ?? 24;
+
+    // 单字符符号（☀ ❄ ✦ ⏻ ▦ 等）MaterialIcons 里没有对应项，
+    // 用 Text 直接绘制字形，和 admin 预览保持一致；否则才回退到 Icon。
+    late final Widget icon;
+    if (CachedCardIcon.resolveUrl(raw) != null) {
+      // 图片图标：相对路径会按 HaConfig.serverBaseUrl 解析并落磁盘缓存。
+      icon = CachedCardIcon(
+        icon: raw,
+        size: size,
+        fallback: () => Icon(Icons.image_not_supported_outlined, size: size, color: iconColor),
+      );
+    } else if (raw.isNotEmpty &&
+        !_materialIcons.containsKey(raw.toLowerCase()) &&
+        raw.runes.length <= 2) {
+      icon = Semantics(
+        label: raw,
+        child: Text(
+          raw,
+          style: TextStyle(fontSize: size, color: iconColor, height: 1),
+          textAlign: TextAlign.center,
+        ),
+      );
+    } else {
+      icon = Icon(_iconData(raw), size: size, color: iconColor);
+    }
     final CardIconBox? box = node.box;
     if (box == null) return icon;
     return Container(
@@ -232,31 +261,19 @@ class JsonCardRenderer extends StatelessWidget {
     bool chip = false,
   }) {
     final ThemeData theme = Theme.of(context);
-    final String label = eval.resolve(node.label ?? '');
-    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!);
+    final Map<String, String>? valueMap = CardEvalContext.parseValueMap(node.map);
+    final String label = eval.resolve(node.label ?? '', valueMap);
+    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, valueMap);
     final String onClick = eval.resolve(node.onClick ?? '');
     final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);
     final bool active = resolvedStyle == 'active';
-
-    final Widget child = sub == null
-        ? Text(label, style: TextStyle(fontSize: chip ? 12 : 14))
-        : Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 2),
-              Text(sub, style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-            ],
-          );
 
     VoidCallback? onPressed;
     if (available && onClick.isNotEmpty) {
       onPressed = () {
         final String? confirm = node.confirm;
         if (confirm != null && confirm.isNotEmpty) {
-          // 二次确认交给上层（这里用简单 dialog，onAction 仍在确认后触发）。
           showDialog<bool>(
             context: context,
             builder: (BuildContext ctx) => AlertDialog(
@@ -274,6 +291,44 @@ class JsonCardRenderer extends StatelessWidget {
         }
       };
     }
+
+    // 圆形按钮（电源键）：忽略文字，按 value/icon 画一个圆形图标按钮。
+    if (node.round) {
+      final String iconRaw = (node.value ?? node.icon ?? 'power_settings_new').trim();
+      final IconData iconData = _iconData(eval.resolve(iconRaw));
+      final double d = node.size ?? 52;
+      return SizedBox(
+        width: d,
+        height: d,
+        child: FilledButton(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            shape: const CircleBorder(),
+            backgroundColor: active
+                ? accent.withValues(alpha: 0.28)
+                : Colors.transparent,
+            foregroundColor: accent,
+            side: BorderSide(color: accent.withValues(alpha: 0.9), width: 2),
+            padding: EdgeInsets.zero,
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ).copyWith(shadowColor: WidgetStateProperty.all(Colors.transparent)),
+          child: Icon(iconData, size: d * 0.46),
+        ),
+      );
+    }
+
+    final Widget child = sub == null
+        ? Text(label, style: TextStyle(fontSize: chip ? 12 : 14))
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(sub, style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          );
 
     if (chip) {
       return SizedBox(
@@ -340,6 +395,45 @@ class JsonCardRenderer extends StatelessWidget {
     final double max = num.tryParse(eval.resolve(node.max ?? '100'))?.toDouble() ?? 100;
     final double progress = max > 0 ? (value / max).clamp(0.0, 1.0) : 0;
     final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
+
+    // 可交互进度条（亮度）：用与旧版灯卡一致的 GradientSlider，拖动即时反馈、
+    // 松手才下发。onClick 写 "brightness@{primary.entityId}" 之类的动作，
+    // 这里求值出目标实体后拼上百分比交给上层派发 SetLightBrightness。
+    if (node.interactive) {
+      String action = eval.resolve(node.onClick ?? '');
+      // onClick 写 "brightness"（或空 / brightness@auto）时，自动从组内挑第一个
+      // 真正支持调光的灯，避免配置时手填实体 ID（多实体灯组的主实体未必能调光）。
+      if (action.isEmpty || action == 'brightness' || action == 'brightness@auto') {
+        String? lampId;
+        for (final HaEntityStateModel e in group.entities) {
+          if (e.isLight && e.supportsBrightness && e.isAvailable) {
+            lampId = e.entityId;
+            break;
+          }
+        }
+        action = 'brightness@${lampId ?? ''}';
+      }
+      final double min = num.tryParse(eval.resolve(node.min ?? '0'))?.toDouble() ?? 0;
+      // 亮度条始终渲染、拇指常显：触屏无 hover，必须一眼看出可滑动。
+      // 在线=彩色渐变；离线=暗灰渐变（offline），但仍可见、拇指仍在，
+      // 以此区分设备在线状态，而不是用透明度把整条压没。
+      return GradientSlider(
+        value: value,
+        min: min,
+        max: max > 0 ? max : 100,
+        colors: <Color>[
+          accent.withValues(alpha: 0.65),
+          accent,
+        ],
+        trackColor: theme.colorScheme.outlineVariant,
+        height: node.height ?? 12,
+        thumbHeight: (node.height ?? 12) + 14,
+        enabled: available && action.isNotEmpty,
+        offline: !available,
+        onChangeEnd: (double v) => onAction('$action:${v.round()}'),
+      );
+    }
+
     return SizedBox(
       height: node.height ?? 6,
       child: ClipRRect(
@@ -468,9 +562,10 @@ class JsonCardRenderer extends StatelessWidget {
     // 先试 Material 图标名
     final IconData? m = _materialIcons[raw.toLowerCase()];
     if (m != null) return m;
-    // 单个 emoji / 字符（如 ♨ ☀ ▦）—— 用 Text 更合适，这里包成 Icon 占位。
+    // 单个 emoji / 字符（如 ♨ ☀ ▦）由 _buildIcon 的 Text 分支绘制，
+    // 这里只作为该分支之外的兜底（例如空值）。
     if (raw.length <= 2 && raw.runes.isNotEmpty) {
-      return Icons.circle; // 单字符图标由 _buildIcon 分支用 Text 渲染更好，见下。
+      return Icons.circle;
     }
     return Icons.devices_other;
   }
@@ -481,6 +576,12 @@ class JsonCardRenderer extends StatelessWidget {
         return MainAxisAlignment.center;
       case 'end':
         return MainAxisAlignment.end;
+      case 'spaceBetween':
+        return MainAxisAlignment.spaceBetween;
+      case 'spaceAround':
+        return MainAxisAlignment.spaceAround;
+      case 'spaceEvenly':
+        return MainAxisAlignment.spaceEvenly;
       default:
         return MainAxisAlignment.start;
     }

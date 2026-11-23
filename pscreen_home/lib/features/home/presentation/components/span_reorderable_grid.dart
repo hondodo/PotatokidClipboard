@@ -1,15 +1,13 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// 跨格 + 长按进入编辑态的拖拽网格（手机桌面式交互）。
+/// 跨格 + 「空白处长按」进入编辑态的拖拽网格（手机桌面式交互）。
 ///
-/// 痛点：原 flutter_reorderable_grid_view 的 150ms 长按太灵敏——手指微动就误触
-/// 拖动，真正想拖时又抓不准。本组件改为：
-///  1. 默认不可拖，单击正常进详情；
-///  2. 长按 500ms 进入「编辑态」：所有卡片轻微抖动、浮起，出现拖拽手感；
-///  3. 编辑态下拖动卡片到另一张上松手 → 交换两者位置；
+/// 交互约定（避免滚动/卡片操作被排序抢走）：
+///  1. 卡片上**没有**任何长按识别器：滚动、点按钮、拖亮度条都按原样工作；
+///  2. 在网格的空白处（卡片间隙、下方空白区）长按 500ms → 进入编辑态；
+///  3. 编辑态：卡片抖动浮起，直接拖动卡片到另一张上松手 → 交换位置；
 ///  4. 点右上角「完成」退出编辑态。
 ///
 /// 跨格实现：用原生 Wrap + 固定格宽计算，卡片按 col×row 占不同宽高。
@@ -60,29 +58,9 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
   bool _editing = false;
   int? _draggingIndex;
   int? _hoverIndex;
-  Timer? _longPressTimer;
-
-  @override
-  void dispose() {
-    _longPressTimer?.cancel();
-    super.dispose();
-  }
 
   void _enterEditing() {
     if (!_editing && mounted) setState(() => _editing = true);
-  }
-
-  /// 指针按下 500ms 后进入编辑态（抖动），不依赖是否真正拖动——
-  /// 「手机桌面式：长按就跳动表示可拖」的手感。用 Listener 的指针事件
-  /// 自己计时，避开 LongPressDraggable 内部长按识别器的手势竞技场竞争。
-  void _startLongPress() {
-    _longPressTimer?.cancel();
-    _longPressTimer = Timer(const Duration(milliseconds: 500), _enterEditing);
-  }
-
-  void _cancelLongPress() {
-    _longPressTimer?.cancel();
-    _longPressTimer = null;
   }
 
   void _exitEditing() {
@@ -114,6 +92,11 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
             widget.crossAxisSpacing * (widget.crossAxisCount - 1);
         final double cellWidth = usableWidth / widget.crossAxisCount;
 
+        // 让「空白区」覆盖整个可视区域：内容比视口短时，下方剩余空间也能长按。
+        final double minContentHeight = constraints.maxHeight.isFinite
+            ? math.max(0.0, constraints.maxHeight - widget.padding.vertical)
+            : 0.0;
+
         final List<Widget> cells = <Widget>[];
         for (int i = 0; i < widget.items.length; i++) {
           final T item = widget.items[i];
@@ -136,11 +119,43 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
           children: <Widget>[
             SingleChildScrollView(
               controller: widget.scrollController,
-              padding: widget.padding,
-              child: Wrap(
-                spacing: widget.crossAxisSpacing,
-                runSpacing: widget.mainAxisSpacing,
-                children: cells,
+              // 空白处的长按手势：与 ScrollView 的纵向拖拽竞争手势竞技场，
+              // 按住不动 500ms 才进入编辑态；一旦开始滚动就由 ScrollView 接管。
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: _enterEditing,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: minContentHeight),
+                  child: Padding(
+                    padding: widget.padding,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Wrap(
+                          spacing: widget.crossAxisSpacing,
+                          runSpacing: widget.mainAxisSpacing,
+                          children: cells,
+                        ),
+                        SizedBox(
+                          height: 52,
+                          child: Center(
+                            child: Text(
+                              _editing ? '拖动卡片交换位置 · 点右上角完成' : '长按空白处排列卡片',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: _editing ? 0.5 : 0.28),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
             if (_editing)
@@ -192,6 +207,43 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
       child: cell,
     );
 
+    // 卡片自身吞掉长按事件：既不进入编辑态，也不让外层「空白处长按」触发。
+    // 卡片上的按钮、亮度条等子手势不受影响。
+    cell = GestureDetector(
+      onLongPress: () {},
+      child: cell,
+    );
+
+    // 只有编辑态才允许拖动卡片，滚动手势永远不会和排序抢竞技场。
+    if (_editing) {
+      cell = Draggable<int>(
+        data: index,
+        onDragStarted: () {
+          if (mounted) setState(() => _draggingIndex = index);
+        },
+        onDragEnd: (DraggableDetails details) => _clearDrag(),
+        onDraggableCanceled: (_, _) => _clearDrag(),
+        feedback: Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            width: math.min(width, 320),
+            height: math.min(height, 340),
+            child: Transform.scale(
+              scale: 1.05,
+              child: Card(
+                elevation: 12,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: base,
+              ),
+            ),
+          ),
+        ),
+        childWhenDragging: const SizedBox.shrink(),
+        child: cell,
+      );
+    }
+
     return DropTarget(
       index: index,
       enabled: _editing,
@@ -203,47 +255,17 @@ class _SpanReorderableGridState<T> extends State<SpanReorderableGrid<T>> {
         }
       },
       onDrop: (int fromIndex) => _swap(fromIndex, index),
-      child: Listener(
-        onPointerDown: (_) => _startLongPress(),
-        onPointerUp: (_) => _cancelLongPress(),
-        onPointerCancel: (_) => _cancelLongPress(),
-        child: LongPressDraggable<int>(
-          data: index,
-          delay: const Duration(milliseconds: 500),
-          onDragStarted: () {
-            _cancelLongPress();
-            if (mounted) setState(() => _draggingIndex = index);
-            _enterEditing();
-          },
-          onDragEnd: (DraggableDetails details) {
-            if (mounted) {
-              setState(() {
-                _draggingIndex = null;
-                _hoverIndex = null;
-              });
-            }
-          },
-          feedback: Material(
-            color: Colors.transparent,
-            child: SizedBox(
-              width: math.min(width, 320),
-              height: math.min(height, 340),
-              child: Transform.scale(
-                scale: 1.05,
-                child: Card(
-                  elevation: 12,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  child: base,
-                ),
-              ),
-            ),
-          ),
-          childWhenDragging: const SizedBox.shrink(),
-          child: cell,
-        ),
-      ),
+      child: cell,
     );
+  }
+
+  void _clearDrag() {
+    if (mounted && (_draggingIndex != null || _hoverIndex != null)) {
+      setState(() {
+        _draggingIndex = null;
+        _hoverIndex = null;
+      });
+    }
   }
 }
 

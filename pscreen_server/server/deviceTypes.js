@@ -222,10 +222,12 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     if (value.crossAlign === 'start' || value.crossAlign === 'center' || value.crossAlign === 'end') {
         node.crossAlign = value.crossAlign;
     }
-    if (value.mainAlign === 'start' || value.mainAlign === 'center' || value.mainAlign === 'end') {
+    if (['start', 'center', 'end', 'spaceBetween', 'spaceAround', 'spaceEvenly'].includes(value.mainAlign)) {
         node.mainAlign = value.mainAlign;
     }
     if (value.expand === true) node.expand = true;
+    // 节点级值替换（on=着灯,off=关闭），客户端 resolve() 应用；不影响 visibleWhen 条件。
+    if (value.map != null) node.map = str(value.map, 240);
     if (value.padding != null) {
         const p = Array.isArray(value.padding) ? value.padding : [];
         node.padding = [num(p[0], 12, 0, 48), num(p[1] != null ? p[1] : p[0], 10, 0, 48)];
@@ -257,6 +259,10 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             node.label = str(value.label, 40);
             if (value.subLabel != null) node.subLabel = str(value.subLabel, 40);
             if (value.icon != null) node.icon = str(value.icon, 40);
+            // value 复用为圆形按钮的图标名（round=true 时渲染器优先取 value）
+            if (value.value != null) node.value = str(value.value, 40);
+            if (value.round === true) node.round = true;
+            if (value.size != null) node.size = num(value.size, 52, 16, 96);
             node.onClick = str(value.onClick, 120);
             // style 可为固定枚举，或运行时占位符（如 {gang.style} → active/normal）。
             const styleRaw = str(value.style, 40);
@@ -269,9 +275,11 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             break;
         case 'progress':
             node.value = str(value.value, 40);
+            if (value.min != null) node.min = str(value.min, 40);
             if (value.max != null) node.max = str(value.max, 40);
             if (value.color != null) node.color = str(value.color, 40);
             if (value.height != null) node.height = num(value.height, 6, 2, 24);
+            if (value.interactive === true) node.interactive = true;
             if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
             break;
         case 'sparkline':
