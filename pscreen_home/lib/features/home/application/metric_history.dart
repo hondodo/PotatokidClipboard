@@ -39,11 +39,15 @@ class MetricHistoryStore {
       );
 
   /// 订阅某设备某指标的序列；同一 key 复用同一 notifier。
-  ValueListenable<List<MetricSample>> watch(String deviceId, Metric metric) =>
-      _notifiers.putIfAbsent(
-        keyOf(deviceId, metric),
-        () => ValueNotifier<List<MetricSample>>(const <MetricSample>[]),
-      );
+  ValueListenable<List<MetricSample>> watch(String deviceId, Metric metric) {
+    final String key = keyOf(deviceId, metric);
+    return _notifiers.putIfAbsent(
+      key,
+      () => ValueNotifier<List<MetricSample>>(
+        List<MetricSample>.unmodifiable(_series[key] ?? const <MetricSample>[]),
+      ),
+    );
+  }
 
   /// 追加一个采样点并淘汰窗口外的旧点。
   void record(String deviceId, Metric metric, double value, {DateTime? now}) {

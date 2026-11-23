@@ -490,8 +490,11 @@ class JsonCardRenderer extends StatelessWidget {
       final Widget placeholder = Center(child: Icon(Icons.show_chart, color: accent));
       return node.expand ? const SizedBox.expand() : SizedBox(height: node.height ?? 60, child: placeholder);
     }
+    // 采样器按裸 deviceId 写入样本，orderKey 带 "device:" 前缀，
+    // 直接用 orderKey 查会永远拿到空列表（曲线只剩空网格）。
+    final String sampleDeviceId = group.metricDeviceId;
     return ValueListenableBuilder<List<MetricSample>>(
-      valueListenable: svc.watch(group.orderKey, metric),
+      valueListenable: svc.watch(sampleDeviceId, metric),
       builder: (BuildContext context, List<MetricSample> samples, Widget? _) => chart(samples),
     );
   }

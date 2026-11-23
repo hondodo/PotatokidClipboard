@@ -72,6 +72,12 @@ class HaDeviceGroup {
       ? 'entity:${entities.first.entityId}'
       : 'device:$deviceId';
 
+  /// 指标采样（MetricSampler / MetricHistoryStore）使用的设备 key。
+  ///
+  /// 采样器写入用的是裸 deviceId，不是 [orderKey]（后者带 `device:` 前缀
+  /// 且只用于拖拽排序）。图表查询必须用它才能取到同一条样本序列。
+  String get metricDeviceId => deviceId ?? '';
+
   /// 该设备的全部实体（已排序，主实体在首位）
   final List<HaEntityStateModel> entities;
 

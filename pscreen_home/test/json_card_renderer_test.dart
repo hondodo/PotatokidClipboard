@@ -6,6 +6,8 @@ import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
+import 'package:pscreen_home/features/home/domain/models/metric.dart';
+import 'package:pscreen_home/features/home/application/metric_history.dart';
 import 'package:pscreen_home/features/home/presentation/components/cached_card_icon.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 import 'package:pscreen_home/features/home/presentation/components/json_card_renderer.dart';
@@ -914,5 +916,24 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     await tester.pump();
     expect(actions, <String>['toggle@switch.cuco_v3_on_p_2_1']);
+  });
+
+  test('指标曲线查询 key 与采样器写入 key 一致', () {
+    // 回归：采样器按裸 deviceId 写入，orderKey 带 device: 前缀，
+    // 之前曲线用 orderKey 查，永远拿到空列表（只剩空网格）。
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_socket_781',
+      title: '厨房插座',
+      entities: <HaEntityStateModel>[
+        _entity('switch.cuco_v3_on_p_2_1', 'on'),
+      ],
+    );
+    expect(group.orderKey, 'device:dev_socket_781');
+    expect(group.metricDeviceId, 'dev_socket_781');
+
+    final MetricHistoryStore store = MetricHistoryStore();
+    store.record(group.metricDeviceId, Metric.power, 24);
+    expect(store.watch(group.metricDeviceId, Metric.power).value, hasLength(1));
+    expect(store.watch(group.orderKey, Metric.power).value, isEmpty);
   });
 }
