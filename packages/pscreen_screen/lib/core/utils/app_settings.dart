@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pscreen_screen/app/config/app_config.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_platform.dart';
 import 'package:pscreen_screen/core/media/video_aspect_mode.dart';
+import 'package:pscreen_screen/core/update/app_update_prompt_store.dart';
 
 /// 应用级设置持久化（全局单例）。
 ///
@@ -458,7 +459,7 @@ class AppSettings {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       for (final String key in prefs.getKeys().toList(growable: false)) {
-        if (_isParentalStateKey(key)) continue;
+        if (_isResetProtectedKey(key)) continue;
         await prefs.remove(key);
       }
     } catch (_) {
@@ -482,9 +483,13 @@ class AppSettings {
     _claimedPassword = '';
   }
 
-  /// 是否为儿童模式状态键（不参与「重置」清理）。
-  static bool _isParentalStateKey(String key) =>
-      key.startsWith('kid_watch_') || key.startsWith('parental_');
+  /// 「重置」时保留、不清理的键：
+  /// - 儿童模式状态（重置不该解锁 / 清掉观看计时）；
+  /// - 更新轻提示的「已提示版本」记录（重置后不该对同一版本重复提示）。
+  static bool _isResetProtectedKey(String key) =>
+      key.startsWith('kid_watch_') ||
+      key.startsWith('parental_') ||
+      key.startsWith(AppUpdatePromptStore.keyPrefix);
 
   static String _themeModeToString(ThemeMode mode) {
     switch (mode) {

@@ -1,15 +1,18 @@
-// 上传 parent flavor 三个 APK 到 yuntu 应用分发服务（appId=potatokid-home-parent）。
+// 上传 release APK 到 yuntu 应用分发服务（app_server）。
 //
 // 用法：
-//   YUNTU_ADMIN_USER=<用户名> YUNTU_ADMIN_PASS=<密码> node upload_parent_apks.mjs
+//   YUNTU_APP_ID=potatokid-screen-tv YUNTU_BUILD=2019 YUNTU_ADMIN_COOKIE=... node upload_parent_apks.mjs
 //
 // 说明：
 // - 本地 pscreen_server 只是查询代理；真正的安装包与发布在 yuntu（app_server）。
-// - 三个 APK 按 (appId, platform=apk, abi) 轨道分别发布：
-//     app-parent-release.apk            -> universal
-//     app-arm64-v8a-parent-release.apk  -> arm64-v8a
-//     app-armeabi-v7a-parent-release.apk-> armeabi-v7a
-// - 同一 build=9；默认非强制更新（forceUpdate=false）。
+// - 三个 APK 按 (appId, platform=apk, abi) 轨道分别发布，产物名按 flavor 推导：
+//     app-<flavor>-release.apk              -> universal
+//     app-arm64-v8a-<flavor>-release.apk    -> arm64-v8a
+//     app-armeabi-v7a-<flavor>-release.apk  -> armeabi-v7a
+// - screen 系列（tv/phone/board）三轨 build 统一为 YUNTU_BUILD（不加 ABI 偏移），
+//   客户端上报的 APK 真实 versionCode 与服务端各轨 build 同号，避免串轨误报更新。
+//   parent 端保留历史 ABI 偏移；应急可用 YUNTU_ABI_OFFSET=1 强制回到旧偏移。
+// - 只发布 release 包（产物名固定为 *-release.apk），不传 debug。
 // - 分片上传（8MiB/片），自动处理 init/chunk/complete/publish。
 // - 写操作带 X-Admin-Request:1 + Origin 过 CSRF；cookie jar 复用登录会话。
 
@@ -63,9 +66,13 @@ const ARTIFACTS = [
 
 // Flutter `--split-per-abi` 会给每个架构的 APK 加 versionCode 偏移
 // （armeabi-v7a +1000 / arm64-v8a +2000 / x86_64 +4000），客户端上报的是
-// APK 实际 versionCode。服务端 track 的 build 必须与之同号，否则永远判不出更新。
+// APK 实际 versionCode，服务端 track 的 build 必须与之同号。
+// 但偏移会让 universal/v7a/v8a 出现三种 build（如 18/1018/2018），装通用包
+// 的设备会被判「有更新」而反复提示升级分包。screen 系列改用普通构建
+// （build.gradle.kts 的 splits 已产出分包，但不加偏移），三轨统一 build。
+const UNIFIED_BUILD = IS_TV && process.env.YUNTU_ABI_OFFSET !== '1';
 const ABI_BUILD_OFFSET = { 'armeabi-v7a': 1000, 'arm64-v8a': 2000, x86_64: 4000 };
-const buildOf = (abi) => BUILD + (ABI_BUILD_OFFSET[abi] || 0);
+const buildOf = (abi) => UNIFIED_BUILD ? BUILD : BUILD + (ABI_BUILD_OFFSET[abi] || 0);
 const NOTES = process.env.YUNTU_NOTES
   || (IS_TV
     ? '电视端：选人页暂停播放与计时；题库变更即时刷新；D-01 冲突保护。'
@@ -152,7 +159,7 @@ function sha256File(filePath) {
 }
 
 async function main() {
-  console.log(`目标：yuntu ${ADMIN_BASE} / 应用 ${APP_ID} / build=${BUILD} / 强制更新=${FORCE}`);
+  console.log(`目标：yuntu ${ADMIN_BASE} / 应用 ${APP_ID} / build=${BUILD} / 三轨归一=${UNIFIED_BUILD} / 强制更新=${FORCE}`);
   console.log(`cookieJar=${cookieJar}`);
 
   // 1. 登录（注入 cookie 时跳过）

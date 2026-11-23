@@ -163,7 +163,10 @@ class MainApp extends StatelessWidget {
         overlayRouter.isCurrentRouteName(RouteNames.recordingPlayback);
     if (onRecording || onPlayback) {
       // 回放页的方向键/OK 仍交给它自己的播放器控件；这里只处理返回。
-      if (overlayRouter.canPop()) overlayRouter.pop();
+      // 录制中心页带 PopScope(canPop:false)（用于把系统 pop 与 KeyEvent 归一去重），
+      // 会让 Navigator.canPop() 返回 false；但按路由名已确认存在可 pop 的覆盖页，
+      // 直接 pop 即可（PopScope 只拦系统 maybePop，不影响代码主动 pop）。
+      overlayRouter.pop();
       return true;
     }
 

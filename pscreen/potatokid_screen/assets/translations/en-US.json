@@ -146,6 +146,8 @@
   "capsule_download_progress": "Download {__PROGRESS__}%",
   "live_update_ready_title": "New version downloaded",
   "live_update_ready_hint": "Back → Quick menu, or Settings → Version, press OK to install",
+  "update_toast_ready": "New version {__VERSION__} downloaded · Back → Quick menu, or Settings → Version, press OK to install",
+  "kid_update_toast_ready": "A new version is ready! Ask a grown-up to open the quick menu or go to Settings → Version and press OK",
   "live_update_failed": "Update download failed",
   "kid_capsule_download_progress": "Preparing update {__PROGRESS__}%",
   "capsule_finish_watching": "Finish watching",

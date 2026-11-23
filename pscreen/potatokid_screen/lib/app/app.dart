@@ -91,10 +91,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               localizationsDelegates: context.localizationDelegates,
               supportedLocales: context.supportedLocales,
               locale: context.locale,
-              // 可用更新弹窗门控：同一次启动只提示一次，遥控可操作。
-              // 传根 Navigator key：门控挂在 builder 上，自身 context 在 Navigator 之上。
-              // 屏幕模拟遥控挂在 Navigator 之上：所有 DialogRoute 都在它下面，
-              // 弹窗期间也不会被遮住。按键经 RemoteKeyDispatcher 回到 MainApp，
+              // 普通更新轻提示门控：ready 后只吐司一次，按版本持久化去重。
+              // 传根 Navigator key：门控挂在 builder 上，自身 context 在 Navigator 之上，
+              // 借用根 Navigator overlay context 才能拿到全局 ScaffoldMessenger。
+              // 屏幕模拟遥控挂在 Navigator 之上：所有 DialogRoute 都在它下面；
+              // 按键经 RemoteKeyDispatcher 回到 MainApp，
               // 真实遥控的焦点链路径不变（遥控器自身 ExcludeFocus）。
               builder: (BuildContext ctx, Widget? child) => TvDesignViewport(
                 child: Stack(

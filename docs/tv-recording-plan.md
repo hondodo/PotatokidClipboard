@@ -302,3 +302,28 @@ Home 端（硬编码中文）：「录制 / 停止录制 mm:ss」「正在录制
 - 录制单测 23/23、共享包全量 340/340、两端原生 Kotlin 编译通过、三端 analyze（仅基线 issue）。
 - TV 基线失败 5 个（parental/profile readonly，占位页不渲染播放器）、home 基线失败 3 个（parental `saveDeviceSettings` 缺参）+ 1 个 flaky 心跳测试（单跑通过），均与录制无关。
 - **待真机验证**：U 盘选目录与写入、可用空间读数、低空间自动停、录制文件回放（U 盘 content:// 回放依赖设备播放器兼容性）。
+
+## 附录 G：录制中心遥控 / 版本归一化 / 更新轻提示（2026-11-21）
+
+### 录制中心遥控无法操作（根因与修复）
+- 根因：`MainApp` 的按键处理器挂在 StatefulShellRoute 分支内的 `Focus`（`MainApp.rootOkHandler`），而 `/recording` 是 push 到**根 Navigator** 的覆盖路由，不在该焦点子树内；物理/蓝牙遥控的 KeyEvent 到不了 `_handleOverlayRoute`，只有不经过焦点树的悬浮遥控器可用。
+- 修复：`RecordingSheetPage` 自己挂祖先 `Focus`（`autofocus`、`descendantsAreFocusable/Traversable=false`）接硬件按键，`_remoteButtonOf` 把方向/OK/菜单映射成 `RemoteButton` 后交 `RemoteKeyDispatcher.instance.dispatch()`，复用 MainApp 的集中分发链（不重复实现按键语义）；静态桥接 `onMoveFocus/onStepValue/onActivate` 保持不变。
+- 返回键：硬件 KeyEvent 与系统 `popRoute` 常双投递。用 `PopScope(canPop:false)` 拦系统 pop，两条路径都归一到 `_popSelf()`（280ms 去重）后 `AppRouter.pop()`。因 `PopScope` 会让 `Navigator.canPop()` 返回 false，`MainApp._handleBack` 的覆盖路由分支改为直接 pop（不再判 `canPop()`），保证悬浮遥控器返回键仍可用。触屏返回按钮与 `_tapRow` 点击不受影响（点击不依赖 FocusNode）。
+
+### 版本号归一化（三轨同 build）
+- 旧机制：`--split-per-abi` 给 ABI 分包加 versionCode 偏移（arm64 +2000 / armv7 +1000），三轨出现 18/1018/2018；装 universal 包（vc=18）的设备按 abi 查到 1018/2018 → 被误判「有更新」。
+- 新规则：**不用 `--split-per-abi`**；`build.gradle.kts` 的 `splits{abi}` 已产出分包且不加偏移，所有 APK 的 versionCode = pubspec 的 build。`upload_parent_apks.mjs` 对 screen 系列（`IS_TV`）自动取消 `ABI_BUILD_OFFSET`，三轨写同一 `YUNTU_BUILD`（应急可 `YUNTU_ABI_OFFSET=1` 回退）。
+- 统一号必须 **> 2018**（现网 arm64 轨历史最大）：服务端 `assertBuildMonotonic` 按 ABI 轨要求递增，且 Android 不允许 versionCode 降级；故 `pubspec.yaml` 用 `1.0.6+2019`，九包 vc 全 2019。
+- 验证：`/api/update/check` 老包 18/2018/1018 判有更新；新包 2019 带任意 abi（或不带）均判无更新，串轨误报根治。
+
+### 更新弹窗改轻吐司 + 按版本去重
+- `UpdatePromptGate` 去掉 `showDialog`（「新版本已就绪 / 稍后 / 立即安装」模态框），改为一条 6 秒自动消失的 SnackBar；安装入口仍为右上角「更新」胶囊、快捷菜单「安装更新」、「我的 → 版本」行 OK。
+- 新增 `packages/pscreen_screen/lib/core/update/app_update_prompt_store.dart`：按 `appId + releaseId`（releaseId 空则退化 `v{version}+{build}`）把已提示版本存 SharedPreferences，同版本只提示一次、跨重启生效，出现新 releaseId 才再提示；每 appId 保留最近 20 条。
+- `AppSettings.clearAllPersisted()` 跳过 `AppUpdatePromptStore.keyPrefix` 前缀（重置后不对同一版本重复提示）。四语新增 `update_toast_ready` / `kid_update_toast_ready`。
+- **强制更新除外**：`forceBlocked` 时由 `ForceUpdatePage` 整页接管，既不吐司也不写去重记录。
+- 单测 `app_update_prompt_store_test.dart` 7 例覆盖同版本去重 / 换版本 / 跨重启 / appId 隔离 / 空 key / 幂等 / 上限裁剪。
+
+### 发布与验证
+- 九包（tv/phone/board × universal/arm64/v7a）**全部 release 正式签名**、`1.0.6+2019`、vc 全 2019，aapt + apksigner 核对通过；后台三轨 latest 全 2019，sha256 本地/服务器对齐。
+- 静态下载目录 `/static/apks/` 换成同版 6 个分包 + 新索引页，6 包 md5 对齐、HTTP 200、debug 包 404。
+- `flutter analyze`：共享包 4 条既有 info、TV **0 issue**、home 2 条既有；单测共享包 update+recording **75/75**；TV 全量 22 过 / 5 个历史基线失败（`main_app_profile_readonly_test` 3 + `parental_lock_overlay_test` 2，与本轮无关，项目日志已用 HEAD 基线对照确认）。

@@ -47,3 +47,11 @@
 - **存储**：默认 app 私有目录；SAF 选目录（U 盘/SD）经两端原生 `RecordingStorageChannel.kt`（通道 `potatokid/recording`，framework DocumentsContract + StatFs，无新依赖）。空间检测录前+每分片查，低于阈值（AppSettings 可配，默认 512MB）发 lowSpace 停录；单文件默认 2GB。
 - **入口**：TV 胶囊「录制中心」→ 路由 /recording + /recording/playback（不占我的页 16 行焦点链）；home 设置页内嵌 RecordingSettingsSection + RecordingPlaybackPage。home 无 i18n 文案硬编码。
 - 两端各 1 个 RecordingStorageChannel.kt + MainActivity attach/onActivityResult 转发。编译验证：`./gradlew.bat :app:compileTvDebugKotlin`（TV）/ `:app:compileBoardDebugKotlin`（home），有 SDK，跨盘 Kotlin 缓存告警非错误。
+
+## 版本发布 / 更新（2026-11-21 起，取代旧的 ABI 偏移规则）
+- **三 flavor（tv/phone/board）release 一律不加 `--split-per-abi`**：`build.gradle.kts` 的 `splits{abi}` 已产分包且不加 versionCode 偏移，九包 vc 全等于 pubspec 的 build；`upload_parent_apks.mjs` 对 screen 系列自动取消 `ABI_BUILD_OFFSET`，三轨写同一 `YUNTU_BUILD`（`YUNTU_ABI_OFFSET=1` 可应急回退，parent 端仍用旧偏移）。**旧的三轨 18/1018/2018 偏移机制已废弃**。
+- **统一 build 必须 > 2018 并逐次递增**：服务端 `assertBuildMonotonic` 按 ABI 轨要求 `build > 该轨 latest`，Android 也不许 versionCode 降级；当前基线 `1.0.6+2019`。发布只需 `YUNTU_BUILD=<单一递增数字>`，不用再组合 universal + split 两步构建。
+- **上传只用 release**（用户明确所有包都不要 debug），正式签名 `6b8a0bac…`；静态侧载目录 `/static/apks/`（47293 端口）同步同版 6 个分包。admin 发布凭据用 root 读 `secret.key` + `db.json` 的 sessionId/authEpoch 现签 `pk_app_admin` cookie（无明文密码）。
+- **更新提示**：`UpdatePromptGate` 下载完成后只出 6 秒 SnackBar（不再弹模态框），按 `appId+releaseId` 存 `AppUpdatePromptStore`（SharedPreferences）跨重启去重、同版本只提示一次；强更（`forceBlocked`）仍走 `ForceUpdatePage` 整页、不参与去重；`AppSettings.clearAllPersisted()` 跳过该前缀。
+- **覆盖路由遥控铁律**：`/recording` 等 push 到根 Navigator 的页不在 `MainApp.rootOkHandler` 焦点子树内，必须自己挂祖先 Focus 把按键映射成 `RemoteButton` 交 `RemoteKeyDispatcher`；返回键用 `PopScope(canPop:false)` + 280ms 去重归一到直接 `AppRouter.pop()`（`_handleBack` 覆盖分支已不判 `canPop()`，否则悬浮遥控返回失效）。
+- TV 全量 `flutter test` 恒有 **5 个历史基线失败**（`main_app_profile_readonly_test` 3 + `parental_lock_overlay_test` 2），与本轮改动无关，勿误判为回归。

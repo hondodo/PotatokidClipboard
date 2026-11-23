@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:potatokid_screen/app/app_flavor.dart';
+import 'package:potatokid_screen/features/app/application/remote_key_dispatcher.dart';
 
 import 'package:pscreen_screen/features/iptv/application/recording/recording_library_controller.dart';
 import 'package:pscreen_screen/features/iptv/application/recording/recording_platform.dart'
@@ -12,6 +14,7 @@ import 'package:pscreen_screen/features/iptv/application/recording/recording_sto
 import 'package:potatokid_screen/core/di/injection.dart';
 import 'package:potatokid_screen/core/router/app_router.dart';
 import 'package:potatokid_screen/core/router/route_params.dart';
+import 'package:potatokid_screen/shared/widgets/floating_remote.dart';
 import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 
 /// 录制中心页（TV 风格）。
@@ -23,8 +26,12 @@ import 'package:potatokid_screen/shared/widgets/kid_chrome.dart';
 /// - 儿童：KidPalette 深蓝渐变 + 暖黄强调 + 白描边焦点；
 /// - 普通：成人深蓝面板 + 品牌蓝 / 橙选中，蓝色焦点框。
 ///
-/// 本页只维护「焦点落在第几行 + 每行的激活/步进回调」，不自己接遥控按键；
-/// 遥控由 MainApp 的统一分发入口按当前页状态集中转发（见集中 if 分支）。
+/// 遥控桥接：本页只暴露「移动焦点 / 步进 / 激活」原子操作，按键语义仍集中在
+/// MainApp 的统一分发入口。但本页是 push 到根 Navigator 的覆盖路由，不在
+/// MainApp 根 Focus（MainApp.rootOkHandler）的子树内，硬件遥控按键到不了那里；
+/// 因此本页自己挂一个祖先 Focus 接键，转成 [RemoteButton] 交给全局分发器
+/// 复用同一条集中链路（见 build 与 [_RecordingSheetPageState] 的按键处理）。
+/// 返回键由本页统一 pop 并去重（覆盖页的系统 pop 与 KeyEvent 常双投递）。
 class RecordingSheetPage extends StatefulWidget {
   const RecordingSheetPage({super.key});
 
@@ -42,12 +49,12 @@ class RecordingSheetPage extends StatefulWidget {
 
 class _RecordingSheetPageState extends State<RecordingSheetPage> {
   final RecordingStorage _storage = RecordingStorage();
-  final RecordingLibraryController _library = RecordingLibraryController.instance;
+  final RecordingLibraryController _library =
+      RecordingLibraryController.instance;
 
-  // 纯索引式视觉焦点：不创建/不抢占任何 FocusNode。
-  // 录制页是 push 到根 Navigator 的覆盖路由，若它抢占焦点，按键会在本页焦点树
-  // 冒泡、不经过 MainApp 根 Focus，集中遥控分发就断了。焦点必须留在 MainApp，
-  // 本页只用一个索引画高亮，方向键由 MainApp 集中转发。
+  // 纯索引式视觉焦点：只用一个索引画高亮，不创建行级 FocusNode。
+  // 本页外层有一个祖先 Focus 专门接硬件遥控按键（见 build），并设
+  // descendantsAreFocusable=false，避免行内按钮抢焦点把方向键变成焦点遍历。
   int _focused = 0;
   int _rowCount = 0;
 
@@ -119,6 +126,61 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
     super.dispose();
   }
 
+  /// 硬件遥控按键 → 屏幕遥控器按钮（语义与主入口一一对应）。
+  ///
+  /// 只做映射，不做任何业务判断；转发后仍走 MainApp 的集中分发链，
+  /// 保持「遥控逻辑不散落到各页面」的既有约束。
+  static RemoteButton? _remoteButtonOf(LogicalKeyboardKey key) => switch (key) {
+    LogicalKeyboardKey.arrowUp => RemoteButton.up,
+    LogicalKeyboardKey.arrowDown => RemoteButton.down,
+    LogicalKeyboardKey.arrowLeft => RemoteButton.left,
+    LogicalKeyboardKey.arrowRight => RemoteButton.right,
+    LogicalKeyboardKey.select ||
+    LogicalKeyboardKey.enter ||
+    LogicalKeyboardKey.numpadEnter ||
+    LogicalKeyboardKey.space ||
+    LogicalKeyboardKey.gameButtonA => RemoteButton.ok,
+    LogicalKeyboardKey.escape ||
+    LogicalKeyboardKey.goBack ||
+    LogicalKeyboardKey.backspace => RemoteButton.back,
+    LogicalKeyboardKey.contextMenu ||
+    LogicalKeyboardKey.gameButtonB => RemoteButton.menu,
+    _ => null,
+  };
+
+  /// 祖先 Focus 的按键入口：抬起忽略，按下 / 长按重复各转发一次。
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final RemoteButton? button = _remoteButtonOf(event.logicalKey);
+    if (button == null) return KeyEventResult.ignored;
+    if (button == RemoteButton.back) {
+      // 返回键不走 MainApp._handleBack：那条链的 canPop() 会被本页
+      // PopScope(canPop:false) 干扰，且系统 popRoute 与 KeyEvent 常双投递。
+      _popSelf();
+    } else {
+      RemoteKeyDispatcher.instance.dispatch(button);
+    }
+    return KeyEventResult.handled;
+  }
+
+  /// 返回键去重窗口（与 MainApp._sameBackWindowMs 同值）。
+  static const int _backWindowMs = 280;
+  int _lastPopAt = 0;
+
+  /// 统一 pop 本页：硬件 KeyEvent 与系统 popRoute 都归到这里，
+  /// 靠 [_backWindowMs] 保证一次返回只 pop 一级。
+  void _popSelf() {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastPopAt < _backWindowMs) return;
+    _lastPopAt = now;
+    Injection.get<AppRouter>().pop();
+  }
+
+  /// PopScope 拦下系统 popRoute（canPop:false），与硬件返回键一起归一到 [_popSelf]。
+  void _onSystemPop(bool didPop, Object? result) {
+    if (!didPop) _popSelf();
+  }
+
   void _sync() {
     _locationLabel = _storage.locationLabel;
     _maxMb = (_storage.maxFileBytes / (1024 * 1024)).round();
@@ -173,8 +235,8 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
 
   Future<void> _play(RecordedFile file) async {
     await Injection.get<AppRouter>().pushRecordingPlayback(
-          RecordingPlaybackParams(uri: file.uri, title: file.name),
-        );
+      RecordingPlaybackParams(uri: file.uri, title: file.name),
+    );
   }
 
   Future<void> _delete(RecordedFile file) async {
@@ -194,8 +256,7 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
   /// 移动后把焦点行滚进可视区——否则焦点落在屏幕外时遥控看不到选中内容。
   void _moveFocus(int delta) {
     if (_rowCount <= 0) return;
-    final int next =
-        math.min(math.max(_focused + delta, 0), _rowCount - 1);
+    final int next = math.min(math.max(_focused + delta, 0), _rowCount - 1);
     if (next == _focused) return;
     setState(() {
       _focused = next;
@@ -249,167 +310,204 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<RecordedFile>>(
-      valueListenable: _library.items,
-      builder: (context, files, _) {
-        // 4 个设置行 + N 个文件行（空列表时放 1 个占位行）
-        final int count = 4 + (files.isEmpty ? 1 : files.length);
-        _rowCount = count;
-        if (_focused >= count) _focused = count - 1;
-        // 行数变化时增补/裁剪 key（分组标题不占焦点行号，从 0 顺序编号）。
-        while (_rowKeys.length < count) {
-          _rowKeys.add(GlobalKey());
-        }
-        while (_rowKeys.length > count) {
-          _rowKeys.removeLast();
-        }
+    // 本页是 push 到根 Navigator 的覆盖路由，不在 MainApp 根 Focus
+    // （MainApp.rootOkHandler）的子树内，硬件遥控按键到不了那里的集中分发。
+    // 因此本页自己挂一个祖先 Focus 接键：方向/OK/菜单转成 RemoteButton
+    // 交给全局分发器复用同一条集中链路；返回键由 _popSelf 统一处理。
+    // descendantsAreFocusable=false 保证焦点稳定留在外层，不被行内按钮抢走
+    //（触屏点击不依赖 FocusNode，不受影响）。
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: _onSystemPop,
+      child: Focus(
+        debugLabel: 'RecordingSheetPage.remoteHandler',
+        autofocus: true,
+        descendantsAreFocusable: false,
+        descendantsAreTraversable: false,
+        onKeyEvent: _handleKeyEvent,
+        child: ValueListenableBuilder<List<RecordedFile>>(
+          valueListenable: _library.items,
+          builder: (context, files, _) {
+            // 4 个设置行 + N 个文件行（空列表时放 1 个占位行）
+            final int count = 4 + (files.isEmpty ? 1 : files.length);
+            _rowCount = count;
+            if (_focused >= count) _focused = count - 1;
+            // 行数变化时增补/裁剪 key（分组标题不占焦点行号，从 0 顺序编号）。
+            while (_rowKeys.length < count) {
+              _rowKeys.add(GlobalKey());
+            }
+            while (_rowKeys.length > count) {
+              _rowKeys.removeLast();
+            }
 
-        final List<Widget> rows = <Widget>[];
-        // 三张动作表与行号一一对应：OK / 左 / 右。集中遥控入口按下时直取。
-        // 存储位置行两个按钮（内部/改路径）与文件行共用子焦点 _subFocus：
-        // 左右切按钮高亮，OK 执行当前高亮的按钮。
-        _actions
-          ..clear()
-          ..addAll(<VoidCallback?>[
-            () => _subFocus == 0 ? _useInternal() : _pickDir(), // 0 存储位置
-            _loadFree, // 1 可用空间：OK 刷新
-            null, // 2 单文件上限：左右改值，OK 空
-            null, // 3 低空间阈值：左右改值，OK 空
-          ]);
-        _leftActions
-          ..clear()
-          ..addAll(<VoidCallback?>[
-            () => _stepSubFocus(-1), // 0 存储位置：左切按钮
-            null,
-            () => _stepMax(-1),
-            () => _stepLow(-1),
-          ]);
-        _rightActions
-          ..clear()
-          ..addAll(<VoidCallback?>[
-            () => _stepSubFocus(1), // 0 存储位置：右切按钮
-            null,
-            () => _stepMax(1),
-            () => _stepLow(1),
-          ]);
+            final List<Widget> rows = <Widget>[];
+            // 三张动作表与行号一一对应：OK / 左 / 右。集中遥控入口按下时直取。
+            // 存储位置行两个按钮（内部/改路径）与文件行共用子焦点 _subFocus：
+            // 左右切按钮高亮，OK 执行当前高亮的按钮。
+            _actions
+              ..clear()
+              ..addAll(<VoidCallback?>[
+                () => _subFocus == 0 ? _useInternal() : _pickDir(), // 0 存储位置
+                _loadFree, // 1 可用空间：OK 刷新
+                null, // 2 单文件上限：左右改值，OK 空
+                null, // 3 低空间阈值：左右改值，OK 空
+              ]);
+            _leftActions
+              ..clear()
+              ..addAll(<VoidCallback?>[
+                () => _stepSubFocus(-1), // 0 存储位置：左切按钮
+                null,
+                () => _stepMax(-1),
+                () => _stepLow(-1),
+              ]);
+            _rightActions
+              ..clear()
+              ..addAll(<VoidCallback?>[
+                () => _stepSubFocus(1), // 0 存储位置：右切按钮
+                null,
+                () => _stepMax(1),
+                () => _stepLow(1),
+              ]);
 
-        // —— 分组 1：录制设置 ——
-        rows.add(_groupTitle('recording_tab_settings'.tr()));
-        rows.add(_row(
-          index: 0,
-          rowKey: _rowKeys[0],
-          label: 'recording_location'.tr(),
-          sub: _locationLabel,
-          right: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _pill('recording_btn_internal'.tr(), _useInternal,
-                  highlight: _focused == 0 && _subFocus == 0),
-              const SizedBox(width: 10),
-              _pill('recording_btn_change_path'.tr(), _pickDir,
-                  highlight: _focused == 0 && _subFocus == 1),
-            ],
-          ),
-        ));
-        rows.add(_row(
-          index: 1,
-          rowKey: _rowKeys[1],
-          label: 'recording_free_space'.tr(),
-          right: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                _freeText,
-                style: TextStyle(color: _text2, fontSize: 18),
-              ),
-              const SizedBox(width: 10),
-              _iconAction(Icons.refresh, _loadFree,
-                  highlight: _focused == 1),
-            ],
-          ),
-        ));
-        rows.add(_row(
-          index: 2,
-          rowKey: _rowKeys[2],
-          label: 'recording_max_file'.tr(),
-          value: '$_maxMb MB',
-          steppable: true,
-          onLeft: () => _stepMax(-1),
-          onRight: () => _stepMax(1),
-        ));
-        rows.add(_row(
-          index: 3,
-          rowKey: _rowKeys[3],
-          label: 'recording_low_space'.tr(),
-          value: '$_lowMb MB',
-          steppable: true,
-          onLeft: () => _stepLow(-1),
-          onRight: () => _stepLow(1),
-        ));
-
-        // —— 分组 2：录制文件 ——
-        rows.add(_groupTitle(
-          '${'recording_tab_files'.tr()} · ${files.length}',
-        ));
-        if (files.isEmpty) {
-          rows.add(_row(
-            index: 4,
-            rowKey: _rowKeys[4],
-            label: 'recording_empty'.tr(),
-            muted: true,
-          ));
-          _actions.add(null);
-          _leftActions.add(null);
-          _rightActions.add(null);
-        } else {
-          for (int i = 0; i < files.length; i++) {
-            final RecordedFile f = files[i];
-            final int idx = 4 + i;
-            rows.add(_fileRow(
-              index: idx,
-              rowKey: _rowKeys[idx],
-              file: f,
-              buttonIndex: _focused == idx ? _subFocus : -1,
-              onPlay: () => _play(f),
-              onDelete: () => _delete(f),
-            ));
-            // 文件行：左右切「播放/删除」子焦点，OK 执行当前高亮的按钮。
-            _actions.add(() =>
-                _subFocus == 0 ? _play(f) : _delete(f));
-            _leftActions.add(() => _stepSubFocus(-1));
-            _rightActions.add(() => _stepSubFocus(1));
-          }
-        }
-
-        return Scaffold(
-          body: Container(
-            decoration: BoxDecoration(gradient: _pageBg),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 56,
-                  vertical: 36,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+            // —— 分组 1：录制设置 ——
+            rows.add(_groupTitle('recording_tab_settings'.tr()));
+            rows.add(
+              _row(
+                index: 0,
+                rowKey: _rowKeys[0],
+                label: 'recording_location'.tr(),
+                sub: _locationLabel,
+                right: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    _topBar(),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: rows,
-                        ),
-                      ),
+                    _pill(
+                      'recording_btn_internal'.tr(),
+                      _useInternal,
+                      highlight: _focused == 0 && _subFocus == 0,
+                    ),
+                    const SizedBox(width: 10),
+                    _pill(
+                      'recording_btn_change_path'.tr(),
+                      _pickDir,
+                      highlight: _focused == 0 && _subFocus == 1,
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
-        );
-      },
+            );
+            rows.add(
+              _row(
+                index: 1,
+                rowKey: _rowKeys[1],
+                label: 'recording_free_space'.tr(),
+                right: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      _freeText,
+                      style: TextStyle(color: _text2, fontSize: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    _iconAction(
+                      Icons.refresh,
+                      _loadFree,
+                      highlight: _focused == 1,
+                    ),
+                  ],
+                ),
+              ),
+            );
+            rows.add(
+              _row(
+                index: 2,
+                rowKey: _rowKeys[2],
+                label: 'recording_max_file'.tr(),
+                value: '$_maxMb MB',
+                steppable: true,
+                onLeft: () => _stepMax(-1),
+                onRight: () => _stepMax(1),
+              ),
+            );
+            rows.add(
+              _row(
+                index: 3,
+                rowKey: _rowKeys[3],
+                label: 'recording_low_space'.tr(),
+                value: '$_lowMb MB',
+                steppable: true,
+                onLeft: () => _stepLow(-1),
+                onRight: () => _stepLow(1),
+              ),
+            );
+
+            // —— 分组 2：录制文件 ——
+            rows.add(
+              _groupTitle('${'recording_tab_files'.tr()} · ${files.length}'),
+            );
+            if (files.isEmpty) {
+              rows.add(
+                _row(
+                  index: 4,
+                  rowKey: _rowKeys[4],
+                  label: 'recording_empty'.tr(),
+                  muted: true,
+                ),
+              );
+              _actions.add(null);
+              _leftActions.add(null);
+              _rightActions.add(null);
+            } else {
+              for (int i = 0; i < files.length; i++) {
+                final RecordedFile f = files[i];
+                final int idx = 4 + i;
+                rows.add(
+                  _fileRow(
+                    index: idx,
+                    rowKey: _rowKeys[idx],
+                    file: f,
+                    buttonIndex: _focused == idx ? _subFocus : -1,
+                    onPlay: () => _play(f),
+                    onDelete: () => _delete(f),
+                  ),
+                );
+                // 文件行：左右切「播放/删除」子焦点，OK 执行当前高亮的按钮。
+                _actions.add(() => _subFocus == 0 ? _play(f) : _delete(f));
+                _leftActions.add(() => _stepSubFocus(-1));
+                _rightActions.add(() => _stepSubFocus(1));
+              }
+            }
+
+            return Scaffold(
+              body: Container(
+                decoration: BoxDecoration(gradient: _pageBg),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 56,
+                      vertical: 36,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        _topBar(),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: rows,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -434,8 +532,8 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
   }
 
   /// 触屏返回：仅 phone / board 显示（有触屏的变体）；tv 只有遥控，
-  /// 返回由实体返回键承担（见 MainApp 集中遥控分发），不显示可点按钮避免
-  /// 与焦点树打架。本页是 push 出来的覆盖路由，点击直接 pop 自己，
+  /// 返回由实体返回键承担（见 [_handleKeyEvent] / [_popSelf]），不显示可点
+  /// 按钮避免与焦点树打架。本页是 push 出来的覆盖路由，点击直接 pop 自己，
   /// 不走 TouchBackController 的底层分层返回（那条链在 cur==0 会误操作频道）。
   Widget _backButton() {
     if (AppFlavorConfig.flavor == AppFlavor.tv) {
@@ -473,10 +571,7 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
             ),
           ),
           const SizedBox(width: 10),
-          Text(
-            text,
-            style: TextStyle(color: _accent, fontSize: 19),
-          ),
+          Text(text, style: TextStyle(color: _accent, fontSize: 19)),
         ],
       ),
     );
@@ -495,71 +590,62 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
     VoidCallback? onRight,
   }) {
     final bool focused = _focused == index;
-    final Widget rightWidget = right ??
+    final Widget rightWidget =
+        right ??
         (steppable
             ? _stepper(value: value ?? '', onLeft: onLeft, onRight: onRight)
             : (value != null
-                ? Text(
-                    value,
-                    style: TextStyle(
-                      color: muted ? _text2 : _accent,
-                      fontSize: muted ? 19 : 24,
-                      fontWeight: muted ? FontWeight.w400 : FontWeight.w600,
-                    ),
-                  )
-                : const SizedBox.shrink()));
+                  ? Text(
+                      value,
+                      style: TextStyle(
+                        color: muted ? _text2 : _accent,
+                        fontSize: muted ? 19 : 24,
+                        fontWeight: muted ? FontWeight.w400 : FontWeight.w600,
+                      ),
+                    )
+                  : const SizedBox.shrink()));
 
     return GestureDetector(
-        key: rowKey,
-        onTap: () => _tapRow(index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
-          decoration: BoxDecoration(
-            color: focused ? _focusBg : _surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: focused ? _focusBorder : _line,
-              width: focused ? 2.5 : 1,
-            ),
-            boxShadow: <BoxShadow>[
-              if (focused)
-                BoxShadow(
-                  color: _focusBg,
-                  blurRadius: 22,
-                ),
-            ],
+      key: rowKey,
+      onTap: () => _tapRow(index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+        decoration: BoxDecoration(
+          color: focused ? _focusBg : _surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: focused ? _focusBorder : _line,
+            width: focused ? 2.5 : 1,
           ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: _text,
-                        fontSize: 24,
+          boxShadow: <BoxShadow>[
+            if (focused) BoxShadow(color: _focusBg, blurRadius: 22),
+          ],
+        ),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(label, style: TextStyle(color: _text, fontSize: 24)),
+                  if (sub != null && sub.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        sub,
+                        style: TextStyle(color: _text2, fontSize: 16),
                       ),
                     ),
-                    if (sub != null && sub.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          sub,
-                          style: TextStyle(color: _text2, fontSize: 16),
-                        ),
-                      ),
-                  ],
-                ),
+                ],
               ),
-              const SizedBox(width: 16),
-              rightWidget,
-            ],
-          ),
+            ),
+            const SizedBox(width: 16),
+            rightWidget,
+          ],
         ),
+      ),
     );
   }
 
@@ -573,54 +659,62 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
   }) {
     final bool focused = _focused == index;
     return GestureDetector(
-        key: rowKey,
-        onTap: () => _tapRow(index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-          decoration: BoxDecoration(
-            color: focused ? _focusBg : _surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: focused ? _focusBorder : _line,
-              width: focused ? 2.5 : 1,
-            ),
-          ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      file.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: _text, fontSize: 22),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      RecordingLibraryController.formatSize(file.size),
-                      style: TextStyle(color: _text2, fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              _pill('recording_play'.tr(), onPlay,
-                  highlight: buttonIndex == 0),
-              const SizedBox(width: 10),
-              _pill('recording_delete'.tr(), onDelete,
-                  danger: true, highlight: buttonIndex == 1),
-            ],
+      key: rowKey,
+      onTap: () => _tapRow(index),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+        decoration: BoxDecoration(
+          color: focused ? _focusBg : _surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: focused ? _focusBorder : _line,
+            width: focused ? 2.5 : 1,
           ),
         ),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    file.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: _text, fontSize: 22),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    RecordingLibraryController.formatSize(file.size),
+                    style: TextStyle(color: _text2, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            _pill('recording_play'.tr(), onPlay, highlight: buttonIndex == 0),
+            const SizedBox(width: 10),
+            _pill(
+              'recording_delete'.tr(),
+              onDelete,
+              danger: true,
+              highlight: buttonIndex == 1,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _pill(String text, VoidCallback onTap,
-      {bool danger = false, bool boxed = true, bool highlight = false}) {
+  Widget _pill(
+    String text,
+    VoidCallback onTap, {
+    bool danger = false,
+    bool boxed = true,
+    bool highlight = false,
+  }) {
     final Widget label = Text(
       text,
       style: TextStyle(
@@ -662,8 +756,11 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
     );
   }
 
-  Widget _iconAction(IconData icon, VoidCallback onTap,
-      {bool highlight = false}) {
+  Widget _iconAction(
+    IconData icon,
+    VoidCallback onTap, {
+    bool highlight = false,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
@@ -719,11 +816,7 @@ class _RecordingSheetPageState extends State<RecordingSheetPage> {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
-      child: Icon(
-        icon,
-        color: active ? _accent : _line,
-        size: 26,
-      ),
+      child: Icon(icon, color: active ? _accent : _line, size: 26),
     );
   }
 }

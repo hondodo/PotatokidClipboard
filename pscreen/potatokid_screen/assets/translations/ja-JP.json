@@ -146,6 +146,8 @@
   "capsule_download_progress": "ダウンロード {__PROGRESS__}%",
   "live_update_ready_title": "新しいバージョンの準備ができました",
   "live_update_ready_hint": "戻る → クイックメニュー、または 設定 → バージョン で OK を押してインストール",
+  "update_toast_ready": "新バージョン {__VERSION__} をダウンロード済み · 戻る → クイックメニュー、または 設定 → バージョン で OK を押してインストール",
+  "kid_update_toast_ready": "新しいバージョンの準備ができました！おうちの人にクイックメニューか 設定 → バージョン で OK を押してもらってね",
   "live_update_failed": "アップデートのダウンロードに失敗しました",
   "kid_capsule_download_progress": "新しいバージョンを準備中 {__PROGRESS__}%",
   "capsule_finish_watching": "視聴を終了",

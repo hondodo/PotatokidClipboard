@@ -14,8 +14,9 @@ enum RemoteButton { up, down, left, right, ok, menu, back }
 /// 显隐只由全局 [AppState.showFloatingRemote]（在「我的」页开关）决定。
 ///
 /// 挂载在 `MaterialApp.router` 的 builder 层、Navigator **之上**，因此能盖住
-/// 所有 `showDialog` 弹出的 DialogRoute（退出确认 / 重置确认 / 家长验证 /
-/// 更新提示）；整层 [ExcludeFocus] 保证它不进入真实遥控的焦点链。
+/// 所有 `showDialog` 弹出的 DialogRoute（退出确认 / 重置确认 / 家长验证）；
+/// 普通更新已改为 SnackBar 轻提示，不再有更新弹窗。
+/// 整层 [ExcludeFocus] 保证它不进入真实遥控的焦点链。
 ///
 /// 上角有一把锁：锁定后固定位置、避免误拖。锁定只在本次运行有效，避免把
 /// 旧版“保持显示”的持久化值误当成“禁止拖动”。

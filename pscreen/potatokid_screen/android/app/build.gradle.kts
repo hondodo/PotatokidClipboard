@@ -48,7 +48,11 @@ android {
     // 按 ABI 分包：更新检查（check）会带 abi 参数，服务端下发对应架构的
     // APK——32 位老板子装 universal 会报"安装包损坏"，且分包把设备下载
     // 体积从 ~121MB 降到约三分之一。universal 仅作老客户端（不传 abi）
-    // 的兜底产物。versionCode 由 Flutter 按 ABI 自动加偏移。
+    // 的兜底产物。
+    // 注意：不要用 flutter `--split-per-abi`——它会给分包自动加 versionCode
+    // 偏移（+1000/+2000），导致 universal/ABI 三轨 build 不一致，装通用包的
+    // 设备会被反复判「有更新」。普通构建下本 splits 已产出分包，且所有 APK
+    // 的 versionCode 统一为 pubspec 的 build，服务端三轨也按同一 build 发布。
     splits {
         abi {
             isEnable = true

@@ -146,6 +146,8 @@
   "capsule_download_progress": "下载 {__PROGRESS__}%",
   "live_update_ready_title": "新版本已下载好",
   "live_update_ready_hint": "返回键 → 快捷菜单，或 设置 → 版本，按 OK 安装",
+  "update_toast_ready": "新版本 {__VERSION__} 已下载完成 · 返回键 → 快捷菜单，或 设置 → 版本，按 OK 安装",
+  "kid_update_toast_ready": "新版本已经下载好啦，请家长连按返回键打开快捷菜单，或到设置 → 版本按 OK 键安装",
   "live_update_failed": "更新下载失败",
   "kid_capsule_download_progress": "正在准备新版本 {__PROGRESS__}%",
   "capsule_finish_watching": "结束观看",
