@@ -501,14 +501,16 @@
     const icon = iconEl
       ? String(iconEl.value || '').trim()
       : (card.icon || t.icon || '☀');
+    const isKettle = t.key === 'kettle';
     return {
-      title: '客厅 大灯',
+      title: isKettle ? '客厅 米家智能电热水瓶 5L' : '客厅 大灯',
+      room: '客厅',
       icon,
       color: card.color || t.color || '#facc15',
-      label: card.label || t.label || '灯光',
+      label: card.label || t.label || (isKettle ? '当前温度' : '灯光'),
       state,
-      main: isOn ? '已开启' : '已关闭',
-      sub: isOn ? '亮度 ' + bright + '%' : 'off',
+      main: isKettle ? '55°C' : (isOn ? '已开启' : '已关闭'),
+      sub: isKettle ? '保温中… · 自来水' : (isOn ? '亮度 ' + bright + '%' : 'off'),
       s1: state, s2: '', status: isOnline ? '已连接' : '离线',
       brightnessPercent: String(bright),
       brightness: String(Math.round(bright * 255 / 100)),
@@ -516,6 +518,12 @@
       'primary.entityId': 'light.living',
       'primary.switchable': 'true',
       'attr.percentage': String(bright),
+      // 按 entity_id 后缀取值的示例数据（热水瓶卡片预览用）
+      's:_status_p_2_1': '保温中…',
+      's:_mode_p_2_3': '自来水',
+      's:_target_temperature_p_2_5': '100',
+      'id:_auto_keep_warm_p_2_7': 'switch.kettle_auto_keep_warm_p_2_7',
+      'id:_cancel_cooking_a_2_2': 'button.kettle_cancel_cooking_a_2_2',
       _online: isOnline,
     };
   }

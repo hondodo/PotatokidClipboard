@@ -403,4 +403,33 @@ void main() {
       HaConfig.envServerBaseUrl = oldBase;
     }
   });
+
+  test('CardEvalContext 按实体 id 后缀取值 + room 占位符', () {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_kettle',
+      title: '米家智能电热水瓶 5L',
+      entities: <HaEntityStateModel>[
+        _entity('switch.kettle_auto_keep_warm_p_2_7', 'on', name: '保温'),
+        _entity('sensor.kettle_status_p_2_1', '保温中…', name: '工作状态'),
+        _entity('select.kettle_mode_p_2_3', '自来水', name: '模式'),
+        _entity('number.kettle_target_temperature_p_2_5', '100', name: '设定温度'),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(
+      label: '当前温度', mainFmt: '{v}°C', subTpl: '{s1} · {s2}',
+      icon: 'water_drop', color: '#2dd4bf', mainEntity: '_temperature_p_2_6',
+    );
+    final CardEvalContext ctx = CardEvalContext(
+      group: group, card: card, areaLabel: '客厅',
+    );
+    expect(
+      ctx.resolve('{room} · {s:_status_p_2_1} · {s:_mode_p_2_3}'),
+      '客厅 · 保温中… · 自来水',
+    );
+    expect(
+      ctx.resolve('toggle@{id:_auto_keep_warm_p_2_7}'),
+      'toggle@switch.kettle_auto_keep_warm_p_2_7',
+    );
+    expect(ctx.resolve('目标 {s:_target_temperature_p_2_5}°C'), '目标 100°C');
+  });
 }

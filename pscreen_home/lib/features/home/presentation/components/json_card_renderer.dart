@@ -44,7 +44,7 @@ class JsonCardRenderer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final CardLayoutNode layout = card.layout ?? CardLayoutBuilder.defaultLayout(typeKey, card);
-    final CardEvalContext ctx = CardEvalContext(group: group, card: card);
+    final CardEvalContext ctx = CardEvalContext(group: group, card: card, areaLabel: areaLabel ?? '');
     final ThemeData theme = Theme.of(context);
     final bool available = !group.isUnavailable;
 
@@ -80,7 +80,7 @@ class JsonCardRenderer extends StatelessWidget {
   }) {
     final ThemeData theme = Theme.of(context);
     final CardEvalContext eval = (itemValues != null && itemName != null)
-        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues)
+        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues, areaLabel: areaLabel ?? '')
         : ctx;
 
     // 条件显隐：不满足时不生成节点。

@@ -199,12 +199,14 @@ class CardEvalContext {
     required this.card,
     this.itemName,
     this.itemValues = const <String, String>{},
+    this.areaLabel = '',
   });
 
   final HaDeviceGroup group;
   final DeviceCardConfig card;
   final String? itemName;
   final Map<String, String> itemValues;
+  final String areaLabel;
 
   late final Map<String, String> _values = _buildValues();
 
@@ -226,6 +228,7 @@ class CardEvalContext {
 
     final Map<String, String> v = <String, String>{
       'title': group.title,
+      'room': areaLabel,
       'icon': card.icon,
       'color': card.color,
       'label': card.label,
@@ -291,9 +294,43 @@ class CardEvalContext {
       // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
       final String? direct = _values[key];
       if (direct != null) return _applyValueMap(direct, valueMap);
+      // 按实体 id 后缀取值：{s:<后缀>}=state、{a:<后缀>.<属性>}=attribute、
+      // {id:<后缀>}=完整 entity_id。用于同类实体很多、下标不稳定的设备
+      // （如热水瓶：保温开关 / 工作状态 / 模式 / 设定温度）。
+      final String? entityValue = _resolveEntityToken(key);
+      if (entityValue != null) return _applyValueMap(entityValue, valueMap);
       if (key.contains('?')) return _applyValueMap(_resolveTernary(key), valueMap);
       return '';
     });
+  }
+
+  /// 按 entity_id 后缀查找组内实体，返回指定 token。
+  /// - `id:<后缀>` → 完整 entity_id（用于 toggle@ / press@）
+  /// - `s:<后缀>` → 实体 state
+  /// - `a:<后缀>.<属性>` → 实体 attribute
+  String? _resolveEntityToken(String key) {
+    final int colon = key.indexOf(':');
+    if (colon <= 0) return null;
+    final String kind = key.substring(0, colon).toLowerCase();
+    final String rest = key.substring(colon + 1).trim();
+    if (rest.isEmpty) return null;
+    final int attrDot = kind == 'a' ? rest.lastIndexOf('.') : -1;
+    if (kind == 'a' && attrDot <= 0) return null;
+    final String pattern = (attrDot > 0 ? rest.substring(0, attrDot) : rest).toLowerCase();
+    for (final HaEntityStateModel e in group.entities) {
+      if (!e.entityId.toLowerCase().contains(pattern)) continue;
+      switch (kind) {
+        case 'id':
+          return e.entityId;
+        case 's':
+          return e.state;
+        case 'a':
+          final String attr = rest.substring(attrDot + 1);
+          final Object? value = e.attributes[attr];
+          return value == null ? '' : '$value';
+      }
+    }
+    return null;
   }
 
   /// 把原始值按 map（"on=着灯,off=关闭"）替换；解析规则与 ESP 一致。

@@ -19,7 +19,7 @@ const path = require('path');
 // 类型清单：key 与 home 端 XXXSummary / 原型 DICT_DETAIL 对齐。
 const DEVICE_TYPES = [
     { key: 'water_heater', icon: '♨', label: '热水器', color: '#ff6b6b', roles: ['主状态', '副状态1', '副状态2'] },
-    { key: 'kettle', icon: '♨', label: '热水瓶', color: '#ffb454', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'kettle', icon: 'water_drop', label: '热水瓶', color: '#2dd4bf', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'fan', icon: '✦', label: '风扇', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'climate', icon: '❄', label: '空调', color: '#2f9cff', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'light', icon: '☀', label: '灯光', color: '#facc15', roles: ['主状态', '副状态1', '副状态2'] },
@@ -57,7 +57,7 @@ const DICT_DEFAULTS = {
 // 各类型的默认解析规则（字段与 admin 字典 Tab 一致）。
 const DICT_DETAIL = {
     water_heater: { mainAttr: 'current_temperature', mainFmt: '{v}°C', subTpl: '{s1} · 目标 {s2}°C', step: '0.5', homeLabel: '当前水温', homeCtrls: '电源 温度− 温度+ 预热', homeActs: 'toggle set_temperature(-0.5) set_temperature(+0.5) toggle', simMain: '42.5', simSub1: '制热中', simSub2: '45' },
-    kettle: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · 保温 {s2}°C', step: '1', homeLabel: '当前温度', homeCtrls: '电源 保温', homeActs: 'toggle select_option', simMain: '98', simSub1: '加热中', simSub2: '55' },
+    kettle: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · 保温 {s2}°C', step: '1', homeLabel: '当前温度', mainEntity: '_temperature_p_2_6', homeCtrls: '电源 保温', homeActs: 'toggle select_option', simMain: '98', simSub1: '加热中', simSub2: '55' },
     fan: { mainAttr: 'percentage', mainFmt: '风速 {v}%', subTpl: '{s1} · {s2}', step: '25', homeLabel: '当前风速', homeCtrls: '电源 风+ 风− 摆头', homeActs: 'toggle set_percentage(+25) set_percentage(-25) toggle', simMain: '60', simSub1: '自然风', simSub2: '延时 30min' },
     climate: { mainAttr: 'current_temperature', mainFmt: '{v}°C', subTpl: '{s1} · 目标 {s2}°C', step: '0.5', homeLabel: '当前室温', homeCtrls: '电源 温度− 温度+ 模式', homeActs: 'toggle set_temperature(-0.5) set_temperature(+0.5) set_hvac_mode', simMain: '26', simSub1: '制冷', simSub2: '24' },
     light: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '10', homeLabel: '灯光状态', homeCtrls: '电源 亮度+ 亮度− 场景', homeActs: 'turn_on brightness(+10) brightness(-10) next_effect', simMain: '已开启', simSub1: '亮度 80%', simSub2: '4000K' },
@@ -186,6 +186,61 @@ const CARD_DEFAULTS = {
     span: { col: 1, row: 1 },
     // JSON 布局树：admin 可配；为空时 home 用 defaultLayoutFor 生成的通用布局。
     layout: null,
+};
+
+// 按类型定制的卡片布局：优先于 defaultLayoutFor，admin 保存后可覆盖。
+// 热水瓶：状态/模式/目标温度分散在同设备的多个实体里，用 {s:<entity_id 后缀>}
+// 精确取值，避免依赖组内实体下标。
+const CARD_LAYOUTS = {
+    kettle: {
+        type: 'column', gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 2,
+                        children: [
+                            { type: 'text', value: '{title}', size: 14, weight: 700, maxLines: 1 },
+                            {
+                                type: 'text',
+                                value: '{room} · {s:_status_p_2_1} · {s:_mode_p_2_3}',
+                                size: 12, color: '{color}', maxLines: 1,
+                            },
+                        ],
+                    },
+                    {
+                        type: 'button', round: true, value: 'power_settings_new', size: 36,
+                        onClick: 'toggle@{id:_auto_keep_warm_p_2_7}',
+                        visibleWhen: '{primary.switchable}',
+                    },
+                ],
+            },
+            {
+                type: 'row', crossAlign: 'end', mainAlign: 'spaceBetween', gap: 8,
+                children: [
+                    {
+                        type: 'column', gap: 1,
+                        children: [
+                            { type: 'text', value: '{label}', size: 11, color: 'outline', maxLines: 1 },
+                            { type: 'text', value: '{main}', size: 30, weight: 700, maxLines: 1 },
+                        ],
+                    },
+                    {
+                        type: 'column', crossAlign: 'end', gap: 2,
+                        children: [
+                            { type: 'text', value: '目标 {s:_target_temperature_p_2_5}°C', size: 12, color: 'outline', maxLines: 1 },
+                            { type: 'chip', label: '停止保温', onClick: 'press@{id:_cancel_cooking_a_2_2}', style: 'outlined' },
+                        ],
+                    },
+                ],
+            },
+        ],
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -418,11 +473,12 @@ function normalizeCard(value, key) {
         mainAttr: (DICT_DETAIL[key] || {}).mainAttr || CARD_DEFAULTS.mainAttr,
         mainFmt: (DICT_DETAIL[key] || {}).mainFmt || CARD_DEFAULTS.mainFmt,
         subTpl: (DICT_DETAIL[key] || {}).subTpl || CARD_DEFAULTS.subTpl,
+        mainEntity: (DICT_DETAIL[key] || {}).mainEntity || CARD_DEFAULTS.mainEntity,
         icon: meta.icon || CARD_DEFAULTS.icon,
         color: meta.color || CARD_DEFAULTS.color,
     });
     // 默认布局依赖 base 的 icon/buttons 等字段，这里先算好。
-    const fallbackLayout = sanitizeLayout(defaultLayoutFor(key, base));
+    const fallbackLayout = sanitizeLayout(CARD_LAYOUTS[key] || defaultLayoutFor(key, base));
     if (!value || typeof value !== 'object') {
         return Object.assign({}, base, { span: { col: 1, row: 1 }, layout: fallbackLayout });
     }
