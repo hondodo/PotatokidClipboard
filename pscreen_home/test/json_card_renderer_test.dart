@@ -411,6 +411,54 @@ void main() {
     expect(actions, contains('fan@fan.xiaomi_cn_991270332_cfan01_s_4_fan:66'));
   });
 
+  testWidgets('风速条走 onActionResult 回传下发结果，不重复调用 onAction', (
+    WidgetTester tester,
+  ) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_fanlight_result',
+      title: '风扇灯',
+      entities: <HaEntityStateModel>[
+        _entity('fan.xxx_s_4_fan', 'on', name: '风扇'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'progress',
+        'interactive': true,
+        'value': '{a:_s_4_fan.percentage}',
+        'onClick': 'fan@{id:_s_4_fan}',
+      }),
+    );
+    final List<String> results = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 120,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'fan_light',
+              onOpenDetail: () {},
+              onAction: (String _) => fail('有 onActionResult 时不应重复下发'),
+              onActionResult: (String action) async {
+                results.add(action);
+                return false;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final GradientSlider slider = tester.widget<GradientSlider>(
+      find.byType(GradientSlider),
+    );
+    expect(await slider.onChangeEndAsync!.call(66), isFalse);
+    expect(results, contains('fan@fan.xxx_s_4_fan:66'));
+  });
+
   testWidgets('离线设备亮度条仍常显（offline=true），不隐藏不禁用显示', (WidgetTester tester) async {
     // 离线实体：state=unavailable → group.isUnavailable=true → progress offline
     final HaDeviceGroup group = HaDeviceGroup(

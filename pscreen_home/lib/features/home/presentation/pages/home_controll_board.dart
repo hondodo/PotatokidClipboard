@@ -1211,6 +1211,148 @@ class _ControlGridState extends State<_ControlGrid> {
           // sparkline 节点通过全局 provider 取历史服务（避免逐层传参）。
           JsonCardRenderer.historyServiceProvider ??= () =>
               Injection.get<HistoryService>();
+          void dispatchAction(String action, {Completer<bool>? completer}) {
+            final HomeBloc bloc = context.read<HomeBloc>();
+            final String trimmed = action.trim();
+            void reject() {
+              if (completer != null && !completer.isCompleted) {
+                completer.complete(false);
+              }
+            }
+
+            // kettle@action：热水瓶专用安全通道，onClick 不带实体 id。
+            // 开始加热是 notify 实体 + 8 项实时参数，停止是 button 实体，
+            // 这里按 KettleSummary 实时状态选择，行为与旧版 KettleWidget 完全一致；
+            // 通用渲染器绝不猜测实体，避免误动作真实设备。
+            if (trimmed == 'kettle@action') {
+              final KettleSummary? kettle = group.deviceId == null
+                  ? null
+                  : kettles[group.deviceId!];
+              if (kettle == null) return;
+              if (kettle.isActive) {
+                if (kettle.stopEntityId != null) {
+                  bloc.add(PressEntityButton(entityId: kettle.stopEntityId!));
+                }
+              } else if (kettle.startEntityId != null) {
+                bloc.add(
+                  PressNotifyAction(
+                    entityId: kettle.startEntityId!,
+                    message: kettle.startMessage,
+                  ),
+                );
+              }
+              return;
+            }
+            // toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。
+            if (trimmed.startsWith('toggle@')) {
+              final String target = trimmed.substring('toggle@'.length).trim();
+              if (target.isNotEmpty) bloc.add(ToggleEntity(entityId: target));
+              return;
+            }
+            // press@<entityId>：按指定实体按钮。
+            if (trimmed.startsWith('press@')) {
+              final String target = trimmed.substring('press@'.length).trim();
+              if (target.isNotEmpty)
+                bloc.add(PressEntityButton(entityId: target));
+              return;
+            }
+            // brightness@<entityId>:<percent>：卡片亮度条松手时下发。
+            // 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。
+            if (trimmed.startsWith('brightness@')) {
+              final String rest = trimmed
+                  .substring('brightness@'.length)
+                  .trim();
+              final int sep = rest.lastIndexOf(':');
+              if (sep <= 0) {
+                reject();
+                return;
+              }
+              final String target = rest.substring(0, sep).trim();
+              final int? percent = int.tryParse(rest.substring(sep + 1).trim());
+              final HaEntityStateModel? lightEntity = state.entities[target];
+              if (target.isEmpty ||
+                  percent == null ||
+                  (lightEntity != null && !lightEntity.supportsBrightness)) {
+                reject();
+                return;
+              }
+              bloc.add(
+                SetLightBrightness(
+                  entityId: target,
+                  percent: percent,
+                  completer: completer,
+                ),
+              );
+              return;
+            }
+            // fan@<entityId>:<percent>：风扇风速条松手时下发。
+            // 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部
+            // 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。
+            if (trimmed.startsWith('fan@')) {
+              final String rest = trimmed.substring('fan@'.length).trim();
+              final int sep = rest.lastIndexOf(':');
+              if (sep <= 0) {
+                reject();
+                return;
+              }
+              final String target = rest.substring(0, sep).trim();
+              final int? percent = int.tryParse(rest.substring(sep + 1).trim());
+              final HaEntityStateModel? fanEntity = state.entities[target];
+              if (target.isEmpty ||
+                  percent == null ||
+                  (fanEntity != null && !fanEntity.isFan)) {
+                reject();
+                return;
+              }
+              bloc.add(
+                SetFanPercentage(
+                  entityId: target,
+                  percentage: percent,
+                  completer: completer,
+                ),
+              );
+              return;
+            }
+            final String kind = trimmed.split('(').first.trim();
+            switch (kind) {
+              case 'toggle':
+              case 'turn_on':
+              case 'turn_off':
+                if (primaryId.isNotEmpty)
+                  bloc.add(ToggleEntity(entityId: primaryId));
+                break;
+              case 'press':
+                if (primaryId.isNotEmpty)
+                  bloc.add(PressEntityButton(entityId: primaryId));
+                break;
+              case 'notify':
+                if (primaryId.isNotEmpty) {
+                  bloc.add(
+                    PressNotifyAction(entityId: primaryId, message: trimmed),
+                  );
+                }
+                break;
+              default:
+                // 带参动作（set_temperature / select_option / brightness 等）
+                // 走详情页由专用面板处理。
+                _openDeviceDetail(context, group);
+            }
+          }
+
+          // 滑条需要「是否真的下发成功」来回滚乐观预览：断线时 bloc 会
+          // 把 completer 置为 false，滑条就不会停在用户拖过的位置。
+          Future<bool> dispatchActionWithResult(String action) async {
+            final String trimmed = action.trim();
+            if (!trimmed.startsWith('brightness@') &&
+                !trimmed.startsWith('fan@')) {
+              dispatchAction(action);
+              return true;
+            }
+            final Completer<bool> completer = Completer<bool>();
+            dispatchAction(action, completer: completer);
+            return completer.future;
+          }
+
           return JsonCardRenderer(
             group: group,
             card: cardCfg,
@@ -1219,118 +1361,9 @@ class _ControlGridState extends State<_ControlGrid> {
             showAreaInTitle: state.selectedAreaId.isEmpty,
             isToggling:
                 primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
-            onAction: (String action) {
-              final HomeBloc bloc = context.read<HomeBloc>();
-              final String trimmed = action.trim();
-              // kettle@action：热水瓶专用安全通道，onClick 不带实体 id。
-              // 开始加热是 notify 实体 + 8 项实时参数，停止是 button 实体，
-              // 这里按 KettleSummary 实时状态选择，行为与旧版 KettleWidget 完全一致；
-              // 通用渲染器绝不猜测实体，避免误动作真实设备。
-              if (trimmed == 'kettle@action') {
-                final KettleSummary? kettle = group.deviceId == null
-                    ? null
-                    : kettles[group.deviceId!];
-                if (kettle == null) return;
-                if (kettle.isActive) {
-                  if (kettle.stopEntityId != null) {
-                    bloc.add(PressEntityButton(entityId: kettle.stopEntityId!));
-                  }
-                } else if (kettle.startEntityId != null) {
-                  bloc.add(
-                    PressNotifyAction(
-                      entityId: kettle.startEntityId!,
-                      message: kettle.startMessage,
-                    ),
-                  );
-                }
-                return;
-              }
-              // toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。
-              if (trimmed.startsWith('toggle@')) {
-                final String target = trimmed
-                    .substring('toggle@'.length)
-                    .trim();
-                if (target.isNotEmpty) bloc.add(ToggleEntity(entityId: target));
-                return;
-              }
-              // press@<entityId>：按指定实体按钮。
-              if (trimmed.startsWith('press@')) {
-                final String target = trimmed.substring('press@'.length).trim();
-                if (target.isNotEmpty)
-                  bloc.add(PressEntityButton(entityId: target));
-                return;
-              }
-              // brightness@<entityId>:<percent>：卡片亮度条松手时下发。
-              // 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。
-              if (trimmed.startsWith('brightness@')) {
-                final String rest = trimmed
-                    .substring('brightness@'.length)
-                    .trim();
-                final int sep = rest.lastIndexOf(':');
-                if (sep > 0) {
-                  final String target = rest.substring(0, sep).trim();
-                  final int? percent = int.tryParse(
-                    rest.substring(sep + 1).trim(),
-                  );
-                  if (target.isNotEmpty && percent != null) {
-                    final HaEntityStateModel? lightEntity =
-                        state.entities[target];
-                    if (lightEntity == null || lightEntity.supportsBrightness) {
-                      bloc.add(
-                        SetLightBrightness(entityId: target, percent: percent),
-                      );
-                    }
-                  }
-                }
-                return;
-              }
-              // fan@<entityId>:<percent>：风扇风速条松手时下发。
-              // 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部
-              // 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。
-              if (trimmed.startsWith('fan@')) {
-                final String rest = trimmed.substring('fan@'.length).trim();
-                final int sep = rest.lastIndexOf(':');
-                if (sep > 0) {
-                  final String target = rest.substring(0, sep).trim();
-                  final int? percent = int.tryParse(
-                    rest.substring(sep + 1).trim(),
-                  );
-                  final HaEntityStateModel? fanEntity = state.entities[target];
-                  if (target.isNotEmpty &&
-                      percent != null &&
-                      (fanEntity == null || fanEntity.isFan)) {
-                    bloc.add(
-                      SetFanPercentage(entityId: target, percentage: percent),
-                    );
-                  }
-                }
-                return;
-              }
-              final String kind = trimmed.split('(').first.trim();
-              switch (kind) {
-                case 'toggle':
-                case 'turn_on':
-                case 'turn_off':
-                  if (primaryId.isNotEmpty)
-                    bloc.add(ToggleEntity(entityId: primaryId));
-                  break;
-                case 'press':
-                  if (primaryId.isNotEmpty)
-                    bloc.add(PressEntityButton(entityId: primaryId));
-                  break;
-                case 'notify':
-                  if (primaryId.isNotEmpty) {
-                    bloc.add(
-                      PressNotifyAction(entityId: primaryId, message: trimmed),
-                    );
-                  }
-                  break;
-                default:
-                  // 带参动作（set_temperature / select_option / brightness 等）
-                  // 走详情页由专用面板处理。
-                  _openDeviceDetail(context, group);
-              }
-            },
+            interactionsEnabled: isConnected,
+            onAction: dispatchAction,
+            onActionResult: dispatchActionWithResult,
             onOpenDetail: () => _openDeviceDetail(context, group),
           );
 

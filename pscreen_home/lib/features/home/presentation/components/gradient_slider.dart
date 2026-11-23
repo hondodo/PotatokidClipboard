@@ -14,6 +14,7 @@ class GradientSlider extends StatefulWidget {
     this.max = 100,
     this.onChanged,
     this.onChangeEnd,
+    this.onChangeEndAsync,
     this.height = 28,
     this.thumbWidth = 12,
     this.thumbHeight = 42,
@@ -30,6 +31,12 @@ class GradientSlider extends StatefulWidget {
   final double max;
   final ValueChanged<double>? onChanged;
   final ValueChanged<double>? onChangeEnd;
+
+  /// 松手后的异步提交结果。返回 true 表示上层已接受并把权威值更新到目标值；
+  /// 返回 false（断线 / 请求失败 / 被白名单拦截）时本地预览自动回滚到 [value]。
+  ///
+  /// 与 [onChangeEnd] 二选一：传了它就不会再调 [onChangeEnd]，避免重复下发。
+  final Future<bool> Function(double)? onChangeEndAsync;
   final double height;
   final double thumbWidth;
   final double thumbHeight;
@@ -80,7 +87,28 @@ class _GradientSliderState extends State<GradientSlider> {
   void _finish() {
     if (!_dragging) return;
     _dragging = false;
-    widget.onChangeEnd?.call(_value);
+    final double committed = _value;
+    final Future<bool> Function(double)? asyncHandler = widget.onChangeEndAsync;
+    if (asyncHandler == null) {
+      widget.onChangeEnd?.call(committed);
+      return;
+    }
+    asyncHandler(committed).then((bool accepted) {
+      if (!mounted || accepted) return;
+      // 指令没真正生效：把乐观预览还原成设备权威值，避免重连后
+      // 文字已显示实际风速、滑条却仍停在用户上次拖动的位置。
+      setState(() => _value = _normalized(widget.value));
+    }, onError: (Object _) {
+      if (!mounted) return;
+      setState(() => _value = _normalized(widget.value));
+    });
+  }
+
+  void _cancelDrag() {
+    if (!_dragging) return;
+    _dragging = false;
+    // 手势被系统打断（没有松手提交），本地预览必须立即回到权威值。
+    setState(() => _value = _normalized(widget.value));
   }
 
   @override
@@ -122,7 +150,7 @@ class _GradientSliderState extends State<GradientSlider> {
               _updateFromDx(d.localPosition.dx, width);
             },
             onTapUp: (TapUpDetails _) => _finish(),
-            onTapCancel: () => _dragging = false,
+            onTapCancel: _cancelDrag,
             onHorizontalDragStart: (DragStartDetails d) {
               _dragging = true;
               _updateFromDx(d.localPosition.dx, width);
@@ -130,7 +158,7 @@ class _GradientSliderState extends State<GradientSlider> {
             onHorizontalDragUpdate: (DragUpdateDetails d) =>
                 _updateFromDx(d.localPosition.dx, width),
             onHorizontalDragEnd: (DragEndDetails _) => _finish(),
-            onHorizontalDragCancel: () => _dragging = false,
+            onHorizontalDragCancel: _cancelDrag,
             child: SizedBox(
               height: widget.thumbHeight,
               child: Stack(

@@ -25,9 +25,11 @@ class JsonCardRenderer extends StatelessWidget {
     required this.typeKey,
     required this.onOpenDetail,
     required this.onAction,
+    this.onActionResult,
     this.areaLabel,
     this.showAreaInTitle = false,
     this.isToggling = false,
+    this.interactionsEnabled = true,
     this.historyService,
   });
 
@@ -36,9 +38,16 @@ class JsonCardRenderer extends StatelessWidget {
   final String typeKey;
   final VoidCallback onOpenDetail;
   final ValueChanged<String> onAction;
+
+  /// 需要知道指令是否真正下发成功的动作（滑条等乐观更新控件）走这里。
+  /// 未传时退化为 onAction + 恒成功。
+  final Future<bool> Function(String)? onActionResult;
   final String? areaLabel;
   final bool showAreaInTitle;
   final bool isToggling;
+
+  /// HA 连接未就绪时禁用控制类交互，避免断线期间的拖动留下假值。
+  final bool interactionsEnabled;
   final HistoryService? historyService;
 
   @override
@@ -433,9 +442,14 @@ class JsonCardRenderer extends StatelessWidget {
         trackColor: theme.colorScheme.outlineVariant,
         height: node.height ?? 12,
         thumbHeight: (node.height ?? 12) + 14,
-        enabled: available && action.isNotEmpty,
+        enabled: available && interactionsEnabled && action.isNotEmpty,
         offline: !available,
-        onChangeEnd: (double v) => onAction('$action:${v.round()}'),
+        onChangeEnd: onActionResult == null
+            ? (double v) => onAction('$action:${v.round()}')
+            : null,
+        onChangeEndAsync: onActionResult == null
+            ? null
+            : (double v) => onActionResult!('$action:${v.round()}'),
       );
     }
 
