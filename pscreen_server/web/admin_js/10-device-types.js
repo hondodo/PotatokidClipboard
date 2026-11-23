@@ -95,12 +95,19 @@
     if (!host || !state.deviceTypes) return;
     const types = state.deviceTypes;
     if (!state.reEditKey || !types.some((t) => t.key === state.reEditKey)) state.reEditKey = types[0] ? types[0].key : null;
-    host.innerHTML = types.map((t) => `
+    host.innerHTML = types.map((t) => {
+      // icon 可能是 Material 名（water_drop）。列表只显示一个字形 / 中文标签，
+      // 不能把长英文名塞进 20px 图标位，否则会和中文标签重叠。
+      const rawIcon = String(t.icon || '✦');
+      const glyph = PV_ICON_GLYPHS[rawIcon.toLowerCase()]
+        || (Array.from(rawIcon).length <= 2 ? rawIcon : '✦');
+      return `
       <div class="dt-item ${t.key === state.reEditKey ? 'active' : ''}" data-key="${esc(t.key)}">
-        <span class="ic">${esc(t.icon || '✦')}</span><span>${esc(t.label || t.key || '通用兜底')}</span>
+        <span class="ic">${esc(glyph)}</span><span>${esc(t.label || t.key || '通用兜底')}</span>
         ${t.dynamic ? '<span class="use">自定义</span>' : ''}
         <span class="use">${reRulesOf(t).length} 规则</span>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     host.querySelectorAll('.dt-item').forEach((el) => {
       el.addEventListener('click', () => {
         state.reEditKey = el.dataset.key;
@@ -510,7 +517,9 @@
       label: card.label || t.label || (isKettle ? '当前温度' : '灯光'),
       state,
       main: isKettle ? '55°C' : (isOn ? '已开启' : '已关闭'),
-      sub: isKettle ? '保温中… · 自来水' : (isOn ? '亮度 ' + bright + '%' : 'off'),
+      sub: isKettle
+        ? ((isOn ? '烧水中…' : '待机中…') + ' · 自来水')
+        : (isOn ? '亮度 ' + bright + '%' : 'off'),
       s1: state, s2: '', status: isOnline ? '已连接' : '离线',
       brightnessPercent: String(bright),
       brightness: String(Math.round(bright * 255 / 100)),
@@ -519,7 +528,7 @@
       'primary.switchable': 'true',
       'attr.percentage': String(bright),
       // 按 entity_id 后缀取值的示例数据（热水瓶卡片预览用）
-      's:_status_p_2_1': '保温中…',
+      's:_status_p_2_1': isKettle ? (isOn ? '烧水中…' : '待机中…') : '保温中…',
       's:_mode_p_2_3': '自来水',
       's:_target_temperature_p_2_5': '100',
       'id:_auto_keep_warm_p_2_7': 'switch.kettle_auto_keep_warm_p_2_7',
@@ -595,8 +604,10 @@
           ? `padding:${Number(node.padding[0]) || 0}px ${Number(node.padding[1] != null ? node.padding[1] : node.padding[0]) || 0}px;`
           : '';
         const flexCss = node.expand ? 'flex:1;min-width:0;' : '';
+        // fill 的 column 占满卡片高度，space-between 才能留出中间空白（对齐 App）。
+        const fillCss = (node.type === 'column' && node.fill) ? 'min-height:118px;' : '';
         return `<div style="display:flex;flex-direction:${pvFlexDir(node)};gap:${gap}px;`
-          + `justify-content:${pvMainAlign(node)};align-items:${pvCrossAlign(node)};${pad}${flexCss}">${kids}</div>`;
+          + `justify-content:${pvMainAlign(node)};align-items:${pvCrossAlign(node)};${pad}${flexCss}${fillCss}">${kids}</div>`;
       }
       if (type === 'text') {
         const txt = pvResolve(node.value, ctx, node);
@@ -642,8 +653,12 @@
             + `border:2px solid ${color};color:${color};display:flex;align-items:center;`
             + `justify-content:center;font-size:${Math.round(d * 0.46)}px;background:rgba(0,0,0,.15)">⏻</div>`;
         }
-        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;`
-          + `border:1px solid ${color};border-radius:14px;color:${color};font-size:13px">${esc(label)}</span>`;
+        const fsz = sz || 13;
+        const h = node.height != null ? Number(node.height) : 0;
+        return `<span style="display:inline-flex;align-items:center;justify-content:center;gap:4px;`
+          + `min-height:${h || 30}px;padding:4px 14px;box-sizing:border-box;`
+          + `border:1px solid ${color};border-radius:10px;color:${color};font-size:${fsz}px;`
+          + `font-weight:700">${esc(label)}</span>`;
       }
       if (type === 'progress') {
         const val = Number(pvResolve(node.value, ctx, node)) || 0;

@@ -193,7 +193,9 @@ const CARD_DEFAULTS = {
 // 精确取值，避免依赖组内实体下标。
 const CARD_LAYOUTS = {
     kettle: {
-        type: 'column', gap: 8, padding: [12, 10],
+        // fill 让列占满卡片高度；spaceBetween 把头部与底部读数分开，
+        // 中间自然留白（等价旧版 KettleWidget 的 Spacer）。
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 8, padding: [12, 10],
         children: [
             {
                 type: 'row', gap: 10, crossAlign: 'center',
@@ -203,20 +205,15 @@ const CARD_LAYOUTS = {
                         box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
                     },
                     {
-                        type: 'column', expand: true, gap: 2,
+                        type: 'column', expand: true, gap: 3,
                         children: [
-                            { type: 'text', value: '{title}', size: 14, weight: 700, maxLines: 1 },
+                            { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
                             {
                                 type: 'text',
                                 value: '{room} · {s:_status_p_2_1} · {s:_mode_p_2_3}',
-                                size: 12, color: '{color}', maxLines: 1,
+                                size: 13, color: '{color}', maxLines: 1,
                             },
                         ],
-                    },
-                    {
-                        type: 'button', round: true, value: 'power_settings_new', size: 36,
-                        onClick: 'toggle@{id:_auto_keep_warm_p_2_7}',
-                        visibleWhen: '{primary.switchable}',
                     },
                 ],
             },
@@ -224,17 +221,24 @@ const CARD_LAYOUTS = {
                 type: 'row', crossAlign: 'end', mainAlign: 'spaceBetween', gap: 8,
                 children: [
                     {
-                        type: 'column', gap: 1,
+                        type: 'column', gap: 2,
                         children: [
-                            { type: 'text', value: '{label}', size: 11, color: 'outline', maxLines: 1 },
-                            { type: 'text', value: '{main}', size: 30, weight: 700, maxLines: 1 },
+                            { type: 'text', value: '{label}', size: 13, color: 'outline', maxLines: 1 },
+                            { type: 'text', value: '{main}', size: 38, weight: 700, maxLines: 1 },
                         ],
                     },
                     {
-                        type: 'column', crossAlign: 'end', gap: 2,
+                        type: 'column', crossAlign: 'end', gap: 4,
                         children: [
-                            { type: 'text', value: '目标 {s:_target_temperature_p_2_5}°C', size: 12, color: 'outline', maxLines: 1 },
-                            { type: 'chip', label: '停止保温', onClick: 'press@{id:_cancel_cooking_a_2_2}', style: 'outlined' },
+                            { type: 'text', value: '目标 {s:_target_temperature_p_2_5}°C', size: 14, color: 'outline', maxLines: 1 },
+                            // 专用安全通道：onClick 不带实体 id，App 按 KettleSummary 实时状态
+                            // 走旧版确认过的 PressNotifyAction(8 参数) / PressEntityButton。
+                            {
+                                type: 'chip', label: '{s:_status_p_2_1}', style: 'outlined',
+                                size: 15, height: 42,
+                                onClick: 'kettle@action',
+                                map: '待机中…=加热,烧水完成=加热,关机=加热,烧水中…=停止加热,除氯中…=停止加热,风冷中…=停止保温,保温中…=停止保温,保温完成=停止保温,降温中…=停止保温',
+                            },
                         ],
                     },
                 ],
@@ -281,6 +285,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
         node.mainAlign = value.mainAlign;
     }
     if (value.expand === true) node.expand = true;
+    // column 填满可用高度（配合 mainAlign:spaceBetween 做上下分布，中间留白）。
+    if (value.fill === true) node.fill = true;
     // 节点级值替换（on=着灯,off=关闭），客户端 resolve() 应用；不影响 visibleWhen 条件。
     if (value.map != null) node.map = str(value.map, 240);
     if (value.padding != null) {
@@ -318,6 +324,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             if (value.value != null) node.value = str(value.value, 40);
             if (value.round === true) node.round = true;
             if (value.size != null) node.size = num(value.size, 52, 16, 96);
+            // 触屏点击高度：普通按钮/chip 可配到 56，默认仍 30 保持其它卡片不变。
+            if (value.height != null) node.height = num(value.height, 30, 24, 72);
             node.onClick = str(value.onClick, 120);
             // style 可为固定枚举，或运行时占位符（如 {gang.style} → active/normal）。
             const styleRaw = str(value.style, 40);
@@ -515,19 +523,29 @@ function normalizeCard(value, key) {
  */
 function createDeviceTypeService({ file } = {}) {
     let overrides = {};
+    // 字典版本号：每次保存（更新/新建/恢复默认）递增并写入覆盖层的 _revision 键，
+    // 通过 /ws 的 config 帧（deviceTypesUpdatedAt）下发给在线 App，App 据此热更新布局，
+    // 不必重启。_revision 是内部字段，不作为设备类型暴露给 list()/get()。
+    let revision = 0;
     if (file && fs.existsSync(file)) {
         try {
             const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
             if (raw && typeof raw === 'object' && !Array.isArray(raw)) overrides = raw;
+            revision = Number(overrides._revision) || 0;
         } catch (error) {
             console.error('[deviceTypes] 读取覆盖层失败，使用默认:', error.message);
         }
+    }
+
+    function bumpRevision() {
+        revision = Math.max(Date.now(), revision + 1);
     }
 
     function persist() {
         if (!file) return;
         try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
+            overrides._revision = revision;
             const tmp = `${file}.tmp`;
             fs.writeFileSync(tmp, JSON.stringify(overrides, null, 2), 'utf8');
             fs.renameSync(tmp, file);
@@ -565,7 +583,7 @@ function createDeviceTypeService({ file } = {}) {
     function list() {
         const built = DEVICE_TYPES.map((t) => entryOf(t.key));
         const dynamic = Object.keys(overrides)
-            .filter((k) => !TYPE_KEYS.has(k))
+            .filter((k) => !TYPE_KEYS.has(k) && k !== '_revision')
             .map((k) => entryOf(k));
         return built.concat(dynamic);
     }
@@ -603,6 +621,7 @@ function createDeviceTypeService({ file } = {}) {
             }
         }
         overrides[k] = next;
+        bumpRevision();
         persist();
         return entryOf(k);
     }
@@ -623,6 +642,7 @@ function createDeviceTypeService({ file } = {}) {
                 color: clampText((meta && meta.color) || '#4dd4ac', 24),
             },
         };
+        bumpRevision();
         persist();
         return entryOf(k);
     }
@@ -634,6 +654,7 @@ function createDeviceTypeService({ file } = {}) {
             throw new Error('未知设备类型');
         }
         delete overrides[k];
+        bumpRevision();
         persist();
         return TYPE_KEYS.has(k) ? entryOf(k) : entryOf('');
     }
@@ -643,7 +664,12 @@ function createDeviceTypeService({ file } = {}) {
         return list().filter((t) => t.card && t.card.genericEnabled === true).map((t) => t.key);
     }
 
-    return { list, get, update, create, reset, genericCardTypes, typeKeys: TYPE_KEYS };
+    /** 字典版本号：保存后递增，供 /ws config 帧下发触发 App 热更新。 */
+    function version() {
+        return revision;
+    }
+
+    return { list, get, update, create, reset, genericCardTypes, version, typeKeys: TYPE_KEYS };
 }
 
 // ---------------------------------------------------------------------------

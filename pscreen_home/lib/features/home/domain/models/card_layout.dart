@@ -15,6 +15,7 @@ class CardLayoutNode {
     this.crossAlign,
     this.mainAlign,
     this.expand = false,
+    this.fill = false,
     this.padding,
     this.value,
     this.size,
@@ -52,6 +53,8 @@ class CardLayoutNode {
   final String? crossAlign;
   final String? mainAlign;
   final bool expand;
+  /// column 填满可用高度（配合 mainAlign:spaceBetween 做上下分布，中间留白）。
+  final bool fill;
   final List<double>? padding;
   final String? value;
   final double? size;
@@ -107,6 +110,7 @@ class CardLayoutNode {
       crossAlign: json['crossAlign'] as String?,
       mainAlign: json['mainAlign'] as String?,
       expand: json['expand'] == true,
+      fill: json['fill'] == true,
       padding: _padding(json['padding']),
       value: json['value'] == null ? null : '${json['value']}',
       size: _num(json['size']),

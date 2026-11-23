@@ -5,40 +5,41 @@
 #include "flutter_window.h"
 #include "utils.h"
 
-namespace {
-
-// 把窗口移动到当前显示器工作区（排除任务栏）的正中央。
-// 在 Create 之后、Show 之前调用；GetHandle() 来自 Win32Window。
-void CenterWindow(HWND hwnd)
+namespace
 {
-  if (hwnd == nullptr)
+
+  // 把窗口移动到当前显示器工作区（排除任务栏）的正中央。
+  // 在 Create 之后、Show 之前调用；GetHandle() 来自 Win32Window。
+  void CenterWindow(HWND hwnd)
   {
-    return;
+    if (hwnd == nullptr)
+    {
+      return;
+    }
+
+    HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFOEX monitor_info;
+    monitor_info.cbSize = sizeof(monitor_info);
+    if (!::GetMonitorInfo(monitor, &monitor_info))
+    {
+      return;
+    }
+
+    RECT window_rect;
+    if (!::GetWindowRect(hwnd, &window_rect))
+    {
+      return;
+    }
+
+    const int width = window_rect.right - window_rect.left;
+    const int height = window_rect.bottom - window_rect.top;
+    const RECT &work = monitor_info.rcWork;
+    const int x = work.left + (work.right - work.left - width) / 2;
+    const int y = work.top + (work.bottom - work.top - height) / 2;
+
+    ::SetWindowPos(hwnd, nullptr, x, y, 0, 0,
+                   SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
   }
-
-  HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-  MONITORINFOEX monitor_info;
-  monitor_info.cbSize = sizeof(monitor_info);
-  if (!::GetMonitorInfo(monitor, &monitor_info))
-  {
-    return;
-  }
-
-  RECT window_rect;
-  if (!::GetWindowRect(hwnd, &window_rect))
-  {
-    return;
-  }
-
-  const int width = window_rect.right - window_rect.left;
-  const int height = window_rect.bottom - window_rect.top;
-  const RECT &work = monitor_info.rcWork;
-  const int x = work.left + (work.right - work.left - width) / 2;
-  const int y = work.top + (work.bottom - work.top - height) / 2;
-
-  ::SetWindowPos(hwnd, nullptr, x, y, 0, 0,
-                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
 
 } // namespace
 
@@ -65,7 +66,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1080, 607);
+  Win32Window::Size size(640, 420);
   if (!window.Create(L"\u85AF\u4ED4\u7684\u4E2D\u63A7\u53F0", origin, size))
   {
     return EXIT_FAILURE;

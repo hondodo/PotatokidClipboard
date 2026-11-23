@@ -40,22 +40,23 @@ class KettleWidget extends StatelessWidget {
       child: InkWell(
         onTap: onOpenDetail,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 6, 8),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          // 保留 Spacer 做上下分布；底部文字/按钮按触屏尺寸放大。
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Row(
                 children: <Widget>[
                   Container(
-                    width: 38,
-                    height: 38,
+                    width: 46,
+                    height: 46,
                     decoration: BoxDecoration(
                       color: _accent.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(11),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
-                      Icons.emoji_food_beverage_rounded,
-                      size: 21,
+                      Icons.water_drop_rounded,
+                      size: 24,
                       color: _accent,
                     ),
                   ),
@@ -74,7 +75,8 @@ class KettleWidget extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 3),
@@ -86,6 +88,7 @@ class KettleWidget extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
+                            fontSize: 12,
                             color: active
                                 ? _accent
                                 : theme.colorScheme.outline,
@@ -96,59 +99,91 @@ class KettleWidget extends StatelessWidget {
                   ),
                 ],
               ),
+              // 保留 Spacer：中间留白，底部读数贴近卡片下沿（与旧版一致）。
               const Spacer(),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[
-                  Text.rich(
-                    TextSpan(
-                      children: <InlineSpan>[
-                        TextSpan(
-                          text: summary.temperatureLabel,
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        '当前温度',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 13,
+                          color: theme.colorScheme.outline,
                         ),
-                        if (!offline)
-                          TextSpan(
-                            text: '°C',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline,
+                      ),
+                      const SizedBox(height: 2),
+                      Text.rich(
+                        TextSpan(
+                          children: <InlineSpan>[
+                            TextSpan(
+                              text: summary.temperatureLabel,
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontSize: 38,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (!offline)
+                              TextSpan(
+                                text: '°C',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontSize: 15,
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        offline
+                            ? '目标 --'
+                            : '目标 ${_format(summary.effectiveTargetTemperature)}°C',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 14,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // 触屏点击区放大：高度 42 + 宽 padding，字号 15，
+                      // 不用 shrinkWrap，保证手指容易点中。
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minHeight: 42,
+                          minWidth: 92,
+                        ),
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _accent,
+                            side: BorderSide(color: _accent, width: 1.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      offline
-                          ? '目标 --'
-                          : '目标 ${_format(summary.effectiveTargetTemperature)}°C',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.outline,
+                          onPressed:
+                              offline ? null : (active ? onStop : onStart),
+                          child: Text(
+                            offline ? '离线' : summary.cardActionLabel,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: _accent,
-                      padding: const EdgeInsets.symmetric(horizontal: 5),
-                      minimumSize: const Size(0, 28),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onPressed: offline ? null : (active ? onStop : onStart),
-                    child: Text(
-                      offline ? '离线' : summary.cardActionLabel,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               ),

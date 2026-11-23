@@ -18,9 +18,9 @@ from urllib.request import urlopen, Request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ===== 部署前修改这三处（也可用环境变量覆盖） =====
-BASE = os.environ.get("RELAY_BASE", "http://143.203.52.132:47291")  # 本机公网地址:端口
+BASE = os.environ.get("RELAY_BASE", "http://XXX.XXX.XXX.XXX:ABCD")  # 本机公网地址:端口
 TOKEN = os.environ.get("RELAY_TOKEN", "hhpotatokidtoken")   # 随机串，App 侧拼进 URL
-PORT = int(os.environ.get("RELAY_PORT", "47291"))  # 监听端口，须与 BASE 中一致
+PORT = int(os.environ.get("RELAY_PORT", "ABCD"))  # 监听端口，须与 BASE 中一致
 # =================================================
 # ===== 转换流量历史（按转码源；只存主机名+短哈希，不落完整 URL/token） =====
 TRAFFIC_FILE = os.environ.get(
@@ -37,7 +37,7 @@ TRAFFIC_INBOUND = os.environ.get("RELAY_TRAFFIC_INBOUND", "auto").lower()
 SS_BIN = shutil.which("ss") or "/usr/bin/ss"
 # =========================================================================
 ALLOW_HOST_API = os.environ.get(
-    "ALLOW_HOST_API", "http://100.83.142.107:3000/api/allow_reply_host")
+    "ALLOW_HOST_API", "http://YYY.YYY.YYY.YYY:EFGH/api/allow_reply_host")
 ALLOW_HOST_CACHE = os.environ.get(
     "ALLOW_HOST_CACHE",
     os.path.join(os.path.dirname(os.path.abspath(__file__)),

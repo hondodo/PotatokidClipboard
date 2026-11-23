@@ -1835,6 +1835,9 @@ function attachAdmin(app, options = {}) {
             // 节目文件版本：保存后时间戳变化，设备据此重新拉取频道（只带版本号，不带文件内容）。
             programsUpdatedAt: programs ? programs.updatedAt() : 0,
             programsRevision: programs ? programs.revision() : 0,
+            // 设备类型/布局字典版本：admin 保存类型后递增，home 端据此重新拉取布局，
+            // 不必重启 App（只带版本号，不带字典本体）。
+            deviceTypesUpdatedAt: deviceTypeService ? deviceTypeService.version() : 0,
         };
     }
 
@@ -4149,6 +4152,18 @@ function attachAdmin(app, options = {}) {
         }
     }
 
+    /** 设备类型字典变更：给所有在线 home 推一次 config 帧（含新的 deviceTypesUpdatedAt）。
+     *  parent（家长端）不用卡片布局，跳过。config 帧只带版本号，App 收到后自行重拉字典。 */
+    function pushConfigForDeviceTypes(extra = {}) {
+        const machines = readMachines();
+        let sent = 0;
+        for (const machine of Object.values(machines)) {
+            if (machineKind(machine) === 'parent') continue;
+            sent += pushConfigToMachine(machine, extra) || 0;
+        }
+        return sent;
+    }
+
     app.post('/api/device/register', (req, res) => {
         try {
             const machine = upsertMachine(req, req.body || {});
@@ -5049,8 +5064,9 @@ function attachAdmin(app, options = {}) {
                 ? { dict: body.dict, rules: body.rules, card: body.card, priority: body.priority, meta: body.meta }
                 : (body.dict || {});
             const updated = deviceTypeService.update(key, patch);
-            console.log(`[deviceTypes] 更新类型 ${key || '通用兜底'}（规则 ${updated.rules.length} 条），两端字典同步生效`);
-            return jsonOk(res, { type: updated }, '字典已保存，home 与 ESP 两端生效');
+            const sent = pushConfigForDeviceTypes();
+            console.log(`[deviceTypes] 更新类型 ${key || '通用兜底'}（规则 ${updated.rules.length} 条），字典同步生效，config 推送 ${sent} 台`);
+            return jsonOk(res, { type: updated, revision: deviceTypeService.version(), pushed: sent }, '字典已保存，在线设备自动更新布局');
         } catch (error) {
             return jsonFail(res, error.message);
         }
@@ -5064,8 +5080,9 @@ function attachAdmin(app, options = {}) {
                 label: body.label, icon: body.icon, color: body.color,
                 rules: body.rules, card: body.card, priority: body.priority,
             });
-            console.log(`[deviceTypes] 新建类型 ${created.key}（${created.label}）`);
-            return jsonOk(res, { type: created }, '类型已创建');
+            const sent = pushConfigForDeviceTypes();
+            console.log(`[deviceTypes] 新建类型 ${created.key}（${created.label}），config 推送 ${sent} 台`);
+            return jsonOk(res, { type: created, revision: deviceTypeService.version(), pushed: sent }, '类型已创建，在线设备自动更新');
         } catch (error) {
             return jsonFail(res, error.message);
         }
@@ -5135,7 +5152,9 @@ function attachAdmin(app, options = {}) {
     app.post('/api/admin/device-types/reset', requireAdmin, (req, res) => {
         const key = String((req.body || {}).key == null ? '' : (req.body || {}).key);
         try {
-            return jsonOk(res, { type: deviceTypeService.reset(key) }, '已恢复默认规则');
+            const type = deviceTypeService.reset(key);
+            const sent = pushConfigForDeviceTypes();
+            return jsonOk(res, { type, revision: deviceTypeService.version(), pushed: sent }, '已恢复默认规则，在线设备自动更新');
         } catch (error) {
             return jsonFail(res, error.message);
         }
@@ -5393,7 +5412,8 @@ function attachAdmin(app, options = {}) {
                 // HA 设备「是否显示到中控屏」显式配置（deviceId -> bool）。
                 // home 端据此从首页网格过滤：false=隐藏；未出现的设备保持现状。
                 deviceVisibility: haDeviceVisibilityService.publicMap(),
-                updatedAt: Date.now(),
+                // 真实字典版本号（保存后递增），App 可据此判断是否需要热更新布局。
+                updatedAt: deviceTypeService.version() || Date.now(),
             });
         } catch (error) {
             return jsonFail(res, error.message);

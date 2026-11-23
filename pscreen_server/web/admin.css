@@ -290,7 +290,7 @@
     .dt-item { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
     .dt-item:hover { background: rgba(255, 255, 255, .04); color: var(--text); }
     .dt-item.active { background: rgba(139, 124, 246, .13); border-color: rgba(139, 124, 246, .38); color: var(--text); }
-    .dt-item .ic { width: 20px; text-align: center; color: var(--accent); font-size: 15px; }
+    .dt-item .ic { flex: 0 0 20px; width: 20px; overflow: hidden; white-space: nowrap; text-align: center; color: var(--accent); font-size: 15px; }
     .dt-item .use { margin-left: auto; font-size: 11px; color: var(--muted-2); }
     .dt-item .cus { margin-left: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
     .dt-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }

@@ -94,7 +94,8 @@ class SettingsStore {
     return '$minutes 分钟';
   }
 
-  /// 全局界面缩放倍数（1.0 = 原始尺寸，仅作用于本应用）。
+  /// 历史遗留键：旧版设置页手动缩放的倍数。缩放已改为纯自动适配，
+  /// 不再读写此键；保留常量仅为说明历史数据，勿再使用。
   static const String uiScaleKey = 'ui_scale';
 
   /// 上次观看的直播频道名（下次进入直播页时恢复）。
@@ -116,12 +117,18 @@ class SettingsStore {
   /// 值由 data 层编码为 JSON；这里只负责原样存取，避免存储层依赖领域模型。
   static const String registryCacheKey = 'ha_registry_cache_v1';
 
-  /// 15 寸 1920x1080 大屏的默认缩放：卡片/字号整体放大 1.5 倍。
+  /// 历史默认值（旧版大屏 1.5 倍）。自动适配已改为由 `HomeDesign` 分场景
+  /// 设计画布连续推导，保留仅为兼容旧引用。
   static const double defaultUiScale = 1.5;
-  static const double minUiScale = 1.0;
-  static const double maxUiScale = 2.0;
 
-  /// 收敛到合法范围，避免读到脏数据后界面被放大到不可用。
+  /// 下限放到 0.5：手机竖屏由 `defaultUiScaleFor` 固定 1.0 保护不被缩小；
+  /// 横屏 4:3 这类屏幕需要 scale<1 才能把内容画布完整装进物理宽度。
+  static const double minUiScale = 0.5;
+
+  /// 横屏 960×540 基准下 2560×1440 需要约 2.67 倍，放宽上限避免大屏被截断。
+  static const double maxUiScale = 3.0;
+
+  /// 把自动推导的缩放收敛到合法范围，避免极端尺寸下界面不可用。
   static double normalizeUiScale(double value) =>
       value.clamp(minUiScale, maxUiScale).toDouble();
 
@@ -144,8 +151,7 @@ class SettingsStore {
   String get tokenOverride => _prefs?.getString(tokenKey) ?? '';
 
   /// 持久化的管理服务端地址覆盖值（空 = 未覆盖，使用 .env）。
-  String get serverBaseUrlOverride =>
-      _prefs?.getString(serverBaseUrlKey) ?? '';
+  String get serverBaseUrlOverride => _prefs?.getString(serverBaseUrlKey) ?? '';
 
   /// 功率采样间隔（秒）。未设置或非法值时回落 [defaultPowerSampleSeconds]。
   int get powerSampleSeconds {
@@ -189,16 +195,6 @@ class SettingsStore {
     return value;
   }
 
-  /// 用户手动设置的全局界面缩放；null = 未设置，按屏幕尺寸自动适配。
-  ///
-  /// 自动适配规则见 `defaultUiScaleFor(Size)`：15 寸 1920x1080 大屏 1.5、
-  /// 平板 1.25、手机（含竖屏）1.0，避免小屏被放大后 AppBar 放不下。
-  double? get uiScaleOverride {
-    final double? value = _prefs?.getDouble(uiScaleKey);
-    if (value == null) return null;
-    return normalizeUiScale(value);
-  }
-
   /// 上次观看的直播频道名（空串 = 未记录）。
   String get lastLiveChannel => _prefs?.getString(lastLiveChannelKey) ?? '';
 
@@ -229,17 +225,6 @@ class SettingsStore {
     } catch (e) {
       Injection.get<LogService>().warn('读取卡片顺序失败，回落默认排序：$e');
       return const <String, List<String>>{};
-    }
-  }
-
-  /// 持久化界面缩放（始终写入显式值；未设置时才走自动适配）。
-  Future<void> saveUiScale(double value) async {
-    final SharedPreferences? prefs = _prefs;
-    if (prefs == null) return;
-    try {
-      await prefs.setDouble(uiScaleKey, normalizeUiScale(value));
-    } catch (e) {
-      Injection.get<LogService>().warn('写入界面缩放失败：$e');
     }
   }
 

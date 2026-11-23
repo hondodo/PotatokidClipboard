@@ -303,3 +303,9 @@ class PressNotifyAction extends HomeEvent {
 class ClearHomeError extends HomeEvent {
   const ClearHomeError();
 }
+
+/// 设备类型/布局字典已被服务端热更新，触发 UI 用新字典重建卡片。
+/// DeviceTypeDictionary.active 是静态字段，赋值本身不会 rebuild，需借这个事件 emit 新 state。
+class DeviceTypesReloaded extends HomeEvent {
+  const DeviceTypesReloaded();
+}

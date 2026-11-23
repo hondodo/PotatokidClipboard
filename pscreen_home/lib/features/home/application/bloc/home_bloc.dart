@@ -99,6 +99,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<SetNumberEntityValue>(_onSetNumberEntityValue);
     on<PressNotifyAction>(_onPressNotifyAction);
     on<ClearHomeError>(_onClearHomeError);
+    on<DeviceTypesReloaded>(_onDeviceTypesReloaded);
     _subscription = repository.watchStateChanges().listen(
       (entity) => add(EntityStateChanged(entity)),
       onError: (Object e) => Injection.get<LogService>().warn('状态订阅流异常：$e'),
@@ -566,6 +567,16 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   void _onClearHomeError(ClearHomeError event, Emitter<HomeState> emit) {
     emit(state.copyWith(clearError: true));
+  }
+
+  /// 后台更新设备类型/布局字典后：DeviceTypeDictionary.active 已被替换，
+  /// 这里 emit 一个新 state 触发 BlocBuilder 重建，卡片即用新布局渲染。
+  /// 只做重建，绝不触碰任何设备控制动作。
+  void _onDeviceTypesReloaded(
+    DeviceTypesReloaded event,
+    Emitter<HomeState> emit,
+  ) {
+    emit(state.copyWith());
   }
 
   // ------------------------------------------------------------ 参数控制

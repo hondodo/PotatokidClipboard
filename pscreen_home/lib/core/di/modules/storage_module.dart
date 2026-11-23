@@ -18,7 +18,7 @@ class StorageModule {
       ScreensaverController(store),
     );
     getIt.registerSingleton<WallpaperController>(WallpaperController(store));
-    getIt.registerSingleton<UiScaleController>(UiScaleController(store));
+    getIt.registerSingleton<UiScaleController>(UiScaleController());
   }
 
   static Future<void> unregister() async {

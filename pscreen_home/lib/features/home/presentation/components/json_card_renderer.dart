@@ -103,7 +103,9 @@ class JsonCardRenderer extends StatelessWidget {
         // 会因无界宽约束崩溃（RenderFlex non-zero flex unbounded width）。
         return Flex(
           direction: Axis.vertical,
-          mainAxisSize: MainAxisSize.min,
+          // fill=true 时占满卡片高度，配合 mainAlign:spaceBetween 做上下分布，
+          // 中间留白（等价热水瓶旧版 KettleWidget 的 Spacer）。
+          mainAxisSize: node.fill ? MainAxisSize.max : MainAxisSize.min,
           mainAxisAlignment: _mainAlign(node.mainAlign),
           crossAxisAlignment: node.crossAlign == null
               ? CrossAxisAlignment.stretch
@@ -331,18 +333,21 @@ class JsonCardRenderer extends StatelessWidget {
           );
 
     if (chip) {
+      // 触屏尺寸：后台可配 height（如热水瓶 42）与字号 size，默认仍 30/12。
       return SizedBox(
-        height: 30,
+        height: node.height ?? 30,
         child: OutlinedButton(
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
             side: BorderSide(color: accent.withValues(alpha: 0.5)),
             foregroundColor: accent,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: Size(56, node.height ?? 30),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
-          child: child,
+          child: sub == null
+              ? Text(label, style: TextStyle(fontSize: node.size ?? 12, fontWeight: FontWeight.w700))
+              : child,
         ),
       );
     }

@@ -8,6 +8,7 @@ import 'package:pscreen_home/core/network/ha_connection_label.dart';
 import 'package:pscreen_home/core/network/ha_ws_client.dart';
 import 'package:pscreen_home/core/router/app_router.dart';
 import 'package:pscreen_home/core/router/route_names.dart';
+import 'package:pscreen_home/core/ui/ui_scale.dart';
 import 'package:pscreen_home/features/update/presentation/update_pill.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
@@ -1203,45 +1204,81 @@ class _ControlGridState extends State<_ControlGrid> {
           final String typeKey = classifiedType ?? '';
           final DeviceTypeRule? typeRule = ruleDict.rule(typeKey);
           // 兜底配置：服务端未下发时用一份内联默认，保证任何设备都能渲染。
-          final DeviceCardConfig cardCfg = typeRule?.card ?? const DeviceCardConfig();
+          final DeviceCardConfig cardCfg =
+              typeRule?.card ?? const DeviceCardConfig();
           final String primaryId = group.primary?.entityId ?? '';
 
           // sparkline 节点通过全局 provider 取历史服务（避免逐层传参）。
-          JsonCardRenderer.historyServiceProvider ??= () => Injection.get<HistoryService>();
+          JsonCardRenderer.historyServiceProvider ??= () =>
+              Injection.get<HistoryService>();
           return JsonCardRenderer(
             group: group,
             card: cardCfg,
             typeKey: typeKey,
             areaLabel: areaLabel,
             showAreaInTitle: state.selectedAreaId.isEmpty,
-            isToggling: primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
+            isToggling:
+                primaryId.isNotEmpty && state.togglingIds.contains(primaryId),
             onAction: (String action) {
               final HomeBloc bloc = context.read<HomeBloc>();
               final String trimmed = action.trim();
+              // kettle@action：热水瓶专用安全通道，onClick 不带实体 id。
+              // 开始加热是 notify 实体 + 8 项实时参数，停止是 button 实体，
+              // 这里按 KettleSummary 实时状态选择，行为与旧版 KettleWidget 完全一致；
+              // 通用渲染器绝不猜测实体，避免误动作真实设备。
+              if (trimmed == 'kettle@action') {
+                final KettleSummary? kettle = group.deviceId == null
+                    ? null
+                    : kettles[group.deviceId!];
+                if (kettle == null) return;
+                if (kettle.isActive) {
+                  if (kettle.stopEntityId != null) {
+                    bloc.add(PressEntityButton(entityId: kettle.stopEntityId!));
+                  }
+                } else if (kettle.startEntityId != null) {
+                  bloc.add(
+                    PressNotifyAction(
+                      entityId: kettle.startEntityId!,
+                      message: kettle.startMessage,
+                    ),
+                  );
+                }
+                return;
+              }
               // toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。
               if (trimmed.startsWith('toggle@')) {
-                final String target = trimmed.substring('toggle@'.length).trim();
+                final String target = trimmed
+                    .substring('toggle@'.length)
+                    .trim();
                 if (target.isNotEmpty) bloc.add(ToggleEntity(entityId: target));
                 return;
               }
               // press@<entityId>：按指定实体按钮。
               if (trimmed.startsWith('press@')) {
                 final String target = trimmed.substring('press@'.length).trim();
-                if (target.isNotEmpty) bloc.add(PressEntityButton(entityId: target));
+                if (target.isNotEmpty)
+                  bloc.add(PressEntityButton(entityId: target));
                 return;
               }
               // brightness@<entityId>:<percent>：卡片亮度条松手时下发。
               // 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。
               if (trimmed.startsWith('brightness@')) {
-                final String rest = trimmed.substring('brightness@'.length).trim();
+                final String rest = trimmed
+                    .substring('brightness@'.length)
+                    .trim();
                 final int sep = rest.lastIndexOf(':');
                 if (sep > 0) {
                   final String target = rest.substring(0, sep).trim();
-                  final int? percent = int.tryParse(rest.substring(sep + 1).trim());
+                  final int? percent = int.tryParse(
+                    rest.substring(sep + 1).trim(),
+                  );
                   if (target.isNotEmpty && percent != null) {
-                    final HaEntityStateModel? lightEntity = state.entities[target];
+                    final HaEntityStateModel? lightEntity =
+                        state.entities[target];
                     if (lightEntity == null || lightEntity.supportsBrightness) {
-                      bloc.add(SetLightBrightness(entityId: target, percent: percent));
+                      bloc.add(
+                        SetLightBrightness(entityId: target, percent: percent),
+                      );
                     }
                   }
                 }
@@ -1252,14 +1289,18 @@ class _ControlGridState extends State<_ControlGrid> {
                 case 'toggle':
                 case 'turn_on':
                 case 'turn_off':
-                  if (primaryId.isNotEmpty) bloc.add(ToggleEntity(entityId: primaryId));
+                  if (primaryId.isNotEmpty)
+                    bloc.add(ToggleEntity(entityId: primaryId));
                   break;
                 case 'press':
-                  if (primaryId.isNotEmpty) bloc.add(PressEntityButton(entityId: primaryId));
+                  if (primaryId.isNotEmpty)
+                    bloc.add(PressEntityButton(entityId: primaryId));
                   break;
                 case 'notify':
                   if (primaryId.isNotEmpty) {
-                    bloc.add(PressNotifyAction(entityId: primaryId, message: trimmed));
+                    bloc.add(
+                      PressNotifyAction(entityId: primaryId, message: trimmed),
+                    );
                   }
                   break;
                 default:
@@ -1272,6 +1313,7 @@ class _ControlGridState extends State<_ControlGrid> {
           );
 
           // 门锁：上锁状态 + 电池电量 + 电量更新时间（无快捷开关按钮）
+          // ignore: dead_code
           final LockSummary? lock = group.deviceId == null
               ? null
               : locks[group.deviceId];
@@ -1455,22 +1497,17 @@ class _ControlGridState extends State<_ControlGrid> {
                 ToggleEntity(entityId: toggleId),
               ),
               isTogglingLight: state.togglingIds.contains(lightId),
-              onToggleLight: () => context.read<HomeBloc>().add(
-                ToggleEntity(entityId: lightId),
-              ),
+              onToggleLight: () =>
+                  context.read<HomeBloc>().add(ToggleEntity(entityId: lightId)),
               isTogglingFan: state.togglingIds.contains(fanId),
-              onToggleFan: () => context.read<HomeBloc>().add(
-                ToggleEntity(entityId: fanId),
-              ),
+              onToggleFan: () =>
+                  context.read<HomeBloc>().add(ToggleEntity(entityId: fanId)),
               // 仅当灯真正支持调光时才挂亮度回调，避免向指示灯 / 纯开关灯
               // 误发调光指令。
               onBrightnessChanged: comboPrimary.supportsBrightness
                   ? (int percent) => context.read<HomeBloc>().add(
-                        SetLightBrightness(
-                          entityId: lightId,
-                          percent: percent,
-                        ),
-                      )
+                      SetLightBrightness(entityId: lightId, percent: percent),
+                    )
                   : null,
               onOpenDetail: () => _openDeviceDetail(context, group),
             );
@@ -1651,13 +1688,12 @@ class _ControlGridState extends State<_ControlGrid> {
                 areaLabel: areaLabel,
                 showAreaInTitle: state.selectedAreaId.isEmpty,
                 onBrightnessChanged: dimmable
-                    ? (int percent) =>
-                        context.read<HomeBloc>().add(
-                          SetLightBrightness(
-                            entityId: entity.entityId,
-                            percent: percent,
-                          ),
-                        )
+                    ? (int percent) => context.read<HomeBloc>().add(
+                        SetLightBrightness(
+                          entityId: entity.entityId,
+                          percent: percent,
+                        ),
+                      )
                     : null,
               );
             }
@@ -1702,6 +1738,17 @@ class _ControlGridState extends State<_ControlGrid> {
         // span 来自该设备类型的 card.span（admin 后台可配）；长按 500ms
         // 进入编辑态（卡片抖动浮起）才可拖动，解决误触/拖不到的痛点。
         final DeviceTypeDictionary spanDict = DeviceTypeDictionary.active;
+        // 列数/行高由设计画布决定，与屏幕像素无关：整屏缩放交给 UiScaleScope，
+        // 这里只保证「横屏 4 列、竖屏 2 列」的内容比例在任何分辨率下不变。
+        final Size logicalSize = MediaQuery.sizeOf(context);
+        final bool portrait = HomeDesign.isPortrait(logicalSize);
+        final int columns = portrait
+            ? HomeDesign.portraitColumns
+            : HomeDesign.landscapeColumns;
+        final double cellExtent = portrait
+            ? HomeDesign.portraitCellExtent
+            : HomeDesign.landscapeCellExtent;
+
         return SpanReorderableGrid<HaDeviceGroup>(
           items: groups,
           keyOf: (HaDeviceGroup g) => g.orderKey,
@@ -1709,28 +1756,44 @@ class _ControlGridState extends State<_ControlGrid> {
             if (_debugGridPlaceholder) {
               // 占位测试：按序号循环 1x1 / 2x1 / 1x2 / 2x2 验证跨格。
               const List<List<int>> pattern = <List<int>>[
-                <int>[1, 1], <int>[2, 1], <int>[1, 1], <int>[1, 2],
-                <int>[2, 2], <int>[1, 1], <int>[1, 1], <int>[2, 1],
+                <int>[1, 1],
+                <int>[2, 1],
+                <int>[1, 1],
+                <int>[1, 2],
+                <int>[2, 2],
+                <int>[1, 1],
+                <int>[1, 1],
+                <int>[2, 1],
               ];
               final int i = groups.indexOf(g);
               final List<int> s = pattern[i % pattern.length];
               return CardGridSpan(col: s[0], row: s[1]);
             }
-            final String? type = g.deviceId == null ? null : spanDict.classifiedTypeOf(g.deviceId!);
-            final CardSpan? span = type == null ? null : spanDict.rule(type)?.card?.span;
+            final String? type = g.deviceId == null
+                ? null
+                : spanDict.classifiedTypeOf(g.deviceId!);
+            final CardSpan? span = type == null
+                ? null
+                : spanDict.rule(type)?.card?.span;
             return CardGridSpan(col: span?.col ?? 1, row: span?.row ?? 1);
           },
-          crossAxisCount: 4,
-          cellExtent: 188,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
-          padding: const EdgeInsets.all(16),
+          crossAxisCount: columns,
+          cellExtent: cellExtent,
+          mainAxisSpacing: HomeDesign.baseSpacing,
+          crossAxisSpacing: HomeDesign.baseSpacing,
+          padding: const EdgeInsets.all(HomeDesign.basePadding),
           scrollController: _scrollController,
           itemBuilder: (BuildContext context, int index, HaDeviceGroup group) {
             if (_debugGridPlaceholder) {
               final List<Color> colors = <Color>[
-                Colors.teal, Colors.orange, Colors.purple, Colors.blue,
-                Colors.red, Colors.green, Colors.amber, Colors.indigo,
+                Colors.teal,
+                Colors.orange,
+                Colors.purple,
+                Colors.blue,
+                Colors.red,
+                Colors.green,
+                Colors.amber,
+                Colors.indigo,
               ];
               final Color c = colors[index % colors.length];
               return Container(
@@ -1743,7 +1806,11 @@ class _ControlGridState extends State<_ControlGrid> {
                 child: Text(
                   '#$index\n${groups.indexOf(group)} ${group.title.substring(0, group.title.length.clamp(0, 6))}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: c),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: c,
+                  ),
                 ),
               );
             }

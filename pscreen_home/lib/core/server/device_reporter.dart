@@ -9,6 +9,7 @@ import 'package:pscreen_home/core/server/server_api.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_bloc.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
+import 'package:pscreen_home/features/home/data/device_type_store.dart';
 import 'package:pscreen_screen/core/logging/log_service.dart';
 import 'package:pscreen_screen/core/network/realtime_channel.dart';
 import 'package:pscreen_screen/features/iptv/application/bloc/iptv_bloc.dart';
@@ -246,6 +247,7 @@ class DeviceReporter {
       layoutKey: config.layoutKey,
     );
     unawaited(_applyProgramsUpdate(config.programsUpdatedAt));
+    unawaited(_applyDeviceTypesUpdate(config.deviceTypesUpdatedAt));
     final String after = HaConfig.visibleHomes.join('\u0000');
     if (!dispatch || before == after) return;
     _log.info('[服务端] 家庭白名单已更新: [$after]');
@@ -276,6 +278,31 @@ class DeviceReporter {
       _log.info('[服务端] 节目文件已更新，重新拉取频道: $updatedAt');
     } catch (error) {
       _log.warn('[服务端] 应用节目版本失败: $error');
+    }
+  }
+
+  /// 设备类型/布局字典版本（admin「保存并生效」后递增，经 config 帧下发）。
+  /// 只带版本号、不带字典本体；比本地记录新就重拉一次 deviceTypes 并触发 UI 重建，
+  /// 这样改布局不用重启 App。重拉是只读 GET，失败静默保留旧字典，绝不动作设备。
+  static const String _deviceTypesVersionKey = 'device_types_updated_at_v1';
+
+  Future<void> _applyDeviceTypesUpdate(int updatedAt) async {
+    if (updatedAt <= 0) return;
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final int applied = prefs.getInt(_deviceTypesVersionKey) ?? 0;
+      if (updatedAt <= applied) return;
+      if (!Injection.isRegistered<DeviceTypeStore>()) return;
+      final bool ok = await Injection.get<DeviceTypeStore>().refresh();
+      if (ok) {
+        await prefs.setInt(_deviceTypesVersionKey, updatedAt);
+        if (Injection.isRegistered<HomeBloc>()) {
+          Injection.get<HomeBloc>().add(const DeviceTypesReloaded());
+        }
+        _log.info('[服务端] 设备类型/布局已热更新: $updatedAt');
+      }
+    } catch (error) {
+      _log.warn('[服务端] 应用设备类型版本失败: $error');
     }
   }
 

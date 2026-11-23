@@ -14,7 +14,6 @@ import 'package:pscreen_home/core/screensaver/screensaver_controller.dart';
 import 'package:pscreen_home/core/server/account_session.dart';
 import 'package:pscreen_home/core/server/device_reporter.dart';
 import 'package:pscreen_home/core/storage/settings_store.dart';
-import 'package:pscreen_home/core/ui/ui_scale.dart';
 import 'package:pscreen_home/core/wallpaper/wallpaper_controller.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_bloc.dart';
 import 'package:pscreen_home/features/connection/application/bloc/connection_event.dart';
@@ -62,10 +61,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _saving = false;
   late int _sampleSeconds;
   late int _screensaverMinutes;
-  late double _uiScale;
-
-  /// 滑块初值只在首次依赖解析时按当前屏幕算一次（显式值优先，否则自动适配）。
-  bool _uiScaleResolved = false;
   late final WallpaperController _wallpaper;
   late final TextEditingController _wallpaperApiController;
   late bool _wallpaperEnabled;
@@ -116,16 +111,6 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       });
     });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_uiScaleResolved) return;
-    _uiScale = Injection.get<UiScaleController>().resolve(
-      MediaQuery.sizeOf(context),
-    );
-    _uiScaleResolved = true;
   }
 
   @override
@@ -234,8 +219,9 @@ class _SettingsPageState extends State<SettingsPage> {
             account: await DeviceCredentials.channelAccount(),
             token: DeviceCredentials.channelPasswordMd5(),
             principal: principal,
-            principalToken:
-                principal.isNotEmpty ? DeviceCredentials.passwordMd5() : '',
+            principalToken: principal.isNotEmpty
+                ? DeviceCredentials.passwordMd5()
+                : '',
             // 与心跳注册同源（android_/gen_ 前缀），服务端据此回写 admin 设备表。
             deviceId: await DeviceIdentity.deviceId(),
             role: 'controller',
@@ -290,9 +276,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ..showSnackBar(
         SnackBar(
           content: Text(
-            synced
-                ? '名称已保存（仅展示，不影响账号与连接）'
-                : '名称已保存到本机，服务端同步失败（联网后重试）',
+            synced ? '名称已保存（仅展示，不影响账号与连接）' : '名称已保存到本机，服务端同步失败（联网后重试）',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -403,13 +387,6 @@ class _SettingsPageState extends State<SettingsPage> {
     await AppSettings.instance.setHwdecEnabled(enabled);
   }
 
-  /// 界面缩放：松手后应用（拖动过程中实时改倍数会让滑块在手指下变大变小，
-  /// 手感会飘），数值持久化，重启后保持。
-  void _applyUiScale(double value) {
-    setState(() => _uiScale = value);
-    Injection.get<UiScaleController>().update(value);
-  }
-
   @override
   Widget build(BuildContext context) {
     // parent flavor 只保留遥控（实时通道）/ 设备列表 / 儿童模式相关设置：
@@ -421,41 +398,42 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.all(16),
         children: <Widget>[
           if (!parentOnly) ...<Widget>[
-          TextField(
-            controller: _hostController,
-            decoration: InputDecoration(
-              labelText: 'Home Assistant 地址',
-              hintText: '如 192.168.1.10:8123 或 home.example.com:8123',
-              helperText: HaConfig.hasHostOverride
-                  ? '已手动设置，优先于 .env（清空保存可恢复）'
-                  : '当前使用 .env 默认值',
-              border: const OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.url,
-            maxLines: 1,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _tokenController,
-            obscureText: !_tokenVisible,
-            decoration: InputDecoration(
-              labelText: '长期访问令牌 (KEY)',
-              helperText: HaConfig.hasTokenOverride
-                  ? '已手动设置，优先于 .env（清空保存可恢复）'
-                  : '当前使用 .env 默认值',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                tooltip: _tokenVisible ? '隐藏' : '显示',
-                icon: Icon(
-                  _tokenVisible
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                ),
-                onPressed: () => setState(() => _tokenVisible = !_tokenVisible),
+            TextField(
+              controller: _hostController,
+              decoration: InputDecoration(
+                labelText: 'Home Assistant 地址',
+                hintText: '如 192.168.1.10:8123 或 home.example.com:8123',
+                helperText: HaConfig.hasHostOverride
+                    ? '已手动设置，优先于 .env（清空保存可恢复）'
+                    : '当前使用 .env 默认值',
+                border: const OutlineInputBorder(),
               ),
+              keyboardType: TextInputType.url,
+              maxLines: 1,
             ),
-            maxLines: 1,
-          ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _tokenController,
+              obscureText: !_tokenVisible,
+              decoration: InputDecoration(
+                labelText: '长期访问令牌 (KEY)',
+                helperText: HaConfig.hasTokenOverride
+                    ? '已手动设置，优先于 .env（清空保存可恢复）'
+                    : '当前使用 .env 默认值',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: _tokenVisible ? '隐藏' : '显示',
+                  icon: Icon(
+                    _tokenVisible
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                  ),
+                  onPressed: () =>
+                      setState(() => _tokenVisible = !_tokenVisible),
+                ),
+              ),
+              maxLines: 1,
+            ),
           ],
           const SizedBox(height: 24),
           Text(
@@ -468,10 +446,10 @@ class _SettingsPageState extends State<SettingsPage> {
           Text(
             parentOnly
                 ? '填写本地 pscreen_server 服务地址（如 http://192.168.31.2:3000）。'
-                    '遥控、设备列表与 App 更新检查都走它；留空则用 .env 的 SERVER_BASE_URL。'
+                      '遥控、设备列表与 App 更新检查都走它；留空则用 .env 的 SERVER_BASE_URL。'
                 : '填写运行 Admin 管理页的服务器地址（如 http://192.168.31.2:3000）。'
-                    '配置后由 Admin 决定本机可见家庭，并把首页卡片顺序同步到服务端；'
-                    '留空则完全按 .env 的 HONE_MANE 运行。',
+                      '配置后由 Admin 决定本机可见家庭，并把首页卡片顺序同步到服务端；'
+                      '留空则完全按 .env 的 HONE_MANE 运行。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.outline,
             ),
@@ -526,276 +504,254 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           if (!parentOnly) ...<Widget>[
-          const SizedBox(height: 24),
-          Text(
-            '天气城市',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '中控台标题与天气页共用的查询位置；「自动」每次按出口 IP 定位。可选城市来自 WEATHER_CITIES 配置。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
+            const SizedBox(height: 24),
+            Text(
+              '天气城市',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              ChoiceChip(
-                label: const Text('自动'),
-                selected: _weatherCity.isEmpty,
-                onSelected: (_) => _applyWeatherCity(''),
+            const SizedBox(height: 4),
+            Text(
+              '中控台标题与天气页共用的查询位置；「自动」每次按出口 IP 定位。可选城市来自 WEATHER_CITIES 配置。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
               ),
-              for (final String city in AppConfig.weatherCities)
-                ChoiceChip(
-                  label: Text(city),
-                  selected: _weatherCity == city,
-                  onSelected: (_) => _applyWeatherCity(city),
-                ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '功率采样间隔',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '当前功率图表的记录频率，仅保留最近 1 小时（不持久化）。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final int seconds in SettingsStore.powerSampleOptions)
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
                 ChoiceChip(
-                  label: Text('$seconds 秒'),
-                  selected: _sampleSeconds == seconds,
-                  onSelected: (_) => _applySampleSeconds(seconds),
+                  label: const Text('自动'),
+                  selected: _weatherCity.isEmpty,
+                  onSelected: (_) => _applyWeatherCity(''),
                 ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '屏保时间',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '无触摸操作达到设定时长后自动进入时钟屏保；直播页不触发。点击屏保任意位置返回上一页。选择「从不」则不再自动进入屏保。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final int minutes in SettingsStore.screensaverOptions)
-                ChoiceChip(
-                  label: Text(
-                    minutes == SettingsStore.screensaverNeverMinutes
-                        ? '从不'
-                        : '$minutes 分钟',
+                for (final String city in AppConfig.weatherCities)
+                  ChoiceChip(
+                    label: Text(city),
+                    selected: _weatherCity == city,
+                    onSelected: (_) => _applyWeatherCity(city),
                   ),
-                  selected: _screensaverMinutes == minutes,
-                  onSelected: (_) => _applyScreensaverMinutes(minutes),
-                ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '直播定时关闭',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '倒计时结束后关闭本机直播并返回主页，不会退出中控台；仅本次运行有效，重启后不保留。'
-            '要给电视端/其它中控屏设置，请到「遥控会话」页用「定时关闭」按钮。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
+              ],
             ),
-          ),
-          const SizedBox(height: 10),
-          ListenableBuilder(
-            listenable: SleepTimerController.instance,
-            builder: (BuildContext context, Widget? _) {
-              final SleepTimerController timer = SleepTimerController.instance;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: <Widget>[
-                      for (final int? minutes in SleepTimerController.options)
-                        ChoiceChip(
-                          label: Text(minutes == null ? '关闭' : '$minutes 分钟'),
-                          selected: timer.minutes == minutes,
-                          onSelected: (_) => timer.setMinutes(minutes),
-                        ),
-                    ],
+            const SizedBox(height: 24),
+            Text(
+              '功率采样间隔',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '当前功率图表的记录频率，仅保留最近 1 小时（不持久化）。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final int seconds in SettingsStore.powerSampleOptions)
+                  ChoiceChip(
+                    label: Text('$seconds 秒'),
+                    selected: _sampleSeconds == seconds,
+                    onSelected: (_) => _applySampleSeconds(seconds),
                   ),
-                  if (timer.active)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        '倒计时剩余 ${timer.remainingLabel}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w600,
+              ],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '屏保时间',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '无触摸操作达到设定时长后自动进入时钟屏保；直播页不触发。点击屏保任意位置返回上一页。选择「从不」则不再自动进入屏保。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final int minutes in SettingsStore.screensaverOptions)
+                  ChoiceChip(
+                    label: Text(
+                      minutes == SettingsStore.screensaverNeverMinutes
+                          ? '从不'
+                          : '$minutes 分钟',
+                    ),
+                    selected: _screensaverMinutes == minutes,
+                    onSelected: (_) => _applyScreensaverMinutes(minutes),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '直播定时关闭',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '倒计时结束后关闭本机直播并返回主页，不会退出中控台；仅本次运行有效，重启后不保留。'
+              '要给电视端/其它中控屏设置，请到「遥控会话」页用「定时关闭」按钮。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 10),
+            ListenableBuilder(
+              listenable: SleepTimerController.instance,
+              builder: (BuildContext context, Widget? _) {
+                final SleepTimerController timer =
+                    SleepTimerController.instance;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        for (final int? minutes in SleepTimerController.options)
+                          ChoiceChip(
+                            label: Text(minutes == null ? '关闭' : '$minutes 分钟'),
+                            selected: timer.minutes == minutes,
+                            onSelected: (_) => timer.setMinutes(minutes),
+                          ),
+                      ],
+                    ),
+                    if (timer.active)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '倒计时剩余 ${timer.remainingLabel}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
                         ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '屏保壁纸',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '屏保时钟的背景图，默认 30 分钟换一张。默认使用真实风景照片接口；Uapis 随机壁纸可填 https://uapis.cn/api/v1/random/image?category=landscape，但它会聚合外部图源，仍可能混入动漫/插画。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
+                  ],
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 10),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.wallpaper_rounded),
-            title: const Text('启用屏保壁纸'),
-            subtitle: const Text('关闭后屏保只显示黑底；时钟页左下角也可随时关闭/开启。'),
-            value: _wallpaperEnabled,
-            onChanged: _applyWallpaperEnabled,
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _wallpaperApiController,
-            decoration: const InputDecoration(
-              labelText: '壁纸 API 地址',
-              hintText: SettingsStore.defaultWallpaperApiUrl,
-              helperText: '默认使用真实风景照片；也可以换成其它返回图片的 API。',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 24),
+            Text(
+              '屏保壁纸',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
-            keyboardType: TextInputType.url,
-            minLines: 1,
-            maxLines: 2,
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              FilledButton.tonalIcon(
-                onPressed: _saveWallpaperApi,
-                icon: const Icon(Icons.save_rounded),
-                label: const Text('保存壁纸 API'),
+            const SizedBox(height: 4),
+            Text(
+              '屏保时钟的背景图，默认 30 分钟换一张。默认使用真实风景照片接口；Uapis 随机壁纸可填 https://uapis.cn/api/v1/random/image?category=landscape，但它会聚合外部图源，仍可能混入动漫/插画。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
               ),
-              TextButton(
-                onPressed: _resetWallpaperApi,
-                child: const Text('恢复默认'),
+            ),
+            const SizedBox(height: 10),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.wallpaper_rounded),
+              title: const Text('启用屏保壁纸'),
+              subtitle: const Text('关闭后屏保只显示黑底；时钟页左下角也可随时关闭/开启。'),
+              value: _wallpaperEnabled,
+              onChanged: _applyWallpaperEnabled,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _wallpaperApiController,
+              decoration: const InputDecoration(
+                labelText: '壁纸 API 地址',
+                hintText: SettingsStore.defaultWallpaperApiUrl,
+                helperText: '默认使用真实风景照片；也可以换成其它返回图片的 API。',
+                border: OutlineInputBorder(),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final int minutes in SettingsStore.wallpaperMinuteOptions)
-                ChoiceChip(
-                  label: Text(SettingsStore.wallpaperMinuteLabel(minutes)),
-                  selected: _wallpaperMinutes == minutes,
-                  onSelected: (_) => _applyWallpaperMinutes(minutes),
+              keyboardType: TextInputType.url,
+              minLines: 1,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                FilledButton.tonalIcon(
+                  onPressed: _saveWallpaperApi,
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('保存壁纸 API'),
                 ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '播放器解码',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '直播播放器的视频解码方式。默认软解（FFmpeg），兼容性最好、与电视端一致；'
-            '硬解由 GPU 解码，CPU 占用低但部分机型兼容性差，播放异常时切回软解即可。切换后下次换台/换源生效。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-          const SizedBox(height: 4),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.memory_rounded),
-            title: const Text('硬件解码（硬解）'),
-            subtitle: const Text('关闭为软解（默认）'),
-            value: _hwdecEnabled,
-            onChanged: _applyHwdec,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '界面缩放',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '整块界面（卡片、字号、间距、点击热区）等比放大，适配 15 寸大屏远距离触控；'
-            '未手动调整时按屏幕尺寸自动适配（大屏 150%、平板 125%、手机 100%），'
-            '拖动后保存为固定值。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Slider(
-                  value: _uiScale,
-                  min: SettingsStore.minUiScale,
-                  max: SettingsStore.maxUiScale,
-                  divisions: 20,
-                  label: '${(_uiScale * 100).round()}%',
-                  onChanged: (double value) => setState(() => _uiScale = value),
-                  onChangeEnd: _applyUiScale,
+                TextButton(
+                  onPressed: _resetWallpaperApi,
+                  child: const Text('恢复默认'),
                 ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final int minutes in SettingsStore.wallpaperMinuteOptions)
+                  ChoiceChip(
+                    label: Text(SettingsStore.wallpaperMinuteLabel(minutes)),
+                    selected: _wallpaperMinutes == minutes,
+                    onSelected: (_) => _applyWallpaperMinutes(minutes),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '播放器解码',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '直播播放器的视频解码方式。默认软解（FFmpeg），兼容性最好、与电视端一致；'
+              '硬解由 GPU 解码，CPU 占用低但部分机型兼容性差，播放异常时切回软解即可。切换后下次换台/换源生效。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
               ),
-              SizedBox(
-                width: 64,
-                child: Text(
-                  '${(_uiScale * 100).round()}%',
-                  textAlign: TextAlign.end,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
+            ),
+            const SizedBox(height: 4),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.memory_rounded),
+              title: const Text('硬件解码（硬解）'),
+              subtitle: const Text('关闭为软解（默认）'),
+              value: _hwdecEnabled,
+              onChanged: _applyHwdec,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '界面缩放（自动）',
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '整块界面（卡片、字号、间距、点击热区）整屏等比缩放，内容比例不随分辨率变化：'
+              '横屏以 960×540 为设计基准（4 列，1920×1080 为 150%），'
+              '竖屏以 390×844 手机画布为基准（2 列，100%）；'
+              '随窗口尺寸自动适配，无需手动调整。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
               ),
-            ],
-          ),
+            ),
           ],
           const SizedBox(height: 8),
           FilledButton.icon(
@@ -931,14 +887,17 @@ class _SettingsPageState extends State<SettingsPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.info_outline_rounded),
                     title: const Text('当前版本'),
-                    subtitle: Text('${Injection.get<AppVersion>().display} · $status'),
+                    subtitle: Text(
+                      '${Injection.get<AppVersion>().display} · $status',
+                    ),
                     trailing: showButton
                         ? FilledButton.tonal(
-                            onPressed: () => unawaited(
-                              handleUpdatePillTap(context, update),
-                            ),
+                            onPressed: () =>
+                                unawaited(handleUpdatePillTap(context, update)),
                             child: Text(
-                              update.phase == AppUpdatePhase.failed ? '重试' : '更新',
+                              update.phase == AppUpdatePhase.failed
+                                  ? '重试'
+                                  : '更新',
                             ),
                           )
                         : const AppUpdatePill(),
@@ -968,7 +927,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   if (update.result?.iosHintOnly == true)
                     OutlinedButton.icon(
-                      onPressed: () => AppUpdateController.instance.openExternalUrl(),
+                      onPressed: () =>
+                          AppUpdateController.instance.openExternalUrl(),
                       icon: const Icon(Icons.open_in_new_rounded),
                       label: const Text('前往应用商店更新'),
                     ),

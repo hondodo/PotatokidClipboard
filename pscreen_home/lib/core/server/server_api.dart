@@ -29,6 +29,7 @@ class ServerDeviceConfig {
     required this.layoutKey,
     required this.layoutUpdatedAt,
     required this.programsUpdatedAt,
+    required this.deviceTypesUpdatedAt,
   });
 
   final List<String>? homes;
@@ -40,6 +41,9 @@ class ServerDeviceConfig {
 
   /// 节目文件版本（管理端保存频道/源列表后递增）。
   final int programsUpdatedAt;
+
+  /// 设备类型/布局字典版本：admin 保存类型后递增，变化时需重拉 deviceTypes 热更新布局。
+  final int deviceTypesUpdatedAt;
 
   factory ServerDeviceConfig.fromJson(Map<String, dynamic> json) {
     final dynamic rawHomes = json['homes'];
@@ -59,6 +63,7 @@ class ServerDeviceConfig {
       layoutKey: '${json['layoutKey'] ?? ''}',
       layoutUpdatedAt: (json['layoutUpdatedAt'] as num?)?.toInt() ?? 0,
       programsUpdatedAt: (json['programsUpdatedAt'] as num?)?.toInt() ?? 0,
+      deviceTypesUpdatedAt: (json['deviceTypesUpdatedAt'] as num?)?.toInt() ?? 0,
     );
   }
 }

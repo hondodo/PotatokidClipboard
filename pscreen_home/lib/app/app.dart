@@ -56,8 +56,12 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // 网络恢复时补一次静默重试（下载失败只重试，不转阻断）。
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      if (results.any((ConnectivityResult result) => result != ConnectivityResult.none)) {
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((
+      List<ConnectivityResult> results,
+    ) {
+      if (results.any(
+        (ConnectivityResult result) => result != ConnectivityResult.none,
+      )) {
         AppUpdateController.instance.onNetworkRestored();
       }
     });
@@ -101,8 +105,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         } else {
           final AppRouter appRouter = Injection.get<AppRouter>();
           final UiScaleController uiScale = Injection.get<UiScaleController>();
-          final ScreensaverController screensaver = Injection.get<ScreensaverController>();
-          final LiveStageController liveStage = Injection.get<LiveStageController>();
+          final ScreensaverController screensaver =
+              Injection.get<ScreensaverController>();
+          final LiveStageController liveStage =
+              Injection.get<LiveStageController>();
           app = MaterialApp.router(
             title: parentOnly ? '薯仔电视家长端' : '薯仔的中控台',
             debugShowCheckedModeBanner: false,
@@ -110,22 +116,22 @@ class _AppState extends State<App> with WidgetsBindingObserver {
             theme: _buildTheme(Brightness.light),
             darkTheme: _buildTheme(Brightness.dark),
             routerConfig: appRouter.router,
-            // 全局界面缩放：设置页调整后立即生效，Navigator / 弹窗 / 页面一起等比放大
-            builder: (BuildContext context, Widget? child) => ListenableBuilder(
-              listenable: uiScale,
-              builder: (BuildContext context, Widget? _) => UiScaleScope(
-                // 未手动设置时按当前屏幕逻辑尺寸自动适配（手机竖屏不放大），
-                // 避免 1.5 倍把首页 AppBar 压到放不下。
-                scale: uiScale.resolve(MediaQuery.sizeOf(context)),
-                // 解锁弹层挂在 UiScaleScope 内（享受等比缩放）、ScreensaverHost
-                // 之外（弹层要盖过屏保）；Stack 形态不依赖 Navigator 祖先，
-                // 因为 MaterialApp.builder 的 context 在 Navigator 之上。
-                child: ParentalUnlockOverlay(
-                  child: ScreensaverHost(
-                    router: appRouter,
-                    controller: screensaver,
-                    live: liveStage,
-                    child: LiveStageHost(controller: liveStage, child: child ?? const SizedBox.shrink()),
+            // 全局界面缩放：与 TV 端一致，按当前屏幕尺寸自动推导，整棵 UI
+            // 树经 FittedBox 等比缩放。UIScaleScope 内部 LayoutBuilder 会监听
+            // 窗口尺寸变化自动重算，不需要手动拖动/监听，也不重建无关子树。
+            builder: (BuildContext context, Widget? child) => UiScaleScope(
+              scale: uiScale.resolve(MediaQuery.sizeOf(context)),
+              // 解锁弹层挂在 UiScaleScope 内（享受等比缩放）、ScreensaverHost
+              // 之外（弹层要盖过屏保）；Stack 形态不依赖 Navigator 祖先，
+              // 因为 MaterialApp.builder 的 context 在 Navigator 之上。
+              child: ParentalUnlockOverlay(
+                child: ScreensaverHost(
+                  router: appRouter,
+                  controller: screensaver,
+                  live: liveStage,
+                  child: LiveStageHost(
+                    controller: liveStage,
+                    child: child ?? const SizedBox.shrink(),
                   ),
                 ),
               ),
@@ -134,7 +140,12 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         }
         // 家长端显式声明浅色系统栏，覆盖 Android 默认黑底状态栏；
         // 中控/手机端保持系统默认行为，不受影响。
-        return parentOnly ? AnnotatedRegion<SystemUiOverlayStyle>(value: App.parentSystemUi, child: app) : app;
+        return parentOnly
+            ? AnnotatedRegion<SystemUiOverlayStyle>(
+                value: App.parentSystemUi,
+                child: app,
+              )
+            : app;
       },
     );
   }
@@ -156,7 +167,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       useMaterial3: true,
       colorScheme: scheme,
       extensions: <ThemeExtension<dynamic>>[
-        brightness == Brightness.dark ? ParentalTheme.dark : ParentalTheme.light,
+        brightness == Brightness.dark
+            ? ParentalTheme.dark
+            : ParentalTheme.light,
       ],
       scaffoldBackgroundColor: surfaceBg,
       appBarTheme: AppBarTheme(
@@ -164,7 +177,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         surfaceTintColor: appBarBg,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: scheme.onSurface),
+        titleTextStyle: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: scheme.onSurface,
+        ),
         // AppBar 顶部也声明一次浅色系统栏，确保 Tab 页切换时状态栏不被
         // Material 默认样式回写为黑底（AnnotatedRegion 就近优先级更高）。
         systemOverlayStyle: parentOnly && !dark ? App.parentSystemUi : null,
@@ -174,7 +191,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         surfaceTintColor: parentOnly && !dark ? Colors.white : null,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: parentOnly && !dark ? const BorderSide(color: Color(0xFFE6ECE9)) : BorderSide.none,
+          side: parentOnly && !dark
+              ? const BorderSide(color: Color(0xFFE6ECE9))
+              : BorderSide.none,
         ),
       ),
     );

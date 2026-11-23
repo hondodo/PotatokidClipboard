@@ -432,4 +432,70 @@ void main() {
     );
     expect(ctx.resolve('目标 {s:_target_temperature_p_2_5}°C'), '目标 100°C');
   });
+
+  testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调',
+      (WidgetTester tester) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_kettle',
+      title: '米家智能电热水瓶 5L',
+      entities: <HaEntityStateModel>[
+        _entity('sensor.kettle_temperature_p_2_6', '55', name: '温度'),
+        _entity('sensor.kettle_status_p_2_1', '待机中…', name: '工作状态'),
+        _entity('select.kettle_mode_p_2_3', '自来水', name: '模式'),
+        _entity('number.kettle_target_temperature_p_2_5', '100', name: '设定温度'),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(
+      label: '当前温度', mainFmt: '{v}°C', subTpl: '{s1} · {s2}',
+      icon: 'water_drop', color: '#2dd4bf', mainEntity: '_temperature_p_2_6',
+      layout: CardLayoutNode(
+        type: 'column', fill: true, mainAlign: 'spaceBetween', padding: <double>[12, 10],
+        children: <CardLayoutNode>[
+          CardLayoutNode(type: 'text', value: '{title}', size: 15),
+          CardLayoutNode(
+            type: 'row', mainAlign: 'spaceBetween', crossAlign: 'end',
+            children: <CardLayoutNode>[
+              CardLayoutNode(type: 'text', value: '{main}', size: 38, weight: 700),
+              CardLayoutNode(
+                type: 'chip', label: '{s:_status_p_2_1}', onClick: 'kettle@action',
+                size: 15, height: 42,
+                map: '待机中…=加热,烧水中…=停止加热',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    final List<String> actions = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 320,
+          height: 188,
+          child: JsonCardRenderer(
+            group: group,
+            card: card,
+            typeKey: 'kettle',
+            areaLabel: '客厅',
+            onAction: actions.add,
+            onOpenDetail: () {},
+          ),
+        ),
+      ),
+    ));
+
+    // map 值替换 + kettle 专用动作通道由后台 JSON 驱动。
+    expect(find.text('加热'), findsOneWidget);
+    expect(find.text('55°C'), findsOneWidget);
+    final SizedBox chipBox = tester.widget<SizedBox>(
+      find.ancestor(of: find.text('加热'), matching: find.byType(SizedBox)).first,
+    );
+    expect(chipBox.height, 42);
+    final Text chipText = tester.widget<Text>(find.text('加热'));
+    expect(chipText.style?.fontSize, 15);
+
+    await tester.tap(find.text('加热'));
+    await tester.pump();
+    expect(actions, <String>['kettle@action']);
+  });
 }
