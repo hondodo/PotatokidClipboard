@@ -343,6 +343,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             if (value.color != null) node.color = str(value.color, 40);
             if (value.height != null) node.height = num(value.height, 6, 2, 24);
             if (value.interactive === true) node.interactive = true;
+            // 可交互进度条松手动作的实体通道（brightness@/fan@...），与 chip 同理保留。
+            if (value.onClick != null) node.onClick = str(value.onClick, 120);
             if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
             break;
         case 'sparkline':
