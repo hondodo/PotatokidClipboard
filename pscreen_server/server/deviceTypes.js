@@ -33,6 +33,15 @@ const DEVICE_TYPES = [
     { key: 'range_hood', icon: '⌇', label: '油烟机', color: '#94a3b8', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'multi_switch', icon: '▦', label: '多路开关', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'lock', icon: '⚿', label: '门锁', color: '#f87171', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'fan_light', icon: '✺', label: '风扇灯', color: '#fbbf24', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'smart_speaker', icon: '♫', label: '智能音箱', color: '#a78bfa', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'water_leak', icon: '◍', label: '水浸传感器', color: '#38bdf8', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'camera', icon: '⊙', label: '摄像机', color: '#60a5fa', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'tv_box', icon: '▧', label: '电视盒子', color: '#f472b6', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'router', icon: '⇄', label: '路由器', color: '#34d399', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_1', icon: '▭', label: '无线开关（单键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_2', icon: '▬', label: '无线开关（双键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_3', icon: '▩', label: '无线开关（多键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'home_climate', icon: '⌂', label: '全屋环境', color: '#5eead4', roles: ['主状态', '副状态1', '副状态2'] },
     { key: '', icon: '?', label: '通用兜底', color: '#9ca3af', roles: ['主状态', '副状态1', '副状态2'] },
 ];
@@ -62,6 +71,15 @@ const DICT_DETAIL = {
     range_hood: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '1', homeLabel: '运行状态', homeCtrls: '电源 档位+ 档位− 照明', homeActs: 'toggle set_percentage(+25) set_percentage(-25) toggle', simMain: '已开启', simSub1: '档位 2', simSub2: '照明开' },
     multi_switch: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '1 2 3 4', homeActs: 'toggle ×4', simMain: '2/4', simSub1: '1开 2开', simSub2: '3关 4关' },
     lock: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '门锁状态', homeCtrls: '只读', homeActs: '只读', simMain: '已上锁', simSub1: '安全', simSub2: '' },
+    fan_light: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '10', homeLabel: '风扇灯状态', homeCtrls: '电源 灯 风扇 亮度+ 亮度−', homeActs: 'toggle toggle toggle brightness(+10) brightness(-10)', simMain: '已开启', simSub1: '灯开', simSub2: '风速 3档' },
+    smart_speaker: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '播放状态', homeCtrls: '电源 播放 音量+ 音量−', homeActs: 'toggle media_play_pause volume_up volume_down', simMain: '待机', simSub1: '音量 30%', simSub2: 'Wi-Fi 已连接' },
+    water_leak: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '水浸状态', homeCtrls: '只读', homeActs: '只读', simMain: '正常', simSub1: '电池 86%', simSub2: '' },
+    camera: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '监控状态', homeCtrls: '电源 录像', homeActs: 'toggle toggle', simMain: '已开启', simSub1: '已接入 7/18', simSub2: '存储正常' },
+    tv_box: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '播放状态', homeCtrls: '电源 信号源', homeActs: 'toggle select_option', simMain: '待机', simSub1: 'HDMI2', simSub2: '可用 2/21' },
+    router: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '重启', homeActs: 'press', simMain: '在线', simSub1: '已开启 1/1', simSub2: '局域网正常' },
+    wireless_switch_1: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '开关状态', homeCtrls: '按键', homeActs: 'toggle', simMain: '可用', simSub1: '电量 90%', simSub2: '' },
+    wireless_switch_2: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '按键1 按键2', homeActs: 'toggle toggle', simMain: '2/2', simSub1: '1开', simSub2: '2关' },
+    wireless_switch_3: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '按键1 按键2 按键3', homeActs: 'toggle ×3', simMain: '3/4', simSub1: '1开 2开', simSub2: '3关 4关' },
     home_climate: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · 湿度 {s2}%', step: '1', homeLabel: '室内温度', homeCtrls: '只读', homeActs: '只读', simMain: '26', simSub1: '舒适', simSub2: '55' },
     '': { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '开启', simSub1: 'switch · 在线', simSub2: '' },
 };
@@ -105,6 +123,56 @@ const DEFAULT_RULES = {
         { id: 'f1', name: '米家风扇', enabled: true, conds: [
             { field: 'attr.percentage', op: 'exists', value: '' },
             { field: 'name', op: 'contains', value: '风扇' },
+        ] },
+    ] },
+    // 新增类型默认只给按名称识别的宽松规则；admin 里可随时改成 entity_id / 属性条件。
+    fan_light: { priority: 12, rules: [
+        { id: 'fl1', name: '风扇灯（名称 + 亮度属性）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '风扇灯' },
+            { field: 'attr.brightness', op: 'exists', value: '' },
+        ] },
+    ] },
+    smart_speaker: { priority: 6, rules: [
+        { id: 'sp1', name: '智能音箱（按名称）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '音箱' },
+        ] },
+    ] },
+    water_leak: { priority: 6, rules: [
+        { id: 'wl1', name: '水浸传感器（按名称）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '水浸' },
+        ] },
+    ] },
+    camera: { priority: 6, rules: [
+        { id: 'cam1', name: '摄像机（按名称）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '摄像' },
+        ] },
+    ] },
+    tv_box: { priority: 6, rules: [
+        { id: 'tb1', name: '电视盒子（按名称）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '盒子' },
+        ] },
+    ] },
+    router: { priority: 6, rules: [
+        { id: 'rt1', name: 'Potatokid 路由器', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: 'Potatokid' },
+        ] },
+    ] },
+    wireless_switch_1: { priority: 6, rules: [
+        { id: 'ws1', name: '单键无线开关', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '单键' },
+        ] },
+    ] },
+    wireless_switch_2: { priority: 6, rules: [
+        { id: 'ws2a', name: '双键无线开关', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '双键' },
+        ] },
+        { id: 'ws2b', name: '双开无线开关', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '双开' },
+        ] },
+    ] },
+    wireless_switch_3: { priority: 6, rules: [
+        { id: 'ws3', name: '多键无线开关', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '多键' },
         ] },
     ] },
 };

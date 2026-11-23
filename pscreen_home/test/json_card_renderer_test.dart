@@ -121,4 +121,66 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('客厅插座'), findsWidgets);
   });
+
+  testWidgets('JsonCardRenderer 渲染 row 内未标记 expand 的 column 不抛无限宽度异常',
+      (WidgetTester tester) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_light',
+      title: '客厅 大灯',
+      entities: <HaEntityStateModel>[_entity('light.living', 'off', name: '大灯')],
+    );
+    // 后台下发的布局：row 里套 column，但 column 没有写 expand。
+    // Row 会给非 flex 子节点无界宽度，column 默认 stretch 会把无界宽度
+    // 传给 Text，曾导致 "BoxConstraints forces an infinite width"。
+    final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
+      'type': 'column',
+      'gap': 8,
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'row',
+          'gap': 10,
+          'crossAlign': 'center',
+          'children': <dynamic>[
+            <String, dynamic>{'type': 'icon', 'value': '✦', 'size': 24},
+            <String, dynamic>{
+              'type': 'column',
+              'gap': 2,
+              'children': <dynamic>[
+                <String, dynamic>{
+                  'type': 'text', 'value': '{title}', 'size': 14,
+                  'weight': 600, 'maxLines': 1,
+                },
+                <String, dynamic>{'type': 'divider', 'thickness': 2, 'gap': 2},
+                <String, dynamic>{
+                  'type': 'text', 'value': '{sub}', 'size': 12,
+                  'color': '{color}', 'maxLines': 1,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '开关状态', mainFmt: '{v}', subTpl: '{state}',
+      icon: '✦', color: '#4dd4ac', layout: layout,
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 300,
+          height: 188,
+          child: JsonCardRenderer(
+            group: group,
+            card: card,
+            typeKey: 'light',
+            onOpenDetail: () {},
+            onAction: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('客厅 大灯'), findsWidgets);
+  });
 }

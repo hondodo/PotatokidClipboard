@@ -477,6 +477,15 @@ class DeviceTypeDictionary {
       'range_hood': <String>['运行状态', '{v}', '1'],
       'projector': <String>['播放状态', '{v}', '1'],
       'lock': <String>['门锁状态', '{v}', '1'],
+      'fan_light': <String>['风扇灯状态', '{v}', '10'],
+      'smart_speaker': <String>['播放状态', '{v}', '—'],
+      'water_leak': <String>['水浸状态', '{v}', '—'],
+      'camera': <String>['监控状态', '{v}', '—'],
+      'tv_box': <String>['播放状态', '{v}', '—'],
+      'router': <String>['运行状态', '{v}', '—'],
+      'wireless_switch_1': <String>['开关状态', '{v}', '—'],
+      'wireless_switch_2': <String>['已开启路数', '开启 {v}', '—'],
+      'wireless_switch_3': <String>['已开启路数', '开启 {v}', '—'],
       'home_climate': <String>['室内温度', '{v}°C', '1'],
     };
     final Map<String, DeviceTypeRule> out = <String, DeviceTypeRule>{};

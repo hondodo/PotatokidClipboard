@@ -155,7 +155,13 @@ class JsonCardRenderer extends StatelessWidget {
       }
       Widget child = _buildNode(context, children[i], eval, available);
       if (children[i].expand) {
-        child = axis == Axis.vertical ? Expanded(child: child) : Expanded(child: child);
+        child = Expanded(child: child);
+      } else if (axis == Axis.horizontal && children[i].type == 'column') {
+        // Row 默认给非 flex 子节点无界宽度，column 的 stretch 会把它传给
+        // 内部 Text，导致 "BoxConstraints forces an infinite width"。
+        // 后台下发的布局不一定会给 column 写 expand，这里按渲染需要兜底：
+        // 用 loose Flexible 提供有界宽度，同时允许 column 按内容收缩。
+        child = Flexible(fit: FlexFit.loose, child: child);
       }
       out.add(child);
     }
