@@ -473,6 +473,7 @@ class DeviceTypeDictionary {
       'fridge': <String>['冷藏温度', '{v}°C', '1'],
       'rice_cooker': <String>['工作状态', '{v}', '1'],
       'socket': <String>['开关状态', '{v}', '1'],
+      'ac_socket': <String>['设定温度', '{v}°C', '0.5'],
       'purifier': <String>['运行状态', '{v}', '1'],
       'range_hood': <String>['运行状态', '{v}', '1'],
       'projector': <String>['播放状态', '{v}', '1'],

@@ -29,6 +29,7 @@ const DEVICE_TYPES = [
     { key: 'fridge', icon: '▥', label: '冰箱', color: '#7dd3fc', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'rice_cooker', icon: '▢', label: '电饭煲', color: '#fda4af', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'socket', icon: '⏻', label: '插座', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'ac_socket', icon: '❄', label: '空调插座', color: '#38bdf8', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'purifier', icon: '◌', label: '净水器', color: '#38bdf8', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'range_hood', icon: '⌇', label: '油烟机', color: '#94a3b8', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'multi_switch', icon: '▦', label: '多路开关', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
@@ -67,6 +68,7 @@ const DICT_DETAIL = {
     fridge: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '{s1} · {s2}', step: '1', homeLabel: '冷藏温度', homeCtrls: '模式', homeActs: '只读', simMain: '4', simSub1: '冷冻 −18°C', simSub2: '节能' },
     rice_cooker: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · 剩 {s2}min', step: '—', homeLabel: '工作状态', homeCtrls: '开始 取消 预约', homeActs: 'press press select_option', simMain: '煮饭中', simSub1: '标准', simSub2: '18' },
     socket: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '开关状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '已开启', simSub1: '功率 65W', simSub2: '220V' },
+    ac_socket: { mainAttr: 'temperature', mainFmt: '{v}°C', subTpl: '目标 {s1} · {s2}', step: '0.5', homeLabel: '设定温度', mainEntity: 'climate', homeCtrls: '电源 温度− 温度+ 模式', homeActs: 'toggle set_temperature(-0.5) set_temperature(+0.5) set_hvac_mode', simMain: '25°C', simSub1: '24°C', simSub2: '制冷' },
     purifier: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '电源', homeActs: 'toggle', simMain: '制水中', simSub1: '滤芯 82%', simSub2: 'TDS 18' },
     range_hood: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '1', homeLabel: '运行状态', homeCtrls: '电源 档位+ 档位− 照明', homeActs: 'toggle set_percentage(+25) set_percentage(-25) toggle', simMain: '已开启', simSub1: '档位 2', simSub2: '照明开' },
     multi_switch: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '1 2 3 4', homeActs: 'toggle ×4', simMain: '2/4', simSub1: '1开 2开', simSub2: '3关 4关' },
@@ -94,12 +96,22 @@ const DEFAULT_RULES = {
         ] },
     ] },
     socket: { priority: 20, rules: [
-        { id: 's1', name: '空调插座（按名称识别）', enabled: true, conds: [
-            { field: 'name', op: 'contains', value: '插座' },
-            { field: 'domain', op: 'eq', value: 'climate' },
+        { id: 's2', name: '普通开关插座（按型号）', enabled: true, conds: [
+            { field: 'device.model', op: 'startsWith', value: 'cuco.plug.v' },
         ] },
-        { id: 's2', name: '普通开关插座', enabled: true, conds: [
+        // 兜底：名字含「插座」且有 switch 实体（device 元信息缺失时也能命中）。
+        // 空调插座也有「插座」字样，但它是 climate 域、spec=2，会被 ac_socket 抢先。
+        { id: 's3', name: '普通开关插座（按名称兜底）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '插座' },
             { field: 'domain', op: 'eq', value: 'switch' },
+        ] },
+    ] },
+    // 空调插座（绿米 mcn02 等）：设备名含「空调插座」且有 climate 实体。
+    // 两条条件拿 specificity=2，压过 climate 的 spec=2 + 更低优先级，也压过 socket。
+    ac_socket: { priority: 24, rules: [
+        { id: 'as1', name: '空调插座（按名称识别）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '空调插座' },
+            { field: 'domain', op: 'eq', value: 'climate' },
         ] },
     ] },
     kettle: { priority: 15, rules: [
@@ -192,6 +204,58 @@ const CARD_DEFAULTS = {
 // 热水瓶：状态/模式/目标温度分散在同设备的多个实体里，用 {s:<entity_id 后缀>}
 // 精确取值，避免依赖组内实体下标。
 const CARD_LAYOUTS = {
+    // 空调插座：绿米 mcn02 这类设备把空调 climate 实体和电功率传感器聚在一台设备里。
+    // 主实体是 climate（可按后缀 climate 精确取），设定温度读 attributes.temperature、
+    // 模式读 attributes.hvac_mode，功率曲线走 sparkline。温度调节带参动作走详情页面板。
+    ac_socket: {
+        type: 'column', fill: true, gap: 10, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '❄', size: 24,
+                        box: { size: 46, radius: 12, bg: '#38bdf826', color: '#38bdf8' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 3,
+                        children: [
+                            { type: 'text', value: '{title}', size: 14, weight: 600, maxLines: 1 },
+                            {
+                                type: 'text',
+                                value: '{s:climate} · {a:climate.hvac_mode}',
+                                map: 'off=关闭,on=开启,cool=制冷,heat=制热,dry=除湿,fan_only=送风,auto=自动',
+                                size: 12, color: '#38bdf8', maxLines: 1,
+                            },
+                        ],
+                    },
+                    {
+                        type: 'button', round: true, value: 'power_settings_new', size: 52,
+                        color: '#38bdf8', onClick: 'toggle@{id:climate}',
+                    },
+                ],
+            },
+            {
+                type: 'row', crossAlign: 'end', mainAlign: 'spaceBetween', gap: 8,
+                children: [
+                    {
+                        type: 'column', gap: 2,
+                        children: [
+                            { type: 'text', value: '设定温度', size: 11, color: 'outline', maxLines: 1 },
+                            { type: 'text', value: '{a:climate.temperature}°C', size: 32, weight: 700, color: '#38bdf8', maxLines: 1 },
+                        ],
+                    },
+                    {
+                        type: 'text', value: '点卡片调温', size: 11, color: 'outline', maxLines: 1,
+                    },
+                ],
+            },
+            {
+                type: 'sparkline', metric: 'power', expand: true,
+                color: '#38bdf8', showLabels: false,
+            },
+        ],
+    },
     kettle: {
         // fill 让列占满卡片高度；spaceBetween 把头部与底部读数分开，
         // 中间自然留白（等价旧版 KettleWidget 的 Spacer）。
@@ -355,6 +419,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             if (value.window != null) node.window = str(value.window, 20);
             if (value.color != null) node.color = str(value.color, 40);
             if (value.height != null) node.height = num(value.height, 60, 24, 180);
+            // expand=true 时占满父级剩余空间（插座卡片下半部分功率曲线）。
+            if (value.expand === true) node.expand = true;
             node.showLabels = value.showLabels === true;
             break;
         case 'divider':

@@ -475,21 +475,24 @@ class JsonCardRenderer extends StatelessWidget {
         : (metricRaw == 'humidity' ? Metric.humidity : Metric.power);
     final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
     final HistoryService? svc = historyService ?? _tryHistoryService();
-    if (svc == null) {
-      return SizedBox(height: node.height ?? 60, child: Center(child: Icon(Icons.show_chart, color: accent)));
-    }
-    return ValueListenableBuilder<List<MetricSample>>(
-      valueListenable: svc.watch(group.orderKey, metric),
-      builder: (BuildContext context, List<MetricSample> samples, Widget? _) {
-        return MetricSparkline(
+    // expand=true 时外层 _spaced 已包 Expanded，这里只把 MetricSparkline 的
+    // height 传 null，让它 SizedBox.expand 撑满父级剩余空间（插座卡片下半部分
+    // 功率曲线）；否则用配置的固定高度。
+    Widget chart(List<MetricSample> samples) => MetricSparkline(
           samples: samples,
           window: _window(node.window),
-          height: node.height ?? 60,
+          height: node.expand ? null : (node.height ?? 60),
           accent: accent,
           showLabels: node.showLabels,
           unit: metric.unit,
         );
-      },
+    if (svc == null) {
+      final Widget placeholder = Center(child: Icon(Icons.show_chart, color: accent));
+      return node.expand ? const SizedBox.expand() : SizedBox(height: node.height ?? 60, child: placeholder);
+    }
+    return ValueListenableBuilder<List<MetricSample>>(
+      valueListenable: svc.watch(group.orderKey, metric),
+      builder: (BuildContext context, List<MetricSample> samples, Widget? _) => chart(samples),
     );
   }
 

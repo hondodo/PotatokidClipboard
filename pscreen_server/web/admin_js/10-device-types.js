@@ -402,6 +402,7 @@
   async function runGlobalClassify() {
     const body = $('re-global-body');
     const meta = $('re-global-meta');
+    const alertBox = $('re-global-alert');
     if (!body) return;
     // 同步优先级到当前编辑类型（未保存也能用当前值测试）
     const cur = reCurType();
@@ -419,6 +420,22 @@
       const currentKey = cur ? cur.key : '';
       const matched = rows.filter((r) => r.key === currentKey).length;
       if (meta) meta.textContent = `共 ${data.total} 台设备 · 当前类型「${esc(cur ? (cur.label || cur.key) : '')}」命中 ${matched} 台（已置顶）`;
+      // 命中 0 台时给醒目排查提示：区分「命中但落选」和「根本没命中」。
+      // 判定是先比命中条件数（specificity）再比 priority，光看 0 台无法判断原因。
+      if (alertBox) {
+        if (matched === 0) {
+          const losing = rows.filter((r) => (r.allHits || []).some((h) => h.key === currentKey));
+          const label = esc(cur ? (cur.label || cur.key) : '');
+          alertBox.innerHTML = `<div class="re-mismatch" style="margin-top:8px">
+            <div class="t">当前类型「${label}」命中 0 台，没有设备判成它</div>
+            ${losing.length
+              ? `<div class="b">有 <b>${losing.length}</b> 台设备<b>命中了本类型但落选</b>（见下方表格「其他命中（落选）」列）。判定是<b>先比命中条件数、相同才比优先级</b>，给本类型规则<b>再加一个条件</b>即可胜出。</div>`
+              : `<div class="b">没有任何设备命中本类型规则。请检查：① 规则字段值是否和真实值一致（如 <b>device.model</b>、名称关键字）；② 操作符是否选对；③ 若勾选了「仅看显示到中控屏的设备」，可取消勾选后再跑一次。</div>`}
+          </div>`;
+        } else {
+          alertBox.innerHTML = '';
+        }
+      }
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="6" class="empty">没有匹配的设备。</td></tr>';
         return;

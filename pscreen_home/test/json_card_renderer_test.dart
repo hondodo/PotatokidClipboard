@@ -807,4 +807,112 @@ void main() {
     await tester.pump();
     expect(actions, <String>['kettle@action']);
   });
+
+  testWidgets('普通插座布局：状态行 + 大圆按钮 + expand 功率曲线撑满不溢出', (
+    WidgetTester tester,
+  ) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_socket',
+      title: '客厅插座',
+      entities: <HaEntityStateModel>[
+        _entity('switch.cuco_v3_on_p_2_1', 'on', name: '插座'),
+        _entity('sensor.cuco_v3_electric_power_p_11_2', '24', name: '功率'),
+      ],
+    );
+    final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
+      'type': 'column',
+      'fill': true,
+      'gap': 8,
+      'padding': <dynamic>[12, 10],
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'row',
+          'gap': 10,
+          'crossAlign': 'center',
+          'children': <dynamic>[
+            <String, dynamic>{
+              'type': 'icon',
+              'value': '⏻',
+              'size': 24,
+              'box': <String, dynamic>{
+                'size': 46,
+                'radius': 12,
+                'bg': '#4dd4ac26',
+                'color': '#4dd4ac',
+              },
+            },
+            <String, dynamic>{
+              'type': 'column',
+              'expand': true,
+              'gap': 2,
+              'children': <dynamic>[
+                <String, dynamic>{
+                  'type': 'text',
+                  'value': '{title}',
+                  'size': 14,
+                  'weight': 600,
+                  'maxLines': 1,
+                },
+                <String, dynamic>{
+                  'type': 'text',
+                  'value': '{s:_on_p_2_1}',
+                  'map': 'on=开启,off=关闭',
+                  'size': 12,
+                  'color': '#4dd4ac',
+                  'maxLines': 1,
+                },
+              ],
+            },
+            <String, dynamic>{
+              'type': 'button',
+              'round': true,
+              'value': 'power_settings_new',
+              'size': 52,
+              'color': '#4dd4ac',
+              'onClick': 'toggle@{id:_on_p_2_1}',
+            },
+          ],
+        },
+        <String, dynamic>{
+          'type': 'sparkline',
+          'metric': 'power',
+          'expand': true,
+          'color': '#4dd4ac',
+          'showLabels': false,
+        },
+      ],
+    });
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '开关状态',
+      color: '#4dd4ac',
+      layout: layout,
+    );
+    final List<String> actions = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 188,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'socket',
+              onOpenDetail: () {},
+              onAction: actions.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 状态行 map：on→开启；圆按钮与 expand sparkline 都渲染、不溢出。
+    expect(find.text('开启'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(actions, <String>['toggle@switch.cuco_v3_on_p_2_1']);
+  });
 }
