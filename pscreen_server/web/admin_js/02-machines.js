@@ -207,7 +207,7 @@
           <span class="muted">来源：${esc(sourceLabel(machine.homesSource))}${machine.homesSource === 'machine' ? '' : (machine.owner ? ' → ' + esc(machine.owner) : '')}</span>
         </div>`,
       machine.currentHome ? `<span class="badge">${esc(machine.currentHome)}</span>` : '<span class="muted">—</span>',
-      `<div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="muted">最后连接 ${machine.lastConnectedAt ? esc(timeAgo(machine.lastConnectedAt)) : '—'}</span><span class="mono">${esc(machine.ip || '')}</span></div>`,
+      `<div class="cell-stack"><span>${esc(timeAgo(machine.lastSeen))}</span><span class="muted">最后连接 ${machine.lastConnectedAt ? esc(timeAgo(machine.lastConnectedAt)) : '—'}</span><span class="mono">${esc(machine.lanIp || machine.ip || '')}</span></div>`,
       `
         <div class="row-actions">
           <button class="btn small" data-action="homes" type="button">家庭</button>

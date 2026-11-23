@@ -1394,6 +1394,7 @@ function attachAdmin(app, options = {}) {
             batteryMv: Number(machine.batteryMv) || 0,
             appVersion: typeof machine.appVersion === 'string' ? machine.appVersion.slice(0, 32) : '',
             ip: typeof machine.ip === 'string' ? machine.ip.slice(0, 64) : '',
+            lanIp: typeof machine.lanIp === 'string' ? machine.lanIp.slice(0, 64) : '',
             currentHome: typeof machine.currentHome === 'string' ? machine.currentHome.slice(0, MAX_HOME_NAME) : '',
             knownHomes: Array.isArray(machine.knownHomes)
                 ? machine.knownHomes.filter((home) => typeof home === 'string' && home.trim())
@@ -3867,6 +3868,10 @@ function attachAdmin(app, options = {}) {
         if (typeof body.commAccount === 'string') {
             machine.commAccount = body.commAccount.trim().slice(0, 64);
         }
+        // req.ip 是请求来源（经公网隧道的出口地址），拿它打不开设备的设置页。
+        // 设备自己上报的 WiFi.localIP() 才是局域网地址，单独存 lanIp 供后台展示。
+        const bodyIp = typeof body.ip === 'string' ? normalizeIp(body.ip) : '';
+        if (bodyIp && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(bodyIp)) machine.lanIp = bodyIp;
         machine.ip = normalizeIp(req.ip || req.socket.remoteAddress);
         machine.lastSeen = now;
         machines[id] = normalizeMachine(id, machine);
@@ -4022,6 +4027,12 @@ function attachAdmin(app, options = {}) {
         } catch (error) {
             return jsonFail(res, error.message);
         }
+    });
+    // 极轻量保活：主机每 25 秒打一次，让经隧道的 TCP 连接不因空闲被代理掐掉，
+    // 这样按键/中继请求能复用热连接（省掉跨城市的三次握手）。
+    app.get('/api/device/ping', (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        return jsonOk(res, { t: Date.now() }, 'pong');
     });
     app.post('/api/device/heartbeat', (req, res) => {
         try {
