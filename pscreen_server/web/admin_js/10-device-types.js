@@ -296,7 +296,21 @@
         return;
       }
       const others = (r.allHits || []).filter((h) => h.key !== r.key);
-      host.innerHTML = `<div class="re-hit win"><span class="nm">判定结果：${esc(r.label)}</span><br>
+      // 当前编辑的类型没匹配上这台设备时，给醒目的排查引导（同事常卡在
+      // 「条件数优先、优先级其次」这条裁决规则上，光看落选列表看不懂原因）。
+      const curLabel = esc((cur && cur.label) || (cur && cur.key) || '当前类型');
+      const curKey = cur && cur.key;
+      const curLosingHit = curKey ? (r.allHits || []).find((h) => h.key === curKey) : null;
+      const mismatchHtml = (curKey && r.key !== curKey)
+        ? `<div class="re-mismatch">
+            <div class="t">⚠️ 这台设备没有被识别为「${curLabel}」，实际判为「${esc(r.label || r.key)}」</div>
+            <div class="b">请到下方「全局判定」表找到这台设备，对照两列：<b>识别类型</b>（最终胜出）与<b>其他命中（落选）</b>（命中但被淘汰，附具体度 / 优先级）。</div>
+            ${curLosingHit
+              ? `<div class="b">· 「其他命中（落选）」里<b>有</b>「${curLabel}」→ 规则命中了，但<b>条件数（具体度 ${curLosingHit.specificity}）比胜出方（${r.specificity}）少</b>而落败。判定是<b>先比条件数、相同才比优先级</b>，给当前规则<b>再加一个条件</b>就能胜出。</div>`
+              : `<div class="b">· 「其他命中（落选）」里<b>没有</b>「${curLabel}」→ 规则<b>根本没命中</b>，请检查字段值（如 device.model 的真实值）和操作符是否选对。</div>`}
+          </div>`
+        : '';
+      host.innerHTML = `${mismatchHtml}<div class="re-hit win"><span class="nm">判定结果：${esc(r.label)}</span><br>
         <span class="sc">具体度 ${r.specificity} · 优先级 ${r.priority}</span></div>
         ${(r.matchedRules || []).map((n) => `<div class="re-hit">命中规则：${esc(n)}</div>`).join('')}
         ${others.length ? `<div class="re-hit others"><span class="sc">其他也命中的类型（裁决落选）：</span><br>${
