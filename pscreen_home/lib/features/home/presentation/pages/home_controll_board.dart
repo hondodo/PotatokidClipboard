@@ -1284,6 +1284,28 @@ class _ControlGridState extends State<_ControlGrid> {
                 }
                 return;
               }
+              // fan@<entityId>:<percent>：风扇风速条松手时下发。
+              // 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部
+              // 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。
+              if (trimmed.startsWith('fan@')) {
+                final String rest = trimmed.substring('fan@'.length).trim();
+                final int sep = rest.lastIndexOf(':');
+                if (sep > 0) {
+                  final String target = rest.substring(0, sep).trim();
+                  final int? percent = int.tryParse(
+                    rest.substring(sep + 1).trim(),
+                  );
+                  final HaEntityStateModel? fanEntity = state.entities[target];
+                  if (target.isNotEmpty &&
+                      percent != null &&
+                      (fanEntity == null || fanEntity.isFan)) {
+                    bloc.add(
+                      SetFanPercentage(entityId: target, percentage: percent),
+                    );
+                  }
+                }
+                return;
+              }
               final String kind = trimmed.split('(').first.trim();
               switch (kind) {
                 case 'toggle':
