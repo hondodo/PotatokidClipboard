@@ -459,6 +459,84 @@ void main() {
     expect(results, contains('fan@fan.xxx_s_4_fan:66'));
   });
 
+  testWidgets('多路开关双开布局：状态左键开右键关，按钮显示要执行的动作', (
+    WidgetTester tester,
+  ) async {
+    const String leftId =
+        'switch.zimi_cn_1065542586_dhkg02_on_p_2_1';
+    const String rightId =
+        'switch.zimi_cn_1065542586_dhkg02_on_p_3_1';
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: '49e727feb2ed312cfd8426d73bb79a1a',
+      title: '小米米家智能开关（双开单控）',
+      entities: <HaEntityStateModel>[
+        _entity(leftId, 'on', name: '客厅灯 左键'),
+        _entity(rightId, 'off', name: '右键'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      color: '#64B5F6',
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'gap': 8,
+        'children': <dynamic>[
+          <String, dynamic>{
+            'type': 'text',
+            'value': '左键{s:_p_2_1}  右键{s:_p_3_1}',
+            'map': 'on=开,off=关',
+          },
+          <String, dynamic>{
+            'type': 'row',
+            'gap': 8,
+            'children': <dynamic>[
+              <String, dynamic>{
+                'type': 'chip',
+                'label': '{s:_p_2_1}',
+                'map': 'on=关闭,off=开启',
+                'onClick': 'toggle@{id:_p_2_1}',
+                'expand': true,
+              },
+              <String, dynamic>{
+                'type': 'chip',
+                'label': '{s:_p_3_1}',
+                'map': 'on=关闭,off=开启',
+                'onClick': 'toggle@{id:_p_3_1}',
+                'expand': true,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    final List<String> actions = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 150,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'multi_switch',
+              onOpenDetail: () {},
+              onAction: actions.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('左键开  右键关'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '关闭'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '开启'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, '关闭'));
+    await tester.pumpAndSettle();
+    expect(actions, contains('toggle@$leftId'));
+  });
+
   testWidgets('离线设备亮度条仍常显（offline=true），不隐藏不禁用显示', (WidgetTester tester) async {
     // 离线实体：state=unavailable → group.isUnavailable=true → progress offline
     final HaDeviceGroup group = HaDeviceGroup(
