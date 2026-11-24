@@ -40,6 +40,7 @@ const DEVICE_TYPES = [
     { key: 'camera', icon: '⊙', label: '摄像机', color: '#60a5fa', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'tv_box', icon: '▧', label: '电视盒子', color: '#f472b6', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'router', icon: '⇄', label: '路由器', color: '#34d399', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'router_lite', icon: '⇄', label: '路由器（简版）', color: '#34d399', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'aroma_diffuser', icon: '✿', label: '香薰机', color: '#4ade80', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'multi_gateway', icon: '⇄', label: '多模网关', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'wireless_switch_1', icon: '▭', label: '无线开关（单键）', color: '#7dd3fc', roles: ['主状态', '副状态1', '副状态2'] },
@@ -81,6 +82,7 @@ const DICT_DETAIL = {
     camera: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '监控状态', homeCtrls: '电源 录像', homeActs: 'toggle toggle', simMain: '已开启', simSub1: '已接入 7/18', simSub2: '存储正常' },
     tv_box: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '播放状态', homeCtrls: '电源 信号源', homeActs: 'toggle select_option', simMain: '待机', simSub1: 'HDMI2', simSub2: '可用 2/21' },
     router: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '重启', homeActs: 'press', simMain: '在线', simSub1: '已开启 1/1', simSub2: '局域网正常' },
+    router_lite: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '路由器', homeCtrls: '只读', homeActs: '只读', simMain: '路由器', simSub1: '', simSub2: '' },
     aroma_diffuser: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前值', mainEntity: '_on_p_2_2', homeCtrls: '电源', homeActs: 'toggle', simMain: 'off', simSub1: '在线', simSub2: '' },
     multi_gateway: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前值', mainEntity: '_ip_address_p_2_2', homeCtrls: '只读', homeActs: '只读', simMain: '192.168.31.30', simSub1: '有线', simSub2: '' },
     wireless_switch_1: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '开关状态', homeCtrls: '按键', homeActs: 'toggle', simMain: '可用', simSub1: '电量 90%', simSub2: '' },
@@ -168,9 +170,16 @@ const DEFAULT_RULES = {
             { field: 'name', op: 'contains', value: '盒子' },
         ] },
     ] },
+    // 两台 Potatokid 固件能力不同：rd08 上报速度/设备数/事件，rd03 只上报基础状态。
+    // 用 device.model 精确分流，避免宽泛规则把 rd03 也判成完整卡片。
     router: { priority: 6, rules: [
-        { id: 'rt1', name: 'Potatokid 路由器', enabled: true, conds: [
-            { field: 'name', op: 'contains', value: 'Potatokid' },
+        { id: 'rt1', name: 'Potatokid 路由器 rd08（完整上报）', enabled: true, conds: [
+            { field: 'device.model', op: 'startsWith', value: 'xiaomi.router.rd08' },
+        ] },
+    ] },
+    router_lite: { priority: 6, rules: [
+        { id: 'rtl1', name: 'Potatokid 路由器 rd03（简版）', enabled: true, conds: [
+            { field: 'device.model', op: 'startsWith', value: 'xiaomi.router.rd03' },
         ] },
     ] },
     // 香薰机（米家智能香氛机）：设备名含「香氛机」且有主开关 _on_p_2_2。
@@ -510,6 +519,32 @@ const CARD_LAYOUTS = {
                     },
                 ],
             },
+        ],
+    },
+    // 简版路由器（rd03）：固件不上报速度/设备数/事件，只显示标题与「路由器」，
+    // 避免完整卡片出现一排 — B/s 的空读数。
+    router_lite: {
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 3,
+                        children: [
+                            {
+                                type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1,
+                                marquee: true, marqueeMode: 'pingpong', marqueePause: 3, marqueeSpeed: 30,
+                            },
+                        ],
+                    },
+                ],
+            },
+            { type: 'text', value: '路由器', size: 26, weight: 700, color: '{color}', maxLines: 1 },
         ],
     },
     // 无线开关：只读电量卡片。电池电量 sensor 后缀 _battery_level_p_2_1003，
