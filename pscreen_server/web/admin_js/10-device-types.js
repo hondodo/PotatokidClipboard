@@ -613,8 +613,9 @@
     }
     return Object.keys(out).length ? out : null;
   }
-  function pvResolve(raw, ctx, node) {
-    const map = pvValueMap(node);
+  function pvResolve(raw, ctx, node, overrideMap) {
+    // overrideMap（colorMap/labelMap/iconMap）优先于通用 map，与 Flutter 一致。
+    const map = overrideMap || pvValueMap(node);
     const replace = pvReplaceMap(node);
     // 与 Flutter 一致：先子串替换 replace、再整值 map，作用在
     // 「每个占位符求值出来的值」上，条件判断不走这里。
@@ -630,8 +631,22 @@
       return v;
     });
   }
+  // 条件属性映射：colorMap/labelMap/iconMap 写法同 map，作用于各自属性的占位符求值。
+  function pvAttrMap(node, field) {
+    if (!node || !node[field]) return null;
+    const out = {};
+    for (const part of String(node[field]).split(/[,，;；\n]+/)) {
+      const seg = part.trim();
+      if (!seg) continue;
+      const eq = seg.search(/[=＝]/);
+      if (eq <= 0) continue;
+      const k = seg.slice(0, eq).trim();
+      if (k) out[k] = seg.slice(eq + 1).trim();
+    }
+    return Object.keys(out).length ? out : null;
+  }
   function pvColor(raw, ctx, node, fallback) {
-    const v = pvResolve(raw, ctx, node).trim();
+    const v = pvResolve(raw, ctx, node, pvAttrMap(node, 'colorMap')).trim();
     if (!v) return fallback || '';
     // 支持 #RRGGBB / 8 位 #RRGGBBAA（如 {color}26 → 透明度）
     if (/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return v;
@@ -653,6 +668,20 @@
     return ({ center: 'center', end: 'flex-end', start: 'flex-start', stretch: 'stretch' })[node.crossAlign]
       || (node.type === 'column' ? 'stretch' : 'center');
   }
+  // stack 九宫格对齐 → CSS translate 定位（容器左上角为原点）。
+  function pvStackAlignCss(a) {
+    const m = {
+      topLeft: '0;transform:none', topCenter: '0;left:50%;transform:translateX(-50%)',
+      topRight: '0;left:auto;right:0;transform:none',
+      centerLeft: 'top:50%;transform:translateY(-50%)', center: 'top:50%;left:50%;transform:translate(-50%,-50%)',
+      centerRight: 'top:50%;left:auto;right:0;transform:translateY(-50%)',
+      bottomLeft: 'top:auto;bottom:0;transform:none',
+      bottomCenter: 'top:auto;bottom:0;left:50%;transform:translateX(-50%)',
+      bottomRight: 'top:auto;bottom:0;left:auto;right:0;transform:none',
+    };
+    const v = m[a] || m.center;
+    return v.startsWith('0;') ? `top:${v}` : v;
+  }
   function renderPreviewNode(node, ctx) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return '';
     const type = node.type;
@@ -670,6 +699,23 @@
         return `<div style="display:flex;flex-direction:${pvFlexDir(node)};gap:${gap}px;`
           + `justify-content:${pvMainAlign(node)};align-items:${pvCrossAlign(node)};${pad}${flexCss}${fillCss}">${kids}</div>`;
       }
+      if (type === 'stack') {
+        // 叠放容器：子节点绝对定位/对齐覆盖，预览用 relative + absolute 近似。
+        const kids = (node.children || []).map((c) => {
+          const p = c.position || {};
+          const edges = ['left', 'top', 'right', 'bottom']
+            .filter((e) => p[e] != null)
+            .map((e) => `${e}:${Number(p[e])}px`).join(';');
+          const posCss = edges
+            ? `position:absolute;${edges};`
+            : `position:absolute;${pvStackAlignCss(c.stackAlign || node.stackAlign)};`;
+          const sizeCss = (p.width != null ? `width:${Number(p.width)}px;` : '')
+            + (p.height != null ? `height:${Number(p.height)}px;` : '');
+          return `<div style="${posCss}${sizeCss}">${renderPreviewNode(c, ctx)}</div>`;
+        }).join('');
+        const fillCss = node.fill ? 'min-height:118px;width:100%;' : 'min-height:60px;width:100%;';
+        return `<div style="position:relative;${fillCss}">${kids}</div>`;
+      }
       if (type === 'text') {
         const txt = pvResolve(node.value, ctx, node);
         const size = node.size != null ? Number(node.size) : 14;
@@ -682,7 +728,7 @@
           + `max-width:100%;line-height:1.4">${esc(txt)}</div>`;
       }
       if (type === 'icon') {
-        const rawIcon = pvResolve(node.value, ctx, node);
+        const rawIcon = pvResolve(node.value, ctx, node, pvAttrMap(node, 'iconMap'));
         const size = node.size != null ? Number(node.size) : 26;
         // 上传后的图片是相对路径（同源代理）或绝对 URL，预览直接显示图片。
         if (/^(https?:\/\/|\/api\/files\/)/i.test(rawIcon)) {
@@ -705,7 +751,7 @@
       }
       if (type === 'button' || type === 'chip') {
         const round = node.round === true;
-        const label = pvResolve(node.label || node.subLabel || node.value || '', ctx, node);
+        const label = pvResolve(node.label || node.subLabel || node.value || '', ctx, node, pvAttrMap(node, 'labelMap'));
         const color = pvColor(node.color, ctx, node, ctx.color);
         const sz = node.size != null ? Number(node.size) : 0;
         if (round) {

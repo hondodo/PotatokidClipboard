@@ -129,6 +129,8 @@ class JsonCardRenderer extends StatelessWidget {
               .map((CardLayoutNode c) => _buildNode(context, c, eval, available))
               .toList(growable: false),
         );
+      case 'stack':
+        return _buildStack(context, node, eval, available, theme);
       case 'text':
         return _buildText(context, node, eval, available);
       case 'icon':
@@ -145,7 +147,7 @@ class JsonCardRenderer extends StatelessWidget {
         return Divider(
           height: gap,
           thickness: node.thickness ?? 1,
-          color: _color(node.color, theme, eval) ?? theme.dividerColor,
+          color: _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? theme.dividerColor,
         );
       case 'repeat':
         return _buildRepeat(context, node, eval, available);
@@ -182,6 +184,66 @@ class JsonCardRenderer extends StatelessWidget {
     return out;
   }
 
+  /// stack：子节点叠放。子节点可用 stackAlign（九宫格对齐）或 position（绝对定位）摆放，
+  /// 二者都没写则按 stack 节点自身 stackAlign（默认 center）对齐。
+  Widget _buildStack(
+    BuildContext context,
+    CardLayoutNode node,
+    CardEvalContext eval,
+    bool available,
+    ThemeData theme,
+  ) {
+    final Alignment defaultAlign = _stackAlignment(node.stackAlign);
+    final List<Widget> kids = node.children.map((CardLayoutNode c) {
+      final Widget child = _buildNode(context, c, eval, available);
+      final CardPosition? p = c.position;
+      if (p != null) {
+        return Positioned(
+          left: p.left,
+          top: p.top,
+          right: p.right,
+          bottom: p.bottom,
+          width: p.width,
+          height: p.height,
+          child: child,
+        );
+      }
+      if (c.stackAlign != null) {
+        return Align(alignment: _stackAlignment(c.stackAlign), child: child);
+      }
+      return Align(alignment: defaultAlign, child: child);
+    }).toList(growable: false);
+    return Stack(
+      alignment: defaultAlign,
+      fit: node.fill ? StackFit.expand : StackFit.loose,
+      children: kids,
+    );
+  }
+
+  Alignment _stackAlignment(String? raw) {
+    switch (raw) {
+      case 'topLeft':
+        return Alignment.topLeft;
+      case 'topCenter':
+        return Alignment.topCenter;
+      case 'topRight':
+        return Alignment.topRight;
+      case 'centerLeft':
+        return Alignment.centerLeft;
+      case 'centerRight':
+        return Alignment.centerRight;
+      case 'bottomLeft':
+        return Alignment.bottomLeft;
+      case 'bottomCenter':
+        return Alignment.bottomCenter;
+      case 'bottomRight':
+        return Alignment.bottomRight;
+      case 'center':
+      default:
+        return Alignment.center;
+    }
+  }
+
   Widget _buildText(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
     final ThemeData theme = Theme.of(context);
     final String raw = node.value ?? '';
@@ -194,7 +256,12 @@ class JsonCardRenderer extends StatelessWidget {
     final String shown = raw.trim() == '{title}'
         ? cardTitle(title: text, areaLabel: areaLabel, showArea: showAreaInTitle)
         : text;
-    final Color? color = _color(node.color, theme, eval) ??
+    final Color? color = _color(
+          node.color,
+          theme,
+          eval,
+          CardEvalContext.parseValueMap(node.colorMap),
+        ) ??
         (available ? null : theme.colorScheme.outline);
     final TextAlign align = node.align == 'center'
         ? TextAlign.center
@@ -225,8 +292,10 @@ class JsonCardRenderer extends StatelessWidget {
 
   Widget _buildIcon(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
     final ThemeData theme = Theme.of(context);
-    final String raw = eval.resolve(node.value ?? '').trim();
-    final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
+    final Map<String, String>? iconMap = CardEvalContext.parseValueMap(node.iconMap);
+    final Map<String, String>? colorMap = CardEvalContext.parseValueMap(node.colorMap);
+    final String raw = eval.resolve(node.value ?? '', iconMap).trim();
+    final Color accent = _color(node.color, theme, eval, colorMap) ?? _accent(theme);
     final Color iconColor = available ? accent : theme.colorScheme.outline;
     final double size = node.size ?? 24;
 
@@ -260,7 +329,7 @@ class JsonCardRenderer extends StatelessWidget {
       width: box.size ?? 46,
       height: box.size ?? 46,
       decoration: BoxDecoration(
-        color: _color(box.bg, theme, eval) ?? accent.withValues(alpha: 0.16),
+        color: _color(box.bg, theme, eval, colorMap) ?? accent.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(box.radius ?? 12),
       ),
       alignment: Alignment.center,
@@ -278,10 +347,14 @@ class JsonCardRenderer extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final Map<String, String>? valueMap = CardEvalContext.parseValueMap(node.map);
     final Map<String, String>? replaceMap = CardEvalContext.parseReplaceMap(node.replace);
-    final String label = eval.resolve(node.label ?? '', valueMap, replaceMap);
-    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, valueMap, replaceMap);
+    // labelMap/iconMap 优先于通用 map：同一状态可分别驱动文案、图标、颜色。
+    final Map<String, String>? labelMap = CardEvalContext.parseValueMap(node.labelMap) ?? valueMap;
+    final Map<String, String>? iconMap = CardEvalContext.parseValueMap(node.iconMap);
+    final Map<String, String>? colorMap = CardEvalContext.parseValueMap(node.colorMap);
+    final String label = eval.resolve(node.label ?? '', labelMap, replaceMap);
+    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, labelMap, replaceMap);
     final String onClick = eval.resolve(node.onClick ?? '');
-    final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
+    final Color accent = _color(node.color, theme, eval, colorMap) ?? _accent(theme);
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);
     final bool active = resolvedStyle == 'active';
 
@@ -311,7 +384,7 @@ class JsonCardRenderer extends StatelessWidget {
     // 圆形按钮（电源键）：忽略文字，按 value/icon 画一个圆形图标按钮。
     if (node.round) {
       final String iconRaw = (node.value ?? node.icon ?? 'power_settings_new').trim();
-      final IconData iconData = _iconData(eval.resolve(iconRaw));
+      final IconData iconData = _iconData(eval.resolve(iconRaw, iconMap));
       final double d = node.size ?? 52;
       return SizedBox(
         width: d,
@@ -413,7 +486,7 @@ class JsonCardRenderer extends StatelessWidget {
     final double value = num.tryParse(eval.resolve(node.value ?? '0'))?.toDouble() ?? 0;
     final double max = num.tryParse(eval.resolve(node.max ?? '100'))?.toDouble() ?? 100;
     final double progress = max > 0 ? (value / max).clamp(0.0, 1.0) : 0;
-    final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
+    final Color accent = _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? _accent(theme);
 
     // 可交互进度条（亮度）：用与旧版灯卡一致的 GradientSlider，拖动即时反馈、
     // 松手才下发。onClick 写 "brightness@{primary.entityId}" 之类的动作，
@@ -478,7 +551,7 @@ class JsonCardRenderer extends StatelessWidget {
     final Metric metric = metricRaw == 'temperature'
         ? Metric.temperature
         : (metricRaw == 'humidity' ? Metric.humidity : Metric.power);
-    final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
+    final Color accent = _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? _accent(theme);
     final HistoryService? svc = historyService ?? _tryHistoryService();
     // expand=true 时外层 _spaced 已包 Expanded，这里只把 MetricSparkline 的
     // height 传 null，让它 SizedBox.expand 撑满父级剩余空间（插座卡片下半部分
@@ -561,9 +634,16 @@ class JsonCardRenderer extends StatelessWidget {
 
   Color _accent(ThemeData theme) => GenericCardColors.parse(card.color);
 
-  Color? _color(String? raw, ThemeData theme, CardEvalContext eval) {
+  Color? _color(
+    String? raw,
+    ThemeData theme,
+    CardEvalContext eval, [
+    Map<String, String>? valueMap,
+  ]) {
     if (raw == null || raw.isEmpty) return null;
-    final String resolved = eval.resolve(raw);
+    // valueMap（如 colorMap: on=#FF7043,off=#4dd4ac）作用于占位符求值结果，
+    // 让一个颜色字段就能按状态变色，不必再用两个互斥按钮。
+    final String resolved = eval.resolve(raw, valueMap);
     // 语义色名
     switch (resolved) {
       case 'outline':

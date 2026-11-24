@@ -1071,4 +1071,118 @@ void main() {
     expect(store.watch(group.metricDeviceId, Metric.power).value, hasLength(1));
     expect(store.watch(group.orderKey, Metric.power).value, isEmpty);
   });
+
+  // ---- 条件属性（colorMap/labelMap/iconMap）与 stack 叠放 ----
+  Future<void> pumpLayout(
+    WidgetTester tester,
+    String switchState,
+    Map<String, dynamic> layoutJson,
+  ) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_x',
+      title: '测试设备',
+      entities: <HaEntityStateModel>[
+        _entity('switch.x_on_p_2_1', switchState, name: '开关'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '开关',
+      color: '#4dd4ac',
+      layout: CardLayoutNode.fromJson(layoutJson),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 200,
+            height: 120,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'switch',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('colorMap 让同一个按钮按状态变色（开红橙/关绿）', (WidgetTester tester) async {
+    final Map<String, dynamic> layout = <String, dynamic>{
+      'type': 'row',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'button',
+          'round': true,
+          'value': 'power_settings_new',
+          'size': 52,
+          'color': '{s:_on_p_2_1}',
+          'colorMap': 'on=#FF7043,off=#4dd4ac',
+          'onClick': 'toggle@{id:_on_p_2_1}',
+        },
+      ],
+    };
+    Color btnColor() => tester.widget<FilledButton>(find.byType(FilledButton))
+            .style!.foregroundColor!.resolve(<WidgetState>{})!;
+
+    await pumpLayout(tester, 'on', layout);
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(btnColor(), const Color(0xFFFF7043));
+
+    await pumpLayout(tester, 'off', layout);
+    expect(btnColor(), const Color(0xFF4DD4AC));
+  });
+
+  testWidgets('labelMap/iconMap 按状态改文案与图标', (WidgetTester tester) async {
+    final Map<String, dynamic> layout = <String, dynamic>{
+      'type': 'column',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'button',
+          'label': '{s:_on_p_2_1}',
+          'labelMap': 'on=关闭,off=开启',
+          'icon': '{s:_on_p_2_1}',
+          'iconMap': 'on=power_off,off=power_on',
+          'color': '#4dd4ac',
+          'onClick': 'toggle@{id:_on_p_2_1}',
+        },
+      ],
+    };
+    await pumpLayout(tester, 'on', layout);
+    expect(find.text('关闭'), findsOneWidget);
+    expect(find.text('开启'), findsNothing);
+
+    await pumpLayout(tester, 'off', layout);
+    expect(find.text('开启'), findsOneWidget);
+    expect(find.text('关闭'), findsNothing);
+  });
+
+  testWidgets('stack 叠放：背景与前景同槽渲染不溢出', (WidgetTester tester) async {
+    final Map<String, dynamic> layout = <String, dynamic>{
+      'type': 'stack',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'text',
+          'value': '背景',
+          'size': 20,
+          'color': '#336699',
+          'stackAlign': 'center',
+        },
+        <String, dynamic>{
+          'type': 'text',
+          'value': '角标',
+          'size': 10,
+          'color': '#FF7043',
+          'stackAlign': 'topRight',
+        },
+      ],
+    };
+    await pumpLayout(tester, 'on', layout);
+    expect(find.text('背景'), findsOneWidget);
+    expect(find.text('角标'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

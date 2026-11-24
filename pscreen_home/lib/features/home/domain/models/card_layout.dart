@@ -43,6 +43,11 @@ class CardLayoutNode {
     this.columns,
     this.map,
     this.replace,
+    this.colorMap,
+    this.labelMap,
+    this.iconMap,
+    this.stackAlign,
+    this.position,
     this.round = false,
     this.interactive = false,
     this.children = const <CardLayoutNode>[],
@@ -90,6 +95,17 @@ class CardLayoutNode {
   /// 支持任意字符（含中文/空格/标点），旧串可用引号包裹以包含逗号或等号。
   /// 只作用于本节点 value/label 里占位符求值出来的原始值，不影响条件判断。
   final String? replace;
+  /// 条件属性映射：对单个属性里占位符求值结果做整值替换（写法同 map）。
+  /// 与通用 map 分开，方便「同一状态驱动多属性」：如按钮 label 用 on=关闭/off=开启，
+  /// color 用 on=#FF7043/off=#4dd4ac，icon 用 on=power_off/off=power_on。
+  /// 只作用于各自属性的占位符求值结果，不影响条件判断。
+  final String? colorMap;
+  final String? labelMap;
+  final String? iconMap;
+  /// stack 节点：子节点的对齐（topLeft/topCenter/topRight/center/.../bottomRight）。
+  final String? stackAlign;
+  /// stack 节点：子节点的绝对定位（left/top/right/bottom，像素）。
+  final CardPosition? position;
   /// button 节点渲染成圆形（电源键用）。
   final bool round;
   /// progress 节点可拖动/点击调节（亮度条用），松手时发 onAction。
@@ -110,6 +126,7 @@ class CardLayoutNode {
     }
     final dynamic rawBox = json['box'];
     final dynamic rawTpl = json['template'];
+    final dynamic rawPos = json['position'];
     return CardLayoutNode(
       type: '${json['type'] ?? ''}',
       gap: _num(json['gap']),
@@ -147,6 +164,14 @@ class CardLayoutNode {
       columns: (json['columns'] as num?)?.toInt(),
       map: json['map'] == null ? null : '${json['map']}',
       replace: json['replace'] == null ? null : '${json['replace']}',
+      colorMap: json['colorMap'] == null ? null : '${json['colorMap']}',
+      labelMap: json['labelMap'] == null ? null : '${json['labelMap']}',
+      iconMap: json['iconMap'] == null ? null : '${json['iconMap']}',
+      stackAlign: json['stackAlign'] == null ? null : '${json['stackAlign']}',
+      position: rawPos is Map
+          ? CardPosition.fromJson(
+              rawPos.map((dynamic k, dynamic v) => MapEntry<String, dynamic>('$k', v)))
+          : null,
       round: json['round'] == true,
       interactive: json['interactive'] == true,
       children: children,
@@ -167,6 +192,29 @@ class CardLayoutNode {
         : a;
     return <double>[a, b];
   }
+}
+
+/// stack 子节点的绝对定位（像素，null 表示不约束该边）。
+class CardPosition {
+  const CardPosition({this.left, this.top, this.right, this.bottom, this.width, this.height});
+
+  final double? left;
+  final double? top;
+  final double? right;
+  final double? bottom;
+  final double? width;
+  final double? height;
+
+  factory CardPosition.fromJson(Map<String, dynamic> json) => CardPosition(
+        left: _pos(json['left']),
+        top: _pos(json['top']),
+        right: _pos(json['right']),
+        bottom: _pos(json['bottom']),
+        width: _pos(json['width']),
+        height: _pos(json['height']),
+      );
+
+  static double? _pos(dynamic v) => v is num ? v.toDouble() : null;
 }
 
 class CardIconBox {

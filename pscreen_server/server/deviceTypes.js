@@ -319,7 +319,7 @@ const CARD_LAYOUTS = {
 // {sub} {main} {label} {icon} {color} {state} {attr.xxx} {gangCount}
 // {gangOnCount}，repeat 项用 {item.xxx}），服务端只做白名单校验与透传。
 const LAYOUT_NODE_TYPES = new Set([
-    'row', 'column', 'wrap', 'text', 'icon', 'button', 'chip',
+    'row', 'column', 'wrap', 'stack', 'text', 'icon', 'button', 'chip',
     'progress', 'sparkline', 'repeat', 'divider',
 ]);
 const LAYOUT_MAX_DEPTH = 8;
@@ -356,9 +356,25 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     // 节点级子串替换（旧=新，新留空即删）：与 map 的整值精确匹配互补，
     // 用于截取/清理占位符求值结果（如去掉 friendly_name 里的设备型号前缀）。
     if (value.replace != null) node.replace = str(value.replace, 360);
+    // 条件属性映射：分别对 color/label/icon 的占位符求值做整值替换，
+    // 让一个节点按状态变色/变文案/变图标（如 colorMap: on=#FF7043,off=#4dd4ac）。
+    if (value.colorMap != null) node.colorMap = str(value.colorMap, 240);
+    if (value.labelMap != null) node.labelMap = str(value.labelMap, 240);
+    if (value.iconMap != null) node.iconMap = str(value.iconMap, 240);
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
+    // stack 子节点定位：stackAlign 九宫格对齐 / position 绝对定位（像素）。
+    if (['topLeft', 'topCenter', 'topRight', 'centerLeft', 'center', 'centerRight',
+         'bottomLeft', 'bottomCenter', 'bottomRight'].includes(value.stackAlign)) {
+        node.stackAlign = value.stackAlign;
+    }
+    if (value.position && typeof value.position === 'object') {
+        node.position = {};
+        for (const edge of ['left', 'top', 'right', 'bottom', 'width', 'height']) {
+            if (value.position[edge] != null) node.position[edge] = num(value.position[edge], 0, -2000, 2000);
+        }
+    }
     if (value.padding != null) {
         const p = Array.isArray(value.padding) ? value.padding : [];
         node.padding = [num(p[0], 12, 0, 48), num(p[1] != null ? p[1] : p[0], 10, 0, 48)];
@@ -442,6 +458,7 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
         case 'row':
         case 'column':
         case 'wrap':
+        case 'stack':
             break;
     }
     if (Array.isArray(value.children)) {
