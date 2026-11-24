@@ -403,9 +403,11 @@ const CARD_LAYOUTS = {
             },
         ],
     },
-    // 多模网关：只读展示——标题 + IP 地址大字（无电源键，网关本身不可开关）。
+    // 多模网关：只读展示——标题 + 接入方式，底部 IP 地址大字（网关本身不可开关）。
+    // 实体后缀取真实 HA：access_mode_p_2_1 / ip_address_p_2_2；
+    // 顶层 spaceBetween 让 IP 块贴底，复刻米家卡片（客厅 小米智能多模网关2 / 有线 / 当前值 / IP）。
     multi_gateway: {
-        type: 'column', fill: true, gap: 8, padding: [12, 10],
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 8, padding: [12, 10],
         children: [
             {
                 type: 'row', gap: 10, crossAlign: 'center',
@@ -417,8 +419,15 @@ const CARD_LAYOUTS = {
                     {
                         type: 'column', expand: true, gap: 3,
                         children: [
-                            { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
-                            { type: 'text', value: '{s:_access_mode_p_2_1}', size: 12, color: '{color}', maxLines: 1 },
+                            {
+                                type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1,
+                                marquee: true, marqueeMode: 'pingpong', marqueePause: 3, marqueeSpeed: 30,
+                            },
+                            {
+                                type: 'text',
+                                value: '{s:_access_mode_p_2_1|有线=有线,2 Point 4 GHz Wireless=无线,unknown=—,unavailable=—}',
+                                size: 12, color: '{color}', maxLines: 1,
+                            },
                         ],
                     },
                 ],
@@ -427,7 +436,11 @@ const CARD_LAYOUTS = {
                 type: 'column', gap: 2,
                 children: [
                     { type: 'text', value: '{label}', size: 12, color: 'outline', maxLines: 1 },
-                    { type: 'text', value: '{s:_ip_address_p_2_2}', size: 26, weight: 700, color: '{color}', maxLines: 1 },
+                    {
+                        type: 'text',
+                        value: '{s:_ip_address_p_2_2|unknown=—,unavailable=—}',
+                        size: 30, weight: 700, color: '{color}', maxLines: 1,
+                    },
                 ],
             },
         ],
