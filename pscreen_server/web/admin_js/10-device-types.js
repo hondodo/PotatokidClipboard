@@ -845,7 +845,23 @@
     out = out.replace(/\u0001(\d+)\u0001/g, (m, i) => holders[Number(i)]);
     return out;
   }
-  function pvInlineRules(v, rules) {
+  // ISO 时间 → 相对时间，对齐 Flutter 的 |ago 规则。
+  function pvAgo(raw) {
+    const t = Date.parse(String(raw).trim());
+    if (Number.isNaN(t)) return raw;
+    const diff = Date.now() - t;
+    if (diff <= 0 || diff < 60000) return '刚刚';
+    const min = Math.floor(diff / 60000);
+    if (min < 60) return min + '分钟前';
+    const h = Math.floor(min / 60);
+    if (h < 24) return h + '小时前';
+    const d = Math.floor(h / 24);
+    if (d < 30) return d + '天前';
+    const dt = new Date(t);
+    const pad = (n) => String(n).padStart(2, '0');
+    return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+  }
+  function pvInlineRules(v, rules, ctx) {
     let out = String(v);
     for (const seg of String(rules).split(/[,，]/)) {
       const s = seg.trim();
@@ -858,6 +874,22 @@
       const low = s.toLowerCase();
       if (low === 'date' || low.startsWith('date:') || low.startsWith('date=')) {
         out = pvDateFormat(out, s.length > 5 ? s.slice(5).trim() : '');
+        continue;
+      }
+      if (low === 'maxwith' || low.startsWith('maxwith=')) {
+        const eqAt = s.indexOf('=');
+        const key = eqAt > 0 ? s.slice(eqAt + 1).trim() : '';
+        if (key && ctx) {
+          const other = pvResolve('{' + key + '}', ctx, {}, null);
+          const a = Date.parse(out.trim());
+          const b = Date.parse(String(other).trim());
+          if (!Number.isNaN(a) && !Number.isNaN(b)) out = a >= b ? out : String(other);
+          else if (Number.isNaN(a) && !Number.isNaN(b)) out = String(other);
+        }
+        continue;
+      }
+      if (low === 'ago') {
+        out = pvAgo(out);
         continue;
       }
       const eq = s.indexOf('=');
@@ -889,7 +921,7 @@
         const entityVal = pvEntityToken(key, ctx);
         v = entityVal == null ? '' : entityVal;
       }
-      if (rules) v = pvInlineRules(v, rules);
+      if (rules) v = pvInlineRules(v, rules, ctx);
       if (replace) for (const [old, nu] of Object.entries(replace)) {
         if (old) v = v.split(old).join(nu);
       }

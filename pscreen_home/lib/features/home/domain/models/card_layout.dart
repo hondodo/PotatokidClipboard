@@ -415,6 +415,8 @@ class CardEvalContext {
   /// - date / date:<pattern>：把 ISO 时间串按 Flutter DateFormat 格式化；
   ///   pattern 省略时默认 'yMd'；支持 'zh'/'en_US' 等 locale 前缀 `zh:yMd`；
   ///   也支持 DateFormat 简写名（yMd/Hms/yMEd/yMMM…），见 [_dateFormat]。
+  /// - maxWith=<占位符 key>：当前值与另一个占位符都是 ISO 时间时取较晚者。
+  /// - ago：ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）。
   /// - key=val：整值映射。
   /// 逗号分隔多条；值可用单/双引号包住以保护逗号。
   String _applyInlineRules(String value, String rules) {
@@ -435,6 +437,29 @@ class CardEvalContext {
       if (low == 'date' || low.startsWith('date:') || low.startsWith('date=')) {
         final String spec = s.length > 5 ? s.substring(5).trim() : '';
         out = _formatInlineDate(out, spec);
+        continue;
+      }
+      // maxWith=<占位符 key>：当前值与另一个占位符都是 ISO 时间时取较晚的一个。
+      // 用于「最后接入/最后断开」这类二选一展示；非时间值以可解析的一方为准。
+      if (low == 'maxwith' || low.startsWith('maxwith=')) {
+        final int eqAt = s.indexOf('=');
+        final String otherKey = eqAt > 0 ? s.substring(eqAt + 1).trim() : '';
+        if (otherKey.isNotEmpty) {
+          final String other = _resolveToken(otherKey);
+          final DateTime? a = DateTime.tryParse(out.trim());
+          final DateTime? b = DateTime.tryParse(other.trim());
+          if (a != null && b != null) {
+            out = a.toUtc().isAfter(b.toUtc()) ? out : other;
+          } else if (a == null && b != null) {
+            out = other;
+          }
+        }
+        continue;
+      }
+      // ago：ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）。
+      // 非时间值原样返回，后面可再接映射把 unknown/unavailable 转成 —。
+      if (low == 'ago') {
+        out = _formatAgo(out);
         continue;
       }
       final int eq = s.indexOf('=');
@@ -508,6 +533,23 @@ class CardEvalContext {
       } catch (_) {
         return raw;
       }
+    }
+  }
+
+  /// ISO 时间 → 相对时间文案，对齐 HA 前端的「52分钟前」展示。
+  /// 非时间值原样返回，便于串接 `unknown=—` 等映射。
+  static String _formatAgo(String raw) {
+    final DateTime? dt = DateTime.tryParse(raw.trim());
+    if (dt == null) return raw;
+    final Duration diff = DateTime.now().difference(dt.toLocal());
+    if (diff.inSeconds <= 0 || diff.inMinutes < 1) return '刚刚';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
+    if (diff.inHours < 24) return '${diff.inHours}小时前';
+    if (diff.inDays < 30) return '${diff.inDays}天前';
+    try {
+      return DateFormat('yyyy-MM-dd').format(dt.toLocal());
+    } catch (_) {
+      return raw;
     }
   }
 

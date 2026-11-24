@@ -822,6 +822,51 @@ void main() {
     );
   });
 
+  test('占位符 maxWith + ago：取接入/断开中较晚的时间并显示相对时间', () {
+    final DateTime now = DateTime.now().toUtc();
+    // 接入更早、断开更晚 → 副标题应显示断开时间。
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_router',
+      title: 'Potatokid',
+      entities: <HaEntityStateModel>[
+        _entity(
+          'event.xiaomi_cn_rd08_device_connect_e_2_1',
+          now.subtract(const Duration(minutes: 52, seconds: 5)).toIso8601String(),
+          name: '路由器 设备接入',
+        ),
+        _entity(
+          'event.xiaomi_cn_rd08_device_disconnect_e_2_2',
+          now.subtract(const Duration(minutes: 10, seconds: 5)).toIso8601String(),
+          name: '路由器 设备断开',
+        ),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(label: '运行状态');
+    final CardEvalContext ctx = CardEvalContext(group: group, card: card);
+    expect(
+      ctx.resolve(
+        '{s:_device_connect_e_2_1|maxWith=s:_device_disconnect_e_2_2,ago}',
+      ),
+      '10分钟前',
+    );
+
+    // 两台路由器中不支持的那台报 unknown → 映射成 —，不裸显 unknown。
+    final HaDeviceGroup unknown = HaDeviceGroup(
+      deviceId: 'dev_router_rd03',
+      title: 'Potatokid',
+      entities: <HaEntityStateModel>[
+        _entity('event.xiaomi_cn_rd03_device_connect_e_2_1', 'unknown'),
+        _entity('event.xiaomi_cn_rd03_device_disconnect_e_2_2', 'unknown'),
+      ],
+    );
+    expect(
+      CardEvalContext(group: unknown, card: card).resolve(
+        '{s:_device_connect_e_2_1|maxWith=s:_device_disconnect_e_2_2,ago,unknown=—}',
+      ),
+      '—',
+    );
+  });
+
   testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调', (
     WidgetTester tester,
   ) async {

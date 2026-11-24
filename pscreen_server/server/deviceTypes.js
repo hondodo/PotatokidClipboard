@@ -445,6 +445,73 @@ const CARD_LAYOUTS = {
             },
         ],
     },
+    // 路由器（Potatokid / 小米路由器 rd08）：只读卡片。
+    // 副标题取「最后接入 / 最后断开」中时间较晚的一个，并转成 HA 风格的相对时间。
+    // 下行三行分别显示上传/下载速度与接入设备数；另一台 rd03 报 unknown 时显示 —。
+    // 实体后缀均按真实 HA id 精确匹配，不猜实体、不绑动作。
+    router: {
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 10, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 3,
+                        children: [
+                            {
+                                type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1,
+                                marquee: true, marqueeMode: 'pingpong', marqueePause: 3, marqueeSpeed: 30,
+                            },
+                            {
+                                type: 'text',
+                                value: '最近活动 {s:_device_connect_e_2_1|maxWith=s:_device_disconnect_e_2_2,ago,unknown=—,unavailable=—}',
+                                size: 12, color: '{color}', maxLines: 1,
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'column', gap: 6,
+                children: [
+                    {
+                        type: 'row', mainAlign: 'spaceBetween', crossAlign: 'center', gap: 8,
+                        children: [
+                            { type: 'text', value: '上传速度', size: 12, color: 'outline', maxLines: 1 },
+                            {
+                                type: 'text', value: '{s:_upload_speed_p_2_2|unknown=—,unavailable=—} B/s',
+                                size: 14, weight: 600, align: 'right', maxLines: 1,
+                            },
+                        ],
+                    },
+                    {
+                        type: 'row', mainAlign: 'spaceBetween', crossAlign: 'center', gap: 8,
+                        children: [
+                            { type: 'text', value: '下载速度', size: 12, color: 'outline', maxLines: 1 },
+                            {
+                                type: 'text', value: '{s:_download_speed_p_2_1|unknown=—,unavailable=—} B/s',
+                                size: 14, weight: 600, align: 'right', maxLines: 1,
+                            },
+                        ],
+                    },
+                    {
+                        type: 'row', mainAlign: 'spaceBetween', crossAlign: 'center', gap: 8,
+                        children: [
+                            { type: 'text', value: '接入设备数', size: 12, color: 'outline', maxLines: 1 },
+                            {
+                                type: 'text', value: '{s:_connected_device_number_p_2_3|unknown=—,unavailable=—} 台',
+                                size: 14, weight: 600, align: 'right', maxLines: 1,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    },
     // 无线开关：只读电量卡片。电池电量 sensor 后缀 _battery_level_p_2_1003，
     // 单击 event 后缀 _click_e_3_1012（state 是 ISO 时间，用 |date: 规则格式化）。
     // 单键 / 双键 / 多键共用同一布局，仅 {icon}/{color}/{title} 随类型变化。
