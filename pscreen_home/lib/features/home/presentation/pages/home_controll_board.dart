@@ -400,7 +400,7 @@ class _PinnedHomeBadge extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const Icon(Icons.home_rounded, size: 24, color: _accent),
+              const Icon(Icons.home_rounded, size: 36, color: _accent),
               const SizedBox(width: 8),
               Column(
                 mainAxisSize: MainAxisSize.min,
@@ -410,7 +410,7 @@ class _PinnedHomeBadge extends StatelessWidget {
                     summary.homeName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700, height: 1.1),
+                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700, height: 1.1),
                   ),
                   if (summary.hasData) ...<Widget>[
                     const SizedBox(height: 2),
@@ -418,10 +418,10 @@ class _PinnedHomeBadge extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
                         if (summary.temperature != null) ...<Widget>[
-                          const Icon(Icons.thermostat_rounded, size: 15, color: _accent),
+                          const Icon(Icons.thermostat_rounded, size: 18, color: _accent),
                           Text(
                             '${formatTemperature(summary.temperature)}°',
-                            style: theme.textTheme.titleSmall?.copyWith(
+                            style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: _accent,
                               height: 1.1,
@@ -430,10 +430,10 @@ class _PinnedHomeBadge extends StatelessWidget {
                         ],
                         if (summary.temperature != null && summary.humidity != null) const SizedBox(width: 8),
                         if (summary.humidity != null) ...<Widget>[
-                          Icon(Icons.water_drop_rounded, size: 13, color: theme.colorScheme.onSurfaceVariant),
+                          Icon(Icons.water_drop_rounded, size: 15, color: theme.colorScheme.onSurfaceVariant),
                           Text(
                             '${summary.humidity}%',
-                            style: theme.textTheme.labelLarge?.copyWith(
+                            style: theme.textTheme.titleMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                               height: 1.1,
                             ),
