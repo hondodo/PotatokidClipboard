@@ -763,22 +763,43 @@
     if (!rest || !['s', 'a', 'id'].includes(kind)) return null;
     let pattern = rest;
     let attr = '';
-    if (kind === 'a') {
+    // 与 Flutter 对齐：s: 也支持点号读属性（{s:后缀.brightness} 等价 a:）。
+    if (kind === 'a' || kind === 's') {
       const dot = rest.lastIndexOf('.');
-      if (dot <= 0) return null;
-      pattern = rest.slice(0, dot);
-      attr = rest.slice(dot + 1);
+      if (dot > 0) { pattern = rest.slice(0, dot); attr = rest.slice(dot + 1); }
+      else if (kind === 'a') return null;
     }
     const low = pattern.toLowerCase();
     for (const e of list) {
       const id = String(e.id || '');
       if (!id.toLowerCase().includes(low)) continue;
       if (kind === 'id') return id;
-      if (kind === 's') return String(e.state == null ? '' : e.state);
+      if (kind === 's' && !attr) return String(e.state == null ? '' : e.state);
       const v = e.attrs && e.attrs[attr];
       return v == null ? '' : (Array.isArray(v) ? v.join(', ') : String(v));
     }
     return null;
+  }
+  // 与 Flutter _applyInlineRules 对齐：占位符内 |pct（0-255→百分比）、|on=文案,off=文案。
+  function pvInlineRules(v, rules) {
+    let out = String(v);
+    for (const seg of String(rules).split(/[,，]/)) {
+      const s = seg.trim();
+      if (!s) continue;
+      if (s.toLowerCase() === 'pct') {
+        const n = Number(out);
+        if (!Number.isNaN(n)) out = String(n > 255 ? Math.round(n) : Math.round(n / 255 * 100));
+        continue;
+      }
+      const eq = s.indexOf('=');
+      if (eq <= 0) continue;
+      const rk = s.slice(0, eq).trim();
+      let rv = s.slice(eq + 1).trim();
+      if (rv.length >= 2 && ((rv[0] === "'" && rv[rv.length - 1] === "'")
+        || (rv[0] === '"' && rv[rv.length - 1] === '"'))) rv = rv.slice(1, -1);
+      if (rk === out || rk.toLowerCase() === String(out).toLowerCase()) out = rv;
+    }
+    return out;
   }
   function pvResolve(raw, ctx, node, overrideMap) {
     // overrideMap（colorMap/labelMap/iconMap）优先于通用 map，与 Flutter 一致。
@@ -787,7 +808,11 @@
     // 与 Flutter 一致：先子串替换 replace、再整值 map，作用在
     // 「每个占位符求值出来的值」上，条件判断不走这里。
     return String(raw == null ? '' : raw).replace(/\{([^}]+)\}/g, (m, k) => {
-      const key = String(k).trim();
+      const full = String(k).trim();
+      // 拆占位符内联规则：{s:后缀|on=已开机,off=待机中}、{a:后缀.brightness|pct}
+      const bar = full.indexOf('|');
+      const key = (bar > 0 ? full.slice(0, bar) : full).trim();
+      const rules = bar > 0 ? full.slice(bar + 1).trim() : '';
       let v;
       if (Object.prototype.hasOwnProperty.call(ctx, key)) v = String(ctx[key]);
       else if (Object.prototype.hasOwnProperty.call(ctx, key.toLowerCase())) v = String(ctx[key.toLowerCase()]);
@@ -795,6 +820,7 @@
         const entityVal = pvEntityToken(key, ctx);
         v = entityVal == null ? '' : entityVal;
       }
+      if (rules) v = pvInlineRules(v, rules);
       if (replace) for (const [old, nu] of Object.entries(replace)) {
         if (old) v = v.split(old).join(nu);
       }

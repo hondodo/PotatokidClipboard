@@ -724,6 +724,44 @@ void main() {
     expect(ctx.resolve('目标 {s:_target_temperature_p_2_5}°C'), '目标 100°C');
   });
 
+  test('占位符内联映射与亮度百分比：一行里不同实体各用各的 on/off 文案', () {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_aroma',
+      title: '米家智能香氛机 氛围灯',
+      entities: <HaEntityStateModel>[
+        _entity('switch.xw002_on_p_2_2', 'on', name: '香薰机开关'),
+        _entity('light.xw002_s_3_ambient_light', 'on', name: '氛围灯'),
+        _entity('sensor.xw002_battery_level_p_5_1', '25', name: '电量'),
+      ],
+    );
+    // 氛围灯带 brightness 属性（HA 0-255）。
+    final List<HaEntityStateModel> ents = List<HaEntityStateModel>.from(group.entities);
+    ents[1] = HaEntityStateModel(
+      entityId: 'light.xw002_s_3_ambient_light',
+      state: 'on',
+      attributes: <String, dynamic>{'brightness': 82},
+    );
+    final HaDeviceGroup withBright = HaDeviceGroup(
+      deviceId: group.deviceId, title: group.title, entities: ents,
+    );
+    const DeviceCardConfig card = DeviceCardConfig(label: '香氛机');
+    final CardEvalContext ctx = CardEvalContext(group: withBright, card: card);
+
+    // 同一行：开关用「已开机/待机中」，氛围灯用「已开启/已关闭」，亮度 82→32%。
+    expect(
+      ctx.resolve(
+        '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯'
+        '{s:_s_3_ambient_light|on=已开启,off=已关闭}'
+        '({s:_s_3_ambient_light.brightness|pct}%) · 电量 {s:_battery_level_p_5_1}%',
+      ),
+      '已开机 · 氛围灯已开启(32%) · 电量 25%',
+    );
+    // s: 前缀点号读属性（不写 pct 则给原始 0-255）。
+    expect(ctx.resolve('{s:_s_3_ambient_light.brightness}'), '82');
+    // 电量本身已是百分数，直接显示、不要套 pct。
+    expect(ctx.resolve('{s:_battery_level_p_5_1}%'), '25%');
+  });
+
   testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调', (
     WidgetTester tester,
   ) async {

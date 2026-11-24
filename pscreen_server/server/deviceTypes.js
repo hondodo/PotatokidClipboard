@@ -347,8 +347,8 @@ const CARD_LAYOUTS = {
                             { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
                             {
                                 type: 'text',
-                                value: '{s:_on_p_2_2} · 电量 {s:_battery_level_p_5_1}%',
-                                map: 'on=香薰中,off=待机中',
+                                // 内联映射：每个占位符各用各的 on/off 文案，亮度走 |pct（0-255→百分比）。
+                                value: '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯{s:_s_3_ambient_light|on=已开启,off=已关闭}({s:_s_3_ambient_light.brightness|pct}%) · 电量 {s:_battery_level_p_5_1}%',
                                 size: 13, color: '{color}', maxLines: 1,
                             },
                         ],

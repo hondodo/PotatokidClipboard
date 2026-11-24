@@ -380,18 +380,60 @@ class CardEvalContext {
   /// 始终基于原始值比较。
   String resolve(String raw, [Map<String, String>? valueMap, Map<String, String>? replaceMap]) {
     return raw.replaceAllMapped(RegExp(r'\{([^}]+)\}'), (Match m) {
-      final String key = m.group(1)!.trim();
-      // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
-      final String? direct = _values[key];
-      if (direct != null) return _applyMaps(direct, replaceMap, valueMap);
-      // 按实体 id 后缀取值：{s:<后缀>}=state、{a:<后缀>.<属性>}=attribute、
-      // {id:<后缀>}=完整 entity_id。用于同类实体很多、下标不稳定的设备
-      // （如热水瓶：保温开关 / 工作状态 / 模式 / 设定温度）。
-      final String? entityValue = _resolveEntityToken(key);
-      if (entityValue != null) return _applyMaps(entityValue, replaceMap, valueMap);
-      if (key.contains('?')) return _applyMaps(_resolveTernary(key), replaceMap, valueMap);
-      return '';
+      final String full = m.group(1)!.trim();
+      // 内联规则：{s:后缀|on=已开机,off=待机中}、{a:后缀.brightness|pct}。
+      // 竖线后是本占位符专属的转换/映射，先于节点级 replace/map 生效，
+      // 让一行文本里不同实体各用各的 on/off 文案、亮度单独转百分比。
+      final int bar = full.indexOf('|');
+      final String key = (bar > 0 ? full.substring(0, bar) : full).trim();
+      final String rules = bar > 0 ? full.substring(bar + 1).trim() : '';
+      String value = _resolveToken(key);
+      if (rules.isNotEmpty) value = _applyInlineRules(value, rules);
+      return _applyMaps(value, replaceMap, valueMap);
     });
+  }
+
+  /// 求值单个占位符 token（不含节点级 replace/map）。
+  String _resolveToken(String key) {
+    // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
+    final String? direct = _values[key];
+    if (direct != null) return direct;
+    // 按实体 id 后缀取值：{s:<后缀>}=state、{a:<后缀>.<属性>}=attribute、
+    // {s:<后缀>.<属性>} 等价于 a:、{id:<后缀>}=完整 entity_id。用于同类实体很多、
+    // 下标不稳定的设备（如热水瓶：保温开关 / 工作状态 / 模式 / 设定温度）。
+    final String? entityValue = _resolveEntityToken(key);
+    if (entityValue != null) return entityValue;
+    if (key.contains('?')) return _resolveTernary(key);
+    return '';
+  }
+
+  /// 占位符内联规则：pct（HA light 的 0-255 → 0-100 百分比）、key=val（整值映射）。
+  /// 逗号分隔多条；值可用单/双引号包住以保护逗号。
+  String _applyInlineRules(String value, String rules) {
+    String out = value;
+    for (final String seg in rules.split(RegExp(r'[,，]'))) {
+      final String s = seg.trim();
+      if (s.isEmpty) continue;
+      if (s.toLowerCase() == 'pct') {
+        final num? n = num.tryParse(out);
+        if (n != null) {
+          // HA light.brightness 规范为 0-255；若已是 0-100 则不再换算。
+          out = '${n > 255 ? n.round() : (n / 255 * 100).round()}';
+        }
+        continue;
+      }
+      final int eq = s.indexOf('=');
+      if (eq <= 0) continue;
+      final String rk = s.substring(0, eq).trim();
+      String rv = s.substring(eq + 1).trim();
+      if (rv.length >= 2 &&
+          ((rv.startsWith("'") && rv.endsWith("'")) ||
+              (rv.startsWith('"') && rv.endsWith('"')))) {
+        rv = rv.substring(1, rv.length - 1);
+      }
+      if (rk == out || rk.toLowerCase() == out.toLowerCase()) out = rv;
+    }
+    return out;
   }
 
   /// 按 entity_id 后缀查找组内实体，返回指定 token。
@@ -404,7 +446,9 @@ class CardEvalContext {
     final String kind = key.substring(0, colon).toLowerCase();
     final String rest = key.substring(colon + 1).trim();
     if (rest.isEmpty) return null;
-    final int attrDot = kind == 'a' ? rest.lastIndexOf('.') : -1;
+    // s: 也支持点号读属性：{s:_s_3_ambient_light.brightness} 与 a: 等价，
+    // 便于后台统一用后缀写法（用户常把亮度写成 s:后缀.brightness）。
+    final int attrDot = (kind == 'a' || kind == 's') ? rest.lastIndexOf('.') : -1;
     if (kind == 'a' && attrDot <= 0) return null;
     final String pattern = (attrDot > 0 ? rest.substring(0, attrDot) : rest).toLowerCase();
     for (final HaEntityStateModel e in group.entities) {
@@ -413,6 +457,11 @@ class CardEvalContext {
         case 'id':
           return e.entityId;
         case 's':
+          if (attrDot > 0) {
+            final String attr = rest.substring(attrDot + 1);
+            final Object? value = e.attributes[attr];
+            return value == null ? '' : '$value';
+          }
           return e.state;
         case 'a':
           final String attr = rest.substring(attrDot + 1);
