@@ -40,6 +40,8 @@ const DEVICE_TYPES = [
     { key: 'camera', icon: '⊙', label: '摄像机', color: '#60a5fa', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'tv_box', icon: '▧', label: '电视盒子', color: '#f472b6', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'router', icon: '⇄', label: '路由器', color: '#34d399', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'aroma_diffuser', icon: '✿', label: '香薰机', color: '#4ade80', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'multi_gateway', icon: '⇄', label: '多模网关', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'wireless_switch_1', icon: '▭', label: '无线开关（单键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'wireless_switch_2', icon: '▬', label: '无线开关（双键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'wireless_switch_3', icon: '▩', label: '无线开关（多键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
@@ -79,6 +81,8 @@ const DICT_DETAIL = {
     camera: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '监控状态', homeCtrls: '电源 录像', homeActs: 'toggle toggle', simMain: '已开启', simSub1: '已接入 7/18', simSub2: '存储正常' },
     tv_box: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '播放状态', homeCtrls: '电源 信号源', homeActs: 'toggle select_option', simMain: '待机', simSub1: 'HDMI2', simSub2: '可用 2/21' },
     router: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '运行状态', homeCtrls: '重启', homeActs: 'press', simMain: '在线', simSub1: '已开启 1/1', simSub2: '局域网正常' },
+    aroma_diffuser: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前值', mainEntity: '_on_p_2_2', homeCtrls: '电源', homeActs: 'toggle', simMain: 'off', simSub1: '在线', simSub2: '' },
+    multi_gateway: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '当前值', mainEntity: '_ip_address_p_2_2', homeCtrls: '只读', homeActs: '只读', simMain: '192.168.31.30', simSub1: '有线', simSub2: '' },
     wireless_switch_1: { mainAttr: 'state', mainFmt: '{v}', subTpl: '{s1}', step: '—', homeLabel: '开关状态', homeCtrls: '按键', homeActs: 'toggle', simMain: '可用', simSub1: '电量 90%', simSub2: '' },
     wireless_switch_2: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '按键1 按键2', homeActs: 'toggle toggle', simMain: '2/2', simSub1: '1开', simSub2: '2关' },
     wireless_switch_3: { mainAttr: 'state', mainFmt: '开启 {v}', subTpl: '{s1} · {s2}', step: '—', homeLabel: '已开启路数', homeCtrls: '按键1 按键2 按键3', homeActs: 'toggle ×3', simMain: '3/4', simSub1: '1开 2开', simSub2: '3关 4关' },
@@ -167,6 +171,21 @@ const DEFAULT_RULES = {
     router: { priority: 6, rules: [
         { id: 'rt1', name: 'Potatokid 路由器', enabled: true, conds: [
             { field: 'name', op: 'contains', value: 'Potatokid' },
+        ] },
+    ] },
+    // 香薰机（米家智能香氛机）：设备名含「香氛机」且有主开关 _on_p_2_2。
+    // 名称用于让实体命中，entity_id 限定到这台型号，避免误伤其他含「香」的设备。
+    aroma_diffuser: { priority: 12, rules: [
+        { id: 'ad1', name: '米家智能香氛机（按名称 + 主开关）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '香氛机' },
+            { field: 'entity_id', op: 'contains', value: '_on_p_2_2' },
+        ] },
+    ] },
+    // 多模网关：设备名含「网关」且有 IP 地址传感器 _ip_address_p_2_2（只读展示）。
+    multi_gateway: { priority: 12, rules: [
+        { id: 'mg1', name: '小米智能多模网关（按名称 + IP 实体）', enabled: true, conds: [
+            { field: 'name', op: 'contains', value: '网关' },
+            { field: 'entity_id', op: 'contains', value: '_ip_address_p_2_2' },
         ] },
     ] },
     wireless_switch_1: { priority: 6, rules: [
@@ -305,6 +324,75 @@ const CARD_LAYOUTS = {
                             },
                         ],
                     },
+                ],
+            },
+        ],
+    },
+    // 香薰机（米家智能香氛机）：复刻旧版——标题 + 状态行 + 当前值大字 + 右侧圆按钮。
+    // 主开关后缀 _on_p_2_2，精确绑定实体，不猜设备。
+    aroma_diffuser: {
+        type: 'column', fill: true, gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 3,
+                        children: [
+                            { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
+                            { type: 'text', value: '{s:_on_p_2_2}', size: 13, color: '{color}', maxLines: 1 },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'row', crossAlign: 'end', mainAlign: 'spaceBetween', gap: 8,
+                children: [
+                    {
+                        type: 'column', gap: 2,
+                        children: [
+                            { type: 'text', value: '{label}', size: 12, color: 'outline', maxLines: 1 },
+                            { type: 'text', value: '{s:_on_p_2_2}', size: 38, weight: 700, color: '{color}', maxLines: 1 },
+                        ],
+                    },
+                    {
+                        type: 'button', round: true, value: 'power_settings_new', size: 52,
+                        color: '{s:_on_p_2_2}', colorMap: 'on=#FF7043,off=#4ade80',
+                        onClick: 'toggle@{id:_on_p_2_2}',
+                    },
+                ],
+            },
+        ],
+    },
+    // 多模网关：只读展示——标题 + IP 地址大字（无电源键，网关本身不可开关）。
+    multi_gateway: {
+        type: 'column', fill: true, gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 3,
+                        children: [
+                            { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
+                            { type: 'text', value: '{s:_access_mode_p_2_1}', size: 12, color: '{color}', maxLines: 1 },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'column', gap: 2,
+                children: [
+                    { type: 'text', value: '{label}', size: 12, color: 'outline', maxLines: 1 },
+                    { type: 'text', value: '{s:_ip_address_p_2_2}', size: 26, weight: 700, color: '{color}', maxLines: 1 },
                 ],
             },
         ],

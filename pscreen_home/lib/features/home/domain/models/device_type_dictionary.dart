@@ -484,6 +484,8 @@ class DeviceTypeDictionary {
       'camera': <String>['监控状态', '{v}', '—'],
       'tv_box': <String>['播放状态', '{v}', '—'],
       'router': <String>['运行状态', '{v}', '—'],
+      'aroma_diffuser': <String>['当前值', '{v}', '—'],
+      'multi_gateway': <String>['当前值', '{v}', '—'],
       'wireless_switch_1': <String>['开关状态', '{v}', '—'],
       'wireless_switch_2': <String>['已开启路数', '开启 {v}', '—'],
       'wireless_switch_3': <String>['已开启路数', '开启 {v}', '—'],
