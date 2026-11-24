@@ -332,7 +332,7 @@ const CARD_LAYOUTS = {
     // 右侧圆按钮，下方 2×2 四个快捷按钮；关机时快捷按钮禁用变灰（enabledWhen + colorMap）。
     // 所有动作精确绑定真实实体后缀，不猜设备。
     aroma_diffuser: {
-        type: 'column', fill: true, gap: 8, padding: [12, 10],
+        type: 'column', fill: true, gap: 8, mainAlign: 'spaceBetween', padding: [12, 10],
         children: [
             {
                 type: 'row', gap: 10, crossAlign: 'center',
@@ -361,7 +361,8 @@ const CARD_LAYOUTS = {
                 ],
             },
             {
-                type: 'column', gap: 6, expand: true, mainAlign: 'center',
+                // 不要写 expand:true——否则它会吃光剩余高度，顶层 spaceBetween 失效、按钮无法贴底。
+                type: 'column', gap: 6,
                 children: [
                     {
                         type: 'row', gap: 8,
