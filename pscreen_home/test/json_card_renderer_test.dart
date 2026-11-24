@@ -918,6 +918,84 @@ void main() {
     expect(actions, <String>['toggle@switch.cuco_v3_on_p_2_1']);
   });
 
+  testWidgets('插座圆按钮按状态互斥显隐：开=红橙，关=绿', (WidgetTester tester) async {
+    // 两个圆按钮放在 gap=0 的子行里，用 visibleWhen 按 state 互斥：
+    // on 时只渲染红橙按钮，off 时只渲染绿按钮，位置不变。
+    CardLayoutNode slot() => CardLayoutNode.fromJson(<String, dynamic>{
+          'type': 'row',
+          'gap': 0,
+          'crossAlign': 'center',
+          'children': <dynamic>[
+            <String, dynamic>{
+              'type': 'button',
+              'round': true,
+              'value': 'power_settings_new',
+              'size': 52,
+              'color': '#FF7043',
+              'onClick': 'toggle@{id:_on_p_2_1}',
+              'visibleWhen': '{s:_on_p_2_1}=on',
+            },
+            <String, dynamic>{
+              'type': 'button',
+              'round': true,
+              'value': 'power_settings_new',
+              'size': 52,
+              'color': '#4dd4ac',
+              'onClick': 'toggle@{id:_on_p_2_1}',
+              'visibleWhen': '{s:_on_p_2_1}=off',
+            },
+          ],
+        });
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '开关状态',
+      color: '#4dd4ac',
+      layout: slot(),
+    );
+
+    Future<void> pumpWithState(String state) async {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev_socket',
+        title: '客厅插座',
+        entities: <HaEntityStateModel>[
+          _entity('switch.cuco_v3_on_p_2_1', state, name: '插座'),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 120,
+              height: 80,
+              child: JsonCardRenderer(
+                group: group,
+                card: card,
+                typeKey: 'socket',
+                onOpenDetail: () {},
+                onAction: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    // 开：只剩一个按钮（红橙），另一个被 visibleWhen 隐掉。
+    await pumpWithState('on');
+    expect(find.byType(FilledButton), findsOneWidget);
+    Color onColor() => tester.widget<FilledButton>(find.byType(FilledButton))
+            .style!
+            .foregroundColor!
+            .resolve(<WidgetState>{})!;
+    expect(onColor(), const Color(0xFFFF7043));
+
+    // 关：同样只剩一个按钮（绿）。
+    await pumpWithState('off');
+    expect(find.byType(FilledButton), findsOneWidget);
+    expect(onColor(), const Color(0xFF4DD4AC));
+    expect(tester.takeException(), isNull);
+  });
+
   test('parseReplaceMap 解析子串替换表（含引号包裹与全角等号）', () {
     final Map<String, String>? r = CardEvalContext.parseReplaceMap(
       '小米米家智能开关（双开单控）=\'含,逗号\'；A＝B\n空=',
