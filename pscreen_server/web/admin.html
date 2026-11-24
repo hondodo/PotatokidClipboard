@@ -487,16 +487,24 @@
                 <div class="card-preview-block" style="margin-top:12px;border-top:1px dashed var(--line);padding-top:10px">
                   <div class="card-preview-head">
                     <span style="font-weight:600;color:var(--accent)">▸ 卡片预览</span>
-                    <span class="hint">用示例数据渲染当前布局（改动即刷新），无需启动 app 先看效果</span>
+                    <span class="hint">选一台真实设备渲染当前布局（改动即刷新）；当前类型没命中的设备时列出全部 HA 设备，也可选「示例数据」手动模拟</span>
                   </div>
                   <div class="card-preview-state">
-                    <label class="inline-check"><input type="checkbox" id="re-pv-online" checked><span>在线</span></label>
-                    <label class="inline-check"><input type="checkbox" id="re-pv-on" checked><span>开启(on)</span></label>
-                    <label style="display:inline-flex;align-items:center;gap:5px;margin-left:auto">
-                      <span class="hint">亮度</span>
-                      <input type="range" id="re-pv-bright" min="0" max="100" value="10" style="width:110px">
-                      <span id="re-pv-bright-v" class="hint">10%</span>
+                    <label style="display:inline-flex;align-items:center;gap:6px;min-width:0">
+                      <span class="hint">预览设备</span>
+                      <select id="re-pv-device" style="max-width:280px"><option value="">示例数据</option></select>
+                      <button class="btn small" type="button" id="re-pv-device-reload" title="按当前编辑器里的规则重新判定设备">刷新</button>
                     </label>
+                    <span id="re-pv-device-meta" class="hint"></span>
+                    <span id="re-pv-mock" style="display:inline-flex;align-items:center;gap:14px;margin-left:auto">
+                      <label class="inline-check"><input type="checkbox" id="re-pv-online" checked><span>在线</span></label>
+                      <label class="inline-check"><input type="checkbox" id="re-pv-on" checked><span>开启(on)</span></label>
+                      <label style="display:inline-flex;align-items:center;gap:5px">
+                        <span class="hint">亮度</span>
+                        <input type="range" id="re-pv-bright" min="0" max="100" value="10" style="width:110px">
+                        <span id="re-pv-bright-v" class="hint">10%</span>
+                      </label>
+                    </span>
                   </div>
                   <div id="re-layout-preview" class="card-preview-stage"><div class="empty">在上方编辑布局树，这里实时预览。</div></div>
                 </div>

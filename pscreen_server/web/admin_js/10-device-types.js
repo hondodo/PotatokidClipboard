@@ -110,11 +110,16 @@
     }).join('');
     host.querySelectorAll('.dt-item').forEach((el) => {
       el.addEventListener('click', () => {
+        const changed = state.reEditKey !== el.dataset.key;
         state.reEditKey = el.dataset.key;
         renderReTypeList(); renderReRules(); clearReTestResult();
+        // 切换类型后预览设备列表按新类型重新匹配（没命中就退回全部设备）。
+        if (changed && typeof loadPreviewDevices === 'function') loadPreviewDevices(true);
       });
     });
     if ($('re-meta')) $('re-meta').textContent = `${types.length} 种类型 · ${types.reduce((n, t) => n + reRulesOf(t).length, 0)} 条规则`;
+    // 首次进入规则页时异步取一次设备列表；已有缓存就不再请求。
+    if (!state.pvDeviceResults && typeof loadPreviewDevices === 'function') loadPreviewDevices();
   }
 
   /** 把当前类型的 card 配置（span / layout / 灰度开关）填进卡片布局编辑区。 */
@@ -473,7 +478,7 @@
   if (reTestOnly) reTestOnly.addEventListener('change', () => { state.reTestIdx = 0; renderReTestSel(); });
 
   // 卡片布局编辑：格式化 / 校验 / 载入默认（清空=用默认布局）
-  const VALID_NODES = new Set(['row', 'column', 'wrap', 'text', 'icon', 'button', 'chip', 'progress', 'sparkline', 'repeat', 'divider']);
+  const VALID_NODES = new Set(['row', 'column', 'wrap', 'stack', 'text', 'icon', 'button', 'chip', 'progress', 'sparkline', 'repeat', 'divider']);
   function validateLayoutTree(node, path = 'root', errors = []) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) { errors.push(`${path}: 节点必须是对象`); return errors; }
     if (!VALID_NODES.has(node.type)) errors.push(`${path}: 未知节点类型 ${node.type}`);
@@ -524,7 +529,138 @@
     washing_machine: '◉', electric_bolt: '⚡', lock: '🔒', lock_open: '🔓',
     grid_view: '▦', show_chart: '📈', volume_up: '🔊', cloud: '☁',
   };
+
+  // ---- 卡片预览：按当前类型命中情况列出真实设备，用真实实体状态/属性渲染 ----
+  async function loadPreviewDevices(force = false) {
+    const sel = $('re-pv-device');
+    if (!sel) return;
+    if (state.pvDeviceResults && !force) { renderPreviewDeviceOptions(); return; }
+    const meta = $('re-pv-device-meta');
+    if (meta) meta.textContent = '设备加载中…';
+    try {
+      // 与「全局判定测试」走同一个接口，传当前编辑器里的规则（含未保存改动）。
+      const data = await api('/api/admin/device-types/classify-all', {
+        method: 'POST',
+        body: JSON.stringify({ types: state.deviceTypes, onlyVisible: false }),
+      });
+      state.pvDeviceResults = data.results || [];
+      renderPreviewDeviceOptions(force);
+    } catch (e) {
+      if (meta) meta.textContent = '设备列表加载失败：' + e.message;
+    }
+  }
+
+  function renderPreviewDeviceOptions(reset = false) {
+    const sel = $('re-pv-device');
+    if (!sel) return;
+    const all = state.pvDeviceResults || [];
+    const cur = reCurType();
+    const curKey = cur ? cur.key : '';
+    // 命中当前类型的排前面；0 台命中就退回全部 HA 设备（方便照着真实实体调布局）。
+    const matched = all.filter((r) => r.key === curKey);
+    const list = matched.length ? matched : all;
+    const previous = reset ? '' : sel.value;
+    sel.innerHTML = '<option value="">示例数据</option>' + list.map((r) => {
+      const label = [r.name || r.id, r.areaName, matched.length ? '' : (r.label || '未命中')]
+        .filter(Boolean).join(' · ');
+      return `<option value="${esc(String(r.id)).replace(/"/g, '&quot;')}">${esc(label)}</option>`;
+    }).join('');
+    let chosen = '';
+    if (previous && list.some((r) => r.id === previous)) chosen = previous;
+    else if (list.length) chosen = list[0].id;
+    sel.value = chosen;
+    state.pvDeviceId = chosen;
+    const mock = $('re-pv-mock');
+    if (mock) mock.style.display = chosen ? 'none' : '';
+    const meta = $('re-pv-device-meta');
+    if (meta) {
+      meta.textContent = !all.length ? '未读取到设备'
+        : (matched.length
+          ? `命中当前类型 ${matched.length} 台`
+          : `当前类型 0 台命中，列出全部 ${all.length} 台`);
+    }
+    refreshCardPreview();
+  }
+
+  function pvRealContext(dev) {
+    const t = reCurType() || {};
+    const card = t.card || {};
+    const iconEl = $('re-card-icon');
+    const icon = iconEl ? String(iconEl.value || '').trim() : (card.icon || t.icon || '✦');
+    const ents = (dev.entities || []).map((e) => ({
+      id: String(e.id || ''),
+      domain: String(e.domain || ''),
+      name: String(e.name || ''),
+      state: String(e.state == null ? '' : e.state),
+      attrs: e.attrs || {},
+    }));
+    // 主实体与 Flutter HaDeviceGroup.primary 对齐：先按 card.mainEntity 找，
+    // 再按域权重挑；{state}/{brightnessPercent}/{attr.xxx} 都从主实体取。
+    const weight = { light: 0, switch: 1, climate: 2, fan: 3, sensor: 4, binary_sensor: 5 };
+    const want = String(card.mainEntity || '');
+    let primary = null;
+    if (want && want !== '主实体') {
+      primary = ents.find((e) =>
+        e.id.toLowerCase().includes(want.toLowerCase()) || e.name.includes(want)) || null;
+    }
+    if (!primary) {
+      primary = ents.slice().sort((a, b) =>
+        (weight[a.domain] == null ? 9 : weight[a.domain]) - (weight[b.domain] == null ? 9 : weight[b.domain]))[0] || null;
+    }
+    const state = primary ? primary.state : '';
+    const isOn = state === 'on';
+    const attrs = primary ? primary.attrs : {};
+    const rawBright = Number(attrs.brightness);
+    const pctRaw = Number(attrs.percentage);
+    const bright = Number.isFinite(rawBright) && rawBright > 0
+      ? Math.round(rawBright * 100 / 255)
+      : (Number.isFinite(pctRaw) ? pctRaw : 0);
+    let main = isOn ? '已开启' : '已关闭';
+    const mainAttr = String(card.mainAttr || '');
+    if (primary && mainAttr && attrs[mainAttr] != null && String(attrs[mainAttr]).length) {
+      main = String(attrs[mainAttr]);
+    }
+    const name = dev.name || dev.id || '设备';
+    const room = dev.areaName || '';
+    const ctx = {
+      title: room ? room + ' ' + name : name,
+      room,
+      icon,
+      color: card.color || t.color || '#facc15',
+      label: card.label || t.label || '设备',
+      state,
+      main,
+      sub: isOn ? '亮度 ' + bright + '%' : 'off',
+      s1: state,
+      s2: '',
+      status: state && state !== 'unavailable' ? '已连接' : '离线',
+      brightnessPercent: String(bright),
+      brightness: String(rawBright || 0),
+      gangCount: String(ents.filter((e) => e.domain === 'switch').length),
+      gangOnCount: String(ents.filter((e) => e.domain === 'switch' && e.state === 'on').length),
+      'primary.entityId': primary ? primary.id : '',
+      'primary.switchable': primary && ['light', 'switch', 'fan', 'climate'].includes(primary.domain) ? 'true' : 'false',
+      _online: true,
+      _real: true,
+      _entities: ents,
+    };
+    for (const [k, v] of Object.entries(attrs)) {
+      ctx['attr.' + k] = Array.isArray(v) ? v.join(', ') : String(v);
+    }
+    ents.forEach((e, i) => {
+      if (i >= 16) return;
+      ctx['entity.' + i + '.state'] = e.state;
+      ctx['entity.' + i + '.id'] = e.id;
+      ctx['entity.' + i + '.name'] = e.name;
+    });
+    return ctx;
+  }
+
   function previewContext() {
+    if (state.pvDeviceId) {
+      const dev = (state.pvDeviceResults || []).find((r) => r.id === state.pvDeviceId);
+      if (dev) return pvRealContext(dev);
+    }
     const t = reCurType() || {};
     const card = t.card || {};
     const onEl = $('re-pv-on');
@@ -613,6 +749,35 @@
     }
     return Object.keys(out).length ? out : null;
   }
+  // 对齐 Flutter _resolveEntityToken：{s:后缀}/{a:后缀.属性}/{id:后缀}
+  // 按 entity_id 子串匹配组内第一个实体（真实设备预览时才有 _entities）。
+  function pvEntityToken(key, ctx) {
+    const list = ctx._entities;
+    if (!Array.isArray(list)) return null;
+    const colon = key.indexOf(':');
+    if (colon <= 0) return null;
+    const kind = key.slice(0, colon).toLowerCase();
+    const rest = key.slice(colon + 1).trim();
+    if (!rest || !['s', 'a', 'id'].includes(kind)) return null;
+    let pattern = rest;
+    let attr = '';
+    if (kind === 'a') {
+      const dot = rest.lastIndexOf('.');
+      if (dot <= 0) return null;
+      pattern = rest.slice(0, dot);
+      attr = rest.slice(dot + 1);
+    }
+    const low = pattern.toLowerCase();
+    for (const e of list) {
+      const id = String(e.id || '');
+      if (!id.toLowerCase().includes(low)) continue;
+      if (kind === 'id') return id;
+      if (kind === 's') return String(e.state == null ? '' : e.state);
+      const v = e.attrs && e.attrs[attr];
+      return v == null ? '' : (Array.isArray(v) ? v.join(', ') : String(v));
+    }
+    return null;
+  }
   function pvResolve(raw, ctx, node, overrideMap) {
     // overrideMap（colorMap/labelMap/iconMap）优先于通用 map，与 Flutter 一致。
     const map = overrideMap || pvValueMap(node);
@@ -621,7 +786,13 @@
     // 「每个占位符求值出来的值」上，条件判断不走这里。
     return String(raw == null ? '' : raw).replace(/\{([^}]+)\}/g, (m, k) => {
       const key = String(k).trim();
-      let v = Object.prototype.hasOwnProperty.call(ctx, key) ? String(ctx[key]) : '';
+      let v;
+      if (Object.prototype.hasOwnProperty.call(ctx, key)) v = String(ctx[key]);
+      else if (Object.prototype.hasOwnProperty.call(ctx, key.toLowerCase())) v = String(ctx[key.toLowerCase()]);
+      else {
+        const entityVal = pvEntityToken(key, ctx);
+        v = entityVal == null ? '' : entityVal;
+      }
       if (replace) for (const [old, nu] of Object.entries(replace)) {
         if (old) v = v.split(old).join(nu);
       }
@@ -630,6 +801,23 @@
         : (Object.prototype.hasOwnProperty.call(map, v.toLowerCase()) ? map[v.toLowerCase()] : v);
       return v;
     });
+  }
+  // 真实设备预览时按 visibleWhen 显隐节点；示例数据模式保持原行为（不隐藏任何节点）。
+  function pvVisible(node, ctx) {
+    if (!ctx._real || !node.visibleWhen) return true;
+    const expr = String(node.visibleWhen).trim();
+    for (const op of ['!=', '==', '=']) {
+      const i = expr.indexOf(op);
+      if (i <= 0) continue;
+      const left = pvResolve(expr.slice(0, i).trim(), ctx, {}).trim();
+      let right = expr.slice(i + op.length).trim();
+      if (right.length >= 2 && ((right[0] === "'" && right[right.length - 1] === "'")
+        || (right[0] === '"' && right[right.length - 1] === '"'))) right = right.slice(1, -1);
+      return op === '!=' ? left !== right : left === right;
+    }
+    const raw = pvResolve(expr, ctx, {}).trim();
+    // 与 Flutter _evalCondition 一致：非空且不是 false/0 即为真。
+    return raw !== '' && raw !== '0' && raw !== 'false';
   }
   // 条件属性映射：colorMap/labelMap/iconMap 写法同 map，作用于各自属性的占位符求值。
   function pvAttrMap(node, field) {
@@ -684,6 +872,7 @@
   }
   function renderPreviewNode(node, ctx) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return '';
+    if (!pvVisible(node, ctx)) return '';
     const type = node.type;
     const online = ctx._online;
     try {
@@ -845,6 +1034,16 @@
     const el = $(id);
     if (el) el.addEventListener('input', refreshCardPreview);
   });
+  // 真实设备下拉：选中后隐藏 mock 控件，用真实实体 state/attributes 渲染预览。
+  const pvDeviceSel = $('re-pv-device');
+  if (pvDeviceSel) pvDeviceSel.addEventListener('change', () => {
+    state.pvDeviceId = pvDeviceSel.value;
+    const mock = $('re-pv-mock');
+    if (mock) mock.style.display = state.pvDeviceId ? 'none' : '';
+    refreshCardPreview();
+  });
+  const pvDeviceReload = $('re-pv-device-reload');
+  if (pvDeviceReload) pvDeviceReload.addEventListener('click', () => loadPreviewDevices(true));
   // 切换类型时 renderReCard 末尾会调用 refreshCardPreview；载入默认/按钮操作也刷新
   if (fmtBtn) fmtBtn.addEventListener('click', () => setTimeout(refreshCardPreview, 0));
   if (defBtn) defBtn.addEventListener('click', () => setTimeout(refreshCardPreview, 0));

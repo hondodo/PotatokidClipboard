@@ -5140,6 +5140,11 @@ function attachAdmin(app, options = {}) {
                     specificity: hit ? hit.specificity : 0,
                     priority: hit ? hit.priority : 5,
                     allHits: hit ? (hit.allHits || []).map((h) => ({ key: h.key, label: h.label })) : [],
+                    // 卡片预览用真实设备数据渲染：带上实体当前 state/attributes，
+                    // 前端按 entity_id 后缀填充 {s:xxx}/{a:xxx.attr}/{id:xxx} 等占位符。
+                    entities: entities.map((e) => ({
+                        id: e.id, domain: e.domain, name: e.name, state: e.state, attrs: e.attrs,
+                    })),
                 });
             }
             return jsonOk(res, { results, total: results.length });
