@@ -149,7 +149,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           期间的后续挥手都不再上报（表现为连挥好几次灯都不亮）。
 // oled-7.8：只要服务端还认为有人，入睡后一律 30 秒轮询一次引脚（原来只在
 //           入睡瞬间引脚为高时才轮询），保证离开事件不会被拖到 otachk 那么久。
-static const char *APP_VER             = "oled-7.8";
+// oled-7.9：电池电量可选显示——状态栏新增「电量」「电压」两项（BAR 第 7/8 段），
+//           内容模板新增 {sys.batt}（86%）与 {sys.volt}（4.64V）两个本机变量。
+static const char *APP_VER             = "oled-7.9";
 static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -199,6 +201,8 @@ BtnState buttons[MAX_BTN];
 #define SB_WIFI_ICON (1 << 3)
 #define SB_RSSI      (1 << 4)
 #define SB_IP        (1 << 5)
+#define SB_BATT      (1 << 6)
+#define SB_VOLT      (1 << 7)
 #define SB_DEFAULT   (SB_ENABLED | SB_PAGE | SB_TIME | SB_WIFI_ICON)
 
 struct NetSnapshot {
@@ -369,6 +373,7 @@ String masterMac = "";        // 从机保存的所属主机 MAC（AA:BB:CC:DD:E
 int sleepSeconds = 0;
 int batPin = -1;
 int batDiv = 2;
+int lastBatMv = 0;             // 最近一次电池电压（mV），状态栏与 {sys.volt} 用
 uint32_t lastActivityAt = 0;
 uint32_t sleepHoldUntil = 0;   // 访问后台后临时推迟休眠，避免编辑途中设备睡过去
 
@@ -587,6 +592,26 @@ bool drawStatusBar() {
     u8g2.drawStr(cursor, 9, rs);
     cursor += strlen(rs) * 6 + 4;
   }
+  // 电池电量：小电池图标 + 百分比（未接检测脚时不画）
+  if ((sb & SB_BATT) && batPin >= 0 && lastBatMv > 0) {
+    int pct = batteryPercent();
+    // 图标：10×5 外框 + 右侧正极凸点，内部按百分比填充
+    u8g2.drawFrame(cursor, 4, 12, 6);
+    u8g2.drawBox(cursor + 12, 6, 2, 2);
+    int fill = pct * 10 / 100;
+    if (fill > 0) u8g2.drawBox(cursor + 1, 5, fill, 4);
+    char bs[8];
+    snprintf(bs, sizeof(bs), "%d%%", pct);
+    u8g2.drawStr(cursor + 16, 9, bs);
+    cursor += 16 + strlen(bs) * 6 + 4;
+  }
+  // 电池电压：4.64V
+  if ((sb & SB_VOLT) && batPin >= 0 && lastBatMv > 0) {
+    char vs[10];
+    snprintf(vs, sizeof(vs), "%d.%02dV", lastBatMv / 1000, (lastBatMv % 1000) / 10);
+    u8g2.drawStr(cursor, 9, vs);
+    cursor += strlen(vs) * 6 + 4;
+  }
   // WiFi 信号格（3 条递增竖条），靠右画，不与左侧文字重叠时显示
   if (sb & SB_WIFI_ICON) {
     int sx = 114;
@@ -612,6 +637,10 @@ String resolveLocalSys(String s) {
   s.replace("{sys.present}",  pirPin >= 0 ? (pirPresent ? "有人" : "无人") : "");
   s.replace("{sys.occupied}", pirPin >= 0 ? (pirPresent ? "占用中" : "空闲") : "");
   s.replace("{sys.ip}",       online ? WiFi.localIP().toString().c_str() : "");
+  s.replace("{sys.batt}",     batPin >= 0 ? (String(batteryPercent()) + "%").c_str() : "");
+  s.replace("{sys.volt}",     batPin >= 0 && lastBatMv > 0
+                                ? (String(lastBatMv / 1000) + "." + String((lastBatMv % 1000) / 10 < 10 ? "0" : "") + String((lastBatMv % 1000) / 10) + "V").c_str()
+                                : "");
   s.replace("{sys.page}",     String(pageIndex).c_str());
   s.replace("{sys.total}",    String(pageCount).c_str());
   s.replace("{sys.pageOf}",   (String(pageIndex) + "/" + String(pageCount)).c_str());
@@ -774,6 +803,7 @@ void loadCreds() {
   if (!pinUsableForBat(batPin)) batPin = -1;
   batDiv = prefs.getInt("batdiv", 2);
   if (batDiv < 1 || batDiv > 10) batDiv = 2;
+  lastBatMv = readBatteryMv();   // 开机先读一次，状态栏不必等首次心跳
   // 联网键槽位（oled-5.5）：0 = 不启用；1..8 = 按下连 AP 进后台并推迟休眠。
   netSlot = prefs.getInt("netslot", 0);
   if (netSlot < 0 || netSlot > MAX_BTN) netSlot = 0;
@@ -1181,7 +1211,17 @@ void buildDeviceId() {
 int readBatteryMv() {
   if (batPin < 0) return 0;
   // analogReadMilliVolts 已做校准，返回分压点电压；乘分压比得到电池电压。
-  return (int)(analogReadMilliVolts(batPin) * (uint32_t)batDiv);
+  lastBatMv = (int)(analogReadMilliVolts(batPin) * (uint32_t)batDiv);
+  return lastBatMv;
+}
+
+// 电量百分比：3×AA 空载 4.8V / 欠压 3.6V 之间线性映射；未接检测脚返回 -1。
+int batteryPercent() {
+  if (batPin < 0 || lastBatMv <= 0) return -1;
+  int pct = (lastBatMv - 3600) * 100 / 1200;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return pct;
 }
 
 void reportToServer(bool isRegister) {
@@ -1350,7 +1390,7 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
       snap.screenOnSec = sec > 0 ? sec : 0;
       continue;
     }
-    // 每页状态栏：BAR|enabled|page|time|wifiIcon|rssi|ip（各 0/1）→ 位掩码。
+    // 每页状态栏：BAR|enabled|page|time|wifiIcon|rssi|ip|batt|volt（各 0/1）→ 位掩码。
     // 老服务端不下发这一行，保持默认（页码+时间+WiFi图标），行为接近现状。
     if (line.startsWith("BAR|")) {
       uint8_t sb = 0;
@@ -1360,6 +1400,8 @@ bool fetchActionsInto(int page, NetSnapshot &snap) {
       if (fieldAt(line, 4) == "1") sb |= SB_WIFI_ICON;
       if (fieldAt(line, 5) == "1") sb |= SB_RSSI;
       if (fieldAt(line, 6) == "1") sb |= SB_IP;
+      if (fieldAt(line, 7) == "1") sb |= SB_BATT;
+      if (fieldAt(line, 8) == "1") sb |= SB_VOLT;
       snap.statusBar = sb;
       continue;
     }

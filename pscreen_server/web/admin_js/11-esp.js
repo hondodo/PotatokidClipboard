@@ -49,6 +49,8 @@
       showWifiIcon: on('showWifiIcon', true),
       showRssi: on('showRssi', false),
       showIp: on('showIp', false),
+      showBatt: on('showBatt', false),
+      showVolt: on('showVolt', false),
     };
   }
 
@@ -400,6 +402,7 @@
       ['sys.lunar', '农历'], ['sys.weather.auto', '天气·自动定位'],
       ['sys.online', '是否联网'], ['sys.wifi', 'WiFi 信号'], ['sys.rssi', '信号强度 dBm'],
       ['sys.present', '人体感应'], ['sys.occupied', '占用状态'], ['sys.ip', '本机 IP'],
+      ['sys.batt', '电量 %'], ['sys.volt', '电池电压 V'],
       ['sys.page', '当前页'], ['sys.total', '总页数'], ['sys.pageOf', '页码 4/5'],
       // 图片不再靠模板 token：在「屏幕显示内容 → 图片显示」上传并勾选即可。
     ];
@@ -522,7 +525,7 @@
   // 本机类 sys 变量由固件绘制时替换，服务端/预览都原样保留 token（与服务端同构）。
   const ESP_FIRMWARE_SYS_KEYS = new Set([
     'sys.online', 'sys.wifi', 'sys.rssi', 'sys.present', 'sys.occupied',
-    'sys.ip', 'sys.page', 'sys.total', 'sys.pageof',
+    'sys.ip', 'sys.page', 'sys.total', 'sys.pageof', 'sys.batt', 'sys.volt',
   ]);
 
   function espTemplateTokens(text) {
@@ -696,6 +699,19 @@
       }
       if (sb.showIp && dev.ip) { ctx.fillText(dev.ip, sx, 9); sx += dev.ip.length * 5 + 3; }
       if (sb.showRssi && dev.rssi != null) { ctx.fillText(`${dev.rssi}dBm`, sx, 9); sx += 34; }
+      if (sb.showBatt && dev.batteryMv > 0) {
+        const pct = Math.max(0, Math.min(100, Math.round((dev.batteryMv - 3600) * 100 / 1200)));
+        ctx.strokeRect(sx, 4, 10, 6);          // 电池外框
+        ctx.fillRect(sx + 10, 6, 2, 2);        // 正极凸点
+        if (pct > 0) ctx.fillRect(sx + 1, 5, Math.round(pct / 10), 4);
+        ctx.fillText(`${pct}%`, sx + 14, 9);
+        sx += 14 + `${pct}%`.length * 5 + 3;
+      }
+      if (sb.showVolt && dev.batteryMv > 0) {
+        const v = `${(dev.batteryMv / 1000).toFixed(2)}V`;
+        ctx.fillText(v, sx, 9);
+        sx += v.length * 5 + 3;
+      }
       if (sb.showWifiIcon !== false) {
         for (let i = 0; i < 3; i += 1) ctx.fillRect(110 + i * 4, 9 - (3 + i * 2), 2, 3 + i * 2);
       }
@@ -1032,6 +1048,8 @@
             ['showWifiIcon', 'WiFi 图标'],
             ['showRssi', '信号强度'],
             ['showIp', 'IP'],
+            ['showBatt', '电量'],
+            ['showVolt', '电压'],
           ].map(([k, label]) =>
             `<label class="inline-check"><input type="checkbox" data-sb="${k}" ${sb[k] ? 'checked' : ''} ${sb.enabled ? '' : 'disabled'}> ${label}</label>`).join('')}
         </div>

@@ -395,6 +395,8 @@ function normalizeEspStatusBar(value) {
         showWifiIcon: on('showWifiIcon', true),
         showRssi: on('showRssi', false),
         showIp: on('showIp', false),
+        showBatt: on('showBatt', false),
+        showVolt: on('showVolt', false),
     };
 }
 
@@ -4285,7 +4287,7 @@ function attachAdmin(app, options = {}) {
     // 这些 sys 变量由固件在绘制时取本机实时值，服务端不下发、原样保留 token。
     const ESP_FIRMWARE_SYS_KEYS = new Set([
         'sys.online', 'sys.wifi', 'sys.rssi', 'sys.present', 'sys.occupied',
-        'sys.ip', 'sys.page', 'sys.total', 'sys.pageof',
+        'sys.ip', 'sys.page', 'sys.total', 'sys.pageof', 'sys.batt', 'sys.volt',
     ]);
 
     /**
@@ -4596,11 +4598,12 @@ function attachAdmin(app, options = {}) {
             const pageLine = ['PAGE', page, pageTotal, pageObj && pageObj.loop === false ? '0' : '1', (pageObj && pageObj.idle) || 0].join('|');
             // 熄屏秒数（设备级）：固件据此在人离开后熄屏，0 = 常亮。
             const screenLine = ['SCREEN', normalizeEspScreen(machine.espScreen).onSeconds].join('|');
-            // 每页状态栏配置（v0.5）：enabled/showPage/showTime/showWifiIcon/showRssi/showIp → 0/1。
+            // 每页状态栏配置（v0.5）：enabled/showPage/showTime/showWifiIcon/showRssi/showIp/showBatt/showVolt → 0/1。
             // 固件按此绘制顶部状态栏；enabled=0 时内容区上移重排。
             const sb = normalizeEspStatusBar(pageObj && pageObj.statusBar);
             const barLine = ['BAR', sb.enabled ? 1 : 0, sb.showPage ? 1 : 0, sb.showTime ? 1 : 0,
-                sb.showWifiIcon ? 1 : 0, sb.showRssi ? 1 : 0, sb.showIp ? 1 : 0].join('|');
+                sb.showWifiIcon ? 1 : 0, sb.showRssi ? 1 : 0, sb.showIp ? 1 : 0,
+                sb.showBatt ? 1 : 0, sb.showVolt ? 1 : 0].join('|');
             // 状态栏时间（HH:MM）：服务端按设备时区算好；设备无需 RTC/NTP。
             const tzRawText = Number(machine.espTimezone);
             const tzMinText = Number.isFinite(tzRawText) ? tzRawText : 480;
