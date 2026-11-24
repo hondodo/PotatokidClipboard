@@ -496,7 +496,12 @@
     .re-mismatch .t { color: var(--warn); font-weight: 700; font-size: 13px; margin-bottom: 5px; }
     .re-mismatch .b { color: var(--muted-2); font-size: 11.5px; line-height: 1.6; margin-top: 3px; }
     .re-mismatch b { color: var(--text); }
-    .re-newtype { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 10px; background: rgba(255,255,255,.02); }
+    /* 新建类型：窄侧栏里两列会把 placeholder 截掉，改成单列 + 行内标签 */
+    .re-newtype { display: grid; grid-template-columns: 1fr; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 10px; background: rgba(255,255,255,.02); }
+    .re-nt-field { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted-2); }
+    .re-nt-field > span { white-space: nowrap; }
+    .re-nt-field input { min-width: 0; padding: 7px 9px; font-size: 12px; }
+    .re-newtype > .btn { margin-top: 2px; }
 
     /* ---------------------------------------------------------- HA 实体库 */
     .ha-toolbar { display: grid; gap: 10px; margin-bottom: 12px; }
