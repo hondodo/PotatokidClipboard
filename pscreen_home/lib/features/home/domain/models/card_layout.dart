@@ -1,3 +1,6 @@
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
+
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_entity_state_model.dart';
@@ -407,19 +410,31 @@ class CardEvalContext {
     return '';
   }
 
-  /// 占位符内联规则：pct（HA light 的 0-255 → 0-100 百分比）、key=val（整值映射）。
+  /// 占位符内联规则：
+  /// - pct：HA light 的 0-255 → 0-100 百分比；
+  /// - date / date:<pattern>：把 ISO 时间串按 Flutter DateFormat 格式化；
+  ///   pattern 省略时默认 'yMd'；支持 'zh'/'en_US' 等 locale 前缀 `zh:yMd`；
+  ///   也支持 DateFormat 简写名（yMd/Hms/yMEd/yMMM…），见 [_dateFormat]。
+  /// - key=val：整值映射。
   /// 逗号分隔多条；值可用单/双引号包住以保护逗号。
   String _applyInlineRules(String value, String rules) {
     String out = value;
-    for (final String seg in rules.split(RegExp(r'[,，]'))) {
+    final List<String> segments = _splitRuleSegments(rules);
+    for (final String seg in segments) {
       final String s = seg.trim();
       if (s.isEmpty) continue;
-      if (s.toLowerCase() == 'pct') {
+      final String low = s.toLowerCase();
+      if (low == 'pct') {
         final num? n = num.tryParse(out);
         if (n != null) {
           // HA light.brightness 规范为 0-255；若已是 0-100 则不再换算。
           out = '${n > 255 ? n.round() : (n / 255 * 100).round()}';
         }
+        continue;
+      }
+      if (low == 'date' || low.startsWith('date:') || low.startsWith('date=')) {
+        final String spec = s.length > 5 ? s.substring(5).trim() : '';
+        out = _formatInlineDate(out, spec);
         continue;
       }
       final int eq = s.indexOf('=');
@@ -434,6 +449,111 @@ class CardEvalContext {
       if (rk == out || rk.toLowerCase() == out.toLowerCase()) out = rv;
     }
     return out;
+  }
+
+  /// 规则分段：逗号/中文逗号/分号分隔，引号内的分隔符不切（与 parseReplaceMap 一致）。
+  static List<String> _splitRuleSegments(String raw) {
+    final List<String> segments = <String>[];
+    final StringBuffer cur = StringBuffer();
+    String? quote;
+    for (int i = 0; i < raw.length; i++) {
+      final String ch = raw[i];
+      if (quote != null) {
+        cur.write(ch);
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == "'" || ch == '"') {
+        quote = ch;
+        cur.write(ch);
+        continue;
+      }
+      if (RegExp(r'[,，;；\n]').hasMatch(ch)) {
+        segments.add(cur.toString());
+        cur.clear();
+        continue;
+      }
+      cur.write(ch);
+    }
+    segments.add(cur.toString());
+    return segments;
+  }
+
+  /// ISO 时间 → DateFormat。spec 形如 `yMd`、`zh:yMd`、`yyyy-MM-dd HH:mm`。
+  /// 无法解析成时间时原样返回（如 off 时的 'unknown'/空串）。
+  static String _formatInlineDate(String raw, String spec) {
+    final DateTime? dt = DateTime.tryParse(raw.trim());
+    if (dt == null) return raw;
+    String pattern = 'yMd';
+    String locale = 'zh';
+    final String trimmed = spec.trim();
+    if (trimmed.isNotEmpty) {
+      // locale 前缀形如 `zh:` / `en_US:`；避免把 `yyyy-MM-dd HH:mm` 里的冒号误判。
+      final RegExp localePrefix = RegExp(r'^([a-z]{2,3}(?:_[A-Za-z]{2,4})?):(.+)$');
+      final RegExpMatch? lm = localePrefix.firstMatch(trimmed);
+      if (lm != null) {
+        locale = lm.group(1)!;
+        pattern = lm.group(2)!.trim();
+      } else {
+        pattern = trimmed;
+      }
+    }
+    if (pattern.isEmpty) pattern = 'yMd';
+    try {
+      return _dateFormat(pattern, locale).format(dt);
+    } catch (_) {
+      // locale 数据未加载时回退到内建的 yMd。
+      try {
+        return DateFormat.yMd().format(dt);
+      } catch (_) {
+        return raw;
+      }
+    }
+  }
+
+  /// 把 pattern 映射为 DateFormat：优先使用构造函数简写（与 Flutter `DateFormat.yMd('zh')` 一致），
+  /// 否则当作自定义 pattern 交给 DateFormat(pattern, locale)。
+  static DateFormat _dateFormat(String pattern, String locale) {
+    // en_US 数据内建，其它 locale 需按需初始化（重复调用无副作用）。
+    if (locale != 'en_US' && locale != 'en') {
+      initializeDateFormatting(locale, null);
+    }
+    switch (pattern) {
+      case 'y':
+        return DateFormat.y(locale);
+      case 'M':
+        return DateFormat.M(locale);
+      case 'd':
+        return DateFormat.d(locale);
+      case 'E':
+        return DateFormat.E(locale);
+      case 'EEEE':
+        return DateFormat.EEEE(locale);
+      case 'yM':
+        return DateFormat.yM(locale);
+      case 'yMd':
+        return DateFormat.yMd(locale);
+      case 'yMEd':
+        return DateFormat.yMEd(locale);
+      case 'yMMM':
+        return DateFormat.yMMM(locale);
+      case 'yMMMd':
+        return DateFormat.yMMMd(locale);
+      case 'yMMMEd':
+        return DateFormat.yMMMEd(locale);
+      case 'yMMMM':
+        return DateFormat.yMMMM(locale);
+      case 'Hm':
+        return DateFormat.Hm(locale);
+      case 'Hms':
+        return DateFormat.Hms(locale);
+      case 'jm':
+        return DateFormat.jm(locale);
+      case 'jms':
+        return DateFormat.jms(locale);
+      default:
+        return DateFormat(pattern, locale);
+    }
   }
 
   /// 按 entity_id 后缀查找组内实体，返回指定 token。

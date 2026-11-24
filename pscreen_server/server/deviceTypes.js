@@ -42,9 +42,9 @@ const DEVICE_TYPES = [
     { key: 'router', icon: '⇄', label: '路由器', color: '#34d399', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'aroma_diffuser', icon: '✿', label: '香薰机', color: '#4ade80', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'multi_gateway', icon: '⇄', label: '多模网关', color: '#4dd4ac', roles: ['主状态', '副状态1', '副状态2'] },
-    { key: 'wireless_switch_1', icon: '▭', label: '无线开关（单键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
-    { key: 'wireless_switch_2', icon: '▬', label: '无线开关（双键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
-    { key: 'wireless_switch_3', icon: '▩', label: '无线开关（多键）', color: '#a3a3a3', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_1', icon: '▭', label: '无线开关（单键）', color: '#7dd3fc', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_2', icon: '▬', label: '无线开关（双键）', color: '#c4b5fd', roles: ['主状态', '副状态1', '副状态2'] },
+    { key: 'wireless_switch_3', icon: '▩', label: '无线开关（多键）', color: '#fcd34d', roles: ['主状态', '副状态1', '副状态2'] },
     { key: 'home_climate', icon: '⌂', label: '全屋环境', color: '#5eead4', roles: ['主状态', '副状态1', '副状态2'] },
     { key: '', icon: '?', label: '通用兜底', color: '#9ca3af', roles: ['主状态', '副状态1', '副状态2'] },
 ];
@@ -428,6 +428,65 @@ const CARD_LAYOUTS = {
                 children: [
                     { type: 'text', value: '{label}', size: 12, color: 'outline', maxLines: 1 },
                     { type: 'text', value: '{s:_ip_address_p_2_2}', size: 26, weight: 700, color: '{color}', maxLines: 1 },
+                ],
+            },
+        ],
+    },
+    // 无线开关：只读电量卡片。电池电量 sensor 后缀 _battery_level_p_2_1003，
+    // 单击 event 后缀 _click_e_3_1012（state 是 ISO 时间，用 |date: 规则格式化）。
+    // 单键 / 双键 / 多键共用同一布局，仅 {icon}/{color}/{title} 随类型变化。
+    wireless_switch_1: {
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', gap: 2, expand: true,
+                        children: [
+                            { type: 'text', value: '{title}', size: 14, weight: 600, maxLines: 1 },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'column', gap: 3,
+                children: [
+                    { type: 'text', value: '电量 {s:battery_level_p_2_1003}%', size: 26, weight: 700, color: '{color}', maxLines: 1 },
+                    { type: 'text', value: '更新时间：{s:click_e_3_1012|date:yyyy-MM-dd HH:mm,unknown=—}', size: 11, color: 'outline', maxLines: 1 },
+                    { type: 'text', value: '电池型号：纽扣电池CR2032', size: 11, color: 'outline', maxLines: 1 },
+                ],
+            },
+        ],
+    },
+    wireless_switch_2: {
+        type: 'column', fill: true, mainAlign: 'spaceBetween', gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', gap: 2, expand: true,
+                        children: [
+                            { type: 'text', value: '{title}', size: 14, weight: 600, maxLines: 1 },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'column', gap: 3,
+                children: [
+                    { type: 'text', value: '电量 {s:battery_level_p_2_1003}%', size: 26, weight: 700, color: '{color}', maxLines: 1 },
+                    { type: 'text', value: '更新时间：{s:click_e_3_1012|date:yyyy-MM-dd HH:mm,unknown=—}', size: 11, color: 'outline', maxLines: 1 },
+                    { type: 'text', value: '电池型号：纽扣电池CR2032', size: 11, color: 'outline', maxLines: 1 },
                 ],
             },
         ],

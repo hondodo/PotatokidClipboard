@@ -782,6 +782,46 @@ void main() {
     expect(offCtx.resolve(tpl), '待机中 · 氛围灯已关闭 · 电量 25%');
   });
 
+  test('占位符 date 规则：ISO 时间按 DateFormat pattern/locale 格式化', () {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_ws',
+      title: '双键无线开关',
+      entities: <HaEntityStateModel>[
+        _entity(
+          'event.yeelink_cn_blt_3_1i1e48ak4co00_contrl_click_e_3_1012',
+          '2026-11-23T15:11:06.640',
+          name: '单击',
+        ),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(label: '双键');
+    final CardEvalContext ctx = CardEvalContext(group: group, card: card);
+    final String token = '{s:click_e_3_1012';
+
+    // 简写名（同 DateFormat.yMd('zh')）/ Hms。
+    expect(ctx.resolve('$token|date:yMd}'), '2026/11/23');
+    expect(ctx.resolve('$token|date:yMEd}'), '2026/11/23周一');
+    expect(ctx.resolve('$token|date:Hms}'), '15:11:06');
+    // 自定义 pattern（冒号后即 pattern，locale 默认 zh）。
+    expect(ctx.resolve('$token|date:yyyy-MM-dd HH:mm}'), '2026-11-23 15:11');
+    // locale 前缀：zh / en_US。
+    expect(ctx.resolve('$token|date:zh:yMd}'), '2026/11/23');
+    expect(ctx.resolve('$token|date:en_US:yMd}'), '11/23/2026');
+    // 非时间值（off/unknown）原样返回，便于再用映射转占位符。
+    final HaDeviceGroup unknown = HaDeviceGroup(
+      deviceId: 'dev_ws',
+      title: '单键无线开关',
+      entities: <HaEntityStateModel>[
+        _entity('event.lumi_cn_blt_3_mcn001_click_e_3_1012', 'unknown', name: '单击'),
+      ],
+    );
+    final CardEvalContext unknownCtx = CardEvalContext(group: unknown, card: card);
+    expect(
+      unknownCtx.resolve('{s:click_e_3_1012|date:yMd,unknown=—}'),
+      '—',
+    );
+  });
+
   testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调', (
     WidgetTester tester,
   ) async {

@@ -34,6 +34,8 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  # 日期格式化：JSON 卡片占位符 |date: 规则（支持 DateFormat 全部 pattern/locale）
+  intl: ^0.20.2
   # 路由（BetterLove 约定）
   go_router: ^17.5.0
   # 状态机（Event / State / Bloc 三段式）

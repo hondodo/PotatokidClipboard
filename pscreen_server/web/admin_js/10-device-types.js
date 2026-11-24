@@ -781,6 +781,70 @@
     return null;
   }
   // 与 Flutter _applyInlineRules 对齐：占位符内 |pct（0-255→百分比）、|on=文案,off=文案。
+  // DateFormat 简写名 → pattern（与 Flutter DateFormat.yMd/Hms 等构造函数一致）。
+  const PV_DATE_NAMED = {
+    y: 'yyyy', M: 'M', d: 'd', E: 'EEE', EEEE: 'EEEE',
+    yM: 'y/M', yMd: 'y/M/d', yMEd: 'y/M/d EEE',
+    yMMM: 'y MMM', yMMMd: 'y MMM d', yMMMEd: 'y MMM d EEE', yMMMM: 'y MMMM',
+    Hm: 'HH:mm', Hms: 'HH:mm:ss', jm: 'hh:mm a', jms: 'hh:mm:ss a',
+  };
+  // 把 ISO 时间串按 DateFormat pattern 格式化（后台预览近似实现）。
+  function pvDateFormat(raw, spec) {
+    const dt = new Date(String(raw).trim());
+    if (Number.isNaN(dt.getTime())) return raw;
+    let locale = 'zh';
+    let pattern = 'yMd';
+    const trimmed = String(spec || '').trim();
+    if (trimmed) {
+      const lm = /^([a-z]{2,3}(?:_[A-Za-z]{2,4})?):(.+)$/.exec(trimmed);
+      if (lm) { locale = lm[1]; pattern = lm[2].trim(); }
+      else pattern = trimmed;
+    }
+    const zh = /^zh/i.test(locale);
+    if (/^en/i.test(locale)) {
+      // en_US 下 Flutter 的 named 构造函数用美式顺序（M/d/y），zh 用 y/M/d。
+      const enNamed = {
+        yM: 'M/y', yMd: 'M/d/y', yMEd: 'E, M/d/y',
+        yMMM: 'MMM y', yMMMd: 'MMM d, y', yMMMEd: 'E, MMM d, y', yMMMM: 'MMMM y',
+      };
+      if (Object.prototype.hasOwnProperty.call(enNamed, pattern)) pattern = enNamed[pattern];
+    } else if (Object.prototype.hasOwnProperty.call(PV_DATE_NAMED, pattern)) {
+      pattern = PV_DATE_NAMED[pattern];
+    }
+    const Y = dt.getFullYear(), M = dt.getMonth() + 1, D = dt.getDate();
+    const H = dt.getHours(), h = H % 12 || 12, Mi = dt.getMinutes(), S = dt.getSeconds();
+    const pad = (n) => String(n).padStart(2, '0');
+    const months = zh
+      ? ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
+      : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthsFull = zh
+      ? ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月']
+      : ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const weeks = zh ? ['周日','周一','周二','周三','周四','周五','周六']
+      : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const weeksFull = zh ? ['星期日','星期一','星期二','星期三','星期四','星期五','星期六']
+      : ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    // 长 token 优先，避免 yyyy 被 y 先替换。
+    const tokens = [
+      ['yyyy', String(Y).padStart(4, '0')], ['yy', String(Y % 100).padStart(2, '0')],
+      ['MMMM', monthsFull[M - 1]], ['MMM', months[M - 1]],
+      ['MM', pad(M)], ['dd', pad(D)], ['EEEE', weeksFull[dt.getDay()]], ['EEE', weeks[dt.getDay()]],
+      ['HH', pad(H)], ['hh', pad(h)], ['mm', pad(Mi)], ['ss', pad(S)],
+      ['a', zh ? (H < 12 ? '上午' : '下午') : (H < 12 ? 'AM' : 'PM')],
+      ['y', String(Y)], ['M', String(M)], ['d', String(D)],
+      ['H', String(H)], ['h', String(h)], ['m', String(Mi)], ['s', String(S)],
+    ];
+    let out = pattern;
+    // 用占位符保护已替换的长 token，防止后续单字母 token 二次替换。
+    const holders = [];
+    for (const [tk, val] of tokens) {
+      const mark = '\u0001' + holders.length + '\u0001';
+      out = out.split(tk).join(mark);
+      holders.push(val);
+    }
+    out = out.replace(/\u0001(\d+)\u0001/g, (m, i) => holders[Number(i)]);
+    return out;
+  }
   function pvInlineRules(v, rules) {
     let out = String(v);
     for (const seg of String(rules).split(/[,，]/)) {
@@ -789,6 +853,11 @@
       if (s.toLowerCase() === 'pct') {
         const n = Number(out);
         if (!Number.isNaN(n)) out = String(n > 255 ? Math.round(n) : Math.round(n / 255 * 100));
+        continue;
+      }
+      const low = s.toLowerCase();
+      if (low === 'date' || low.startsWith('date:') || low.startsWith('date=')) {
+        out = pvDateFormat(out, s.length > 5 ? s.slice(5).trim() : '');
         continue;
       }
       const eq = s.indexOf('=');
