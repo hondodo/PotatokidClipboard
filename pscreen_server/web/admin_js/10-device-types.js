@@ -587,13 +587,43 @@
     }
     return Object.keys(out).length ? out : null;
   }
+  // 对齐 Flutter CardEvalContext.parseReplaceMap：子串替换表，
+  // 引号包裹的一段内分隔符不切；等号 = / ＝；新串留空即删除子串。
+  function pvReplaceMap(node) {
+    if (!node || !node.replace) return null;
+    const out = {};
+    const segs = [];
+    let cur = '', quote = null;
+    for (const ch of String(node.replace)) {
+      if (quote) { cur += ch; if (ch === quote) quote = null; continue; }
+      if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+      if (/[,，;；\n]/.test(ch)) { segs.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    segs.push(cur);
+    const unquote = (s) => s.length >= 2 && ((s[0] === "'" && s[s.length - 1] === "'")
+      || (s[0] === '"' && s[s.length - 1] === '"')) ? s.slice(1, -1) : s;
+    for (const part of segs) {
+      const seg = part.trim();
+      if (!seg) continue;
+      const eq = seg.search(/[=＝]/);
+      if (eq <= 0) continue;
+      const key = unquote(seg.slice(0, eq).trim());
+      if (key) out[key] = unquote(seg.slice(eq + 1).trim());
+    }
+    return Object.keys(out).length ? out : null;
+  }
   function pvResolve(raw, ctx, node) {
     const map = pvValueMap(node);
-    // 与 Flutter 一致：map 作用在「每个占位符求值出来的值」上，
-    // 这样 "{state} · 亮度{brightnessPercent}%" 里的 on 也会变成「着灯」。
+    const replace = pvReplaceMap(node);
+    // 与 Flutter 一致：先子串替换 replace、再整值 map，作用在
+    // 「每个占位符求值出来的值」上，条件判断不走这里。
     return String(raw == null ? '' : raw).replace(/\{([^}]+)\}/g, (m, k) => {
       const key = String(k).trim();
       let v = Object.prototype.hasOwnProperty.call(ctx, key) ? String(ctx[key]) : '';
+      if (replace) for (const [old, nu] of Object.entries(replace)) {
+        if (old) v = v.split(old).join(nu);
+      }
       if (map) v = Object.prototype.hasOwnProperty.call(map, v)
         ? map[v]
         : (Object.prototype.hasOwnProperty.call(map, v.toLowerCase()) ? map[v.toLowerCase()] : v);

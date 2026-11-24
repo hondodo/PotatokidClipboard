@@ -353,6 +353,9 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     if (value.fill === true) node.fill = true;
     // 节点级值替换（on=着灯,off=关闭），客户端 resolve() 应用；不影响 visibleWhen 条件。
     if (value.map != null) node.map = str(value.map, 240);
+    // 节点级子串替换（旧=新，新留空即删）：与 map 的整值精确匹配互补，
+    // 用于截取/清理占位符求值结果（如去掉 friendly_name 里的设备型号前缀）。
+    if (value.replace != null) node.replace = str(value.replace, 360);
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);

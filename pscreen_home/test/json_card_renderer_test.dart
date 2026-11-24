@@ -918,6 +918,63 @@ void main() {
     expect(actions, <String>['toggle@switch.cuco_v3_on_p_2_1']);
   });
 
+  test('parseReplaceMap 解析子串替换表（含引号包裹与全角等号）', () {
+    final Map<String, String>? r = CardEvalContext.parseReplaceMap(
+      '小米米家智能开关（双开单控）=\'含,逗号\'；A＝B\n空=',
+    );
+    expect(r, isNotNull);
+    expect(r!['小米米家智能开关（双开单控）'], '含,逗号');
+    expect(r['A'], 'B');
+    expect(r['空'], '');
+    expect(CardEvalContext.parseReplaceMap(''), isNull);
+  });
+
+  test('replace 子串替换：删前缀 / 替换任意字符 / 与 map 组合 / 不影响条件', () {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_switch',
+      title: '客厅 双开',
+      entities: <HaEntityStateModel>[
+        _entity(
+          'switch.zimi_on_p_2_1',
+          'off',
+          name: '小米米家智能开关（双开单控）  客厅灯 左键',
+        ),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(subTpl: '{state}');
+    final CardEvalContext ctx = CardEvalContext(group: group, card: card);
+    final Map<String, String> friendly = CardEvalContext.parseReplaceMap(
+      '小米米家智能开关（双开单控）=',
+    )!;
+    final Map<String, String> both = CardEvalContext.parseReplaceMap(
+      '小米米家智能开关（双开单控）=/任意/',
+    )!;
+    final Map<String, String> stateMap = <String, String>{'on': '开', 'off': '关'};
+
+    // 删子串：去掉冗长设备型号前缀，保留 "  客厅灯 左键"
+    expect(
+      ctx.resolve('{a:_p_2_1.friendly_name}', null, friendly),
+      '  客厅灯 左键',
+    );
+    // 替换成任意字符（含符号）
+    expect(
+      ctx.resolve('{a:_p_2_1.friendly_name}', null, both),
+      '/任意/  客厅灯 左键',
+    );
+    // 子串替换 + 整值 map 组合：先删前缀再状态 on/off→开/关
+    expect(
+      ctx.resolve(
+        '{a:_p_2_1.friendly_name}:{s:_p_2_1}',
+        stateMap,
+        friendly,
+      ),
+      '  客厅灯 左键:关',
+    );
+    // 条件判断不传 replace/map，仍基于原始 state
+    expect(ctx.evalCondition('{s:_p_2_1} = off'), isTrue);
+    expect(ctx.resolve('{s:_p_2_1}'), 'off');
+  });
+
   test('指标曲线查询 key 与采样器写入 key 一致', () {
     // 回归：采样器按裸 deviceId 写入，orderKey 带 device: 前缀，
     // 之前曲线用 orderKey 查，永远拿到空列表（只剩空网格）。

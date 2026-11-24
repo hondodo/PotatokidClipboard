@@ -185,7 +185,11 @@ class JsonCardRenderer extends StatelessWidget {
   Widget _buildText(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
     final ThemeData theme = Theme.of(context);
     final String raw = node.value ?? '';
-    final String text = eval.resolve(raw, CardEvalContext.parseValueMap(node.map));
+    final String text = eval.resolve(
+      raw,
+      CardEvalContext.parseValueMap(node.map),
+      CardEvalContext.parseReplaceMap(node.replace),
+    );
     // title 占位符交给 cardTitle 拼房间名；其余直接显示。
     final String shown = raw.trim() == '{title}'
         ? cardTitle(title: text, areaLabel: areaLabel, showArea: showAreaInTitle)
@@ -273,8 +277,9 @@ class JsonCardRenderer extends StatelessWidget {
   }) {
     final ThemeData theme = Theme.of(context);
     final Map<String, String>? valueMap = CardEvalContext.parseValueMap(node.map);
-    final String label = eval.resolve(node.label ?? '', valueMap);
-    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, valueMap);
+    final Map<String, String>? replaceMap = CardEvalContext.parseReplaceMap(node.replace);
+    final String label = eval.resolve(node.label ?? '', valueMap, replaceMap);
+    final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, valueMap, replaceMap);
     final String onClick = eval.resolve(node.onClick ?? '');
     final Color accent = _color(node.color, theme, eval) ?? _accent(theme);
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);

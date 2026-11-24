@@ -42,6 +42,7 @@ class CardLayoutNode {
     this.item,
     this.columns,
     this.map,
+    this.replace,
     this.round = false,
     this.interactive = false,
     this.children = const <CardLayoutNode>[],
@@ -84,6 +85,11 @@ class CardLayoutNode {
   /// 节点级值替换表：写法与 ESP 一致，如 "on=着灯,off=关闭"。
   /// 只作用于本节点 value/label 里占位符求值出来的原始值，不影响条件判断。
   final String? map;
+  /// 节点级子串替换表：写法 "旧串=新串,旧串2=新串2"，对占位符求值结果做
+  /// replaceAll（与 map 的整体精确匹配互补）。新串留空即删除该子串；
+  /// 支持任意字符（含中文/空格/标点），旧串可用引号包裹以包含逗号或等号。
+  /// 只作用于本节点 value/label 里占位符求值出来的原始值，不影响条件判断。
+  final String? replace;
   /// button 节点渲染成圆形（电源键用）。
   final bool round;
   /// progress 节点可拖动/点击调节（亮度条用），松手时发 onAction。
@@ -140,6 +146,7 @@ class CardLayoutNode {
       item: json['item'] as String?,
       columns: (json['columns'] as num?)?.toInt(),
       map: json['map'] == null ? null : '${json['map']}',
+      replace: json['replace'] == null ? null : '${json['replace']}',
       round: json['round'] == true,
       interactive: json['interactive'] == true,
       children: children,
@@ -290,20 +297,22 @@ class CardEvalContext {
   }
 
   /// 替换字符串里的 {占位符}。未知占位符替换为空串。
-  /// [valueMap] 传入时对「占位符求值出来的原始值」做替换（如 off→关闭）；
-  /// 条件判断（visibleWhen / 三元）不传它，始终基于原始值比较。
-  String resolve(String raw, [Map<String, String>? valueMap]) {
+  /// [valueMap] 传入时对「占位符求值出来的原始值」做整体精确替换（如 off→关闭）；
+  /// [replaceMap] 传入时先做子串替换（如去掉 friendly_name 里的设备型号前缀）。
+  /// 两者都只作用于占位符求值结果，条件判断（visibleWhen / 三元）不传它们，
+  /// 始终基于原始值比较。
+  String resolve(String raw, [Map<String, String>? valueMap, Map<String, String>? replaceMap]) {
     return raw.replaceAllMapped(RegExp(r'\{([^}]+)\}'), (Match m) {
       final String key = m.group(1)!.trim();
       // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
       final String? direct = _values[key];
-      if (direct != null) return _applyValueMap(direct, valueMap);
+      if (direct != null) return _applyMaps(direct, replaceMap, valueMap);
       // 按实体 id 后缀取值：{s:<后缀>}=state、{a:<后缀>.<属性>}=attribute、
       // {id:<后缀>}=完整 entity_id。用于同类实体很多、下标不稳定的设备
       // （如热水瓶：保温开关 / 工作状态 / 模式 / 设定温度）。
       final String? entityValue = _resolveEntityToken(key);
-      if (entityValue != null) return _applyValueMap(entityValue, valueMap);
-      if (key.contains('?')) return _applyValueMap(_resolveTernary(key), valueMap);
+      if (entityValue != null) return _applyMaps(entityValue, replaceMap, valueMap);
+      if (key.contains('?')) return _applyMaps(_resolveTernary(key), replaceMap, valueMap);
       return '';
     });
   }
@@ -359,9 +368,75 @@ class CardEvalContext {
     return out.isEmpty ? null : out;
   }
 
+  /// 子串替换表："旧串=新串,…"。与 map 的区别：map 是整值精确匹配，
+  /// replace 是 raw.replaceAll(旧, 新)，可删子串（新串留空）、可替换任意字符。
+  /// 规则按逗号/中文逗号/分号/换行分隔；某一段用单/双引号整体包裹时，
+  /// 引号内的分隔符不当作分隔（如 "旧,串=新,串"），并剥去外层引号。
+  /// 等号用第一个 = 或 ＝；旧串/新串各自也可用引号包裹以保护首尾空格。
+  static Map<String, String>? parseReplaceMap(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final Map<String, String> out = <String, String>{};
+    // 逐字符切段：引号内遇到分隔符不切。
+    final List<String> segments = <String>[];
+    final StringBuffer cur = StringBuffer();
+    String? quote;
+    for (int i = 0; i < raw.length; i++) {
+      final String ch = raw[i];
+      if (quote != null) {
+        cur.write(ch);
+        if (ch == quote) quote = null;
+        continue;
+      }
+      if (ch == "'" || ch == '"') {
+        quote = ch;
+        cur.write(ch);
+        continue;
+      }
+      if (RegExp(r'[,，;；\n]').hasMatch(ch)) {
+        segments.add(cur.toString());
+        cur.clear();
+        continue;
+      }
+      cur.write(ch);
+    }
+    segments.add(cur.toString());
+
+    for (final String part in segments) {
+      final String seg = part.trim();
+      if (seg.isEmpty) continue;
+      final int eq = seg.indexOf(RegExp(r'[=＝]'));
+      if (eq <= 0) continue;
+      String key = seg.substring(0, eq).trim();
+      String val = seg.substring(eq + 1).trim();
+      if (key.length >= 2 &&
+          ((key.startsWith("'") && key.endsWith("'")) ||
+              (key.startsWith('"') && key.endsWith('"')))) {
+        key = key.substring(1, key.length - 1);
+      }
+      if (val.length >= 2 &&
+          ((val.startsWith("'") && val.endsWith("'")) ||
+              (val.startsWith('"') && val.endsWith('"')))) {
+        val = val.substring(1, val.length - 1);
+      }
+      if (key.isNotEmpty) out[key] = val;
+    }
+    return out.isEmpty ? null : out;
+  }
+
   String _applyValueMap(String raw, Map<String, String>? valueMap) {
     if (valueMap == null || valueMap.isEmpty) return raw;
     return valueMap[raw] ?? valueMap[raw.toLowerCase()] ?? raw;
+  }
+
+  /// 先子串替换（replace），再整值精确替换（map）。
+  String _applyMaps(String raw, Map<String, String>? replaceMap, Map<String, String>? valueMap) {
+    String out = raw;
+    if (replaceMap != null && replaceMap.isNotEmpty) {
+      replaceMap.forEach((String old, String replacement) {
+        if (old.isNotEmpty) out = out.replaceAll(old, replacement);
+      });
+    }
+    return _applyValueMap(out, valueMap);
   }
 
   String _resolveTernary(String expr) {
