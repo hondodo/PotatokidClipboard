@@ -417,6 +417,8 @@ class CardEvalContext {
   ///   也支持 DateFormat 简写名（yMd/Hms/yMEd/yMMM…），见 [_dateFormat]。
   /// - maxWith=<占位符 key>：当前值与另一个占位符都是 ISO 时间时取较晚者。
   /// - ago：ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）。
+  /// - when=<占位符 key>:<期望值>=<文案>：另一个占位符当前值等于期望值时，把本占位符输出替换为文案
+  ///   （如充电中覆盖开机文案；key 内含冒号，从右侧起第二个冒号分隔期望值）。
   /// - key=val：整值映射。
   /// 逗号分隔多条；值可用单/双引号包住以保护逗号。
   String _applyInlineRules(String value, String rules) {
@@ -460,6 +462,29 @@ class CardEvalContext {
       // 非时间值原样返回，后面可再接映射把 unknown/unavailable 转成 —。
       if (low == 'ago') {
         out = _formatAgo(out);
+        continue;
+      }
+      // when=<key>:<期望值>=<文案>：另一个占位符当前值等于期望值时覆盖本占位符输出。
+      // 从右往左找冒号分隔期望值（key 形如 s:_charging_state_p_5_2 自带冒号）；
+      // 等号取最后一个，文案里可含等号。
+      if (low.startsWith('when=')) {
+        final String spec = s.substring(5).trim();
+        final int eqAt = spec.lastIndexOf('=');
+        final int colonAt = spec.lastIndexOf(':', eqAt > 0 ? eqAt : spec.length);
+        if (eqAt > 0 && colonAt > 0 && colonAt < eqAt) {
+          final String otherKey = spec.substring(0, colonAt).trim();
+          final String expected = spec.substring(colonAt + 1, eqAt).trim();
+          String replacement = spec.substring(eqAt + 1).trim();
+          if (replacement.length >= 2 &&
+              ((replacement.startsWith("'") && replacement.endsWith("'")) ||
+                  (replacement.startsWith('"') && replacement.endsWith('"')))) {
+            replacement = replacement.substring(1, replacement.length - 1);
+          }
+          final String other = _resolveToken(otherKey);
+          if (other == expected || other.toLowerCase() == expected.toLowerCase()) {
+            out = replacement;
+          }
+        }
         continue;
       }
       final int eq = s.indexOf('=');

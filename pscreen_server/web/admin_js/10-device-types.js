@@ -900,6 +900,24 @@
         out = pvAgo(out);
         continue;
       }
+      // when=<key>:<期望值>=<文案>：另一个占位符当前值等于期望值时覆盖本占位符输出。
+      if (low.startsWith('when=')) {
+        const spec = s.slice(5).trim();
+        const eqAt = spec.lastIndexOf('=');
+        const colonAt = spec.lastIndexOf(':', eqAt > 0 ? eqAt : spec.length);
+        if (eqAt > 0 && colonAt > 0 && colonAt < eqAt) {
+          const otherKey = spec.slice(0, colonAt).trim();
+          const expected = spec.slice(colonAt + 1, eqAt).trim();
+          let replacement = spec.slice(eqAt + 1).trim();
+          if (replacement.length >= 2 && ((replacement[0] === "'" && replacement.endsWith("'"))
+            || (replacement[0] === '"' && replacement.endsWith('"')))) replacement = replacement.slice(1, -1);
+          if (ctx) {
+            const other = pvResolve('{' + otherKey + '}', ctx, null, null);
+            if (other === expected || String(other).toLowerCase() === expected.toLowerCase()) out = replacement;
+          }
+        }
+        continue;
+      }
       const eq = s.indexOf('=');
       if (eq <= 0) continue;
       const rk = s.slice(0, eq).trim();

@@ -358,7 +358,7 @@ const CARD_LAYOUTS = {
                                 type: 'text',
                                 // 内联映射：各占位符各用各的 on/off 文案；亮度段只在氛围灯 on 时显示
                                 // （用 state 映射输出左右括号，off 给空串，亮度属性 off 时本身也为空）。
-                                value: '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯{s:_s_3_ambient_light|on=已开启,off=已关闭}{s:_s_3_ambient_light|on=(,off=}{s:_s_3_ambient_light.brightness|pct}{s:_s_3_ambient_light|on=%),off=} · 电量 {s:_battery_level_p_5_1}%',
+                                value: '{s:_on_p_2_2|on=已开机,off=待机中,when=s:_charging_state_p_5_2:Charging=充电中} · 氛围灯{s:_s_3_ambient_light|on=已开启,off=已关闭}{s:_s_3_ambient_light|on=(,off=}{s:_s_3_ambient_light.brightness|pct}{s:_s_3_ambient_light|on=%),off=} · {s:_charging_state_p_5_2|Charging=充电中,Not Charging=电量,Not Chargeable=电量} {s:_battery_level_p_5_1}%',
                                 size: 13, color: '{color}', maxLines: 1,
                             },
                         ],

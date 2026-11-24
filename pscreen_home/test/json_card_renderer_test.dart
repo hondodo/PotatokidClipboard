@@ -867,6 +867,50 @@ void main() {
     );
   });
 
+  test('占位符 when=：另一实体状态命中时覆盖文案（香薰机充电中）', () {
+    const DeviceCardConfig card = DeviceCardConfig(label: '当前值');
+    final HaDeviceGroup charging = HaDeviceGroup(
+      deviceId: 'dev_aroma',
+      title: '米家智能香氛机',
+      entities: <HaEntityStateModel>[
+        _entity('switch.xiaomi_cn_xw002_on_p_2_2', 'on'),
+        _entity('sensor.xiaomi_cn_xw002_charging_state_p_5_2', 'Charging'),
+        _entity('sensor.xiaomi_cn_xw002_battery_level_p_5_1', '45'),
+      ],
+    );
+    final CardEvalContext ctx = CardEvalContext(group: charging, card: card);
+    // 副标题：开机文案在充电时被覆盖为「充电中」。
+    expect(
+      ctx.resolve('{s:_on_p_2_2|on=已开机,off=待机中,when=s:_charging_state_p_5_2:Charging=充电中}'),
+      '充电中',
+    );
+    // 大字行：电量标签按充电状态切换。
+    expect(
+      ctx.resolve('{s:_charging_state_p_5_2|Charging=充电中,Not Charging=电量,Not Chargeable=电量} {s:_battery_level_p_5_1}%'),
+      '充电中 45%',
+    );
+
+    // 未在充电：保留开机文案，电量标签显示「电量」。
+    final HaDeviceGroup idle = HaDeviceGroup(
+      deviceId: 'dev_aroma_idle',
+      title: '米家智能香氛机',
+      entities: <HaEntityStateModel>[
+        _entity('switch.xiaomi_cn_xw002_on_p_2_2', 'on'),
+        _entity('sensor.xiaomi_cn_xw002_charging_state_p_5_2', 'Not Charging'),
+        _entity('sensor.xiaomi_cn_xw002_battery_level_p_5_1', '45'),
+      ],
+    );
+    final CardEvalContext idleCtx = CardEvalContext(group: idle, card: card);
+    expect(
+      idleCtx.resolve('{s:_on_p_2_2|on=已开机,off=待机中,when=s:_charging_state_p_5_2:Charging=充电中}'),
+      '已开机',
+    );
+    expect(
+      idleCtx.resolve('{s:_charging_state_p_5_2|Charging=充电中,Not Charging=电量,Not Chargeable=电量} {s:_battery_level_p_5_1}%'),
+      '电量 45%',
+    );
+  });
+
   testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调', (
     WidgetTester tester,
   ) async {
