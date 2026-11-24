@@ -55,3 +55,7 @@
 - **更新提示**：`UpdatePromptGate` 下载完成后只出 6 秒 SnackBar（不再弹模态框），按 `appId+releaseId` 存 `AppUpdatePromptStore`（SharedPreferences）跨重启去重、同版本只提示一次；强更（`forceBlocked`）仍走 `ForceUpdatePage` 整页、不参与去重；`AppSettings.clearAllPersisted()` 跳过该前缀。
 - **覆盖路由遥控铁律**：`/recording` 等 push 到根 Navigator 的页不在 `MainApp.rootOkHandler` 焦点子树内，必须自己挂祖先 Focus 把按键映射成 `RemoteButton` 交 `RemoteKeyDispatcher`；返回键用 `PopScope(canPop:false)` + 280ms 去重归一到直接 `AppRouter.pop()`（`_handleBack` 覆盖分支已不判 `canPop()`，否则悬浮遥控返回失效）。
 - TV 全量 `flutter test` 恒有 **5 个历史基线失败**（`main_app_profile_readonly_test` 3 + `parental_lock_overlay_test` 2），与本轮改动无关，勿误判为回归。
+
+## 卡片 JSON 配置文档（2026-11-24）
+- 根目录 `admin页Home设备卡片json配置说明.md` 是 Home 卡片 JSON 协议唯一说明；`<!-- AUTO:xxx -->` 区块由 `node pscreen_server/scripts/gen-card-json-doc.mjs` 从源码提取，`--check` 可校验是否过期。
+- **以后新增占位符 / 内联规则 / 节点字段 / 动作通道时，必须在同一次改动里运行该脚本并把文档一起提交**；描述取自源码紧邻 `//` 注释与脚本内 `PLACEHOLDER_DESC` / `INLINE_META` / `ACTION_META`。
