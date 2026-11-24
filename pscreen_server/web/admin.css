@@ -1029,3 +1029,10 @@
       overflow: hidden;
     }
     .card-preview-canvas.wide { width: 460px; }
+    /* 文本跑马灯预览：与 App 行为近似（loop 无缝循环 / pingpong 两端停留往返） */
+    .pv-marquee-track { display: inline-flex; white-space: nowrap; will-change: transform; }
+    @keyframes pvMarqueeLoop { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @keyframes pvMarqueePing {
+      0%, 12% { transform: translateX(0); }
+      88%, 100% { transform: translateX(-50%); }
+    }

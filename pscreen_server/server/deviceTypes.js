@@ -364,6 +364,15 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
+    // text 跑马灯（单行）：loop=单向连续无缝；pingpong=往返且两端停留。
+    // direction 对 loop 是滚动方向、对 pingpong 是先往哪边跑；pause 单位秒，speed 逻辑像素/秒。
+    if (value.marquee === true) node.marquee = true;
+    if (value.marqueeMode === 'loop' || value.marqueeMode === 'pingpong') node.marqueeMode = value.marqueeMode;
+    if (value.marqueeDirection === 'left' || value.marqueeDirection === 'right') {
+        node.marqueeDirection = value.marqueeDirection;
+    }
+    if (value.marqueePause != null) node.marqueePause = num(value.marqueePause, 2, 0, 30);
+    if (value.marqueeSpeed != null) node.marqueeSpeed = num(value.marqueeSpeed, 40, 5, 300);
     // stack 子节点定位：stackAlign 九宫格对齐 / position 绝对定位（像素）。
     if (['topLeft', 'topCenter', 'topRight', 'centerLeft', 'center', 'centerRight',
          'bottomLeft', 'bottomCenter', 'bottomRight'].includes(value.stackAlign)) {

@@ -10,6 +10,7 @@ import 'package:pscreen_home/features/home/domain/models/metric_sample.dart';
 import 'package:pscreen_home/features/home/presentation/components/cached_card_icon.dart';
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
+import 'package:pscreen_home/features/home/presentation/components/marquee_text.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 通用 JSON 卡片渲染器：递归解释服务端下发的布局树，生成原生 Flutter Widget。
@@ -266,16 +267,37 @@ class JsonCardRenderer extends StatelessWidget {
     final TextAlign align = node.align == 'center'
         ? TextAlign.center
         : (node.align == 'right' ? TextAlign.right : TextAlign.left);
+    final TextStyle textStyle = theme.textTheme.bodyMedium?.copyWith(
+          fontSize: node.size ?? 14,
+          fontWeight: _fontWeight(node.weight),
+          color: color,
+        ) ??
+        TextStyle(
+          fontSize: node.size ?? 14,
+          fontWeight: _fontWeight(node.weight),
+          color: color,
+        );
+    final int lines = node.maxLines ?? 1;
+    // 跑马灯只做单行：多行仍走原来的省略号布局，避免破坏卡片高度。
+    if (node.marquee && lines == 1 && shown.isNotEmpty) {
+      return MarqueeText(
+        text: shown,
+        style: textStyle,
+        mode: node.marqueeMode == 'pingpong' ? MarqueeMode.pingpong : MarqueeMode.loop,
+        direction: node.marqueeDirection == 'right'
+            ? MarqueeDirection.right
+            : MarqueeDirection.left,
+        pause: node.marqueePause,
+        speed: node.marqueeSpeed,
+        textAlign: align,
+      );
+    }
     return Text(
       shown,
-      maxLines: node.maxLines ?? 1,
+      maxLines: lines,
       overflow: TextOverflow.ellipsis,
       textAlign: align,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        fontSize: node.size ?? 14,
-        fontWeight: _fontWeight(node.weight),
-        color: color,
-      ),
+      style: textStyle,
     );
   }
 

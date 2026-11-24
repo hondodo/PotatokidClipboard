@@ -51,6 +51,11 @@ class CardLayoutNode {
     this.position,
     this.round = false,
     this.interactive = false,
+    this.marquee = false,
+    this.marqueeMode,
+    this.marqueeDirection,
+    this.marqueePause = 2,
+    this.marqueeSpeed = 40,
     this.children = const <CardLayoutNode>[],
     this.template,
   });
@@ -113,6 +118,16 @@ class CardLayoutNode {
   final bool round;
   /// progress 节点可拖动/点击调节（亮度条用），松手时发 onAction。
   final bool interactive;
+  /// text 节点：单行文字超宽时启用跑马灯，不再显示省略号。
+  final bool marquee;
+  /// loop=单向连续无缝滚动；pingpong=往返并在两端停留（默认 loop）。
+  final String? marqueeMode;
+  /// left/right：loop 表示滚动方向，pingpong 表示先往哪边跑（默认 left）。
+  final String? marqueeDirection;
+  /// pingpong 在两端各停留的秒数（默认 2）。
+  final double marqueePause;
+  /// 滚动速度，逻辑像素/秒（默认 40）。
+  final double marqueeSpeed;
   final List<CardLayoutNode> children;
   final CardLayoutNode? template;
 
@@ -178,6 +193,11 @@ class CardLayoutNode {
           : null,
       round: json['round'] == true,
       interactive: json['interactive'] == true,
+      marquee: json['marquee'] == true,
+      marqueeMode: json['marqueeMode'] as String?,
+      marqueeDirection: json['marqueeDirection'] as String?,
+      marqueePause: _num(json['marqueePause']) ?? 2,
+      marqueeSpeed: _num(json['marqueeSpeed']) ?? 40,
       children: children,
       template: rawTpl is Map
           ? CardLayoutNode.fromJson(

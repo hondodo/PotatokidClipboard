@@ -723,6 +723,20 @@
         const color = pvColor(node.color, ctx, node, '#e7eef6');
         const align = node.align || 'left';
         const lines = node.maxLines != null ? Number(node.maxLines) : 1;
+        if (node.marquee === true && lines === 1 && txt) {
+          // 预览用 CSS 动画近似 App 行为：loop 两份文字无缝循环，pingpong 两端停顿往返。
+          const ping = node.marqueeMode === 'pingpong';
+          const reverse = node.marqueeDirection === 'right' ? 'reverse' : 'normal';
+          const speed = Number(node.marqueeSpeed) > 0 ? Number(node.marqueeSpeed) : 40;
+          const dur = Math.max(3, Math.round((txt.length * size) / speed));
+          const anim = ping
+            ? `pvMarqueePing ${dur * 2}s ease-in-out ${reverse} infinite`
+            : `pvMarqueeLoop ${dur}s linear ${reverse} infinite`;
+          const item = `<span style="padding-right:32px">${esc(txt)}</span>`;
+          return `<div style="font-size:${size}px;font-weight:${weight};color:${color};`
+            + `text-align:${align};overflow:hidden;max-width:100%;line-height:1.4">`
+            + `<div class="pv-marquee-track" style="animation:${anim}">${item}${item}</div></div>`;
+        }
         return `<div style="font-size:${size}px;font-weight:${weight};color:${color};`
           + `text-align:${align};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
           + `max-width:100%;line-height:1.4">${esc(txt)}</div>`;
