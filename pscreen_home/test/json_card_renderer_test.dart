@@ -1185,4 +1185,33 @@ void main() {
     expect(find.text('角标'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('enabledWhen 关机时按钮显示但禁用（不可点），开机时可点', (WidgetTester tester) async {
+    final Map<String, dynamic> layout = <String, dynamic>{
+      'type': 'column',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'chip',
+          'label': '快速出香',
+          'color': '{s:_on_p_2_1}',
+          'colorMap': 'on=#fb923c,off=#6b7280',
+          'enabledWhen': '{s:_on_p_2_1}=on',
+          'onClick': 'press@{id:_on_p_2_1}',
+        },
+      ],
+    };
+    // 关机：节点仍在，但 OutlinedButton.onPressed == null（禁用）。
+    await pumpLayout(tester, 'off', layout);
+    expect(find.text('快速出香'), findsOneWidget);
+    OutlinedButton offBtn = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '快速出香'));
+    expect(offBtn.onPressed, isNull);
+    // 开机：同位置按钮可点。
+    await pumpLayout(tester, 'on', layout);
+    expect(find.text('快速出香'), findsOneWidget);
+    OutlinedButton onBtn = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, '快速出香'));
+    expect(onBtn.onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
 }

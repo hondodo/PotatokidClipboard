@@ -821,6 +821,22 @@
     // 与 Flutter _evalCondition 一致：非空且不是 false/0 即为真。
     return raw !== '' && raw !== '0' && raw !== 'false';
   }
+  // 与 Flutter enabledWhen 对齐：不满足时按钮仍显示但禁用（预览里降透明度示意）。
+  function pvEnabled(node, ctx) {
+    if (!ctx._real || !node.enabledWhen) return true;
+    const expr = String(node.enabledWhen).trim();
+    for (const op of ['!=', '==', '=']) {
+      const i = expr.indexOf(op);
+      if (i <= 0) continue;
+      const left = pvResolve(expr.slice(0, i).trim(), ctx, {}).trim();
+      let right = expr.slice(i + op.length).trim();
+      if (right.length >= 2 && ((right[0] === "'" && right[right.length - 1] === "'")
+        || (right[0] === '"' && right[right.length - 1] === '"'))) right = right.slice(1, -1);
+      return op === '!=' ? left !== right : left === right;
+    }
+    const raw = pvResolve(expr, ctx, {}).trim();
+    return raw !== '' && raw !== '0' && raw !== 'false';
+  }
   // 条件属性映射：colorMap/labelMap/iconMap 写法同 map，作用于各自属性的占位符求值。
   function pvAttrMap(node, field) {
     if (!node || !node[field]) return null;
@@ -959,16 +975,18 @@
         const label = pvResolve(node.label || node.subLabel || node.value || '', ctx, node, pvAttrMap(node, 'labelMap'));
         const color = pvColor(node.color, ctx, node, ctx.color);
         const sz = node.size != null ? Number(node.size) : 0;
+        const dis = pvEnabled(node, ctx) ? '' : 'opacity:.55;cursor:not-allowed;';
         if (round) {
           const d = sz || 52;
-          return `<div style="width:${d}px;height:${d}px;flex:none;border-radius:50%;`
+          return `<div style="width:${d}px;height:${d}px;flex:none;border-radius:50%;${dis}`
             + `border:2px solid ${color};color:${color};display:flex;align-items:center;`
             + `justify-content:center;font-size:${Math.round(d * 0.46)}px;background:rgba(0,0,0,.15)">⏻</div>`;
         }
         const fsz = sz || 13;
         const h = node.height != null ? Number(node.height) : 0;
-        return `<span style="display:inline-flex;align-items:center;justify-content:center;gap:4px;`
-          + `min-height:${h || 30}px;padding:4px 14px;box-sizing:border-box;`
+        const fl = node.expand ? 'flex:1;min-width:0;' : '';
+        return `<span style="display:inline-flex;align-items:center;justify-content:center;gap:4px;${dis}${fl}`
+          + `min-height:${h || 30}px;padding:4px 10px;box-sizing:border-box;`
           + `border:1px solid ${color};border-radius:10px;color:${color};font-size:${fsz}px;`
           + `font-weight:700">${esc(label)}</span>`;
       }

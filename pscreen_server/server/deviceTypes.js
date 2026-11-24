@@ -328,8 +328,9 @@ const CARD_LAYOUTS = {
             },
         ],
     },
-    // 香薰机（米家智能香氛机）：复刻旧版——标题 + 状态行 + 当前值大字 + 右侧圆按钮。
-    // 主开关后缀 _on_p_2_2，精确绑定实体，不猜设备。
+    // 香薰机（米家智能香氛机）：复刻米家 App——图标+标题、状态行（待机中·电量）、
+    // 右侧圆按钮，下方 2×2 四个快捷按钮；关机时快捷按钮禁用变灰（enabledWhen + colorMap）。
+    // 所有动作精确绑定真实实体后缀，不猜设备。
     aroma_diffuser: {
         type: 'column', fill: true, gap: 8, padding: [12, 10],
         children: [
@@ -344,25 +345,57 @@ const CARD_LAYOUTS = {
                         type: 'column', expand: true, gap: 3,
                         children: [
                             { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
-                            { type: 'text', value: '{s:_on_p_2_2}', size: 13, color: '{color}', maxLines: 1 },
+                            {
+                                type: 'text',
+                                value: '{s:_on_p_2_2} · 电量 {s:_battery_level_p_5_1}%',
+                                map: 'on=香薰中,off=待机中',
+                                size: 13, color: '{color}', maxLines: 1,
+                            },
                         ],
+                    },
+                    {
+                        type: 'button', round: true, value: 'power_settings_new', size: 46,
+                        color: '{s:_on_p_2_2}', colorMap: 'on=#FF7043,off=#4ade80',
+                        onClick: 'toggle@{id:_on_p_2_2}',
                     },
                 ],
             },
             {
-                type: 'row', crossAlign: 'end', mainAlign: 'spaceBetween', gap: 8,
+                type: 'column', gap: 6, expand: true, mainAlign: 'center',
                 children: [
                     {
-                        type: 'column', gap: 2,
+                        type: 'row', gap: 8,
                         children: [
-                            { type: 'text', value: '{label}', size: 12, color: 'outline', maxLines: 1 },
-                            { type: 'text', value: '{s:_on_p_2_2}', size: 38, weight: 700, color: '{color}', maxLines: 1 },
+                            {
+                                type: 'chip', label: '快速出香', size: 13, height: 34, expand: true,
+                                color: '{s:_on_p_2_2}', colorMap: 'on=#fb923c,off=#6b7280',
+                                enabledWhen: '{s:_on_p_2_2}=on',
+                                onClick: 'press@{id:_fragrance_delivery_a_4_1}',
+                            },
+                            {
+                                type: 'chip', label: '氛围灯', size: 13, height: 34, expand: true,
+                                color: '{s:_on_p_2_2}', colorMap: 'on=#facc15,off=#6b7280',
+                                enabledWhen: '{s:_on_p_2_2}=on',
+                                onClick: 'toggle@{id:_s_3_ambient_light}',
+                            },
                         ],
                     },
                     {
-                        type: 'button', round: true, value: 'power_settings_new', size: 52,
-                        color: '{s:_on_p_2_2}', colorMap: 'on=#FF7043,off=#4ade80',
-                        onClick: 'toggle@{id:_on_p_2_2}',
+                        type: 'row', gap: 8,
+                        children: [
+                            {
+                                type: 'chip', label: '人来增香', size: 13, height: 34, expand: true,
+                                color: '{s:_on_p_2_2}', colorMap: 'on=#a78bfa,off=#6b7280',
+                                enabledWhen: '{s:_on_p_2_2}=on',
+                                onClick: 'toggle@{id:_auto_fragrance_p_4_1}',
+                            },
+                            {
+                                type: 'chip', label: '感应夜灯', size: 13, height: 34, expand: true,
+                                color: '{s:_on_p_2_2}', colorMap: 'on=#60a5fa,off=#6b7280',
+                                enabledWhen: '{s:_on_p_2_2}=on',
+                                onClick: 'toggle@{id:_auto_light_p_4_2}',
+                            },
+                        ],
                     },
                 ],
             },
@@ -452,6 +485,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
+    // 按钮可点条件：不满足时按钮仍显示但禁用（配合 colorMap 做暗色）。
+    if (value.enabledWhen != null) node.enabledWhen = str(value.enabledWhen, 120);
     // text 跑马灯（单行）：loop=单向连续无缝；pingpong=往返且两端停留。
     // direction 对 loop 是滚动方向、对 pingpong 是先往哪边跑；pause 单位秒，speed 逻辑像素/秒。
     if (value.marquee === true) node.marquee = true;

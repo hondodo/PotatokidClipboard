@@ -380,8 +380,12 @@ class JsonCardRenderer extends StatelessWidget {
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);
     final bool active = resolvedStyle == 'active';
 
+    // enabledWhen：条件不满足时按钮仍显示但禁用（暗色由 colorMap 负责）。
+    final bool nodeEnabled = node.enabledWhen == null
+        || node.enabledWhen!.isEmpty
+        || eval.evalCondition(node.enabledWhen!);
     VoidCallback? onPressed;
-    if (available && onClick.isNotEmpty) {
+    if (available && nodeEnabled && onClick.isNotEmpty) {
       onPressed = () {
         final String? confirm = node.confirm;
         if (confirm != null && confirm.isNotEmpty) {

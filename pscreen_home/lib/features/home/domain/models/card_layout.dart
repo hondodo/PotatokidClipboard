@@ -30,6 +30,7 @@ class CardLayoutNode {
     this.onClick,
     this.style,
     this.visibleWhen,
+    this.enabledWhen,
     this.confirm,
     this.max,
     this.min,
@@ -81,6 +82,9 @@ class CardLayoutNode {
   final String? onClick;
   final String? style;
   final String? visibleWhen;
+  /// 按钮可点条件：不满足时按钮仍显示但禁用（onPressed=null），配合 colorMap 做暗色。
+  /// 与 visibleWhen（整个节点不显示）互补，写法相同（如 "{s:_on_p_2_2}=on"）。
+  final String? enabledWhen;
   final String? confirm;
   final String? max;
   final String? min;
@@ -169,6 +173,7 @@ class CardLayoutNode {
       onClick: json['onClick'] as String?,
       style: json['style'] as String?,
       visibleWhen: json['visibleWhen'] as String?,
+      enabledWhen: json['enabledWhen'] as String?,
       confirm: json['confirm'] as String?,
       max: json['max'] == null ? null : '${json['max']}',
       min: json['min'] == null ? null : '${json['min']}',
