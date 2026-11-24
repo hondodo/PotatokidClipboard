@@ -132,6 +132,10 @@
     if (ge) ge.checked = card.genericEnabled === true;
     const iconEl = $('re-card-icon');
     if (iconEl) iconEl.value = card.icon || t.icon || '';
+    const bgEl = $('re-card-bg');
+    if (bgEl) bgEl.value = card.bg || '';
+    const dbgEl = $('re-card-disabled-bg');
+    if (dbgEl) dbgEl.value = card.disabledBg || '';
     const layoutEl = $('re-layout');
     if (layoutEl) {
       layoutEl.value = card.layout ? JSON.stringify(card.layout, null, 2) : '';
@@ -149,6 +153,8 @@
     const ge = $('re-generic-enabled');
     const iconEl = $('re-card-icon');
     const icon = iconEl ? String(iconEl.value || '').trim() : '';
+    const bgEl = $('re-card-bg');
+    const dbgEl = $('re-card-disabled-bg');
     const layoutEl = $('re-layout');
     let layout = null;
     if (layoutEl && layoutEl.value.trim()) {
@@ -158,6 +164,8 @@
       span,
       layout,
       icon,
+      bg: bgEl ? String(bgEl.value || '').trim() : '',
+      disabledBg: dbgEl ? String(dbgEl.value || '').trim() : '',
       genericEnabled: !!(ge && ge.checked),
     };
   }
@@ -1056,7 +1064,9 @@
         const weight = node.weight != null ? Number(node.weight) : 400;
         const color = pvColor(node.color, ctx, node, '#e7eef6');
         const align = node.align || 'left';
-        const lines = node.maxLines != null ? Number(node.maxLines) : 1;
+        const autoLines = 1 + (String(txt).match(/\n/g) || []).length;
+        const lines = node.maxLines != null ? Number(node.maxLines) : Math.min(6, autoLines);
+        const multiline = String(txt).indexOf('\n') >= 0;
         if (node.marquee === true && lines === 1 && txt) {
           // 预览用 CSS 动画近似 App 行为：loop 两份文字无缝循环，pingpong 两端停顿往返。
           const ping = node.marqueeMode === 'pingpong';
@@ -1072,8 +1082,8 @@
             + `<div class="pv-marquee-track" style="animation:${anim}">${item}${item}</div></div>`;
         }
         return `<div style="font-size:${size}px;font-weight:${weight};color:${color};`
-          + `text-align:${align};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`
-          + `max-width:100%;line-height:1.4">${esc(txt)}</div>`;
+          + `text-align:${align};white-space:${multiline ? 'pre-line' : 'nowrap'};overflow:hidden;`
+          + `${multiline ? '' : 'text-overflow:ellipsis;'}max-width:100%;line-height:1.4">${esc(txt)}</div>`;
       }
       if (type === 'icon') {
         const rawIcon = pvResolve(node.value, ctx, node, pvAttrMap(node, 'iconMap'));
@@ -1156,6 +1166,20 @@
     }
     return '';
   }
+  /** 预览卡片背景：支持 #RRGGBB / #RRGGBBAA / {color}；空串沿用画布默认色。 */
+  function pvCardBg(spec) {
+    if (!spec || !String(spec).trim()) return '';
+    const v = String(spec).trim().replace(/\{color\}/g, '#4dd4ac');
+    const m = v.match(/^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/);
+    if (m) {
+      const r = parseInt(m[1].slice(0, 2), 16);
+      const g = parseInt(m[1].slice(2, 4), 16);
+      const b = parseInt(m[1].slice(4, 6), 16);
+      const a = m[2] ? parseInt(m[2], 16) / 255 : 1;
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+    return v; // 其它 CSS 颜色名直接交给浏览器解析
+  }
   function refreshCardPreview() {
     const stage = $('re-layout-preview');
     if (!stage) return;
@@ -1173,11 +1197,18 @@
     const t = reCurType() || {};
     const span = (t.card && t.card.span) || { col: 1, row: 1 };
     const wide = (span.col || 1) > 1;
-    stage.innerHTML = `<div class="card-preview-canvas${wide ? ' wide' : ''}">${renderPreviewNode(tree, ctx)}</div>`;
+    const onlineEl = $('re-pv-online');
+    const online = !onlineEl || onlineEl.checked;
+    const bgEl = $('re-card-bg'), dbgEl = $('re-card-disabled-bg');
+    const spec = online
+      ? ((bgEl && bgEl.value.trim()) || (t.card && t.card.bg) || '')
+      : ((dbgEl && dbgEl.value.trim()) || (t.card && t.card.disabledBg) || '');
+    const bg = pvCardBg(spec);
+    stage.innerHTML = `<div class="card-preview-canvas${wide ? ' wide' : ''}"${bg ? ` style="background:${bg}"` : ''}>${renderPreviewNode(tree, ctx)}</div>`;
   }
   const layoutEl = $('re-layout');
   if (layoutEl) layoutEl.addEventListener('input', refreshCardPreview);
-  ['re-pv-online', 're-pv-on', 're-pv-bright', 're-card-icon'].forEach((id) => {
+  ['re-pv-online', 're-pv-on', 're-pv-bright', 're-card-icon', 're-card-bg', 're-card-disabled-bg'].forEach((id) => {
     const el = $(id);
     if (el) el.addEventListener('input', refreshCardPreview);
   });

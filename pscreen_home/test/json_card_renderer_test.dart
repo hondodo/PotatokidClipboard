@@ -1357,4 +1357,56 @@ void main() {
     expect(onBtn.onPressed, isNotNull);
     expect(tester.takeException(), isNull);
   });
+
+  test('DeviceCardConfig 解析后台下发的 bg / disabledBg', () {
+    final DeviceCardConfig card = DeviceCardConfig.fromJson(<String, dynamic>{
+      'bg': '#232830',
+      'disabledBg': '#171a1f',
+    });
+    expect(card.bg, '#232830');
+    expect(card.disabledBg, '#171a1f');
+    expect(DeviceCardConfig.fromJson(<String, dynamic>{}).bg, '');
+  });
+
+  testWidgets('卡片背景可被 card.bg 覆盖，文本换行自动放开 maxLines', (WidgetTester tester) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_bg',
+      title: '背景测试',
+      entities: <HaEntityStateModel>[
+        _entity('switch.bg_on_p_2_1', 'on', name: '开关'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      bg: '#232830',
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'children': <dynamic>[
+          <String, dynamic>{'type': 'text', 'value': '第一行\n第二行'},
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 200,
+            height: 120,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'switch',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Card rendered = tester.widget<Card>(find.byType(Card).first);
+    expect(rendered.color, const Color(0xFF232830));
+    final Text multiline = tester.widget<Text>(find.text('第一行\n第二行'));
+    expect(multiline.maxLines, 2);
+    expect(tester.takeException(), isNull);
+  });
 }

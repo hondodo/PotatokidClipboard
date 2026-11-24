@@ -28,7 +28,7 @@ class HomeDesign {
   static const double landscapeContentScale = 0.75;
 
   /// 横屏逻辑画布：所有横屏内容常量（4 列 × 320 宽、行高 188）按此编写。
-  static const Size landscapeCanvas = Size(1280, 720);
+  static const Size landscapeCanvas = Size(960, 540);
 
   /// 竖屏内容密度因子：手机常量按竖屏画布写，无需换算。
   static const double portraitContentScale = 1.0;
@@ -53,8 +53,7 @@ class HomeDesign {
   static bool isPortrait(Size size) => size.height > size.width * 1.2;
 
   /// 当前屏幕对应的逻辑画布尺寸。
-  static Size canvasFor(Size size) =>
-      isPortrait(size) ? portraitCanvas : landscapeCanvas;
+  static Size canvasFor(Size size) => isPortrait(size) ? portraitCanvas : landscapeCanvas;
 }
 
 /// 未手动设置缩放时的自动适配值。
@@ -68,18 +67,14 @@ double defaultUiScaleFor(Size size) {
       size.width / HomeDesign.portraitDesignSize.width,
       size.height / HomeDesign.portraitDesignSize.height,
     );
-    return SettingsStore.normalizeUiScale(
-      scale * HomeDesign.portraitContentScale,
-    );
+    return SettingsStore.normalizeUiScale(scale * HomeDesign.portraitContentScale);
   }
 
   final double scale = math.min(
     size.width / HomeDesign.landscapeDesignSize.width,
     size.height / HomeDesign.landscapeDesignSize.height,
   );
-  return SettingsStore.normalizeUiScale(
-    scale * HomeDesign.landscapeContentScale,
-  );
+  return SettingsStore.normalizeUiScale(scale * HomeDesign.landscapeContentScale);
 }
 
 /// 全局界面缩放控制器（纯自动，与 TV 端一致）。
@@ -124,10 +119,7 @@ class UiScaleScope extends StatelessWidget {
         double effective = scale;
         if (!effective.isFinite || effective <= 0) effective = 1;
 
-        final Size logical = Size(
-          constraints.maxWidth / effective,
-          constraints.maxHeight / effective,
-        );
+        final Size logical = Size(constraints.maxWidth / effective, constraints.maxHeight / effective);
         final MediaQueryData mq = MediaQuery.of(context);
         // 与 TV 端一致：系统字体缩放只做小范围跟随，避免大屏上
         // 辅助功能字体被全局放大后撑破卡片。

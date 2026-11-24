@@ -58,4 +58,4 @@
 
 ## 卡片 JSON 配置文档（2026-11-24）
 - 根目录 `admin页Home设备卡片json配置说明.md` 是 Home 卡片 JSON 协议唯一说明；`<!-- AUTO:xxx -->` 区块由 `node pscreen_server/scripts/gen-card-json-doc.mjs` 从源码提取，`--check` 可校验是否过期。
-- **以后新增占位符 / 内联规则 / 节点字段 / 动作通道时，必须在同一次改动里运行该脚本并把文档一起提交**；描述取自源码紧邻 `//` 注释与脚本内 `PLACEHOLDER_DESC` / `INLINE_META` / `ACTION_META`。
+- **以后新增占位符 / 内联规则 / card 或节点字段 / 动作通道时，必须在同一次改动里运行该脚本并把文档一起提交**；描述取自源码紧邻 `//` 注释与脚本内 `PLACEHOLDER_DESC` / `INLINE_META` / `ACTION_META` / `CARD_FIELD_DESC`。

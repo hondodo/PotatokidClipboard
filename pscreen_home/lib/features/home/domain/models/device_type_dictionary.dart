@@ -152,6 +152,9 @@ class DeviceCardConfig {
     this.subTpl = '{state}',
     this.icon = '✦',
     this.color = '#4dd4ac',
+    // 卡片容器背景：留空沿用主题色；可由后台 card.bg / card.disabledBg 覆盖。
+    this.bg = '',
+    this.disabledBg = '',
     this.mainEntity = '',
     this.buttons = const <DeviceCardButton>[],
     this.genericEnabled = false,
@@ -165,6 +168,10 @@ class DeviceCardConfig {
   final String subTpl;
   final String icon;
   final String color;
+  /// 卡片正常背景（空串 = 主题 surfaceContainerHighest）。
+  final String bg;
+  /// 设备不可用 / 断线时的卡片背景（空串 = 主题 surfaceContainerLowest）。
+  final String disabledBg;
   final String mainEntity;
   final List<DeviceCardButton> buttons;
   final bool genericEnabled;
@@ -194,6 +201,8 @@ class DeviceCardConfig {
       subTpl: '${json['subTpl'] ?? '{state}'}',
       icon: '${json['icon'] ?? '✦'}',
       color: '${json['color'] ?? '#4dd4ac'}',
+      bg: '${json['bg'] ?? ''}',
+      disabledBg: '${json['disabledBg'] ?? ''}',
       mainEntity: '${json['mainEntity'] ?? ''}',
       buttons: buttons,
       genericEnabled: json['genericEnabled'] == true,

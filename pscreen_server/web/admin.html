@@ -471,6 +471,12 @@
                     <span>启用通用卡片渲染</span>
                   </label>
                 </div>
+                <div class="re-card-bg-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                  <span class="hint">卡片背景：</span>
+                  <input type="text" id="re-card-bg" maxlength="40" placeholder="如 #232830" style="width:150px" title="写入 card.bg。支持 #RRGGBB / #RRGGBBAA / {color}26；留空 = 跟随主题">
+                  <span class="hint">禁用背景：</span>
+                  <input type="text" id="re-card-disabled-bg" maxlength="40" placeholder="如 #171a1f" style="width:150px" title="写入 card.disabledBg。设备离线 / 不可用时的卡片背景；留空 = 跟随主题">
+                </div>
                 <p class="hint" style="margin:0 0 6px">
                   布局树为 JSON：节点 <code>row/column/wrap/text/icon/button/chip/progress/sparkline/repeat/divider</code>；
                   占位符 <code>{title} {sub} {main} {label} {icon} {color} {state} {gangCount} {gangOnCount}</code>；

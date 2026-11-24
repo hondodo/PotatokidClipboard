@@ -42,6 +42,7 @@
 | 时间显示成相对时间 | `"value": "{s:click_e_3_1012\|ago}"` |
 | 取接入/断开中较晚的时间 | `"value": "{s:_connect\|maxWith=s:_disconnect,ago}"` |
 | 标题超长滚动 | `"marquee": true, "marqueeMode": "pingpong", "marqueeDirection": "left", "marqueePause": 3` |
+| 文本 / label 换行 | `"value": "第一行\n第二行"`（JSON 里用 `\n` 转义）；未写 `maxLines` 时自动按行数放开，最多 6 行 |
 | 多个同类实体重复渲染 | `"type": "repeat", "source": "gangs", "item": "gang", "template": {...}`，模板里用 `{gang.label}` / `toggle@{gang.entityId}` |
 | 贴底分布 | 父节点 `"fill": true, "mainAlign": "spaceBetween"` |
 
@@ -134,6 +135,28 @@
 ---
 
 ## 4. 节点类型与字段白名单
+
+布局 JSON 写在 `card.layout`；`card` 本身还有下面这些字段（后台「卡片布局」区可编辑）：
+
+<!-- AUTO:cardFields -->
+| card 字段 | 说明 |
+| --- | --- |
+| `label` | 类型标签 / 主数值说明 |
+| `mainAttr` | 主数值取自主实体的哪个属性 |
+| `mainFmt` | 主数值格式模板，{v} 为原始值 |
+| `subTpl` | 副文案模板，支持 {main}/{state}/{s1}/{s2} |
+| `icon` | 卡片图标，布局里用 {icon} 引用 |
+| `color` | 主题色，布局里用 {color} 引用 |
+| `mainEntity` | 主实体匹配串（entity_id 或名称子串） |
+| `bg` | 卡片正常背景色：#RRGGBB / #RRGGBBAA / {color}26；留空跟随主题 |
+| `disabledBg` | 设备不可用 / 断线时的卡片背景色；留空跟随主题 |
+| `buttons` | 旧版按钮定义（新布局一般用 layout 里的 button / chip） |
+| `genericEnabled` | 是否启用通用卡片渲染 |
+| `span` | 跨格尺寸 {col,row}，各 1~4 |
+| `layout` | JSON 布局树，见第 4 节 |
+<!-- AUTO:END -->
+
+`bg` / `disabledBg` 是**卡片容器背景**（正常 / 设备离线），支持 `#RRGGBB`、`#RRGGBBAA`、`{color}26` 这类带透明度的写法；留空沿用 App 主题色。注意这两个字段改的是整张卡片，不是某个节点；节点的强调色仍用 `color`。
 
 ### 4.1 节点类型
 
@@ -352,6 +375,7 @@
 | 关灯后括号还留着 | 括号也要用条件包裹：`{s:_light\|on=(,off=}` 和 `{s:_light\|on=%),off=}` |
 | 文字被截断成 `unknown` | 没兜底映射；加 `unknown=—,unavailable=—` |
 | 长文本显示不全 | 加 `marquee`（第 7 节），并确认父级有界宽 |
+| label / text 里的 `\n` 变成空格 | 旧版服务端 `clampText` 会替换换行，现已保留；确认后台脚本已更新并强刷浏览器 |
 | `mainAlign:spaceBetween` 没贴底 | 父节点缺 `fill:true`，或子节点有 `expand:true` 吃掉剩余高度 |
 | 点击按钮没反应 / 误动作了别的设备 | 动作没写 `@实体`，走了主实体；改成 `toggle@{id:后缀}` |
 | 后台预览正常、App 不生效 | 新增 Dart 解析能力后 App 没重编；或后台 JS 改了没强刷浏览器 |

@@ -256,6 +256,33 @@ function buildActions() {
   return table('| onClick 写法 | 行为 |', rows);
 }
 
+const CARD_FIELD_DESC = {
+  label: '类型标签 / 主数值说明',
+  mainAttr: '主数值取自主实体的哪个属性',
+  mainFmt: '主数值格式模板，{v} 为原始值',
+  subTpl: '副文案模板，支持 {main}/{state}/{s1}/{s2}',
+  icon: '卡片图标，布局里用 {icon} 引用',
+  color: '主题色，布局里用 {color} 引用',
+  bg: '卡片正常背景色：#RRGGBB / #RRGGBBAA / {color}26；留空跟随主题',
+  disabledBg: '设备不可用 / 断线时的卡片背景色；留空跟随主题',
+  mainEntity: '主实体匹配串（entity_id 或名称子串）',
+  buttons: '旧版按钮定义（新布局一般用 layout 里的 button / chip）',
+  genericEnabled: '是否启用通用卡片渲染',
+  span: '跨格尺寸 {col,row}，各 1~4',
+  layout: 'JSON 布局树，见第 4 节',
+};
+
+function buildCardFields() {
+  const body = between(src.server, 'function normalizeCard(value, key)', '\n}\n');
+  const m = body.match(/for \(const f of \[([^\]]+)\]\)/);
+  const whitelisted = m ? [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
+  const all = [...new Set([...whitelisted, 'buttons', 'genericEnabled', 'span', 'layout'])];
+  return table('| card 字段 | 说明 |', all.map((f) => [
+    `\`${f}\``,
+    CARD_FIELD_DESC[f] || '见源码 normalizeCard',
+  ]));
+}
+
 function buildDatePatterns() {
   const body = between(src.dart, 'static DateFormat _dateFormat(String pattern, String locale)', '  /// 按 entity_id 后缀查找组内实体');
   const pats = [...body.matchAll(/case\s*'([^']+)':/g)].map((m) => m[1]);
@@ -267,6 +294,7 @@ const sections = {
   placeholders: buildPlaceholders(),
   inlineRules: buildInlineRules(),
   nodeTypes: buildNodeTypes(),
+  cardFields: buildCardFields(),
   fields: buildFields(),
   limits: buildLimits(),
   actions: buildActions(),

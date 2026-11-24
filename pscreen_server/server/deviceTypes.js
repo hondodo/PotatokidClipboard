@@ -219,7 +219,7 @@ const DEFAULT_RULES = {
 
 const CARD_DEFAULTS = {
     label: '当前值', mainAttr: 'state', mainFmt: '{v}', subTpl: '{state}',
-    icon: '✦', color: '#4dd4ac', mainEntity: '主实体', buttons: [{ label: '开关', action: 'toggle' }],
+    icon: '✦', color: '#4dd4ac', bg: '', disabledBg: '', mainEntity: '主实体', buttons: [{ label: '开关', action: 'toggle' }],
     // 灰度开关：home 端是否启用通用卡片渲染（全量切换后所有类型都为 true）。
     genericEnabled: false,
     // 跨格尺寸：col/row 各 1~4；默认 1×1。
@@ -848,7 +848,9 @@ const DICT_FIELDS = Object.keys(DICT_DEFAULTS);
 const RULE_OPS = new Set(['eq', 'neq', 'contains', 'not_contains', 'startsWith', 'not_startsWith', 'exists', 'gt', 'lt']);
 
 function clampText(value, max = 120) {
-    return String(value == null ? '' : value).replace(/[\r\n]/g, ' ').slice(0, max);
+    // 保留用户显式输入的行换行（label / text.value 可多行），只把 Windows 的 \r\n 归一成 \n。
+    // map / replace 等规则字段仍用 \n 作分隔符，客户端解析逻辑无需改动。
+    return String(value == null ? '' : value).replace(/\r\n?/g, '\n').slice(0, max);
 }
 
 /** 单条字典规则归一：默认 → 覆盖 → 字段白名单。 */
@@ -892,8 +894,11 @@ function normalizeCard(value, key) {
         return Object.assign({}, base, { span: { col: 1, row: 1 }, layout: fallbackLayout });
     }
     const out = Object.assign({}, base);
-    for (const f of ['label', 'mainAttr', 'mainFmt', 'subTpl', 'icon', 'color', 'mainEntity']) {
-        if (value[f] != null) out[f] = clampText(value[f], f === 'mainEntity' ? 120 : 80);
+    // bg / disabledBg 是卡片容器背景（支持 #RRGGBB / #RRGGBBAA / {color} 占位符），
+    // 留空沿用主题色；必须进白名单，否则 admin 保存后会被丢掉。
+    for (const f of ['label', 'mainAttr', 'mainFmt', 'subTpl', 'icon', 'color', 'mainEntity', 'bg', 'disabledBg']) {
+        const max = f === 'mainEntity' ? 120 : ((f === 'bg' || f === 'disabledBg') ? 40 : 80);
+        if (value[f] != null) out[f] = clampText(value[f], max);
     }
     if (Array.isArray(value.buttons)) {
         out.buttons = value.buttons.slice(0, 8).filter((b) => b && typeof b === 'object').map((b) => ({

@@ -57,14 +57,20 @@ class JsonCardRenderer extends StatelessWidget {
     final CardEvalContext ctx = CardEvalContext(group: group, card: card, areaLabel: areaLabel ?? '');
     final ThemeData theme = Theme.of(context);
     final bool available = !group.isUnavailable;
+    // 卡片背景可由后台 card.bg / card.disabledBg 覆盖；留空沿用主题色。
+    final String? bgSpec = available
+        ? (card.bg.isEmpty ? null : card.bg)
+        : (card.disabledBg.isEmpty ? null : card.disabledBg);
+    final Color? cardBg = _color(bgSpec, theme, ctx);
 
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
       clipBehavior: Clip.antiAlias,
-      color: available
-          ? theme.colorScheme.surfaceContainerHighest
-          : theme.colorScheme.surfaceContainerLowest,
+      color: cardBg ??
+          (available
+              ? theme.colorScheme.surfaceContainerHighest
+              : theme.colorScheme.surfaceContainerLowest),
       child: InkWell(
         onTap: available ? onOpenDetail : null,
         child: Padding(
@@ -277,7 +283,9 @@ class JsonCardRenderer extends StatelessWidget {
           fontWeight: _fontWeight(node.weight),
           color: color,
         );
-    final int lines = node.maxLines ?? 1;
+    // 文本里有显式换行时自动放开 maxLines（未显式配置才自动），否则 \n 会被省略号吞掉。
+    final int autoLines = 1 + '\n'.allMatches(shown).length;
+    final int lines = node.maxLines ?? (autoLines > 6 ? 6 : autoLines);
     // 跑马灯只做单行：多行仍走原来的省略号布局，避免破坏卡片高度。
     if (node.marquee && lines == 1 && shown.isNotEmpty) {
       return MarqueeText(
@@ -447,29 +455,29 @@ class JsonCardRenderer extends StatelessWidget {
 
     if (chip) {
       // 触屏尺寸：后台可配 height（如热水瓶 42）与字号 size，默认仍 30/12。
-      return SizedBox(
-        height: node.height ?? 30,
-        child: OutlinedButton(
-          onPressed: onPressed,
-          style: OutlinedButton.styleFrom(
-            side: BorderSide(color: accent.withValues(alpha: 0.5)),
-            foregroundColor: accent,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: Size(56, node.height ?? 30),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-          child: sub == null
-              ? Text(label, style: TextStyle(fontSize: node.size ?? 12, fontWeight: FontWeight.w700))
-              : child,
+      // label 含显式换行时放开固定高度，避免第二行被裁掉。
+      final double h = node.height ?? 30;
+      final bool multiline = label.contains('\n');
+      final Widget btn = OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: accent.withValues(alpha: 0.5)),
+          foregroundColor: accent,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: Size(56, multiline ? 0 : h),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
+        child: sub == null
+            ? Text(label, style: TextStyle(fontSize: node.size ?? 12, fontWeight: FontWeight.w700))
+            : child,
       );
+      return multiline ? btn : SizedBox(height: h, child: btn);
     }
 
     // 大按钮（active 时填充高亮，normal 时描边）——每路一个大按钮用它。
     final bool filled = active || resolvedStyle == 'filled' || resolvedStyle == 'tonal';
-    return SizedBox(
-      height: 52,
-      child: FilledButton(
+    final bool multiline = label.contains('\n');
+    final Widget bigButton = FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
           backgroundColor: filled
@@ -503,8 +511,8 @@ class JsonCardRenderer extends StatelessWidget {
                   Flexible(child: child),
                 ],
               ),
-      ),
     );
+    return multiline ? bigButton : SizedBox(height: 52, child: bigButton);
   }
 
   Widget _buildProgress(BuildContext context, CardLayoutNode node, CardEvalContext eval, bool available) {
