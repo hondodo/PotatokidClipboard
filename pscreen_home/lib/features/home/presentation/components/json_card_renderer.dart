@@ -563,6 +563,7 @@ class JsonCardRenderer extends StatelessWidget {
           accent: accent,
           showLabels: node.showLabels,
           unit: metric.unit,
+          labelColor: _color(node.labelColor, theme, eval, CardEvalContext.parseValueMap(node.colorMap)),
         );
     if (svc == null) {
       final Widget placeholder = Center(child: Icon(Icons.show_chart, color: accent));

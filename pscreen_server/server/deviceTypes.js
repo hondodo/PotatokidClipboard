@@ -437,6 +437,7 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             node.metric = ['power', 'temperature', 'humidity'].includes(value.metric) ? value.metric : 'power';
             if (value.window != null) node.window = str(value.window, 20);
             if (value.color != null) node.color = str(value.color, 40);
+            if (value.labelColor != null) node.labelColor = str(value.labelColor, 40);
             if (value.height != null) node.height = num(value.height, 60, 24, 180);
             // expand=true 时占满父级剩余空间（插座卡片下半部分功率曲线）。
             if (value.expand === true) node.expand = true;

@@ -24,6 +24,7 @@ class MetricSparkline extends StatelessWidget {
     this.showLabels = true,
     this.unit = 'W',
     this.gapThreshold,
+    this.labelColor,
   });
 
   final List<MetricSample> samples;
@@ -42,6 +43,9 @@ class MetricSparkline extends StatelessWidget {
   /// 断线阈值：相邻点间隔超过该值时切成新的一段；null 表示始终连续。
   final Duration? gapThreshold;
 
+  /// 标签颜色（max/min/时间）；null 时用主题 outline。
+  final Color? labelColor;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -58,7 +62,7 @@ class MetricSparkline extends StatelessWidget {
           unit: unit,
           gapThreshold: gapThreshold,
           gridColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
-          labelColor: theme.colorScheme.outline,
+          labelColor: labelColor ?? theme.colorScheme.outline,
         ),
       ),
     );

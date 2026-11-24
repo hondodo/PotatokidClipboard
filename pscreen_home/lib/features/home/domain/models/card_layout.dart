@@ -46,6 +46,7 @@ class CardLayoutNode {
     this.colorMap,
     this.labelMap,
     this.iconMap,
+    this.labelColor,
     this.stackAlign,
     this.position,
     this.round = false,
@@ -102,6 +103,8 @@ class CardLayoutNode {
   final String? colorMap;
   final String? labelMap;
   final String? iconMap;
+  /// sparkline 标签（max/min/时间）颜色，null 时随主题。
+  final String? labelColor;
   /// stack 节点：子节点的对齐（topLeft/topCenter/topRight/center/.../bottomRight）。
   final String? stackAlign;
   /// stack 节点：子节点的绝对定位（left/top/right/bottom，像素）。
@@ -167,6 +170,7 @@ class CardLayoutNode {
       colorMap: json['colorMap'] == null ? null : '${json['colorMap']}',
       labelMap: json['labelMap'] == null ? null : '${json['labelMap']}',
       iconMap: json['iconMap'] == null ? null : '${json['iconMap']}',
+      labelColor: json['labelColor'] as String?,
       stackAlign: json['stackAlign'] == null ? null : '${json['stackAlign']}',
       position: rawPos is Map
           ? CardPosition.fromJson(
