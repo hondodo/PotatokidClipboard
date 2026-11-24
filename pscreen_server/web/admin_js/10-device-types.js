@@ -607,8 +607,9 @@
       primary = ents.slice().sort((a, b) =>
         (weight[a.domain] == null ? 9 : weight[a.domain]) - (weight[b.domain] == null ? 9 : weight[b.domain]))[0] || null;
     }
-    const state = primary ? primary.state : '';
-    const isOn = state === 'on';
+    // 注意：不要叫 state，否则会遮蔽全局 admin state，函数开头访问会触发 TDZ。
+    const devState = primary ? primary.state : '';
+    const isOn = devState === 'on';
     const attrs = primary ? primary.attrs : {};
     const rawBright = Number(attrs.brightness);
     const pctRaw = Number(attrs.percentage);
@@ -628,12 +629,12 @@
       icon,
       color: card.color || t.color || '#facc15',
       label: card.label || t.label || '设备',
-      state,
+      state: devState,
       main,
       sub: isOn ? '亮度 ' + bright + '%' : 'off',
-      s1: state,
+      s1: devState,
       s2: '',
-      status: state && state !== 'unavailable' ? '已连接' : '离线',
+      status: devState && devState !== 'unavailable' ? '已连接' : '离线',
       brightnessPercent: String(bright),
       brightness: String(rawBright || 0),
       gangCount: String(ents.filter((e) => e.domain === 'switch').length),
@@ -669,7 +670,8 @@
     const isOn = !onEl || onEl.checked;
     const isOnline = !onlineEl || onlineEl.checked;
     const bright = brightEl ? Number(brightEl.value) : 10;
-    const state = isOn ? 'on' : 'off';
+    // 注意：不要叫 state，否则会遮蔽全局 admin state（本函数开头要用）。
+    const devState = isOn ? 'on' : 'off';
     const iconEl = $('re-card-icon');
     // 输入框存在时以它为准（清空就显示空，和 App 的 {icon} 求值一致）。
     const icon = iconEl
@@ -682,12 +684,12 @@
       icon,
       color: card.color || t.color || '#facc15',
       label: card.label || t.label || (isKettle ? '当前温度' : '灯光'),
-      state,
+      state: devState,
       main: isKettle ? '55°C' : (isOn ? '已开启' : '已关闭'),
       sub: isKettle
         ? ((isOn ? '烧水中…' : '待机中…') + ' · 自来水')
         : (isOn ? '亮度 ' + bright + '%' : 'off'),
-      s1: state, s2: '', status: isOnline ? '已连接' : '离线',
+      s1: devState, s2: '', status: isOnline ? '已连接' : '离线',
       brightnessPercent: String(bright),
       brightness: String(Math.round(bright * 255 / 100)),
       gangCount: '5', gangOnCount: isOn ? '1' : '0',
