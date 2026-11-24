@@ -760,6 +760,26 @@ void main() {
     expect(ctx.resolve('{s:_s_3_ambient_light.brightness}'), '82');
     // 电量本身已是百分数，直接显示、不要套 pct。
     expect(ctx.resolve('{s:_battery_level_p_5_1}%'), '25%');
+
+    // 亮度段只在氛围灯 on 时显示：用 state 内联映射输出左右括号，off 时给空串。
+    const tpl = '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯'
+      '{s:_s_3_ambient_light|on=已开启,off=已关闭}'
+      '{s:_s_3_ambient_light|on=(,off=}'
+      '{s:_s_3_ambient_light.brightness|pct}'
+      '{s:_s_3_ambient_light|on=%),off=} · 电量 {s:_battery_level_p_5_1}%';
+    expect(ctx.resolve(tpl), '已开机 · 氛围灯已开启(32%) · 电量 25%');
+
+    // 关灯：brightness 属性不存在，整段括号+数值消失。
+    final HaDeviceGroup off = HaDeviceGroup(
+      deviceId: group.deviceId, title: group.title,
+      entities: <HaEntityStateModel>[
+        _entity('switch.xw002_on_p_2_2', 'off', name: '香薰机开关'),
+        _entity('light.xw002_s_3_ambient_light', 'off', name: '氛围灯'),
+        _entity('sensor.xw002_battery_level_p_5_1', '25', name: '电量'),
+      ],
+    );
+    final CardEvalContext offCtx = CardEvalContext(group: off, card: card);
+    expect(offCtx.resolve(tpl), '待机中 · 氛围灯已关闭 · 电量 25%');
   });
 
   testWidgets('热水瓶走后台 JSON 布局：fill 上下分布 + 大号 chip + kettle@action 回调', (

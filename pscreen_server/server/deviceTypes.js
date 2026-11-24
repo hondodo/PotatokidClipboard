@@ -347,8 +347,9 @@ const CARD_LAYOUTS = {
                             { type: 'text', value: '{title}', size: 15, weight: 700, maxLines: 1 },
                             {
                                 type: 'text',
-                                // 内联映射：每个占位符各用各的 on/off 文案，亮度走 |pct（0-255→百分比）。
-                                value: '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯{s:_s_3_ambient_light|on=已开启,off=已关闭}({s:_s_3_ambient_light.brightness|pct}%) · 电量 {s:_battery_level_p_5_1}%',
+                                // 内联映射：各占位符各用各的 on/off 文案；亮度段只在氛围灯 on 时显示
+                                // （用 state 映射输出左右括号，off 给空串，亮度属性 off 时本身也为空）。
+                                value: '{s:_on_p_2_2|on=已开机,off=待机中} · 氛围灯{s:_s_3_ambient_light|on=已开启,off=已关闭}{s:_s_3_ambient_light|on=(,off=}{s:_s_3_ambient_light.brightness|pct}{s:_s_3_ambient_light|on=%),off=} · 电量 {s:_battery_level_p_5_1}%',
                                 size: 13, color: '{color}', maxLines: 1,
                             },
                         ],
@@ -514,7 +515,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     }
     switch (type) {
         case 'text':
-            node.value = str(value.value, 160);
+            // 状态行可能内联多个占位符规则（|on=…|pct），放宽上限避免被截断。
+            node.value = str(value.value, 400);
             if (value.size != null) node.size = num(value.size, 14, 8, 48);
             if (value.weight != null) node.weight = num(value.weight, 400, 100, 900);
             if (value.color != null) node.color = str(value.color, 40);
