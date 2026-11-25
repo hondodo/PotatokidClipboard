@@ -25,7 +25,8 @@ class CardLayoutNode {
     this.size,
     this.weight,
     this.color,
-    // 设备不可用（state=unavailable/unknown）时替代前景色；留空回退主题禁用色。
+    // 设备不可用（state=unavailable/unknown）时专用前景色；留空回退主题禁用色。
+    // 与 color 职责严格分离：color 只管可用态，unavailableColor 只管不可用态，互不顶替。
     this.unavailableColor,
     // 节点背景：bg 是颜色规范（可含占位符），bgMap 按同一求值结果选区间颜色。
     this.bg,

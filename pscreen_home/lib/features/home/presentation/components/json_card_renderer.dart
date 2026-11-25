@@ -328,11 +328,12 @@ class JsonCardRenderer extends StatelessWidget {
         ? cardTitle(title: text, areaLabel: areaLabel, showArea: showAreaInTitle)
         : text;
     final Color? accent = _nodeColor(node, theme, eval);
-    // 不可用优先级：unavailableColor > 已配的 color（含 colorMap 取 value）> 主题禁用色。
+    // 职责严格分离：color 只管可用态；unavailableColor 只管不可用态。
+    // 不可用时未配 unavailableColor 就回退主题禁用色，绝不拿 color 当禁用色。
     final Color? color = available
         ? accent
         : (_color(node.unavailableColor, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ??
-            accent ?? theme.colorScheme.outline);
+            theme.colorScheme.outline);
     final TextAlign align = node.align == 'center'
         ? TextAlign.center
         : (node.align == 'right' ? TextAlign.right : TextAlign.left);
@@ -390,12 +391,13 @@ class JsonCardRenderer extends StatelessWidget {
     final String raw = eval.resolve(node.value ?? '', iconMap).trim();
     final Color? nodeAccent = _nodeColor(node, theme, eval, colorMap);
     final Color accent = nodeAccent ?? _accent(theme);
-    // 不可用前景色优先级：unavailableColor > 节点显式 color（含 colorMap 取 value）> 主题禁用色。
-    // box.bg 背景色此前就不受 available 影响，保持不变。
+    // 职责严格分离：color 只管可用态；unavailableColor 只管不可用态。
+    // 不可用时未配 unavailableColor 就回退主题禁用色，绝不拿 color 当禁用色。
+    // box.bg 背景色不受 available 影响，保持不变。
     final Color iconColor = available
         ? accent
         : (_color(node.unavailableColor, theme, eval, colorMap) ??
-            nodeAccent ?? theme.colorScheme.outline);
+            theme.colorScheme.outline);
     final double size = node.size ?? 24;
 
     // 单字符符号（☀ ❄ ✦ ⏻ ▦ 等）MaterialIcons 里没有对应项，

@@ -696,7 +696,7 @@ void main() {
         reason: '离线文字应使用 unavailableColor #00BFFF');
   });
 
-  testWidgets('离线未配 unavailableColor 时图标用节点 color，两者都无才回退主题禁用色', (WidgetTester tester) async {
+  testWidgets('离线时 color 不顶替禁用色：未配 unavailableColor 一律回退主题禁用色', (WidgetTester tester) async {
     final HaDeviceGroup offlineGroup = HaDeviceGroup(
       deviceId: 'dev_router_offline2',
       title: '书房 路由器',
@@ -741,10 +741,10 @@ void main() {
     final Color outline = Theme.of(ctx).colorScheme.outline;
     final Icon withColor = tester.widget<Icon>(find.byType(Icon).at(0));
     final Icon noColor = tester.widget<Icon>(find.byType(Icon).at(1));
-    expect(withColor.color, const Color(0xFFFF0000),
-        reason: '离线未配 unavailableColor 时用节点 color #FF0000');
+    expect(withColor.color, outline,
+        reason: '离线时 color(#FF0000) 不得顶替禁用色：未配 unavailableColor 就用主题禁用色');
     expect(noColor.color, outline,
-        reason: 'unavailableColor 和 color 都未配时才回退主题禁用色');
+        reason: 'unavailableColor 和 color 都未配时回退主题禁用色');
   });
 
   testWidgets('单字符符号图标用 Text 渲染，不再回退成圆圈', (WidgetTester tester) async {
