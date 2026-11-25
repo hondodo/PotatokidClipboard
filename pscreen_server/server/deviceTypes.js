@@ -767,7 +767,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             node.value = str(value.value, 400);
             if (value.size != null) node.size = num(value.size, 14, 8, 48);
             if (value.weight != null) node.weight = num(value.weight, 400, 100, 900);
-            if (value.color != null) node.color = str(value.color, 40);
+            // color 同样支持内联规则（如 {s:xxx|on=#fff,off=outline}），40 会截断导致占位符不闭合。
+            if (value.color != null) node.color = str(value.color, 400);
             if (value.maxLines != null) node.maxLines = num(value.maxLines, 1, 1, 6);
             if (value.align === 'left' || value.align === 'center' || value.align === 'right') node.align = value.align;
             break;
@@ -786,11 +787,13 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             break;
         case 'button':
         case 'chip':
-            node.label = str(value.label, 40);
-            if (value.subLabel != null) node.subLabel = str(value.subLabel, 40);
-            if (value.icon != null) node.icon = str(value.icon, 40);
+            // label/subLabel 常放整段占位符+内联映射（如 {state|cool=制冷,...}），
+            // 40 字符会截掉右花括号，客户端只能把模板原文显示出来。统一放宽到 400。
+            node.label = str(value.label, 400);
+            if (value.subLabel != null) node.subLabel = str(value.subLabel, 400);
+            if (value.icon != null) node.icon = str(value.icon, 400);
             // value 复用为圆形按钮的图标名（round=true 时渲染器优先取 value）
-            if (value.value != null) node.value = str(value.value, 40);
+            if (value.value != null) node.value = str(value.value, 400);
             if (value.round === true) node.round = true;
             if (value.size != null) node.size = num(value.size, 52, 16, 96);
             // 触屏点击高度：普通按钮/chip 可配到 56，默认仍 30 保持其它卡片不变。
@@ -801,7 +804,8 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             if (['filled', 'outlined', 'active', 'tonal', 'normal'].includes(styleRaw) || /\{[^}]+\}/.test(styleRaw)) {
                 node.style = styleRaw;
             }
-            if (value.color != null) node.color = str(value.color, 40);
+            // color 可以是条件内联模板；与 text.color 同样放宽，避免 `|on=...` 被截断。
+            if (value.color != null) node.color = str(value.color, 400);
             if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
             if (value.confirm != null) node.confirm = str(value.confirm, 60);
             break;
@@ -809,7 +813,7 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
             node.value = str(value.value, 40);
             if (value.min != null) node.min = str(value.min, 40);
             if (value.max != null) node.max = str(value.max, 40);
-            if (value.color != null) node.color = str(value.color, 40);
+            if (value.color != null) node.color = str(value.color, 400);
             if (value.height != null) node.height = num(value.height, 6, 2, 24);
             if (value.interactive === true) node.interactive = true;
             // 可交互进度条松手动作的实体通道（brightness@/fan@...），与 chip 同理保留。

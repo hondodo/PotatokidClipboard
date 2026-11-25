@@ -187,7 +187,7 @@
 | --- | --- | --- |
 | `box` | 对象 {size 16~96, radius 0~32, bg, color} | icon |
 | `children` | 子节点数组（最多 24 个） | 通用 |
-| `color` | 字符串 ≤40 | text / icon / button / chip / progress / sparkline / divider |
+| `color` | 字符串 ≤400；字符串 ≤40 | text / icon / button / chip / progress / sparkline / divider |
 | `colorMap` | 字符串 ≤240 | 通用 |
 | `columns` | 数值 1~4（默认 2） | repeat |
 | `confirm` | 字符串 ≤60 | button / chip |
@@ -196,10 +196,10 @@
 | `fill` | 布尔（true 才保留） | 通用 |
 | `gap` | 数值 0~64（默认 8）；数值 0~32（默认 8） | 通用 / repeat |
 | `height` | 数值 24~72（默认 30）；数值 2~24（默认 6）；数值 24~180（默认 60） | button / chip / progress / sparkline |
-| `icon` | 字符串 ≤40 | button / chip |
+| `icon` | 字符串 ≤400 | button / chip |
 | `iconMap` | 字符串 ≤240 | 通用 |
 | `interactive` | 布尔（true 才保留） | progress |
-| `label` | 字符串 ≤40 | button / chip |
+| `label` | 字符串 ≤400 | button / chip |
 | `labelColor` | 字符串 ≤40 | sparkline |
 | `labelMap` | 字符串 ≤240 | 通用 |
 | `mainAlign` | 枚举：start / center / end / spaceBetween / spaceAround / spaceEvenly | 通用 |
@@ -220,7 +220,7 @@
 | `size` | 数值 8~48（默认 14）；数值 8~64（默认 24）；数值 16~96（默认 52） | text / icon / button / chip |
 | `stackAlign` | 枚举：topLeft / topCenter / topRight / centerLeft / center / centerRight / bottomLeft / bottomCenter / bottomRight | 通用 |
 | `style` | 字符串 ≤40 | button / chip |
-| `subLabel` | 字符串 ≤40 | button / chip |
+| `subLabel` | 字符串 ≤400 | button / chip |
 | `template` | 节点对象（repeat 模板） | repeat |
 | `thickness` | 数值 1~8（默认 1） | divider |
 | `value` | 字符串 ≤400；字符串 ≤40 | text / icon / button / chip / progress |
