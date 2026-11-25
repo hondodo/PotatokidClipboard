@@ -26,3 +26,4 @@ adb -s 192.168.31.5:5555 shell monkey -p potatokid.tools.homecontroller -c andro
 flutter build apk --release --flavor board \
   --dart-define=APP_FLAVOR=board \
   --no-tree-shake-icons
+flutter build apk --release --flavor phone  --dart-define=APP_FLAVOR=phone --no-tree-shake-icons
