@@ -1687,6 +1687,65 @@ void main() {
     expect(tester.getRect(find.text('+').first).right,
         lessThan(tester.getRect(find.text('−').last).left));
   });
+
+  testWidgets('bgMap 按数值阈值给节点着色，spacer/sizedBox 正常占位不溢出', (
+    WidgetTester tester,
+  ) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_threshold',
+      title: '阈值测试',
+      entities: <HaEntityStateModel>[
+        _entity('sensor.temp_p_2_1', '32', name: '温度'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'children': <dynamic>[
+          <String, dynamic>{
+            'type': 'row',
+            'bg': '{s:temp_p_2_1}',
+            'bgMap': '>=30=#FF5252,default=#4CAF50',
+            'bgRadius': 8,
+            'crossAlign': 'center',
+            'children': <dynamic>[
+              <String, dynamic>{'type': 'text', 'value': '{s:temp_p_2_1|>=30=高温,default=常温}°C', 'size': 14},
+              <String, dynamic>{'type': 'spacer', 'flex': 2},
+              <String, dynamic>{'type': 'sizedBox', 'width': 10, 'height': 4},
+              <String, dynamic>{'type': 'text', 'value': '尾', 'size': 12},
+            ],
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 120,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'sensor',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('高温°C'), findsOneWidget);
+    expect(find.text('尾'), findsOneWidget);
+    // 阈值命中 >=30 → 红色背景；default 不应覆盖已命中的规则。
+    final DecoratedBox decorated = tester.widget<DecoratedBox>(
+      find.byWidgetPredicate((Widget w) => w is DecoratedBox && w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).color == const Color(0xFFFF5252)),
+    );
+    expect((decorated.decoration as BoxDecoration).borderRadius, BorderRadius.circular(8));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// 与 deviceTypes.js CARD_LAYOUTS.climate 对齐的布局 JSON（测试用）。

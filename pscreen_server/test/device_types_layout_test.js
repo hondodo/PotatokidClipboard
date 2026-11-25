@@ -97,4 +97,39 @@ ok('自定义 chip/text 的长表达式也能通过清洗', () => {
     assertTemplateIntact(custom.color, '自定义 chip color');
 });
 
+ok('spacer/sizedBox 节点及 flex/width/height 通过白名单', () => {
+    const custom = normalizeCard({
+        layout: {
+            type: 'row',
+            children: [
+                { type: 'spacer', flex: 3 },
+                { type: 'sizedBox', width: 12, height: 8 },
+            ],
+        },
+    }, 'light').layout;
+    assert.strictEqual(custom.children[0].type, 'spacer');
+    assert.strictEqual(custom.children[0].flex, 3);
+    assert.strictEqual(custom.children[1].type, 'sizedBox');
+    assert.strictEqual(custom.children[1].width, 12);
+    assert.strictEqual(custom.children[1].height, 8);
+});
+
+ok('阈值映射字段 bg/bgMap/bgRadius 与数值规则不被清洗掉', () => {
+    const bgMap = '>=30=#FF5252,>=20=#FFB74D,default=#4CAF50';
+    const map = '>=1000=大功率,default=正常';
+    const colorMap = '>=80=#4CAF50,default=#9CA3AF';
+    const custom = normalizeCard({
+        layout: {
+            type: 'column',
+            bg: '{attr.current_temperature}', bgMap, bgRadius: 16,
+            children: [{ type: 'text', value: '{attr.power}', map, colorMap }],
+        },
+    }, 'light').layout;
+    assert.strictEqual(custom.bg, '{attr.current_temperature}');
+    assert.strictEqual(custom.bgMap, bgMap);
+    assert.strictEqual(custom.bgRadius, 16);
+    assert.strictEqual(custom.children[0].map, map);
+    assert.strictEqual(custom.children[0].colorMap, colorMap);
+});
+
 console.log(`[device types] 通过 ${passed} 项`);

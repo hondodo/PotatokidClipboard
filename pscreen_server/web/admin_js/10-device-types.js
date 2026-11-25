@@ -495,7 +495,7 @@
   if (reTestOnly) reTestOnly.addEventListener('change', () => { state.reTestIdx = 0; renderReTestSel(); });
 
   // 卡片布局编辑：格式化 / 校验 / 载入默认（清空=用默认布局）
-  const VALID_NODES = new Set(['row', 'column', 'wrap', 'stack', 'text', 'icon', 'button', 'chip', 'progress', 'sparkline', 'repeat', 'divider']);
+  const VALID_NODES = new Set(['row', 'column', 'wrap', 'stack', 'text', 'icon', 'button', 'chip', 'progress', 'sparkline', 'repeat', 'divider', 'spacer', 'sizedBox']);
   function validateLayoutTree(node, path = 'root', errors = []) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) { errors.push(`${path}: 节点必须是对象`); return errors; }
     if (!VALID_NODES.has(node.type)) errors.push(`${path}: 未知节点类型 ${node.type}`);
@@ -731,16 +731,24 @@
       _online: isOnline,
     };
   }
-  // 对齐 Flutter CardEvalContext.parseValueMap：支持逗号/中文逗号/分号/换行分隔，
-  // 等号 = / ＝，值可带单双引号；匹配时先原值、再小写兜底。
-  function pvValueMap(node) {
-    if (!node || !node.map) return null;
+  // 规则键的操作符前缀（>= <= != == > < =）。键带操作符时按阈值有序匹配。
+  function pvRuleOp(key) {
+    for (const op of ['>=', '<=', '!=', '==', '>', '<', '=']) {
+      if (key.startsWith(op)) return op;
+    }
+    return null;
+  }
+  // 对齐 Flutter CardEvalContext.parseValueMap / applyRules：
+  // 逗号/中文逗号/分号/换行分隔，键可带阈值操作符，default 兜底。
+  function pvParseRules(raw) {
+    if (!raw || !String(raw).trim()) return null;
     const out = {};
-    for (const part of String(node.map).split(/[,，;；\n]+/)) {
+    for (const part of String(raw).split(/[,，;；\n]+/)) {
       const seg = part.trim();
       if (!seg) continue;
-      const eq = seg.indexOf('=');
-      if (eq <= 0) continue;
+      const op = pvRuleOp(seg);
+      const eq = seg.indexOf('=', op ? op.length : 0);
+      if (eq <= (op ? op.length : 0)) continue;
       const key = seg.slice(0, eq).trim();
       let val = seg.slice(eq + 1).trim();
       if (val.length >= 2 && ((val[0] === "'" && val[val.length - 1] === "'")
@@ -750,6 +758,38 @@
       if (key) out[key] = val;
     }
     return Object.keys(out).length ? out : null;
+  }
+  // 对齐 Flutter applyRulesOrNull：精确匹配优先，再按出现顺序取首个成立阈值，default 兜底。
+  function pvApplyRules(raw, rules) {
+    if (!rules) return raw;
+    const v = String(raw);
+    if (Object.prototype.hasOwnProperty.call(rules, v)) return rules[v];
+    if (Object.prototype.hasOwnProperty.call(rules, v.toLowerCase())) return rules[v.toLowerCase()];
+    const n = Number(v);
+    const numeric = v.trim() !== '' && Number.isFinite(n);
+    let fallback;
+    for (const key of Object.keys(rules)) {
+      const low = key.toLowerCase();
+      if (low === 'default' || low === 'else') { if (fallback === undefined) fallback = rules[key]; continue; }
+      const op = pvRuleOp(key);
+      if (!op) continue;
+      const t = Number(key.slice(op.length).trim());
+      if (!Number.isFinite(t) || !numeric) continue;
+      let hit = false;
+      switch (op) {
+        case '>=': hit = n >= t; break;
+        case '<=': hit = n <= t; break;
+        case '>': hit = n > t; break;
+        case '<': hit = n < t; break;
+        case '!=': hit = n !== t; break;
+        default: hit = n === t;
+      }
+      if (hit) return rules[key];
+    }
+    return fallback !== undefined ? fallback : null;
+  }
+  function pvValueMap(node) {
+    return node && node.map ? pvParseRules(node.map) : null;
   }
   // 对齐 Flutter CardEvalContext.parseReplaceMap：子串替换表，
   // 引号包裹的一段内分隔符不切；等号 = / ＝；新串留空即删除子串。
@@ -889,6 +929,9 @@
   }
   function pvInlineRules(v, rules, ctx) {
     let out = String(v);
+    const original = out;
+    let matched = false;
+    let deferredDefault;
     for (const seg of String(rules).split(/[,，]/)) {
       const s = seg.trim();
       if (!s) continue;
@@ -936,14 +979,18 @@
         }
         continue;
       }
-      const eq = s.indexOf('=');
-      if (eq <= 0) continue;
-      const rk = s.slice(0, eq).trim();
-      let rv = s.slice(eq + 1).trim();
-      if (rv.length >= 2 && ((rv[0] === "'" && rv[rv.length - 1] === "'")
-        || (rv[0] === '"' && rv[rv.length - 1] === '"'))) rv = rv.slice(1, -1);
-      if (rk === out || rk.toLowerCase() === String(out).toLowerCase()) out = rv;
+      const one = pvParseRules(s);
+      if (!one) continue;
+      const key = Object.keys(one)[0];
+      const lowKey = key.toLowerCase();
+      if (lowKey === 'default' || lowKey === 'else') {
+        if (deferredDefault === undefined) deferredDefault = one[key];
+        continue;
+      }
+      const mapped = pvApplyRules(out, one);
+      if (mapped !== null) { out = mapped; matched = true; }
     }
+    if (!matched && deferredDefault !== undefined && out === original) out = deferredDefault;
     return out;
   }
   function pvResolve(raw, ctx, node, overrideMap) {
@@ -969,58 +1016,59 @@
       if (replace) for (const [old, nu] of Object.entries(replace)) {
         if (old) v = v.split(old).join(nu);
       }
-      if (map) v = Object.prototype.hasOwnProperty.call(map, v)
-        ? map[v]
-        : (Object.prototype.hasOwnProperty.call(map, v.toLowerCase()) ? map[v.toLowerCase()] : v);
+      if (map) {
+        const mapped = pvApplyRules(v, map);
+        v = mapped === null ? v : mapped;
+      }
       return v;
     });
+  }
+  // 比较求值：支持 = != == > >= < <=，数值可解析时按数值比较（与 Flutter _evalCondition 对齐）。
+  function pvCompare(expr, ctx) {
+    for (const op of ['>=', '<=', '!=', '==', '>', '<', '=']) {
+      const i = expr.indexOf(op);
+      if (i <= 0) continue;
+      const left = pvResolve(expr.slice(0, i).trim(), ctx, {}).trim();
+      let right = expr.slice(i + op.length).trim();
+      if (right.length >= 2 && ((right[0] === "'" && right[right.length - 1] === "'")
+        || (right[0] === '"' && right[right.length - 1] === '"'))) right = right.slice(1, -1);
+      const ln = Number(left), rn = Number(right);
+      const numeric = left !== '' && right !== '' && Number.isFinite(ln) && Number.isFinite(rn);
+      if (numeric) {
+        switch (op) {
+          case '>=': return ln >= rn;
+          case '<=': return ln <= rn;
+          case '>': return ln > rn;
+          case '<': return ln < rn;
+          case '!=': return ln !== rn;
+          default: return ln === rn;
+        }
+      }
+      switch (op) {
+        case '!=': return left !== right;
+        case '>=': return left >= right;
+        case '<=': return left <= right;
+        case '>': return left > right;
+        case '<': return left < right;
+        default: return left === right;
+      }
+    }
+    const raw = pvResolve(expr, ctx, {}).trim();
+    return raw !== '' && raw !== '0' && raw !== 'false';
   }
   // 真实设备预览时按 visibleWhen 显隐节点；示例数据模式保持原行为（不隐藏任何节点）。
   function pvVisible(node, ctx) {
     if (!ctx._real || !node.visibleWhen) return true;
-    const expr = String(node.visibleWhen).trim();
-    for (const op of ['!=', '==', '=']) {
-      const i = expr.indexOf(op);
-      if (i <= 0) continue;
-      const left = pvResolve(expr.slice(0, i).trim(), ctx, {}).trim();
-      let right = expr.slice(i + op.length).trim();
-      if (right.length >= 2 && ((right[0] === "'" && right[right.length - 1] === "'")
-        || (right[0] === '"' && right[right.length - 1] === '"'))) right = right.slice(1, -1);
-      return op === '!=' ? left !== right : left === right;
-    }
-    const raw = pvResolve(expr, ctx, {}).trim();
-    // 与 Flutter _evalCondition 一致：非空且不是 false/0 即为真。
-    return raw !== '' && raw !== '0' && raw !== 'false';
+    return pvCompare(String(node.visibleWhen).trim(), ctx);
   }
   // 与 Flutter enabledWhen 对齐：不满足时按钮仍显示但禁用（预览里降透明度示意）。
   function pvEnabled(node, ctx) {
     if (!ctx._real || !node.enabledWhen) return true;
-    const expr = String(node.enabledWhen).trim();
-    for (const op of ['!=', '==', '=']) {
-      const i = expr.indexOf(op);
-      if (i <= 0) continue;
-      const left = pvResolve(expr.slice(0, i).trim(), ctx, {}).trim();
-      let right = expr.slice(i + op.length).trim();
-      if (right.length >= 2 && ((right[0] === "'" && right[right.length - 1] === "'")
-        || (right[0] === '"' && right[right.length - 1] === '"'))) right = right.slice(1, -1);
-      return op === '!=' ? left !== right : left === right;
-    }
-    const raw = pvResolve(expr, ctx, {}).trim();
-    return raw !== '' && raw !== '0' && raw !== 'false';
+    return pvCompare(String(node.enabledWhen).trim(), ctx);
   }
   // 条件属性映射：colorMap/labelMap/iconMap 写法同 map，作用于各自属性的占位符求值。
   function pvAttrMap(node, field) {
-    if (!node || !node[field]) return null;
-    const out = {};
-    for (const part of String(node[field]).split(/[,，;；\n]+/)) {
-      const seg = part.trim();
-      if (!seg) continue;
-      const eq = seg.search(/[=＝]/);
-      if (eq <= 0) continue;
-      const k = seg.slice(0, eq).trim();
-      if (k) out[k] = seg.slice(eq + 1).trim();
-    }
-    return Object.keys(out).length ? out : null;
+    return node && node[field] ? pvParseRules(node[field]) : null;
   }
   function pvColor(raw, ctx, node, fallback) {
     const v = pvResolve(raw, ctx, node, pvAttrMap(node, 'colorMap')).trim();
@@ -1060,6 +1108,21 @@
     return v.startsWith('0;') ? `top:${v}` : v;
   }
   function renderPreviewNode(node, ctx) {
+    const inner = renderPreviewNodeInner(node, ctx);
+    if (!inner || !node || typeof node !== 'object' || Array.isArray(node)) return inner;
+    if (!['row', 'column', 'wrap', 'stack', 'text'].includes(node.type)) return inner;
+    let spec = node.bg;
+    if (node.bgMap) {
+      const src = (node.bg && String(node.bg).trim()) ? node.bg : (node.value || '');
+      const mapped = pvApplyRules(pvResolve(src, ctx, node), pvParseRules(node.bgMap));
+      spec = mapped === null ? null : mapped;
+    }
+    const bg = pvCardBg(spec);
+    if (!bg) return inner;
+    const radius = node.bgRadius != null ? Number(node.bgRadius) : 12;
+    return `<div style="background:${bg};border-radius:${radius}px">${inner}</div>`;
+  }
+  function renderPreviewNodeInner(node, ctx) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return '';
     if (!pvVisible(node, ctx)) return '';
     const type = node.type;
@@ -1076,6 +1139,16 @@
         const fillCss = (node.type === 'column' && node.fill) ? 'min-height:118px;' : '';
         return `<div style="display:flex;flex-direction:${pvFlexDir(node)};gap:${gap}px;`
           + `justify-content:${pvMainAlign(node)};align-items:${pvCrossAlign(node)};${pad}${flexCss}${fillCss}">${kids}</div>`;
+      }
+      if (type === 'spacer') {
+        const flex = node.flex != null ? Math.max(1, Math.min(20, Number(node.flex) || 1)) : 1;
+        return `<div style="flex:${flex} 1 0;min-width:1px;min-height:1px"></div>`;
+      }
+      if (type === 'sizedBox') {
+        const w = node.width != null ? Number(node.width) : 0;
+        const h = node.height != null ? Number(node.height) : 0;
+        const css = (w ? `width:${w}px;` : '') + (h ? `height:${h}px;` : '');
+        return `<div style="${css}flex:none"></div>`;
       }
       if (type === 'stack') {
         // 叠放容器：子节点绝对定位/对齐覆盖，预览用 relative + absolute 近似。

@@ -726,7 +726,7 @@ const CARD_LAYOUTS = {
 // {gangOnCount}，repeat 项用 {item.xxx}），服务端只做白名单校验与透传。
 const LAYOUT_NODE_TYPES = new Set([
     'row', 'column', 'wrap', 'stack', 'text', 'icon', 'button', 'chip',
-    'progress', 'sparkline', 'repeat', 'divider',
+    'progress', 'sparkline', 'repeat', 'divider', 'spacer', 'sizedBox',
 ]);
 const LAYOUT_MAX_DEPTH = 8;
 const LAYOUT_MAX_NODES = 120;
@@ -767,6 +767,10 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     if (value.colorMap != null) node.colorMap = str(value.colorMap, 240);
     if (value.labelMap != null) node.labelMap = str(value.labelMap, 240);
     if (value.iconMap != null) node.iconMap = str(value.iconMap, 240);
+    // 节点动态背景：bg 为颜色规范/占位符，bgMap 按求值结果做阈值着色（>=30=#FF5252,default=#4CAF50）。
+    if (value.bg != null) node.bg = str(value.bg, 400);
+    if (value.bgMap != null) node.bgMap = str(value.bgMap, 240);
+    if (value.bgRadius != null) node.bgRadius = num(value.bgRadius, 12, 0, 32);
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);
@@ -868,6 +872,15 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
         case 'divider':
             if (value.color != null) node.color = str(value.color, 40);
             if (value.thickness != null) node.thickness = num(value.thickness, 1, 1, 8);
+            break;
+        case 'spacer':
+            // 弹性空白：flex 权重 1~20（整数），默认 1。
+            if (value.flex != null) node.flex = Math.round(num(value.flex, 1, 1, 20));
+            break;
+        case 'sizedBox':
+            // 固定空白：宽高各 0~2000 像素，省略的维度不约束。
+            if (value.width != null) node.width = num(value.width, 0, 0, 2000);
+            if (value.height != null) node.height = num(value.height, 0, 0, 2000);
             break;
         case 'repeat':
             node.source = str(value.source || 'gangs', 40);

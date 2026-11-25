@@ -139,8 +139,38 @@ function buildInlineRules() {
     const desc = (meta && meta.desc) || commentAbove(arr, i, name) || '源码未写注释';
     rows.push([`\`|${meta ? meta.name : name}\``, desc]);
   });
-  rows.push(['`|key=值`', '通用整值映射：值可用单/双引号包住以保护逗号；多条用逗号 / 中文逗号 / 分号分隔']);
+  rows.push(['`|key=值`', '通用映射：整值精确匹配（兼容旧写法），键也可写阈值 `>=30` / `>30` / `<=20` / `<20` / `=30` / `!=30`，从上往下取首个命中，`default=` 兜底（与位置无关）；值可用单/双引号包住以保护逗号；多条用逗号 / 中文逗号 / 分号分隔']);
   return table('| 规则 | 作用 |', rows);
+}
+
+// ---------------------------------------------------------------- 阈值映射 / 条件比较
+function buildThresholdRules() {
+  return [
+    '数值类属性（温度、湿度、功率、电量、百分比……）可用**阈值区间**驱动文案 / 颜色 / 图标 / 背景，写法是在映射键前加比较符：',
+    '',
+    '```json',
+    '{ "type": "text", "value": "{attr.current_temperature}",',
+    '  "map": ">=30=高温,>=20=舒适,default=偏低" }',
+    '{ "type": "icon", "value": "{s:_battery_level_p_5_1}",',
+    '  "iconMap": ">=80=battery_full,>=50=battery_50,>=20=battery_20,default=battery_alert" }',
+    '{ "type": "column", "bg": "{attr.current_temperature}",',
+    '  "bgMap": ">=30=#FF5252,>=20=#FFB74D,default=#4CAF50", "bgRadius": 12,',
+    '  "children": [ ... ] }',
+    '```',
+    '',
+    '| 键 | 含义 |',
+    '| --- | --- |',
+    '| `>=30` / `>30` / `<=20` / `<20` / `=30` / `!=30` | 把求值结果转成数值后按阈值比较；多条**从上往下取首个命中**（所以降序写 `>=30,>=20`） |',
+    '| `default=`（或 `else=`） | 前面都没命中时的兜底，位置无关；不写则保留原值 |',
+    '| `on=` / `off=` 等普通键 | 整值精确匹配（兼容旧写法），优先于阈值判断 |',
+    '',
+    '适用字段：`map`、`colorMap`、`iconMap`、`labelMap`、`bgMap`（以及占位符内联 `|>=30=...`）。',
+    '`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。',
+    '',
+    '`visibleWhen` / `enabledWhen` 同样支持数值比较，例如 `"{attr.battery_level}>=20"`、`"{attr.current_temperature}<28"`；两边都能转成数字时按数值比，否则按字符串比。',
+    '',
+    '> 阈值映射与 `bgMap` 是新增解析能力，**旧版 App 不认识，需重编安装**；后台预览会尝试近似渲染，以 App 实际显示为准。',
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------- 节点类型
@@ -160,6 +190,8 @@ function buildNodeTypes() {
     sparkline: '功率曲线；metric(power/temperature/humidity) / window / height / showLabels',
     repeat: '重复模板；source / item / columns / gap / template',
     divider: '分割线；color / thickness',
+    spacer: '弹性空白（等价 Flutter Spacer）；flex 权重 1~20（默认 1），必须作为 row/column 的直接子节点，容器需有有界尺寸',
+    sizedBox: '固定空白（等价 Flutter SizedBox）；width / height 像素 0~2000，省略的维度不约束',
   };
   return table('| type | 主要字段 |', types.map((t) => [`\`${t}\``, desc[t] || '见源码 sanitizeLayout']));
 }
@@ -297,6 +329,7 @@ function buildDatePatterns() {
 const sections = {
   placeholders: buildPlaceholders(),
   inlineRules: buildInlineRules(),
+  thresholdRules: buildThresholdRules(),
   nodeTypes: buildNodeTypes(),
   cardFields: buildCardFields(),
   fields: buildFields(),

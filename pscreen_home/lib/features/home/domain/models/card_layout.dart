@@ -9,7 +9,8 @@ import 'package:pscreen_home/features/home/domain/models/multi_switch_summary.da
 /// 通用卡片布局树（服务端 deviceTypes.js 下发，字段与之对齐）。
 ///
 /// 节点类型：row / column / wrap / text / icon / button / chip / progress /
-/// sparkline / repeat / divider。渲染层见 presentation/components/json_card_renderer.dart。
+/// sparkline / repeat / divider / spacer / sizedBox。
+/// 渲染层见 presentation/components/json_card_renderer.dart。
 /// 这里只做「解析 + 占位符求值」，不依赖 Flutter，便于单测。
 class CardLayoutNode {
   const CardLayoutNode({
@@ -24,6 +25,10 @@ class CardLayoutNode {
     this.size,
     this.weight,
     this.color,
+    // 节点背景：bg 是颜色规范（可含占位符），bgMap 按同一求值结果选区间颜色。
+    this.bg,
+    this.bgMap,
+    this.bgRadius,
     this.maxLines,
     this.align,
     this.icon,
@@ -60,6 +65,8 @@ class CardLayoutNode {
     this.marqueeDirection,
     this.marqueePause = 2,
     this.marqueeSpeed = 40,
+    this.flex,
+    this.width,
     this.children = const <CardLayoutNode>[],
     this.template,
   });
@@ -76,6 +83,12 @@ class CardLayoutNode {
   final double? size;
   final int? weight;
   final String? color;
+  /// 节点背景色（颜色规范/占位符/阈值规则结果），由 bgMap 命中后覆盖。
+  final String? bg;
+  /// 背景色阈值映射，如 ">=30=#FF5252,>=20=#FFB74D,default=#4CAF50"。
+  final String? bgMap;
+  /// 背景圆角，默认 12。
+  final double? bgRadius;
   final int? maxLines;
   final String? align;
   final String? icon;
@@ -135,6 +148,10 @@ class CardLayoutNode {
   final double marqueePause;
   /// 滚动速度，逻辑像素/秒（默认 40）。
   final double marqueeSpeed;
+  /// spacer 节点：权重（默认 1）。多个 spacer 按 flex 比例分配剩余空间。
+  final double? flex;
+  /// sizedBox 节点：固定宽度（像素，null 表示不约束）。
+  final double? width;
   final List<CardLayoutNode> children;
   final CardLayoutNode? template;
 
@@ -164,6 +181,9 @@ class CardLayoutNode {
       size: _num(json['size']),
       weight: (json['weight'] as num?)?.toInt(),
       color: json['color'] as String?,
+      bg: json['bg'] as String?,
+      bgMap: json['bgMap'] == null ? null : '${json['bgMap']}',
+      bgRadius: _num(json['bgRadius']),
       maxLines: (json['maxLines'] as num?)?.toInt(),
       align: json['align'] as String?,
       icon: json['icon'] as String?,
@@ -206,6 +226,8 @@ class CardLayoutNode {
       marqueeDirection: json['marqueeDirection'] as String?,
       marqueePause: _num(json['marqueePause']) ?? 2,
       marqueeSpeed: _num(json['marqueeSpeed']) ?? 40,
+      flex: _num(json['flex']),
+      width: _num(json['width']),
       children: children,
       template: rawTpl is Map
           ? CardLayoutNode.fromJson(
@@ -424,6 +446,9 @@ class CardEvalContext {
   /// 逗号分隔多条；值可用单/双引号包住以保护逗号。
   String _applyInlineRules(String value, String rules) {
     String out = value;
+    // default 是兜底：只有前面没有任何规则/when 命中时才生效，且不受规则出现顺序影响。
+    String? deferredDefault;
+    bool matched = false;
     final List<String> segments = _splitRuleSegments(rules);
     for (final String seg in segments) {
       final String s = seg.trim();
@@ -488,17 +513,21 @@ class CardEvalContext {
         }
         continue;
       }
-      final int eq = s.indexOf('=');
-      if (eq <= 0) continue;
-      final String rk = s.substring(0, eq).trim();
-      String rv = s.substring(eq + 1).trim();
-      if (rv.length >= 2 &&
-          ((rv.startsWith("'") && rv.endsWith("'")) ||
-              (rv.startsWith('"') && rv.endsWith('"')))) {
-        rv = rv.substring(1, rv.length - 1);
+      final MapEntry<String, String>? rule = _parseRuleSegment(s);
+      if (rule == null) continue;
+      final String ruleLow = rule.key.toLowerCase();
+      if (ruleLow == 'default' || ruleLow == 'else') {
+        deferredDefault ??= rule.value;
+        continue;
       }
-      if (rk == out || rk.toLowerCase() == out.toLowerCase()) out = rv;
+      final String? hit = applyRulesOrNull(out, <String, String>{rule.key: rule.value});
+      if (hit != null) {
+        out = hit;
+        matched = true;
+      }
     }
+    // 前面的转换规则（pct/date/ago/when）也算「已命中」，不再套 default 兜底。
+    if (!matched && deferredDefault != null && out == value) out = deferredDefault;
     return out;
   }
 
@@ -664,23 +693,14 @@ class CardEvalContext {
   }
 
   /// 把原始值按 map（"on=着灯,off=关闭"）替换；解析规则与 ESP 一致。
+  /// 键可带比较符（">=30=高温"），此时由 [applyRules] 按有序阈值匹配。
   static Map<String, String>? parseValueMap(String? raw) {
     if (raw == null || raw.trim().isEmpty) return null;
     final Map<String, String> out = <String, String>{};
-    // 逗号 / 中文逗号 / 分号 / 换行分隔；等号支持 = 与 ＝。
-    for (final String part in raw.split(RegExp(r'[,，;；\n]+'))) {
-      final String seg = part.trim();
-      if (seg.isEmpty) continue;
-      final int eq = seg.indexOf('=');
-      if (eq <= 0) continue;
-      final String key = seg.substring(0, eq).trim();
-      String val = seg.substring(eq + 1).trim();
-      if (val.length >= 2 &&
-          ((val.startsWith("'") && val.endsWith("'")) ||
-              (val.startsWith('"') && val.endsWith('"')))) {
-        val = val.substring(1, val.length - 1);
-      }
-      if (key.isNotEmpty) out[key] = val;
+    // 逗号 / 中文逗号 / 分号 / 换行分隔；引号内的分隔符不切。
+    for (final String seg in _splitRuleSegments(raw)) {
+      final MapEntry<String, String>? rule = _parseRuleSegment(seg);
+      if (rule != null) out[rule.key] = rule.value;
     }
     return out.isEmpty ? null : out;
   }
@@ -740,9 +760,89 @@ class CardEvalContext {
     return out.isEmpty ? null : out;
   }
 
-  String _applyValueMap(String raw, Map<String, String>? valueMap) {
-    if (valueMap == null || valueMap.isEmpty) return raw;
-    return valueMap[raw] ?? valueMap[raw.toLowerCase()] ?? raw;
+  String _applyValueMap(String raw, Map<String, String>? valueMap) =>
+      applyRules(raw, valueMap);
+
+  /// 有序规则匹配（阈值区间 + 整值精确，兼容旧 map 写法）。
+  /// 规则按出现顺序检查，第一条命中的数值比较胜出；`default` 作兜底，
+  /// 与位置无关。支持 `>=` `<=` `!=` `==` `>` `<` `=`；非数值输入只走精确匹配。
+  static String applyRules(String raw, Map<String, String>? rules) =>
+      applyRulesOrNull(raw, rules) ?? raw;
+
+  /// 同 [applyRules]，但没有任何规则命中（也没有 default）时返回 null，
+  /// 供动态背景等场景区分「未命中」与「命中了空串」。
+  static String? applyRulesOrNull(String raw, Map<String, String>? rules) {
+    if (rules == null || rules.isEmpty) return null;
+    // 整值精确匹配优先，保持旧写法（on=开,off=关）行为不变。
+    final String? exact = rules[raw] ?? rules[raw.toLowerCase()];
+    if (exact != null) return exact;
+    final num? n = num.tryParse(raw.trim());
+    String? fallback;
+    for (final MapEntry<String, String> e in rules.entries) {
+      final String key = e.key;
+      final String low = key.toLowerCase();
+      if (low == 'default' || low == 'else') {
+        fallback ??= e.value;
+        continue;
+      }
+      final String? op = _ruleOperator(key);
+      if (op == null) continue;
+      final num? threshold = num.tryParse(key.substring(op.length).trim());
+      if (threshold == null || n == null) continue;
+      final bool hit;
+      switch (op) {
+        case '>=':
+          hit = n >= threshold;
+          break;
+        case '<=':
+          hit = n <= threshold;
+          break;
+        case '>':
+          hit = n > threshold;
+          break;
+        case '<':
+          hit = n < threshold;
+          break;
+        case '!=':
+          hit = n != threshold;
+          break;
+        case '==':
+        case '=':
+          hit = n == threshold;
+          break;
+        default:
+          hit = false;
+      }
+      if (hit) return e.value;
+    }
+    return fallback;
+  }
+
+  /// 取规则键的比较操作符前缀；没有则返回 null（即普通精确键）。
+  static String? _ruleOperator(String key) {
+    for (final String op in const <String>['>=', '<=', '!=', '==', '>', '<', '=']) {
+      if (key.startsWith(op)) return op;
+    }
+    return null;
+  }
+
+  /// 解析单条 `key=value` 规则，支持 key 自带比较符（如 `>=30=高温`）。
+  /// 值可用单/双引号包裹以保护首尾空格。
+  static MapEntry<String, String>? _parseRuleSegment(String seg) {
+    final String s = seg.trim();
+    if (s.isEmpty) return null;
+    final String? op = _ruleOperator(s);
+    final int eq = s.indexOf('=', op == null ? 0 : op.length);
+    if (eq <= (op == null ? 0 : op.length)) return null;
+    final String key = s.substring(0, eq).trim();
+    if (key.isEmpty) return null;
+    String val = s.substring(eq + 1).trim();
+    if (val.length >= 2 &&
+        ((val.startsWith("'") && val.endsWith("'")) ||
+            (val.startsWith('"') && val.endsWith('"')))) {
+      val = val.substring(1, val.length - 1);
+    }
+    return MapEntry<String, String>(key, val);
   }
 
   /// 先子串替换（replace），再整值精确替换（map）。
@@ -774,18 +874,52 @@ class CardEvalContext {
     return s;
   }
 
-  /// 求值 visibleWhen / 三元条件：支持 = / != / 真值占位符。
+  /// 求值 visibleWhen / enabledWhen / 三元条件。
+  /// 支持 `= != == > >= < <=` 与真值占位符；比较时两边若能解析为数值则按数值比较，
+  /// 否则按字符串比较（如 `{attr.battery_level}>=20`）。
   bool evalCondition(String expr) => _evalCondition(expr.trim());
 
   bool _evalCondition(String raw) {
     if (raw.isEmpty) return true;
-    // a != b / a = b / a == b
-    for (final String op in <String>['!=', '==', '=']) {
+    // 长操作符优先，避免 ">=" 被当成 ">" 或 "=" 提前截断。
+    for (final String op in <String>['>=', '<=', '!=', '==', '>', '<', '=']) {
       final int idx = raw.indexOf(op);
-      if (idx > 0) {
-        final String left = resolve(raw.substring(0, idx).trim());
-        final String right = _unquote(resolve(raw.substring(idx + op.length).trim()));
-        return op == '!=' ? left != right : left == right;
+      if (idx <= 0) continue;
+      final String left = resolve(raw.substring(0, idx).trim());
+      final String right = _unquote(resolve(raw.substring(idx + op.length).trim()));
+      final num? ln = num.tryParse(left.trim());
+      final num? rn = num.tryParse(right.trim());
+      if (ln != null && rn != null) {
+        switch (op) {
+          case '>=':
+            return ln >= rn;
+          case '<=':
+            return ln <= rn;
+          case '>':
+            return ln > rn;
+          case '<':
+            return ln < rn;
+          case '!=':
+            return ln != rn;
+          default:
+            return ln == rn;
+        }
+      }
+      switch (op) {
+        case '!=':
+          return left != right;
+        case '>=':
+        case '<=':
+        case '>':
+        case '<':
+          // 非数值无法比较大小，按字符串字典序兜底，行为可预期。
+          final int cmp = left.compareTo(right);
+          if (op == '>=') return cmp >= 0;
+          if (op == '<=') return cmp <= 0;
+          if (op == '>') return cmp > 0;
+          return cmp < 0;
+        default:
+          return left == right;
       }
     }
     final String v = resolve(raw);

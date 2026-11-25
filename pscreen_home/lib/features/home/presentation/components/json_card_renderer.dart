@@ -94,6 +94,46 @@ class JsonCardRenderer extends StatelessWidget {
     Map<String, String>? itemValues,
     String? itemName,
   }) {
+    final Widget built = _buildNodeInner(
+      context, node, ctx, available,
+      itemValues: itemValues, itemName: itemName,
+    );
+    // 节点背景：bg 可写颜色规范或占位符；bgMap 按 bg 求值出来的原始值做阈值匹配，
+    // 命中后覆盖 bg。仅 row/column/wrap/stack/text 这类容器与文本使用，
+    // chip/button 的背景由自身 button style 管，避免样式冲突。
+    final bool bgSupported = <String>['row', 'column', 'wrap', 'stack', 'text'].contains(node.type);
+    if (!bgSupported || (node.bg == null && node.bgMap == null)) {
+      return built;
+    }
+    final ThemeData theme = Theme.of(context);
+    final CardEvalContext eval = (itemValues != null && itemName != null)
+        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues, areaLabel: areaLabel ?? '')
+        : ctx;
+    final String? bgSpec = node.bgMap == null
+        ? node.bg
+        : eval.resolve(
+            (node.bg != null && node.bg!.isNotEmpty) ? node.bg! : (node.value ?? ''),
+            CardEvalContext.parseValueMap(node.bgMap),
+          );
+    final Color? bgColor = _color(bgSpec, theme, eval);
+    if (bgColor == null) return built;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(node.bgRadius ?? 12),
+      ),
+      child: built,
+    );
+  }
+
+  Widget _buildNodeInner(
+    BuildContext context,
+    CardLayoutNode node,
+    CardEvalContext ctx,
+    bool available, {
+    Map<String, String>? itemValues,
+    String? itemName,
+  }) {
     final ThemeData theme = Theme.of(context);
     final CardEvalContext eval = (itemValues != null && itemName != null)
         ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues, areaLabel: areaLabel ?? '')
@@ -156,6 +196,13 @@ class JsonCardRenderer extends StatelessWidget {
           thickness: node.thickness ?? 1,
           color: _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? theme.dividerColor,
         );
+      case 'spacer':
+        // 弹性空白：必须放在 row/column 的直接子节点（Spacer 本质是 Expanded）。
+        // flex 权重决定多个 spacer 如何分配剩余空间；行/列需有有界尺寸。
+        return Spacer(flex: node.flex == null ? 1 : node.flex!.round().clamp(1, 20));
+      case 'sizedBox':
+        // 固定空白：width/height 省略的维度不约束。两者都省略即零尺寸占位。
+        return SizedBox(width: node.width, height: node.height);
       case 'repeat':
         return _buildRepeat(context, node, eval, available);
       default:

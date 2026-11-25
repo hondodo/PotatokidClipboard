@@ -122,7 +122,8 @@
 | `|maxWith=<占位符 key>` | 当前值与另一个占位符都是 ISO 时间时取较晚者；非时间值以可解析的一方为准 |
 | `|ago` | ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）；非时间值原样返回 |
 | `|when=<key>:<期望值>=<文案>` | 另一个占位符当前值等于期望值时，把本占位符输出替换为文案（key 含冒号，如 s:_charging_state_p_5_2；如充电中覆盖开机文案） |
-| `|key=值` | 通用整值映射：值可用单/双引号包住以保护逗号；多条用逗号 / 中文逗号 / 分号分隔 |
+| `|default` | 源码未写注释 |
+| `|key=值` | 通用映射：整值精确匹配（兼容旧写法），键也可写阈值 `>=30` / `>30` / `<=20` / `<20` / `=30` / `!=30`，从上往下取首个命中，`default=` 兜底（与位置无关）；值可用单/双引号包住以保护逗号；多条用逗号 / 中文逗号 / 分号分隔 |
 <!-- AUTO:END -->
 
 要点：
@@ -132,6 +133,35 @@
 - `pct` 只处理数值；已是 0-100 的百分比不会二次换算。
 - `maxWith=<占位符 key>` 的 key 也是完整占位符写法（如 `s:_device_disconnect_e_2_2`）。
 - `date` / `ago` / `maxWith` 是较新增的解析能力，**旧版 App 不认识，需重编安装**；后台预览只是近似实现，以 App 实际显示为准。
+
+### 3.1 数值阈值：按温度/电量/功率变色、换图标、改文案
+
+<!-- AUTO:thresholdRules -->
+数值类属性（温度、湿度、功率、电量、百分比……）可用**阈值区间**驱动文案 / 颜色 / 图标 / 背景，写法是在映射键前加比较符：
+
+```json
+{ "type": "text", "value": "{attr.current_temperature}",
+  "map": ">=30=高温,>=20=舒适,default=偏低" }
+{ "type": "icon", "value": "{s:_battery_level_p_5_1}",
+  "iconMap": ">=80=battery_full,>=50=battery_50,>=20=battery_20,default=battery_alert" }
+{ "type": "column", "bg": "{attr.current_temperature}",
+  "bgMap": ">=30=#FF5252,>=20=#FFB74D,default=#4CAF50", "bgRadius": 12,
+  "children": [ ... ] }
+```
+
+| 键 | 含义 |
+| --- | --- |
+| `>=30` / `>30` / `<=20` / `<20` / `=30` / `!=30` | 把求值结果转成数值后按阈值比较；多条**从上往下取首个命中**（所以降序写 `>=30,>=20`） |
+| `default=`（或 `else=`） | 前面都没命中时的兜底，位置无关；不写则保留原值 |
+| `on=` / `off=` 等普通键 | 整值精确匹配（兼容旧写法），优先于阈值判断 |
+
+适用字段：`map`、`colorMap`、`iconMap`、`labelMap`、`bgMap`（以及占位符内联 `|>=30=...`）。
+`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。
+
+`visibleWhen` / `enabledWhen` 同样支持数值比较，例如 `"{attr.battery_level}>=20"`、`"{attr.current_temperature}<28"`；两边都能转成数字时按数值比，否则按字符串比。
+
+> 阈值映射与 `bgMap` 是新增解析能力，**旧版 App 不认识，需重编安装**；后台预览会尝试近似渲染，以 App 实际显示为准。
+<!-- AUTO:END -->
 
 ---
 
@@ -176,6 +206,8 @@
 | `sparkline` | 功率曲线；metric(power/temperature/humidity) / window / height / showLabels |
 | `repeat` | 重复模板；source / item / columns / gap / template |
 | `divider` | 分割线；color / thickness |
+| `spacer` | 弹性空白（等价 Flutter Spacer）；flex 权重 1~20（默认 1），必须作为 row/column 的直接子节点，容器需有有界尺寸 |
+| `sizedBox` | 固定空白（等价 Flutter SizedBox）；width / height 像素 0~2000，省略的维度不约束 |
 <!-- AUTO:END -->
 
 ### 4.2 保存时真正保留的字段
@@ -185,6 +217,9 @@
 <!-- AUTO:fields -->
 | 字段 | 类型 / 值域 | 适用节点 |
 | --- | --- | --- |
+| `bg` | 字符串 ≤400 | 通用 |
+| `bgMap` | 字符串 ≤240 | 通用 |
+| `bgRadius` | 数值 0~32（默认 12） | 通用 |
 | `box` | 对象 {size 16~96, radius 0~32, bg, color} | icon |
 | `children` | 子节点数组（最多 24 个） | 通用 |
 | `color` | 字符串 ≤400；字符串 ≤40 | text / icon / button / chip / progress / sparkline / divider |
@@ -194,6 +229,7 @@
 | `enabledWhen` | 字符串 ≤120 | 通用 |
 | `expand` | 布尔（true 才保留） | 通用 / sparkline |
 | `fill` | 布尔（true 才保留） | 通用 |
+| `flex` | 数值 1~20（默认 1） | spacer |
 | `gap` | 数值 0~64（默认 8）；数值 0~32（默认 8） | 通用 / repeat |
 | `height` | 数值 24~72（默认 30）；数值 2~24（默认 6）；数值 24~180（默认 60） | button / chip / progress / sparkline |
 | `icon` | 字符串 ≤400 | button / chip |

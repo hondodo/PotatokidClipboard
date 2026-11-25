@@ -192,6 +192,100 @@ void main() {
     });
   });
 
+  group('数值阈值映射', () {
+    test('applyRules 按出现顺序取首个命中，default 兜底', () {
+      final Map<String, String> rules = CardEvalContext.parseValueMap(
+        '>=30=高温,>=20=舒适,default=偏低',
+      )!;
+      expect(CardEvalContext.applyRules('32.5', rules), '高温');
+      expect(CardEvalContext.applyRules('26', rules), '舒适');
+      expect(CardEvalContext.applyRules('12', rules), '偏低');
+      expect(CardEvalContext.applyRules('unknown', rules), '偏低');
+      // default 写在最前面也一样兜底。
+      final Map<String, String> reversed = CardEvalContext.parseValueMap(
+        'default=偏低,>=20=舒适',
+      )!;
+      expect(CardEvalContext.applyRules('25', reversed), '舒适');
+      expect(CardEvalContext.applyRules('5', reversed), '偏低');
+    });
+
+    test('支持 > <= < = != 与整值精确匹配', () {
+      // 注意从上往下首个命中胜出：=0 要写在 <=20 前面才生效。
+      final Map<String, String> rules = CardEvalContext.parseValueMap(
+        '>1000=大功率,=0=零,<=20=低电量,!=0=有值,on=开启',
+      )!;
+      expect(CardEvalContext.applyRules('1500', rules), '大功率');
+      expect(CardEvalContext.applyRules('15', rules), '低电量');
+      expect(CardEvalContext.applyRules('0', rules), '零');
+      expect(CardEvalContext.applyRules('55', rules), '有值');
+      expect(CardEvalContext.applyRules('on', rules), '开启');
+      expect(CardEvalContext.applyRules('off', rules), 'off');
+    });
+
+    test('无 default 且未命中时返回原值，applyRulesOrNull 能区分未命中', () {
+      final Map<String, String> rules = CardEvalContext.parseValueMap('>=50=高')!;
+      expect(CardEvalContext.applyRules('10', rules), '10');
+      expect(CardEvalContext.applyRulesOrNull('10', rules), isNull);
+      expect(CardEvalContext.applyRulesOrNull('80', rules), '高');
+    });
+
+    test('内联占位符规则同样支持阈值与 default', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev.test',
+        title: '客厅',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.temp', '26.5', name: '温度'),
+          _entity('sensor.hum', '42', name: '湿度'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('{s:temp|>=30=高温,>=20=舒适,default=偏低}'), '舒适');
+      expect(ctx.resolve('{s:hum|>=50=潮,default=干}'), '干');
+    });
+
+    test('visibleWhen 支持数值比较', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev.test',
+        title: '客厅',
+        entities: <HaEntityStateModel>[_entity('sensor.battery', '25', name: '电量')],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.evalCondition('{s:battery}>=20'), isTrue);
+      expect(ctx.evalCondition('{s:battery}>=30'), isFalse);
+      expect(ctx.evalCondition('{s:battery}<30'), isTrue);
+      expect(ctx.evalCondition('{s:battery}!=25'), isFalse);
+    });
+  });
+
+  group('spacer / sizedBox 解析', () {
+    test('flex 与 width/height 从 JSON 读出', () {
+      final CardLayoutNode row = CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'row',
+        'children': <dynamic>[
+          <String, dynamic>{'type': 'spacer', 'flex': 3},
+          <String, dynamic>{'type': 'sizedBox', 'width': 12, 'height': 8},
+        ],
+      });
+      expect(row.children[0].type, 'spacer');
+      expect(row.children[0].flex, 3);
+      expect(row.children[1].type, 'sizedBox');
+      expect(row.children[1].width, 12);
+      expect(row.children[1].height, 8);
+    });
+
+    test('bg / bgMap / bgRadius 从 JSON 读出', () {
+      final CardLayoutNode node = CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'bg': '{attr.current_temperature}',
+        'bgMap': '>=30=#FF5252,default=#4CAF50',
+        'bgRadius': 16,
+      });
+      expect(node.bg, '{attr.current_temperature}');
+      expect(node.bgMap, '>=30=#FF5252,default=#4CAF50');
+      expect(node.bgRadius, 16);
+    });
+  });
+
   group('默认布局', () {
     test('multi_switch 用 repeat 大按钮，无「已开启路数」文字', () {
       const DeviceCardConfig card = DeviceCardConfig();
