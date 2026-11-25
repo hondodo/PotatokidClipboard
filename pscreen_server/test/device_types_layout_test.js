@@ -65,6 +65,15 @@ ok('空调默认布局有风速 ± 步进，且按 fan_modes 索引钳制两端'
     assert.ok(!JSON.stringify(fan).includes('一档'));
 });
 
+ok('空调第二行按内容宽度排布：首列显式 crossAlign，行用 spaceBetween', () => {
+    const row = layout.children[1];
+    assert.strictEqual(row.mainAlign, 'spaceBetween');
+    // column 默认 crossAlign 为 stretch，会把分配宽度撑满；首列必须显式声明。
+    assert.strictEqual(row.children[0].crossAlign, 'start');
+    assert.strictEqual(row.children[0].expand, undefined);
+    for (const group of row.children) assert.strictEqual(group.type, 'column');
+});
+
 ok('空调关机时所有操作按钮禁用，电源键仍可点', () => {
     const row = layout.children[1];
     // 目标温度 −/+、风速 −/+

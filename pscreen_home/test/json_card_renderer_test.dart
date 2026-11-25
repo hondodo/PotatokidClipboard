@@ -1636,10 +1636,10 @@ Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
       ],
     },
     <String, dynamic>{
-      'type': 'row', 'gap': 8, 'crossAlign': 'center',
+      'type': 'row', 'gap': 8, 'crossAlign': 'center', 'mainAlign': 'spaceBetween',
       'children': <Map<String, dynamic>>[
         <String, dynamic>{
-          'type': 'column', 'gap': 1, 'expand': true,
+          'type': 'column', 'gap': 1, 'crossAlign': 'start',
           'children': <Map<String, dynamic>>[
             <String, dynamic>{'type': 'text', 'value': '当前温度', 'size': 11, 'color': 'outline', 'maxLines': 1},
             <String, dynamic>{'type': 'text', 'value': '{attr.current_temperature}°C', 'size': 28, 'weight': 700, 'color': '{color}', 'maxLines': 1},

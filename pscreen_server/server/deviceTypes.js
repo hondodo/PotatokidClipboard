@@ -263,10 +263,13 @@ const CARD_LAYOUTS = {
                 ],
             },
             {
-                type: 'row', gap: 8, crossAlign: 'center',
+                // 四组按内容宽度排列，spaceBetween 均匀铺开；
+                // 第一列必须显式 crossAlign:'start'，否则 column 默认 stretch
+                // 会把分配到的宽度撑满，看起来"当前温度"占了很多空间。
+                type: 'row', gap: 8, crossAlign: 'center', mainAlign: 'spaceBetween',
                 children: [
                     {
-                        type: 'column', gap: 1, expand: true,
+                        type: 'column', gap: 1, crossAlign: 'start',
                         children: [
                             { type: 'text', value: '当前温度',
                               size: 11, color: 'outline', maxLines: 1 },
