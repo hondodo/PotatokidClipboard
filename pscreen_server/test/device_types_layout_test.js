@@ -132,4 +132,23 @@ ok('阈值映射字段 bg/bgMap/bgRadius 与数值规则不被清洗掉', () => 
     assert.strictEqual(custom.children[0].colorMap, colorMap);
 });
 
+ok('unavailableColor 字段通过白名单（不可用时自定义前景色）', () => {
+    const custom = normalizeCard({
+        layout: {
+            type: 'column',
+            children: [
+                {
+                    type: 'icon', value: '{icon}', size: 24,
+                    color: '{color}', unavailableColor: '#4dd4ac',
+                    box: { size: 46, radius: 12, bg: '{color}26', color: '{color}' },
+                },
+                { type: 'text', value: '路由器', unavailableColor: '>=80=#00BFFF,default=#E30B5C' },
+            ],
+        },
+    }, 'router').layout;
+    assert.strictEqual(custom.children[0].unavailableColor, '#4dd4ac');
+    assert.strictEqual(custom.children[0].box.color, '{color}');
+    assert.strictEqual(custom.children[1].unavailableColor, '>=80=#00BFFF,default=#E30B5C');
+});
+
 console.log(`[device types] 通过 ${passed} 项`);

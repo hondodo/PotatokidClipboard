@@ -1088,6 +1088,14 @@
       : (node.colorMap ? node.value : null);
     return pvColor(raw, ctx, node, fallback);
   }
+  // 与 Flutter _unavailableColor 对齐：不可用时优先用节点显式配的 unavailableColor，
+  // 未配置回退主题禁用灰。支持占位符/colorMap/8 位透明色。
+  function pvUnavailableColor(node, ctx, fallback) {
+    if (node.unavailableColor != null && String(node.unavailableColor) !== '') {
+      return pvColor(node.unavailableColor, ctx, node, fallback);
+    }
+    return fallback || '#6b7d8e';
+  }
   function pvFlexDir(node) {
     const t = node.type;
     if (t === 'row') return 'row';
@@ -1182,7 +1190,8 @@
         const txt = pvResolve(node.value, ctx, node);
         const size = node.size != null ? Number(node.size) : 14;
         const weight = node.weight != null ? Number(node.weight) : 400;
-        const color = pvNodeColor(node, ctx, '#e7eef6');
+        const color = online ? pvNodeColor(node, ctx, '#e7eef6')
+          : pvUnavailableColor(node, ctx, '#6b7d8e');
         const align = node.align || 'left';
         const autoLines = 1 + (String(txt).match(/\n/g) || []).length;
         const lines = node.maxLines != null ? Number(node.maxLines) : Math.min(6, autoLines);
@@ -1218,8 +1227,10 @@
         const boxSize = box.size != null ? Number(box.size) : 0;
         const radius = box.radius != null ? Number(box.radius) : 12;
         const bg = box.bg ? pvColor(box.bg, ctx, node, '') : '';
-        // icon 前景色：box.color/node.color 优先；配了 colorMap 且两者都留空时取 value。
-        const fg = box.color ? pvColor(box.color, ctx, node, ctx.color)
+        // icon 前景色：不可用时优先用 unavailableColor；在线时 box.color/node.color 优先，
+        // 配了 colorMap 且两者都留空时取 value。
+        const fg = !online ? pvUnavailableColor(node, ctx, '#6b7d8e')
+          : box.color ? pvColor(box.color, ctx, node, ctx.color)
           : ((node.color != null && String(node.color) !== '') || !node.colorMap
             ? ctx.color : pvNodeColor(node, ctx, ctx.color));
         const inner = `<span style="font-size:${size}px;line-height:1;color:${fg}">${esc(val)}</span>`;

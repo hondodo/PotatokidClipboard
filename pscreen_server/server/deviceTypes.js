@@ -765,6 +765,9 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     // 条件属性映射：分别对 color/label/icon 的占位符求值做整值替换，
     // 让一个节点按状态变色/变文案/变图标（如 colorMap: on=#FF7043,off=#4dd4ac）。
     if (value.colorMap != null) node.colorMap = str(value.colorMap, 240);
+    // 设备不可用时的前景色：icon/text 渲染时优先用它，留空回退主题禁用色 outline。
+    // 支持 #RRGGBB / #RRGGBBAA / 语义色名 / {color} 占位符 / colorMap 阈值规则。
+    if (value.unavailableColor != null) node.unavailableColor = str(value.unavailableColor, 400);
     if (value.labelMap != null) node.labelMap = str(value.labelMap, 240);
     if (value.iconMap != null) node.iconMap = str(value.iconMap, 240);
     // 节点动态背景：bg 为颜色规范/占位符，bgMap 按求值结果做阈值着色（>=30=#FF5252,default=#4CAF50）。

@@ -327,13 +327,13 @@ class JsonCardRenderer extends StatelessWidget {
     final String shown = raw.trim() == '{title}'
         ? cardTitle(title: text, areaLabel: areaLabel, showArea: showAreaInTitle)
         : text;
-    final Color? color = _color(
-          node.color,
-          theme,
-          eval,
-          CardEvalContext.parseValueMap(node.colorMap),
-        ) ??
-        (available ? null : theme.colorScheme.outline);
+    final Map<String, String>? textColorMap = CardEvalContext.parseValueMap(node.colorMap);
+    final Color? accent = _color(node.color, theme, eval, textColorMap);
+    // 不可用优先级：unavailableColor > 已配的 color > 主题禁用色。
+    final Color? color = available
+        ? accent
+        : (_color(node.unavailableColor, theme, eval, textColorMap) ??
+            accent ?? theme.colorScheme.outline);
     final TextAlign align = node.align == 'center'
         ? TextAlign.center
         : (node.align == 'right' ? TextAlign.right : TextAlign.left);
@@ -390,7 +390,9 @@ class JsonCardRenderer extends StatelessWidget {
     final Map<String, String>? colorMap = CardEvalContext.parseValueMap(node.colorMap);
     final String raw = eval.resolve(node.value ?? '', iconMap).trim();
     final Color accent = _nodeColor(node, theme, eval, colorMap) ?? _accent(theme);
-    final Color iconColor = available ? accent : theme.colorScheme.outline;
+    // 不可用前景色：优先用后台配的 unavailableColor（支持占位符/颜色规范/阈值），
+    // 未配置才回退主题禁用色。box.bg 背景色此前就不受 available 影响，保持不变。
+    final Color iconColor = available ? accent : _unavailableColor(node, theme, eval, node.colorMap);
     final double size = node.size ?? 24;
 
     // 单字符符号（☀ ❄ ✦ ⏻ ▦ 等）MaterialIcons 里没有对应项，
@@ -781,6 +783,19 @@ class JsonCardRenderer extends StatelessWidget {
         ? node.color
         : node.value;
     return _color(raw, theme, eval, cm);
+  }
+
+  /// 不可用时的前景色：优先取节点显式配置的 unavailableColor，
+  /// 未配置或解析失败才回退主题禁用色 outline（保持原有硬编码行为）。
+  /// 与 _color 一致支持 #RRGGBB / #RRGGBBAA / 语义色名 / 占位符 / colorMap 阈值。
+  Color _unavailableColor(
+    CardLayoutNode node,
+    ThemeData theme,
+    CardEvalContext eval, [
+    String? colorMapRaw,
+  ]) {
+    final Map<String, String>? cm = CardEvalContext.parseValueMap(colorMapRaw ?? node.colorMap);
+    return _color(node.unavailableColor, theme, eval, cm) ?? theme.colorScheme.outline;
   }
 
   IconData _iconData(String raw) {

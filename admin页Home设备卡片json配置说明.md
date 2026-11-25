@@ -161,6 +161,14 @@
 `colorMap` 操作的是 `color` 求值出来的值；**`color` 留空时取 `value`**（所以图标/文字只写 `value` + `colorMap` 就能按数值变色）。也可给 `color` 填别的占位符来按另一个量着色。颜色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。
 `bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等（可带 2 位透明度后缀，如 `#E30B5C0F`）。
 
+**设备不可用时的颜色（`unavailableColor`）**：当设备 state 为 `unavailable`/`unknown`（整张卡被判为不可用）时，`icon` / `text` 的前景色默认会被强制成主题禁用灰。若节点显式配了 `unavailableColor`，不可用时改用该颜色（写法与 `color` 一致，支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `{color}` 占位符 / `colorMap` 阈值）。未配置时维持原有置灰行为。
+```json
+{ "type": "icon", "value": "{icon}", "size": 24,
+  "color": "{color}", "unavailableColor": "#4dd4ac",
+  "box": { "size": 46, "radius": 12, "bg": "{color}26", "color": "{color}" } }
+```
+注意：App 端图标前景色取自节点的 `color`/`unavailableColor`（或卡片 `{color}`），**不读 `box.color`**（`box.color` 只在后台预览里作近似前景色）；`box.bg` 背景色不受在线状态影响，始终显示。
+
 **背景与内边距的正确写法**：`padding` 是所有节点通用的内容内边距（数组 `[垂直, 水平]`，`[0,0]` 可取消缩进；根节点留空默认 `[12,10]`）。`bg` 画在 `padding` 外层——所以「背景铺满 + 内容留白」只需在**同一个节点**同时写 `bg`/`bgMap` 和 `padding`，不要再外套一层（外套一层会让内层 `padding` 失效）。例如：
 ```json
 { "type": "column", "fill": true, "mainAlign": "spaceBetween",
@@ -269,6 +277,7 @@
 | `subLabel` | 字符串 ≤400 | button / chip |
 | `template` | 节点对象（repeat 模板） | repeat |
 | `thickness` | 数值 1~8（默认 1） | divider |
+| `unavailableColor` | 字符串 ≤400 | 通用 |
 | `value` | 字符串 ≤400；字符串 ≤40 | text / icon / button / chip / progress |
 | `visibleWhen` | 字符串 ≤120 | 通用 / button / chip / progress |
 | `weight` | 数值 100~900（默认 400） | text |

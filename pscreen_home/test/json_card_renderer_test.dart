@@ -623,6 +623,122 @@ void main() {
     expect(slider.offline, isTrue, reason: '离线设备应使用暗灰配色');
   });
 
+  testWidgets('不可用时图标/文字用 unavailableColor，未配置回退主题禁用色', (WidgetTester tester) async {
+    final HaDeviceGroup offlineGroup = HaDeviceGroup(
+      deviceId: 'dev_router_offline',
+      title: '书房 路由器',
+      entities: <HaEntityStateModel>[
+        HaEntityStateModel(
+          entityId: 'device_tracker.router',
+          state: 'unavailable',
+          attributes: <String, dynamic>{'friendly_name': '路由器'},
+        ),
+      ],
+    );
+    const Color custom = Color(0xFF00BFFF);
+    final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
+      'type': 'column',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'icon',
+          'value': 'router',
+          'size': 24,
+          'unavailableColor': '#00BFFF',
+          'color': '#FF0000', // 在线色，离线时不应生效
+          'box': <String, dynamic>{
+            'size': 46,
+            'radius': 12,
+            'bg': '{color}26',
+            'color': '{color}',
+          },
+        },
+        <String, dynamic>{
+          'type': 'text',
+          'value': '路由器',
+          'unavailableColor': '#00BFFF',
+          'color': '#FF0000',
+          'size': 26,
+        },
+      ],
+    });
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '路由器',
+      color: '#4dd4ac',
+      layout: layout,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 200,
+            child: JsonCardRenderer(
+              group: offlineGroup,
+              card: card,
+              typeKey: 'router',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 图标前景色：离线应取 unavailableColor，而非在线 color(#FF0000) 或主题灰。
+    final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
+    expect(icon.color, custom,
+        reason: '离线图标应使用 unavailableColor #00BFFF，而非在线色或主题禁用色');
+    // 文字前景色同理（卡片标题也会含房间名，这里按含"路由器"字样的 Text 取）。
+    final Iterable<Text> texts = tester.widgetList<Text>(find.byType(Text));
+    final Text txt = texts.firstWhere((Text t) => (t.data ?? '').contains('路由器'));
+    expect(txt.style?.color, custom,
+        reason: '离线文字应使用 unavailableColor #00BFFF');
+  });
+
+  testWidgets('离线且未配置 unavailableColor 时图标回退主题禁用色（兼容旧行为）', (WidgetTester tester) async {
+    final HaDeviceGroup offlineGroup = HaDeviceGroup(
+      deviceId: 'dev_router_offline2',
+      title: '书房 路由器',
+      entities: <HaEntityStateModel>[
+        HaEntityStateModel(
+          entityId: 'device_tracker.router',
+          state: 'unavailable',
+          attributes: <String, dynamic>{'friendly_name': '路由器'},
+        ),
+      ],
+    );
+    final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
+      'type': 'icon',
+      'value': 'router',
+      'size': 24,
+      'color': '#FF0000',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 200,
+            height: 120,
+            child: JsonCardRenderer(
+              group: offlineGroup,
+              card: DeviceCardConfig(label: '路由器', color: '#4dd4ac', layout: layout),
+              typeKey: 'router',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final BuildContext ctx = tester.element(find.byType(JsonCardRenderer));
+    final Color expected = Theme.of(ctx).colorScheme.outline;
+    final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
+    expect(icon.color, expected,
+        reason: '未配 unavailableColor 时离线图标仍用主题禁用色，保持旧行为');
+  });
+
   testWidgets('单字符符号图标用 Text 渲染，不再回退成圆圈', (WidgetTester tester) async {
     final HaDeviceGroup group = HaDeviceGroup(
       deviceId: 'dev_light_icon',

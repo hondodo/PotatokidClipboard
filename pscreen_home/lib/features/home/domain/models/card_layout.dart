@@ -25,6 +25,8 @@ class CardLayoutNode {
     this.size,
     this.weight,
     this.color,
+    // 设备不可用（state=unavailable/unknown）时替代前景色；留空回退主题禁用色。
+    this.unavailableColor,
     // 节点背景：bg 是颜色规范（可含占位符），bgMap 按同一求值结果选区间颜色。
     this.bg,
     this.bgMap,
@@ -83,6 +85,9 @@ class CardLayoutNode {
   final double? size;
   final int? weight;
   final String? color;
+  /// 设备不可用时的前景色（颜色规范/占位符/阈值规则结果）。
+  /// 未配置时沿用主题禁用色 outline。支持 {color}/#RRGGBB/#RRGGBBAA/语义色名。
+  final String? unavailableColor;
   /// 节点背景色（颜色规范/占位符/阈值规则结果），由 bgMap 命中后覆盖。
   final String? bg;
   /// 背景色阈值映射，如 ">=30=#FF5252,>=20=#FFB74D,default=#4CAF50"。
@@ -181,6 +186,7 @@ class CardLayoutNode {
       size: _num(json['size']),
       weight: (json['weight'] as num?)?.toInt(),
       color: json['color'] as String?,
+      unavailableColor: json['unavailableColor'] == null ? null : '${json['unavailableColor']}',
       bg: json['bg'] as String?,
       bgMap: json['bgMap'] == null ? null : '${json['bgMap']}',
       bgRadius: _num(json['bgRadius']),
