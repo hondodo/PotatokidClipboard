@@ -159,7 +159,14 @@
 适用字段：`map`、`colorMap`、`iconMap`、`labelMap`、`bgMap`（以及占位符内联 `|>=30=...`）。
 `iconMap` 的图标名填 Flutter Material Icons 名即可，App 已从 SDK 全量导入 8825 个（含 `_rounded` / `_sharp` / `_outlined` 变体），如 `battery_full` / `battery_6_bar` … `battery_0_bar` / `battery_alert`、`wifi`、`ac_unit`、`water_drop`、`wind` 等，后台改名字即时生效、无需重编 App；拼错的名字会回退成默认「设备」图标。也支持单个符号（☀ ❄ ⏻）或图片 URL。注意管理端预览没有内置这套字体，白名单外的图标在预览里只显示名字文字，以 App 实际显示为准。
 `colorMap` 操作的是 `color` 求值出来的值；**`color` 留空时取 `value`**（所以图标/文字只写 `value` + `colorMap` 就能按数值变色）。也可给 `color` 填别的占位符来按另一个量着色。颜色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。
-`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。
+`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等（可带 2 位透明度后缀，如 `#E30B5C0F`）。
+
+**背景与内边距的正确写法**：`padding` 是所有节点通用的内容内边距（数组 `[垂直, 水平]`，`[0,0]` 可取消缩进；根节点留空默认 `[12,10]`）。`bg` 画在 `padding` 外层——所以「背景铺满 + 内容留白」只需在**同一个节点**同时写 `bg`/`bgMap` 和 `padding`，不要再外套一层（外套一层会让内层 `padding` 失效）。例如：
+```json
+{ "type": "column", "fill": true, "mainAlign": "spaceBetween",
+  "bg": "{s:battery_level_p_2_1003}", "bgMap": ">=75=#00BFFF,default=#E30B5C", "bgRadius": 12,
+  "padding": [12, 10], "children": [ ... ] }
+```
 
 `visibleWhen` / `enabledWhen` 同样支持数值比较，例如 `"{attr.battery_level}>=20"`、`"{attr.current_temperature}<28"`；两边都能转成数字时按数值比，否则按字符串比。
 

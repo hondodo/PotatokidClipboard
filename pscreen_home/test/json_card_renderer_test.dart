@@ -1873,6 +1873,61 @@ void main() {
     expect((decorated.decoration as BoxDecoration).borderRadius, BorderRadius.circular(8));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('bg + padding 写同一节点：背景铺满含 padding 区，内容按 padding 缩进', (
+    WidgetTester tester,
+  ) async {
+    // 覆现用户场景：单个 column 同时写 bg/bgMap + padding，
+    // 不再套两层。要求背景覆盖整个节点（含 padding），文本只占内容区。
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_pad_bg',
+      title: '电量',
+      entities: <HaEntityStateModel>[
+        _entity('sensor.x_battery_level_p_2_1003', '85', name: '电量'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      color: '#4dd4ac',
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'bg': '{s:battery_level_p_2_1003}',
+        'bgMap': '>=75=#00BFFF,default=#E30B5C',
+        'bgRadius': 12,
+        'padding': <double>[20, 15],
+        'children': <dynamic>[
+          <String, dynamic>{'type': 'text', 'value': '内容', 'size': 14},
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 200,
+            height: 100,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'sensor',
+              onOpenDetail: () {}, onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final DecoratedBox decorated = tester.widget<DecoratedBox>(
+      find.byWidgetPredicate((Widget w) => w is DecoratedBox && w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).color == const Color(0xFF00BFFF)),
+    );
+    final Finder bgFinder = find.byWidget(decorated);
+    final Rect bgRect = tester.getRect(bgFinder);
+    final Rect textRect = tester.getRect(find.text('内容'));
+    // 文本内容相对背景左/上各缩进 padding（20/15），背景本身铺满卡片宽度。
+    expect(textRect.left - bgRect.left, 20, reason: '内容左边距应等于 padding[0]');
+    expect(textRect.top - bgRect.top, 15, reason: '内容上边距应等于 padding[1]');
+    expect(bgRect.width, 200, reason: '背景应铺满卡片宽度，不被 padding 缩小');
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// 与 deviceTypes.js CARD_LAYOUTS.climate 对齐的布局 JSON（测试用）。

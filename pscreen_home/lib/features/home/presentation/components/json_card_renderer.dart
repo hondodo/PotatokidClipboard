@@ -74,15 +74,9 @@ class JsonCardRenderer extends StatelessWidget {
               : theme.colorScheme.surfaceContainerLowest),
       child: InkWell(
         onTap: available ? onOpenDetail : null,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            layout.padding?[0] ?? 12,
-            layout.padding?[1] ?? 10,
-            layout.padding?[0] ?? 12,
-            layout.padding?[1] ?? 10,
-          ),
-          child: _buildNode(context, layout, ctx, available),
-        ),
+        // padding 下沉到节点级处理（_buildNode）：根节点留空兜底 [12,10]，
+        // 且 bg 能包在 padding 外层——背景铺满卡片、内容才缩进。
+        child: _buildNode(context, layout, ctx, available, root: true),
       ),
     );
   }
@@ -94,14 +88,29 @@ class JsonCardRenderer extends StatelessWidget {
     bool available, {
     Map<String, String>? itemValues,
     String? itemName,
+    bool root = false,
   }) {
-    final Widget built = _buildNodeInner(
+    Widget built = _buildNodeInner(
       context, node, ctx, available,
       itemValues: itemValues, itemName: itemName,
     );
+    // 节点级 padding：内容内边距。原来只有根节点在 build() 里统一加 [12,10]，
+    // 现在下沉到每个节点——子节点也能单独缩进。根节点留空时仍兜底 [12,10]，
+    // 保持旧卡片外观不变。padding=[0,0] 可显式取消缩进。
+    final List<double>? pad = node.padding ?? (root ? const <double>[12, 10] : null);
+    if (pad != null && pad.isNotEmpty) {
+      final double ph = pad[0];
+      final double pv = pad.length > 1 ? pad[1] : pad[0];
+      built = Padding(
+        padding: EdgeInsets.fromLTRB(ph, pv, ph, pv),
+        child: built,
+      );
+    }
     // 节点背景：bg 可写颜色规范或占位符；bgMap 按 bg 求值出来的原始值做阈值匹配，
     // 命中后覆盖 bg。仅 row/column/wrap/stack/text 这类容器与文本使用，
     // chip/button 的背景由自身 button style 管，避免样式冲突。
+    // 关键：bg 包在 padding 外层——背景铺满整个节点区域，padding 只缩进内容，
+    // 这样同一节点写 bg + padding 就能「背景满铺 + 内容留白」，不必再套一层。
     final bool bgSupported = <String>['row', 'column', 'wrap', 'stack', 'text'].contains(node.type);
     if (!bgSupported || (node.bg == null && node.bgMap == null)) {
       return built;
