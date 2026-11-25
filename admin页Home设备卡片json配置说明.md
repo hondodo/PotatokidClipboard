@@ -285,6 +285,9 @@
 | `press@` | press@<entityId>：按指定实体按钮。 |
 | `brightness@` | brightness@<entityId>:<percent>：卡片亮度条松手时下发。 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。 |
 | `fan@` | fan@<entityId>:<percent>：风扇风速条松手时下发。 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。 |
+| `climateTemp@` | 空调目标温度 ±：climateTemp@<实体>:<增量>（如 -0.5 / +0.5） |
+| `climateMode@` | 空调模式循环：climateMode@<实体>，依次切下一个 hvac_mode |
+| `climateFan@` | 空调风速循环：climateFan@<实体>，依次切下一个 fan_mode |
 | `toggle` | 切换主实体（未指定 entityId 时） |
 | `turn_on` | 兼容旧写法，同 toggle |
 | `turn_off` | 兼容旧写法，同 toggle |

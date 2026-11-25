@@ -1453,4 +1453,130 @@ void main() {
     expect(multiline.maxLines, 2);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('空调 1×2 交互卡：温湿度/目标温度/模式/三个快捷开关正确渲染', (
+    WidgetTester tester,
+  ) async {
+    final HaEntityStateModel ac = HaEntityStateModel(
+      entityId: 'climate.xiaomi_cn_735376016_m9',
+      state: 'off',
+      attributes: <String, dynamic>{
+        'friendly_name': '小米空调巨省电 1.5匹  空调',
+        'current_temperature': 22.0,
+        'current_humidity': 42,
+        'temperature': 26.5,
+        'fan_mode': '二档',
+        'hvac_modes': <String>['cool', 'dry', 'fan_only', 'heat', 'off'],
+        'fan_modes': <String>['自动', '一档', '二档', 'Max档'],
+      },
+    );
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_ac',
+      title: '卧室 小米空调巨省电',
+      entities: <HaEntityStateModel>[
+        ac,
+        _entity('switch.xiaomi_cn_735376016_m9_eco_p_2_7', 'off', name: 'ECO节能模式'),
+        _entity('switch.xiaomi_cn_735376016_m9_sleep_mode_p_2_11', 'off', name: '标准睡眠'),
+        _entity('switch.xiaomi_cn_735376016_m9_un_straight_blowing_p_2_15', 'off', name: '防直吹'),
+      ],
+    );
+    // 用服务端默认布局（与 deviceTypes.js CARD_LAYOUTS.climate 一致）。
+    final CardLayoutNode layout = CardLayoutNode.fromJson(
+      _acLayoutJson(),
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '当前室温', mainAttr: 'current_temperature', mainFmt: '{v}°C',
+      subTpl: '{s1} · 目标 {s2}°C', icon: '❄', color: '#2f9cff',
+      layout: layout,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 620,
+            height: 200,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'climate',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 主实体是 climate，{attr.*} 与 {state} 都应取到它的属性而非下游 switch。
+    expect(find.textContaining('22'), findsWidgets); // 当前温度
+    expect(find.text('26.5°C'), findsOneWidget); // 目标温度，不再是 on°C
+    expect(find.text('已关闭 · 湿度 42%'), findsOneWidget);
+    expect(find.text('二档'), findsOneWidget); // 风速
+    expect(find.text('节能'), findsOneWidget);
+    expect(find.text('睡眠'), findsOneWidget);
+    expect(find.text('防直吹'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
+
+/// 与 deviceTypes.js CARD_LAYOUTS.climate 对齐的布局 JSON（测试用）。
+Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
+  'type': 'column',
+  'fill': true,
+  'gap': 8,
+  'padding': <double>[12, 10],
+  'children': <Map<String, dynamic>>[
+    <String, dynamic>{
+      'type': 'row', 'gap': 10, 'crossAlign': 'center',
+      'children': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'icon', 'value': '{icon}', 'size': 24,
+          'box': <String, dynamic>{'size': 42, 'radius': 12, 'bg': '{color}26', 'color': '{color}'},
+        },
+        <String, dynamic>{
+          'type': 'column', 'expand': true, 'gap': 2,
+          'children': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'value': '{title}', 'size': 14, 'weight': 700, 'maxLines': 1},
+            <String, dynamic>{'type': 'text', 'value': '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动} · 湿度 {attr.current_humidity}%', 'size': 12, 'color': '{color}', 'maxLines': 1},
+          ],
+        },
+      ],
+    },
+    <String, dynamic>{
+      'type': 'row', 'gap': 10, 'crossAlign': 'center',
+      'children': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'column', 'gap': 1, 'expand': true,
+          'children': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'value': '当前温度', 'size': 11, 'color': 'outline', 'maxLines': 1},
+            <String, dynamic>{'type': 'text', 'value': '{attr.current_temperature}°C', 'size': 28, 'weight': 700, 'color': '{color}', 'maxLines': 1},
+          ],
+        },
+        <String, dynamic>{
+          'type': 'column', 'gap': 1, 'crossAlign': 'center',
+          'children': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'value': '目标温度', 'size': 11, 'color': 'outline', 'maxLines': 1},
+            <String, dynamic>{
+              'type': 'row', 'gap': 5, 'crossAlign': 'center',
+              'children': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'chip', 'label': '−', 'size': 18, 'height': 34, 'onClick': 'climateTemp@{primary.entityId}:-0.5'},
+                <String, dynamic>{'type': 'text', 'value': '{attr.temperature}°C', 'size': 20, 'weight': 700, 'color': '{color}', 'maxLines': 1},
+                <String, dynamic>{'type': 'chip', 'label': '+', 'size': 18, 'height': 34, 'onClick': 'climateTemp@{primary.entityId}:+0.5'},
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    <String, dynamic>{
+      'type': 'wrap', 'gap': 6,
+      'children': <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'chip', 'label': '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}', 'size': 12, 'height': 28, 'color': '{color}', 'onClick': 'climateMode@{primary.entityId}'},
+        <String, dynamic>{'type': 'chip', 'label': '{attr.fan_mode}', 'size': 12, 'height': 28, 'color': '{color}', 'onClick': 'climateFan@{primary.entityId}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_eco_p_2_7|on=✓ 节能,off=节能}', 'size': 12, 'height': 28, 'color': '{s:_eco_p_2_7|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_eco_p_2_7}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_sleep_mode_p_2_11|on=✓ 睡眠,off=睡眠}', 'size': 12, 'height': 28, 'color': '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_sleep_mode_p_2_11}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_un_straight_blowing_p_2_15|on=✓ 防直吹,off=防直吹}', 'size': 12, 'height': 28, 'color': '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_un_straight_blowing_p_2_15}'},
+      ],
+    },
+  ],
+};

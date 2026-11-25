@@ -229,6 +229,9 @@ function buildLimits() {
 
 const ACTION_META = {
   'kettle@action': '热水瓶专用：按实时状态选择开始 / 停止，不猜实体',
+  'climateTemp@': '空调目标温度 ±：climateTemp@<实体>:<增量>（如 -0.5 / +0.5）',
+  'climateMode@': '空调模式循环：climateMode@<实体>，依次切下一个 hvac_mode',
+  'climateFan@': '空调风速循环：climateFan@<实体>，依次切下一个 fan_mode',
   toggle: '切换主实体（未指定 entityId 时）',
   turn_on: '兼容旧写法，同 toggle',
   turn_off: '兼容旧写法，同 toggle',
@@ -246,7 +249,7 @@ function buildActions() {
   const seen = new Set();
   const rows = [];
   arr.forEach((line, i) => {
-    const m = line.match(/startsWith\('([a-z_]+@)'\)/i) || line.match(/trimmed\s*==\s*'([a-z_]+@[\w]+)'/i)
+    const m = line.match(/startsWith\('([A-Za-z_]+@)'\)/) || line.match(/trimmed\s*==\s*'([A-Za-z_]+@[\w]+)'/)
       || (/case\s*'/.test(line) ? line.match(/case\s*'([a-z_]+)'\s*:/i) : null);
     if (!m) return;
     const name = m[1];

@@ -1140,6 +1140,61 @@ class _ControlGridState extends State<_ControlGrid> {
               bloc.add(SetFanPercentage(entityId: target, percentage: percent, completer: completer));
               return;
             }
+            // climateTemp@<entityId>:<delta>：空调目标温度 ±（delta 如 -0.5 / +0.5）。
+            // 只对明确写了 climate 实体下发；bloc 内部会 clamp 到 min/max 并按 step 对齐。
+            if (trimmed.startsWith('climateTemp@')) {
+              final String rest = trimmed.substring('climateTemp@'.length).trim();
+              final int sep = rest.lastIndexOf(':');
+              if (sep <= 0) {
+                reject();
+                return;
+              }
+              final String target = rest.substring(0, sep).trim();
+              final double? delta = double.tryParse(rest.substring(sep + 1).trim());
+              final HaEntityStateModel? ac = state.entities[target];
+              if (target.isEmpty || delta == null || ac == null || !ac.isClimate) {
+                reject();
+                return;
+              }
+              final double base = ac.targetTemperature ?? ac.minTargetTemperature;
+              bloc.add(SetClimateTemperature(entityId: target, temperature: base + delta));
+              return;
+            }
+            // climateMode@<entityId>：在 hvac_modes（去掉 off）里循环到下一个模式。
+            // 关机时点模式会切到列表第一个（如制冷），与米家「点模式即开机」一致。
+            if (trimmed.startsWith('climateMode@')) {
+              final String target = trimmed.substring('climateMode@'.length).trim();
+              final HaEntityStateModel? ac = state.entities[target];
+              if (target.isEmpty || ac == null || !ac.isClimate) {
+                reject();
+                return;
+              }
+              final List<String> modes = ac.hvacModes.where((String m) => m != 'off').toList();
+              if (modes.isEmpty) {
+                reject();
+                return;
+              }
+              final int idx = modes.indexOf(ac.hvacMode);
+              bloc.add(SetClimateHvacMode(entityId: target, mode: modes[(idx + 1) % modes.length]));
+              return;
+            }
+            // climateFan@<entityId>：在 fan_modes 里循环到下一个风速档位。
+            if (trimmed.startsWith('climateFan@')) {
+              final String target = trimmed.substring('climateFan@'.length).trim();
+              final HaEntityStateModel? ac = state.entities[target];
+              if (target.isEmpty || ac == null || !ac.isClimate) {
+                reject();
+                return;
+              }
+              final List<String> modes = ac.fanModes;
+              if (modes.isEmpty) {
+                reject();
+                return;
+              }
+              final int idx = modes.indexOf(ac.fanMode ?? '');
+              bloc.add(SetClimateFanMode(entityId: target, mode: modes[(idx + 1) % modes.length]));
+              return;
+            }
             final String kind = trimmed.split('(').first.trim();
             switch (kind) {
               case 'toggle':

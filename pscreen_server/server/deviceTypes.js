@@ -232,6 +232,80 @@ const CARD_DEFAULTS = {
 // 热水瓶：状态/模式/目标温度分散在同设备的多个实体里，用 {s:<entity_id 后缀>}
 // 精确取值，避免依赖组内实体下标。
 const CARD_LAYOUTS = {
+    // 空调（米家巨省电等）：1×2 交互卡。当前温度/湿度/目标温度/模式/风速全部从
+    // 主实体（climate）的 attributes 取，避免 {s1}/{s2} 按组内下标取错实体（旧版
+    // 「目标 on°C」就是这个 bug）。空调设备组主实体恒为 climate，两台空调通用。
+    // 目标温度 ±/模式/风速用 climate*@{primary.entityId} 安全通道，
+    // 节能/睡眠/防直吹是独立 switch 实体，用 toggle@{id:后缀} 精确控制。
+    climate: {
+        type: 'column', fill: true, gap: 8, padding: [12, 10],
+        children: [
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'icon', value: '{icon}', size: 24,
+                        box: { size: 42, radius: 12, bg: '{color}26', color: '{color}' },
+                    },
+                    {
+                        type: 'column', expand: true, gap: 2,
+                        children: [
+                            { type: 'text', value: '{title}', size: 14, weight: 700, maxLines: 1,
+                              marquee: true, marqueeMode: 'pingpong', marqueePause: 3 },
+                            { type: 'text', value: '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动} · 湿度 {attr.current_humidity}%',
+                              size: 12, color: '{color}', maxLines: 1 },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'row', gap: 10, crossAlign: 'center',
+                children: [
+                    {
+                        type: 'column', gap: 1, expand: true,
+                        children: [
+                            { type: 'text', value: '当前温度',
+                              size: 11, color: 'outline', maxLines: 1 },
+                            { type: 'text', value: '{attr.current_temperature}°C',
+                              size: 28, weight: 700, color: '{color}', maxLines: 1 },
+                        ],
+                    },
+                    {
+                        type: 'column', gap: 1, crossAlign: 'center',
+                        children: [
+                            { type: 'text', value: '目标温度', size: 11, color: 'outline', maxLines: 1 },
+                            {
+                                type: 'row', gap: 5, crossAlign: 'center',
+                                children: [
+                                    { type: 'chip', label: '−', size: 18, height: 34,
+                                      onClick: 'climateTemp@{primary.entityId}:-0.5' },
+                                    { type: 'text', value: '{attr.temperature}°C',
+                                      size: 20, weight: 700, color: '{color}', maxLines: 1 },
+                                    { type: 'chip', label: '+', size: 18, height: 34,
+                                      onClick: 'climateTemp@{primary.entityId}:+0.5' },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+            {
+                type: 'wrap', gap: 6,
+                children: [
+                    { type: 'chip', label: '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}',
+                      size: 12, height: 28, color: '{color}', onClick: 'climateMode@{primary.entityId}' },
+                    { type: 'chip', label: '{attr.fan_mode}',
+                      size: 12, height: 28, color: '{color}', onClick: 'climateFan@{primary.entityId}' },
+                    { type: 'chip', label: '{s:_eco_p_2_7|on=✓ 节能,off=节能}', size: 12, height: 28,
+                      color: '{s:_eco_p_2_7|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_eco_p_2_7}' },
+                    { type: 'chip', label: '{s:_sleep_mode_p_2_11|on=✓ 睡眠,off=睡眠}', size: 12, height: 28,
+                      color: '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_sleep_mode_p_2_11}' },
+                    { type: 'chip', label: '{s:_un_straight_blowing_p_2_15|on=✓ 防直吹,off=防直吹}', size: 12, height: 28,
+                      color: '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_un_straight_blowing_p_2_15}' },
+                ],
+            },
+        ],
+    },
     // 空调插座：绿米 mcn02 这类设备把空调 climate 实体和电功率传感器聚在一台设备里。
     // 主实体是 climate（可按后缀 climate 精确取），设定温度读 attributes.temperature、
     // 模式读 attributes.hvac_mode，功率曲线走 sparkline。温度调节带参动作走详情页面板。
