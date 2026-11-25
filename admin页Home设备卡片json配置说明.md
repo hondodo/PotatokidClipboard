@@ -287,7 +287,7 @@
 | `fan@` | fan@<entityId>:<percent>：风扇风速条松手时下发。 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。 |
 | `climateTemp@` | 空调目标温度 ±：climateTemp@<实体>:<增量>（如 -0.5 / +0.5） |
 | `climateMode@` | 空调模式循环：climateMode@<实体>，依次切下一个 hvac_mode |
-| `climateFan@` | 空调风速循环：climateFan@<实体>，依次切下一个 fan_mode |
+| `climateFan@` | 空调风速：climateFan@<实体> 循环下一档；climateFan@<实体>:+1 / :-1 按实体 fan_modes 索引步进并钳制在两端（± 按钮用，不会回绕） |
 | `toggle` | 切换主实体（未指定 entityId 时） |
 | `turn_on` | 兼容旧写法，同 toggle |
 | `turn_off` | 兼容旧写法，同 toggle |

@@ -170,6 +170,28 @@ void main() {
     });
   });
 
+  group('空调风速步进', () {
+    const List<String> modes = <String>['自动', '一档', '二档', '三档', 'Max档'];
+
+    test('± 按 fan_modes 索引步进，两端钳制不回绕', () {
+      expect(climateFanStepTarget(modes, '自动', delta: -1), '自动');
+      expect(climateFanStepTarget(modes, '二档', delta: -1), '一档');
+      expect(climateFanStepTarget(modes, '二档', delta: 1), '三档');
+      expect(climateFanStepTarget(modes, 'Max档', delta: 1), 'Max档');
+    });
+
+    test('不认识当前档位时从边界起步；空列表返回 null', () {
+      expect(climateFanStepTarget(modes, '未知', delta: 1), '自动');
+      expect(climateFanStepTarget(modes, '未知', delta: -1), '自动');
+      expect(climateFanStepTarget(<String>[], '自动', delta: 1), isNull);
+    });
+
+    test('不带 delta 保持旧循环行为', () {
+      expect(climateFanStepTarget(modes, 'Max档'), '自动');
+      expect(climateFanStepTarget(modes, '二档'), '三档');
+    });
+  });
+
   group('默认布局', () {
     test('multi_switch 用 repeat 大按钮，无「已开启路数」文字', () {
       const DeviceCardConfig card = DeviceCardConfig();

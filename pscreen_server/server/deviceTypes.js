@@ -263,7 +263,7 @@ const CARD_LAYOUTS = {
                 ],
             },
             {
-                type: 'row', gap: 10, crossAlign: 'center',
+                type: 'row', gap: 8, crossAlign: 'center',
                 children: [
                     {
                         type: 'column', gap: 1, expand: true,
@@ -279,14 +279,37 @@ const CARD_LAYOUTS = {
                         children: [
                             { type: 'text', value: '目标温度', size: 11, color: 'outline', maxLines: 1 },
                             {
-                                type: 'row', gap: 5, crossAlign: 'center',
+                                type: 'row', gap: 4, crossAlign: 'center',
                                 children: [
-                                    { type: 'chip', label: '−', size: 18, height: 34,
+                                    { type: 'chip', label: '−', size: 16, height: 34,
+                                      enabledWhen: '{state}!=off',
                                       onClick: 'climateTemp@{primary.entityId}:-0.5' },
                                     { type: 'text', value: '{attr.temperature}°C',
                                       size: 20, weight: 700, color: '{color}', maxLines: 1 },
-                                    { type: 'chip', label: '+', size: 18, height: 34,
+                                    { type: 'chip', label: '+', size: 16, height: 34,
+                                      enabledWhen: '{state}!=off',
                                       onClick: 'climateTemp@{primary.entityId}:+0.5' },
+                                ],
+                            },
+                        ],
+                    },
+                    // 风速 ± 步进：档位列表取实体 fan_modes，按索引步进并钳制在两端。
+                    // 关机时不操作（enabledWhen），但按钮仍显示让用户知道有此能力。
+                    {
+                        type: 'column', gap: 1, crossAlign: 'center',
+                        children: [
+                            { type: 'text', value: '风速', size: 11, color: '#EF8CD1', maxLines: 1 },
+                            {
+                                type: 'row', gap: 4, crossAlign: 'center',
+                                children: [
+                                    { type: 'chip', label: '−', size: 16, height: 34,
+                                      enabledWhen: '{state}!=off',
+                                      onClick: 'climateFan@{primary.entityId}:-1' },
+                                    { type: 'text', value: '{attr.fan_mode}',
+                                      size: 15, weight: 700, color: '#EF8CD1', maxLines: 1 },
+                                    { type: 'chip', label: '+', size: 16, height: 34,
+                                      enabledWhen: '{state}!=off',
+                                      onClick: 'climateFan@{primary.entityId}:+1' },
                                 ],
                             },
                         ],
@@ -297,15 +320,20 @@ const CARD_LAYOUTS = {
                 type: 'wrap', gap: 6,
                 children: [
                     { type: 'chip', label: '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}',
-                      size: 12, height: 28, color: '{color}', onClick: 'climateMode@{primary.entityId}' },
+                      size: 12, height: 28, color: '{color}', enabledWhen: '{state}!=off',
+                      onClick: 'climateMode@{primary.entityId}' },
                     { type: 'chip', label: '{attr.fan_mode}',
-                      size: 12, height: 28, color: '{color}', onClick: 'climateFan@{primary.entityId}' },
+                      size: 12, height: 28, color: '{color}', enabledWhen: '{state}!=off',
+                      onClick: 'climateFan@{primary.entityId}' },
                     { type: 'chip', label: '{s:_eco_p_2_7|on=✓ 节能,off=节能}', size: 12, height: 28,
-                      color: '{s:_eco_p_2_7|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_eco_p_2_7}' },
+                      color: '{s:_eco_p_2_7|on=#2f9cff,off=outline}', enabledWhen: '{state}!=off',
+                      onClick: 'toggle@{id:_eco_p_2_7}' },
                     { type: 'chip', label: '{s:_sleep_mode_p_2_11|on=✓ 睡眠,off=睡眠}', size: 12, height: 28,
-                      color: '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_sleep_mode_p_2_11}' },
+                      color: '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', enabledWhen: '{state}!=off',
+                      onClick: 'toggle@{id:_sleep_mode_p_2_11}' },
                     { type: 'chip', label: '{s:_un_straight_blowing_p_2_15|on=✓ 防直吹,off=防直吹}', size: 12, height: 28,
-                      color: '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', onClick: 'toggle@{id:_un_straight_blowing_p_2_15}' },
+                      color: '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', enabledWhen: '{state}!=off',
+                      onClick: 'toggle@{id:_un_straight_blowing_p_2_15}' },
                 ],
             },
         ],

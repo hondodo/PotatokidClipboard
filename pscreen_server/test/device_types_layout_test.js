@@ -50,6 +50,34 @@ ok('空调默认布局条件 color 不被截断', () => {
     for (const chip of chips.slice(2)) assertTemplateIntact(chip.color, `${chip.label} color`);
 });
 
+ok('空调默认布局有风速 ± 步进，且按 fan_modes 索引钳制两端', () => {
+    const row = layout.children[1];
+    const fan = row.children[2];
+    assert.strictEqual(fan.type, 'column');
+    const fanRow = fan.children[1];
+    const minus = fanRow.children[0];
+    const value = fanRow.children[1];
+    const plus = fanRow.children[2];
+    assert.strictEqual(minus.onClick, 'climateFan@{primary.entityId}:-1');
+    assert.strictEqual(plus.onClick, 'climateFan@{primary.entityId}:+1');
+    assert.strictEqual(value.value, '{attr.fan_mode}');
+    // 风速按钮不写死档位顺序；档位全部来自实体 fan_modes。
+    assert.ok(!JSON.stringify(fan).includes('一档'));
+});
+
+ok('空调关机时所有操作按钮禁用，电源键仍可点', () => {
+    const row = layout.children[1];
+    // 目标温度 −/+、风速 −/+
+    for (const group of [row.children[1].children[1], row.children[2].children[1]]) {
+        assert.strictEqual(group.children[0].enabledWhen, '{state}!=off');
+        assert.strictEqual(group.children[2].enabledWhen, '{state}!=off');
+    }
+    // 底部模式/风速/节能/睡眠/防直吹
+    for (const chip of chips) assert.strictEqual(chip.enabledWhen, '{state}!=off');
+    // 电源键不带 enabledWhen，保证关机后还能开机
+    assert.strictEqual(layout.children[0].children[2].enabledWhen, undefined);
+});
+
 ok('自定义 chip/text 的长表达式也能通过清洗', () => {
     const label = '{s:switch.a|on=✓ 已开启,off=已关闭,unavailable=未知,when=s:switch.b:on=联动中}';
     const color = '{s:switch.a|on=#2f9cff,off=#64748b,unavailable=#9ca3af}';

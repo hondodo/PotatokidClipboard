@@ -1178,21 +1178,36 @@ class _ControlGridState extends State<_ControlGrid> {
               bloc.add(SetClimateHvacMode(entityId: target, mode: modes[(idx + 1) % modes.length]));
               return;
             }
-            // climateFan@<entityId>：在 fan_modes 里循环到下一个风速档位。
+            // climateFan@<entityId>[:<delta>]：空调风速。
+            // 不带 delta：在 fan_modes 里循环下一档（兼容旧「风速」chip）。
+            // 带 delta（+1/-1）：按索引步进并钳制在两端，供 −/+ 步进按钮使用——
+            // 到「自动」再按 −、到「最大」再按 + 都停在当前档，不回绕。
+            // 档位列表始终取实体上报的 fan_modes，不硬编码档位。
             if (trimmed.startsWith('climateFan@')) {
-              final String target = trimmed.substring('climateFan@'.length).trim();
+              final String rest = trimmed.substring('climateFan@'.length).trim();
+              final int sep = rest.lastIndexOf(':');
+              // 实体 id 里不会有冒号；有冒号就按 <实体>:<delta> 解析。
+              final String target = sep > 0 ? rest.substring(0, sep).trim() : rest;
+              final int? delta = sep > 0 ? int.tryParse(rest.substring(sep + 1).trim()) : null;
+              if (sep > 0 && delta == null) {
+                reject();
+                return;
+              }
               final HaEntityStateModel? ac = state.entities[target];
               if (target.isEmpty || ac == null || !ac.isClimate) {
                 reject();
                 return;
               }
-              final List<String> modes = ac.fanModes;
-              if (modes.isEmpty) {
+              final String? mode = climateFanStepTarget(
+                ac.fanModes,
+                ac.fanMode ?? '',
+                delta: delta,
+              );
+              if (mode == null) {
                 reject();
                 return;
               }
-              final int idx = modes.indexOf(ac.fanMode ?? '');
-              bloc.add(SetClimateFanMode(entityId: target, mode: modes[(idx + 1) % modes.length]));
+              bloc.add(SetClimateFanMode(entityId: target, mode: mode));
               return;
             }
             final String kind = trimmed.split('(').first.trim();

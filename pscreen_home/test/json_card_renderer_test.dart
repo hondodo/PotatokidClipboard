@@ -1517,7 +1517,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: SizedBox(
-            width: 620,
+            width: 780,
             height: 200,
             child: JsonCardRenderer(
               group: group,
@@ -1535,15 +1535,74 @@ void main() {
     expect(find.textContaining('22'), findsWidgets); // 当前温度
     expect(find.text('26.5°C'), findsOneWidget); // 目标温度，不再是 on°C
     expect(find.text('已关闭 · 湿度 42%'), findsOneWidget);
-    expect(find.text('二档'), findsOneWidget); // 风速
+    expect(find.text('风速'), findsOneWidget); // 风速 ± 步进区标题
+    expect(find.text('二档'), findsNWidgets(2)); // 步进区当前档 + 底部风速 chip
     expect(find.text('节能'), findsOneWidget);
     expect(find.text('睡眠'), findsOneWidget);
     expect(find.text('防直吹'), findsOneWidget);
-    // 右上角电源键走主实体安全通道，不猜开关后缀。
+    // 关机时温度 ± / 风速 ± / 模式 / 风速 chip 都不可点；只有电源键可点。
+    await tester.tap(find.text('+').last); // 风速 +
+    await tester.pump();
+    expect(actions, isEmpty);
+    await tester.tap(find.text('已关闭')); // 底部模式 chip（关机时显示「已关闭」）
+    await tester.pump();
+    expect(actions, isEmpty);
     expect(find.byIcon(Icons.power_settings_new), findsOneWidget);
     await tester.tap(find.byIcon(Icons.power_settings_new));
     await tester.pump();
-    expect(actions, contains('toggle@climate.xiaomi_cn_735376016_m9'));
+    expect(actions, <String>['toggle@climate.xiaomi_cn_735376016_m9']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('空调开机时风速 ± 按 fan_modes 索引下发档位，关机时禁用', (
+    WidgetTester tester,
+  ) async {
+    final HaEntityStateModel ac = HaEntityStateModel(
+      entityId: 'climate.bedroom',
+      state: 'cool',
+      attributes: <String, dynamic>{
+        'friendly_name': '卧室空调',
+        'current_temperature': 24.0,
+        'current_humidity': 50,
+        'temperature': 26.0,
+        'fan_mode': '二档',
+        'hvac_modes': <String>['cool', 'dry', 'fan_only', 'heat', 'off'],
+        'fan_modes': <String>['自动', '一档', '二档', '三档', 'Max档'],
+      },
+    );
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_ac_on',
+      title: '卧室空调',
+      entities: <HaEntityStateModel>[ac],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '当前室温', mainAttr: 'current_temperature', mainFmt: '{v}°C',
+      icon: '❄', color: '#2f9cff', layout: CardLayoutNode.fromJson(_acLayoutJson()),
+    );
+    final List<String> actions = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 780,
+            height: 200,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'climate',
+              onOpenDetail: () {}, onAction: actions.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 两个「−」：目标温度与风速；第 2 个是风速减档。
+    expect(find.text('−'), findsNWidgets(2));
+    await tester.tap(find.text('−').last);
+    await tester.pump();
+    expect(actions, contains('climateFan@climate.bedroom:-1'));
+    await tester.tap(find.text('+').last);
+    await tester.pump();
+    expect(actions, contains('climateFan@climate.bedroom:+1'));
     expect(tester.takeException(), isNull);
   });
 }
@@ -1577,7 +1636,7 @@ Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
       ],
     },
     <String, dynamic>{
-      'type': 'row', 'gap': 10, 'crossAlign': 'center',
+      'type': 'row', 'gap': 8, 'crossAlign': 'center',
       'children': <Map<String, dynamic>>[
         <String, dynamic>{
           'type': 'column', 'gap': 1, 'expand': true,
@@ -1591,11 +1650,25 @@ Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
           'children': <Map<String, dynamic>>[
             <String, dynamic>{'type': 'text', 'value': '目标温度', 'size': 11, 'color': 'outline', 'maxLines': 1},
             <String, dynamic>{
-              'type': 'row', 'gap': 5, 'crossAlign': 'center',
+              'type': 'row', 'gap': 4, 'crossAlign': 'center',
               'children': <Map<String, dynamic>>[
-                <String, dynamic>{'type': 'chip', 'label': '−', 'size': 18, 'height': 34, 'onClick': 'climateTemp@{primary.entityId}:-0.5'},
+                <String, dynamic>{'type': 'chip', 'label': '−', 'size': 16, 'height': 34, 'enabledWhen': '{state}!=off', 'onClick': 'climateTemp@{primary.entityId}:-0.5'},
                 <String, dynamic>{'type': 'text', 'value': '{attr.temperature}°C', 'size': 20, 'weight': 700, 'color': '{color}', 'maxLines': 1},
-                <String, dynamic>{'type': 'chip', 'label': '+', 'size': 18, 'height': 34, 'onClick': 'climateTemp@{primary.entityId}:+0.5'},
+                <String, dynamic>{'type': 'chip', 'label': '+', 'size': 16, 'height': 34, 'enabledWhen': '{state}!=off', 'onClick': 'climateTemp@{primary.entityId}:+0.5'},
+              ],
+            },
+          ],
+        },
+        <String, dynamic>{
+          'type': 'column', 'gap': 1, 'crossAlign': 'center',
+          'children': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'value': '风速', 'size': 11, 'color': '#EF8CD1', 'maxLines': 1},
+            <String, dynamic>{
+              'type': 'row', 'gap': 4, 'crossAlign': 'center',
+              'children': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'chip', 'label': '−', 'size': 16, 'height': 34, 'enabledWhen': '{state}!=off', 'onClick': 'climateFan@{primary.entityId}:-1'},
+                <String, dynamic>{'type': 'text', 'value': '{attr.fan_mode}', 'size': 15, 'weight': 700, 'color': '#EF8CD1', 'maxLines': 1},
+                <String, dynamic>{'type': 'chip', 'label': '+', 'size': 16, 'height': 34, 'enabledWhen': '{state}!=off', 'onClick': 'climateFan@{primary.entityId}:+1'},
               ],
             },
           ],
@@ -1605,11 +1678,11 @@ Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
     <String, dynamic>{
       'type': 'wrap', 'gap': 6,
       'children': <Map<String, dynamic>>[
-        <String, dynamic>{'type': 'chip', 'label': '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}', 'size': 12, 'height': 28, 'color': '{color}', 'onClick': 'climateMode@{primary.entityId}'},
-        <String, dynamic>{'type': 'chip', 'label': '{attr.fan_mode}', 'size': 12, 'height': 28, 'color': '{color}', 'onClick': 'climateFan@{primary.entityId}'},
-        <String, dynamic>{'type': 'chip', 'label': '{s:_eco_p_2_7|on=✓ 节能,off=节能}', 'size': 12, 'height': 28, 'color': '{s:_eco_p_2_7|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_eco_p_2_7}'},
-        <String, dynamic>{'type': 'chip', 'label': '{s:_sleep_mode_p_2_11|on=✓ 睡眠,off=睡眠}', 'size': 12, 'height': 28, 'color': '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_sleep_mode_p_2_11}'},
-        <String, dynamic>{'type': 'chip', 'label': '{s:_un_straight_blowing_p_2_15|on=✓ 防直吹,off=防直吹}', 'size': 12, 'height': 28, 'color': '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', 'onClick': 'toggle@{id:_un_straight_blowing_p_2_15}'},
+        <String, dynamic>{'type': 'chip', 'label': '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}', 'size': 12, 'height': 28, 'color': '{color}', 'enabledWhen': '{state}!=off', 'onClick': 'climateMode@{primary.entityId}'},
+        <String, dynamic>{'type': 'chip', 'label': '{attr.fan_mode}', 'size': 12, 'height': 28, 'color': '{color}', 'enabledWhen': '{state}!=off', 'onClick': 'climateFan@{primary.entityId}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_eco_p_2_7|on=✓ 节能,off=节能}', 'size': 12, 'height': 28, 'color': '{s:_eco_p_2_7|on=#2f9cff,off=outline}', 'enabledWhen': '{state}!=off', 'onClick': 'toggle@{id:_eco_p_2_7}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_sleep_mode_p_2_11|on=✓ 睡眠,off=睡眠}', 'size': 12, 'height': 28, 'color': '{s:_sleep_mode_p_2_11|on=#2f9cff,off=outline}', 'enabledWhen': '{state}!=off', 'onClick': 'toggle@{id:_sleep_mode_p_2_11}'},
+        <String, dynamic>{'type': 'chip', 'label': '{s:_un_straight_blowing_p_2_15|on=✓ 防直吹,off=防直吹}', 'size': 12, 'height': 28, 'color': '{s:_un_straight_blowing_p_2_15|on=#2f9cff,off=outline}', 'enabledWhen': '{state}!=off', 'onClick': 'toggle@{id:_un_straight_blowing_p_2_15}'},
       ],
     },
   ],

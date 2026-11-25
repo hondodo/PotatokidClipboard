@@ -793,6 +793,24 @@ class CardEvalContext {
   }
 }
 
+/// 空调风速档位步进目标。
+///
+/// - `modes` 来自实体 attributes.fan_modes（如 自动/一档…七档/Max档），不硬编码档位顺序；
+/// - `delta == null`（旧写法 `climateFan@<实体>`）：循环到下一档，保持原「风速」chip 行为；
+/// - `delta` 为 +1/-1：按索引步进并钳制在两端（− 到自动、+ 到最大都不会回绕）。
+///
+/// 列表为空时返回 null，调用方应拒绝下发指令。
+String? climateFanStepTarget(List<String> modes, String current, {int? delta}) {
+  if (modes.isEmpty) return null;
+  final int idx = modes.indexOf(current);
+  if (delta == null) return modes[(idx + 1) % modes.length];
+  if (delta == 0) return current.isEmpty ? modes.first : current;
+  int next = (idx < 0 ? (delta > 0 ? -1 : 0) : idx) + delta;
+  if (next < 0) next = 0;
+  if (next >= modes.length) next = modes.length - 1;
+  return modes[next];
+}
+
 /// 由分组生成 repeat 的 gangs 列表值（每路一组占位符）。
 List<Map<String, String>> gangValues(HaDeviceGroup group) {
   final List<Map<String, String>> out = <Map<String, String>>[];
