@@ -132,6 +132,8 @@
     if (ge) ge.checked = card.genericEnabled === true;
     const iconEl = $('re-card-icon');
     if (iconEl) iconEl.value = card.icon || t.icon || '';
+    const colorEl = $('re-type-color');
+    if (colorEl) colorEl.value = t.color || '';
     const bgEl = $('re-card-bg');
     if (bgEl) bgEl.value = card.bg || '';
     const dbgEl = $('re-card-disabled-bg');
@@ -342,12 +344,19 @@
       const priorityEl = $('re-priority');
       const priority = priorityEl ? (Number(priorityEl.value) || 0) : (Number(t.priority) || 5);
       t.priority = priority;
+      const colorEl = $('re-type-color');
+      const editedColor = colorEl ? String(colorEl.value || '').trim() : '';
+      if (editedColor) t.color = editedColor;
       const card = readReCard(); // layout JSON 非法时抛错，避免保存脏数据
+      // meta 对内置类型也可写：服务端 update() 会把 color 并进已有 meta，
+      // 故只在用户确实输入了颜色时才带 meta，label/icon 用当前值避免被清空。
+      const meta = (t.dynamic || editedColor)
+        ? { label: t.label, icon: t.icon, color: t.color }
+        : undefined;
       await api('/api/admin/device-types', {
         method: 'POST',
         body: JSON.stringify({
-          key: t.key, rules: reRulesOf(t), priority, card,
-          meta: t.dynamic ? { label: t.label, icon: t.icon, color: t.color } : undefined,
+          key: t.key, rules: reRulesOf(t), priority, card, meta,
         }),
       });
       state.deviceTypes = null;
@@ -631,11 +640,15 @@
     }
     const name = dev.name || dev.id || '设备';
     const room = dev.areaName || '';
+    const colorEl = $('re-type-color');
+    const color = colorEl && String(colorEl.value || '').trim()
+      ? String(colorEl.value).trim()
+      : (card.color || t.color || '#facc15');
     const ctx = {
       title: room ? room + ' ' + name : name,
       room,
       icon,
-      color: card.color || t.color || '#facc15',
+      color,
       label: card.label || t.label || '设备',
       state: devState,
       main,
@@ -685,12 +698,17 @@
     const icon = iconEl
       ? String(iconEl.value || '').trim()
       : (card.icon || t.icon || '☀');
+    const colorEl = $('re-type-color');
+    // 主题色输入框优先；清空则回退到已保存值。
+    const color = colorEl && String(colorEl.value || '').trim()
+      ? String(colorEl.value).trim()
+      : (card.color || t.color || '#facc15');
     const isKettle = t.key === 'kettle';
     return {
       title: isKettle ? '客厅 米家智能电热水瓶 5L' : '客厅 大灯',
       room: '客厅',
       icon,
-      color: card.color || t.color || '#facc15',
+      color,
       label: card.label || t.label || (isKettle ? '当前温度' : '灯光'),
       state: devState,
       main: isKettle ? '55°C' : (isOn ? '已开启' : '已关闭'),
@@ -1226,7 +1244,7 @@
   }
   const layoutEl = $('re-layout');
   if (layoutEl) layoutEl.addEventListener('input', refreshCardPreview);
-  ['re-pv-online', 're-pv-on', 're-pv-bright', 're-card-icon', 're-card-bg', 're-card-disabled-bg'].forEach((id) => {
+  ['re-pv-online', 're-pv-on', 're-pv-bright', 're-card-icon', 're-type-color', 're-card-bg', 're-card-disabled-bg'].forEach((id) => {
     const el = $(id);
     if (el) el.addEventListener('input', refreshCardPreview);
   });
