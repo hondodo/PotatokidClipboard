@@ -22,3 +22,7 @@ flutter build apk --split-per-abi
 adb -s 192.168.31.5:5555 install -r build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
 # 启动
 adb -s 192.168.31.5:5555 shell monkey -p potatokid.tools.homecontroller -c android.intent.category.LAUNCHER 1
+
+flutter build apk --release --flavor board \
+  --dart-define=APP_FLAVOR=board \
+  --no-tree-shake-icons
