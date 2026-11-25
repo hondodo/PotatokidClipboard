@@ -1370,6 +1370,49 @@ void main() {
     expect(find.text('关闭'), findsNothing);
   });
 
+  testWidgets('iconMap 阈值映射电量到 battery 图标（不再回退默认设备图标）', (WidgetTester tester) async {
+    // 覆现：iconMap 写出 battery_6_bar 等名字，若不在白名单会回退成 Icons.devices_other。
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_battery',
+      title: '电量传感器',
+      entities: <HaEntityStateModel>[
+        _entity('sensor.x_battery_level_p_2_1003', '85', name: '电量'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '电量',
+      color: '#4dd4ac',
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'icon',
+        'value': '{s:battery_level_p_2_1003}',
+        'iconMap': '>=95=battery_full,>=75=battery_6_bar,>=50=battery_4_bar,default=battery_alert',
+        'size': 26,
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 160,
+            height: 100,
+            child: JsonCardRenderer(
+              group: group,
+              card: card,
+              typeKey: 'sensor',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
+    expect(icon.icon, Icons.battery_6_bar,
+        reason: '85% 应命中 >=75 -> battery_6_bar，而非回退成 devices_other');
+  });
+
   testWidgets('stack 叠放：背景与前景同槽渲染不溢出', (WidgetTester tester) async {
     final Map<String, dynamic> layout = <String, dynamic>{
       'type': 'stack',

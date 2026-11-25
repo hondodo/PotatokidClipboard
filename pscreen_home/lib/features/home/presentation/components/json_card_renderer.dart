@@ -818,6 +818,17 @@ class JsonCardRenderer extends StatelessWidget {
     'brightness': Icons.brightness_6,
     'volume_up': Icons.volume_up,
     'cloud': Icons.cloud,
+    // 电量档位：配合 iconMap 阈值（>=95=battery_full,default=battery_alert）。
+    'battery_full': Icons.battery_full,
+    'battery_6_bar': Icons.battery_6_bar,
+    'battery_5_bar': Icons.battery_5_bar,
+    'battery_4_bar': Icons.battery_4_bar,
+    'battery_3_bar': Icons.battery_3_bar,
+    'battery_2_bar': Icons.battery_2_bar,
+    'battery_1_bar': Icons.battery_1_bar,
+    'battery_0_bar': Icons.battery_0_bar,
+    'battery_alert': Icons.battery_alert,
+    'battery_charging_full': Icons.battery_charging_full,
   };
 }
 

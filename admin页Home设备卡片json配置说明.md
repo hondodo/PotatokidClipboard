@@ -143,7 +143,7 @@
 { "type": "text", "value": "{attr.current_temperature}",
   "map": ">=30=高温,>=20=舒适,default=偏低" }
 { "type": "icon", "value": "{s:_battery_level_p_5_1}",
-  "iconMap": ">=80=battery_full,>=50=battery_50,>=20=battery_20,default=battery_alert" }
+  "iconMap": ">=95=battery_full,>=75=battery_6_bar,>=50=battery_4_bar,>=20=battery_2_bar,default=battery_alert" }
 { "type": "column", "bg": "{attr.current_temperature}",
   "bgMap": ">=30=#FF5252,>=20=#FFB74D,default=#4CAF50", "bgRadius": 12,
   "children": [ ... ] }
@@ -156,6 +156,7 @@
 | `on=` / `off=` 等普通键 | 整值精确匹配（兼容旧写法），优先于阈值判断 |
 
 适用字段：`map`、`colorMap`、`iconMap`、`labelMap`、`bgMap`（以及占位符内联 `|>=30=...`）。
+`iconMap` 的图标名必须是 App 内置白名单里的名字（如 `battery_full` / `battery_6_bar` … `battery_0_bar` / `battery_alert` / `battery_charging_full`、`power`、`lightbulb`、`ac_unit`、`water_drop`、`wind`、`tv`、`cloud`、`lock`、`show_chart` 等）；写成不认识的名字会显示成默认「设备」图标。也支持单个符号（☀ ❄ ⏻）或图片 URL。
 `bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。
 
 `visibleWhen` / `enabledWhen` 同样支持数值比较，例如 `"{attr.battery_level}>=20"`、`"{attr.current_temperature}<28"`；两边都能转成数字时按数值比，否则按字符串比。

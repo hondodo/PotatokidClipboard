@@ -545,6 +545,11 @@
     wind: '✦', tv: '▣', local_fire_department: '🔥', microwave: '▣',
     washing_machine: '◉', electric_bolt: '⚡', lock: '🔒', lock_open: '🔓',
     grid_view: '▦', show_chart: '📈', volume_up: '🔊', cloud: '☁',
+    // 电量档位：Material Icons 名在预览里用近似电量字形表示。
+    battery_full: '🔋', battery_6_bar: '🔋', battery_5_bar: '🔋',
+    battery_4_bar: '🔋', battery_3_bar: '🔋', battery_2_bar: '🪫',
+    battery_1_bar: '🪫', battery_0_bar: '🪫', battery_alert: '🪫',
+    battery_charging_full: '🔋',
   };
 
   // ---- 卡片预览：按当前类型命中情况列出真实设备，用真实实体状态/属性渲染 ----
