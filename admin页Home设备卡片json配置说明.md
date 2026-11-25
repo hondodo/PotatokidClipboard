@@ -164,8 +164,8 @@
 <!-- AUTO:nodeTypes -->
 | type | 主要字段 |
 | --- | --- |
-| `row` | 横向排列；gap / crossAlign / mainAlign |
-| `column` | 纵向排列；fill:true 撑满高度，配合 mainAlign:spaceBetween 贴底 |
+| `row` | 横向排列；gap / crossAlign / mainAlign。行内 column 建议显式写 crossAlign（start/center/end）：这样按内容宽度排布，配合 mainAlign:spaceBetween 均匀铺开；不写则默认 stretch 并占用等分宽度 |
+| `column` | 纵向排列；fill:true 撑满高度，配合 mainAlign:spaceBetween 贴底。作为 row 子节点时显式写 crossAlign 可按内容宽度排布 |
 | `wrap` | 横向自动换行 |
 | `stack` | 层叠；子节点用 stackAlign / position 定位 |
 | `text` | 文本；value / size / weight / color / maxLines / align / marquee* |

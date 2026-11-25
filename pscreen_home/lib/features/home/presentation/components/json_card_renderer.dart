@@ -180,11 +180,18 @@ class JsonCardRenderer extends StatelessWidget {
       if (children[i].expand) {
         child = Expanded(child: child);
       } else if (axis == Axis.horizontal && children[i].type == 'column') {
-        // Row 默认给非 flex 子节点无界宽度，column 的 stretch 会把它传给
-        // 内部 Text，导致 "BoxConstraints forces an infinite width"。
-        // 后台下发的布局不一定会给 column 写 expand，这里按渲染需要兜底：
-        // 用 loose Flexible 提供有界宽度，同时允许 column 按内容收缩。
-        child = Flexible(fit: FlexFit.loose, child: child);
+        if (children[i].crossAlign == null) {
+          // 默认 stretch 的 column 会把 Row 给的无界宽度传给内部 Text，
+          // 触发 "BoxConstraints forces an infinite width"；用 loose
+          // Flexible 提供有界宽度，保持原有行为。
+          child = Flexible(fit: FlexFit.loose, child: child);
+        } else {
+          // 显式写了 crossAlign 的列要按内容宽度排布。不能用 Flexible：
+          // 所有 Flexible 默认 flex=1，Flutter 会把行宽平均分配，内容较宽
+          // 的列（如 − 26.5°C +）会溢出到相邻列，造成按钮重叠和 overflow
+          // 条纹提示。IntrinsicWidth 先测量内容宽度，再给子节点有界约束。
+          child = IntrinsicWidth(child: child);
+        }
       }
       out.add(child);
     }

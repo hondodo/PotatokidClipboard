@@ -1605,6 +1605,88 @@ void main() {
     expect(actions, contains('climateFan@climate.bedroom:+1'));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Row 内显式 crossAlign 的 column 按内容宽度排布，不被平均分配导致按钮重叠', (
+    WidgetTester tester,
+  ) async {
+    // 复现：旧逻辑给 Row 内所有 column 包 Flexible(loose)，Flutter 按 flex=1
+    // 把行宽平均分配；内容较宽的「− 26.5°C +」列溢出到相邻列，温度 +
+    // 与风速 − 重叠并触发 RenderFlex overflow 条纹提示。
+    final Map<String, dynamic> layout = <String, dynamic>{
+      'type': 'column',
+      'children': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'row', 'gap': 4, 'crossAlign': 'center', 'mainAlign': 'start',
+          'children': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'column', 'gap': 1, 'crossAlign': 'start',
+              'children': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'text', 'value': 'A', 'size': 14, 'maxLines': 1},
+              ],
+            },
+            <String, dynamic>{
+              'type': 'column', 'gap': 1, 'crossAlign': 'center',
+              'children': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'text', 'value': '目标', 'size': 11, 'maxLines': 1},
+                <String, dynamic>{
+                  'type': 'row', 'gap': 4, 'crossAlign': 'center',
+                  'children': <Map<String, dynamic>>[
+                    <String, dynamic>{'type': 'chip', 'label': '−', 'size': 16, 'height': 34},
+                    <String, dynamic>{'type': 'text', 'value': '26.5°C', 'size': 20, 'weight': 700, 'maxLines': 1},
+                    <String, dynamic>{'type': 'chip', 'label': '+', 'size': 16, 'height': 34},
+                  ],
+                },
+              ],
+            },
+            <String, dynamic>{
+              'type': 'column', 'gap': 1, 'crossAlign': 'center',
+              'children': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'text', 'value': '风速', 'size': 11, 'maxLines': 1},
+                <String, dynamic>{
+                  'type': 'row', 'gap': 4, 'crossAlign': 'center',
+                  'children': <Map<String, dynamic>>[
+                    <String, dynamic>{'type': 'chip', 'label': '−', 'size': 16, 'height': 34},
+                    <String, dynamic>{'type': 'text', 'value': '一档', 'size': 15, 'maxLines': 1},
+                    <String, dynamic>{'type': 'chip', 'label': '+', 'size': 16, 'height': 34},
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_ac_align',
+      title: '测试空调',
+      entities: <HaEntityStateModel>[_entity('climate.bedroom', 'cool')],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '空调',
+      icon: '❄',
+      color: '#2f9cff',
+      layout: CardLayoutNode.fromJson(layout),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 520,
+            height: 120,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'climate',
+              onOpenDetail: () {}, onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    // 温度 + 必须完整落在风速 − 的左侧，不能重叠。
+    expect(tester.getRect(find.text('+').first).right,
+        lessThan(tester.getRect(find.text('−').last).left));
+  });
 }
 
 /// 与 deviceTypes.js CARD_LAYOUTS.climate 对齐的布局 JSON（测试用）。
