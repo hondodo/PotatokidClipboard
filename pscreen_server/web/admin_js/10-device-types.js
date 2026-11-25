@@ -1082,6 +1082,12 @@
     if (/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return v;
     return fallback || v;
   }
+  // 与 Flutter _nodeColor 对齐：color 留空但配了 colorMap 时取 value 作为映射源。
+  function pvNodeColor(node, ctx, fallback) {
+    const raw = (node.color != null && String(node.color) !== '') ? node.color
+      : (node.colorMap ? node.value : null);
+    return pvColor(raw, ctx, node, fallback);
+  }
   function pvFlexDir(node) {
     const t = node.type;
     if (t === 'row') return 'row';
@@ -1176,7 +1182,7 @@
         const txt = pvResolve(node.value, ctx, node);
         const size = node.size != null ? Number(node.size) : 14;
         const weight = node.weight != null ? Number(node.weight) : 400;
-        const color = pvColor(node.color, ctx, node, '#e7eef6');
+        const color = pvNodeColor(node, ctx, '#e7eef6');
         const align = node.align || 'left';
         const autoLines = 1 + (String(txt).match(/\n/g) || []).length;
         const lines = node.maxLines != null ? Number(node.maxLines) : Math.min(6, autoLines);
@@ -1212,7 +1218,10 @@
         const boxSize = box.size != null ? Number(box.size) : 0;
         const radius = box.radius != null ? Number(box.radius) : 12;
         const bg = box.bg ? pvColor(box.bg, ctx, node, '') : '';
-        const fg = box.color ? pvColor(box.color, ctx, node, ctx.color) : ctx.color;
+        // icon 前景色：box.color/node.color 优先；配了 colorMap 且两者都留空时取 value。
+        const fg = box.color ? pvColor(box.color, ctx, node, ctx.color)
+          : ((node.color != null && String(node.color) !== '') || !node.colorMap
+            ? ctx.color : pvNodeColor(node, ctx, ctx.color));
         const inner = `<span style="font-size:${size}px;line-height:1;color:${fg}">${esc(val)}</span>`;
         if (boxSize) {
           return `<div style="width:${boxSize}px;height:${boxSize}px;flex:none;display:flex;`
@@ -1224,7 +1233,7 @@
       if (type === 'button' || type === 'chip') {
         const round = node.round === true;
         const label = pvResolve(node.label || node.subLabel || node.value || '', ctx, node, pvAttrMap(node, 'labelMap'));
-        const color = pvColor(node.color, ctx, node, ctx.color);
+        const color = pvNodeColor(node, ctx, ctx.color);
         const sz = node.size != null ? Number(node.size) : 0;
         const dis = pvEnabled(node, ctx) ? '' : 'opacity:.55;cursor:not-allowed;';
         if (round) {
@@ -1247,7 +1256,7 @@
         const pct = max > 0 ? Math.max(0, Math.min(100, val / max * 100)) : 0;
         const h = node.height != null ? Number(node.height) : 6;
         const interactive = node.interactive === true;
-        const color = online ? pvColor(node.color, ctx, node, ctx.color) : '#6b7d8e';
+        const color = online ? pvNodeColor(node, ctx, ctx.color) : '#6b7d8e';
         const thumbH = h + 14;
         const fill = `<div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;`
           + `border-radius:${h / 2}px;background:${color}"></div>`;

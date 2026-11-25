@@ -1413,6 +1413,47 @@ void main() {
         reason: '85% 应命中 >=75 -> battery_6_bar，而非回退成 devices_other');
   });
 
+  testWidgets('colorMap 在 color 留空时取 value 映射渐变色（电量图标）', (WidgetTester tester) async {
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_battery_clr',
+      title: '电量传感器',
+      entities: <HaEntityStateModel>[
+        _entity('sensor.x_battery_level_p_2_1003', '85', name: '电量'),
+      ],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      label: '电量',
+      color: '#4dd4ac',
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'icon',
+        'value': '{s:battery_level_p_2_1003}',
+        'iconMap': '>=95=battery_full,>=75=battery_6_bar,default=battery_alert',
+        // 没有 color 字段：colorMap 应自动取 value（85）映射到 >=75 的颜色。
+        'colorMap': '>=95=#00FEFC,>=75=#00BFFF,default=#E30B5C',
+        'size': 26,
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 160,
+            height: 100,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'sensor',
+              onOpenDetail: () {}, onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
+    expect(icon.icon, Icons.battery_6_bar);
+    expect(icon.color, const Color(0xFF00BFFF),
+        reason: '85% 命中 >=75 -> #00BFFF，color 留空时 colorMap 应取 value');
+  });
+
   testWidgets('白名单外的任意 Material 图标名可由全量表动态构造', (WidgetTester tester) async {
     // wifi / add 不在 _materialIcons 白名单，但应能从 codepoint 表构造，
     // 不再回退成 Icons.devices_other。

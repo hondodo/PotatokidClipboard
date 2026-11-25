@@ -195,7 +195,7 @@ class JsonCardRenderer extends StatelessWidget {
         return Divider(
           height: gap,
           thickness: node.thickness ?? 1,
-          color: _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? theme.dividerColor,
+          color: _nodeColor(node, theme, eval) ?? theme.dividerColor,
         );
       case 'spacer':
         // 弹性空白：必须放在 row/column 的直接子节点（Spacer 本质是 Expanded）。
@@ -380,7 +380,7 @@ class JsonCardRenderer extends StatelessWidget {
     final Map<String, String>? iconMap = CardEvalContext.parseValueMap(node.iconMap);
     final Map<String, String>? colorMap = CardEvalContext.parseValueMap(node.colorMap);
     final String raw = eval.resolve(node.value ?? '', iconMap).trim();
-    final Color accent = _color(node.color, theme, eval, colorMap) ?? _accent(theme);
+    final Color accent = _nodeColor(node, theme, eval, colorMap) ?? _accent(theme);
     final Color iconColor = available ? accent : theme.colorScheme.outline;
     final double size = node.size ?? 24;
 
@@ -439,7 +439,7 @@ class JsonCardRenderer extends StatelessWidget {
     final String label = eval.resolve(node.label ?? '', labelMap, replaceMap);
     final String? sub = node.subLabel == null ? null : eval.resolve(node.subLabel!, labelMap, replaceMap);
     final String onClick = eval.resolve(node.onClick ?? '');
-    final Color accent = _color(node.color, theme, eval, colorMap) ?? _accent(theme);
+    final Color accent = _nodeColor(node, theme, eval, colorMap) ?? _accent(theme);
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);
     final bool active = resolvedStyle == 'active';
 
@@ -575,7 +575,7 @@ class JsonCardRenderer extends StatelessWidget {
     final double value = num.tryParse(eval.resolve(node.value ?? '0'))?.toDouble() ?? 0;
     final double max = num.tryParse(eval.resolve(node.max ?? '100'))?.toDouble() ?? 100;
     final double progress = max > 0 ? (value / max).clamp(0.0, 1.0) : 0;
-    final Color accent = _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? _accent(theme);
+    final Color accent = _nodeColor(node, theme, eval) ?? _accent(theme);
 
     // 可交互进度条（亮度）：用与旧版灯卡一致的 GradientSlider，拖动即时反馈、
     // 松手才下发。onClick 写 "brightness@{primary.entityId}" 之类的动作，
@@ -640,7 +640,7 @@ class JsonCardRenderer extends StatelessWidget {
     final Metric metric = metricRaw == 'temperature'
         ? Metric.temperature
         : (metricRaw == 'humidity' ? Metric.humidity : Metric.power);
-    final Color accent = _color(node.color, theme, eval, CardEvalContext.parseValueMap(node.colorMap)) ?? _accent(theme);
+    final Color accent = _nodeColor(node, theme, eval) ?? _accent(theme);
     final HistoryService? svc = historyService ?? _tryHistoryService();
     // expand=true 时外层 _spaced 已包 Expanded，这里只把 MetricSparkline 的
     // height 传 null，让它 SizedBox.expand 撑满父级剩余空间（插座卡片下半部分
@@ -755,6 +755,23 @@ class JsonCardRenderer extends StatelessWidget {
     }
     final Color c = GenericCardColors.parse(resolved, fallback: theme.colorScheme.primary);
     return c;
+  }
+
+  /// 节点颜色：优先用显式 `color`；若 `color` 留空但配了 `colorMap`，
+  /// 自动取 `value` 作为映射源（与 bgMap「bg 留空取 value」一致）。
+  /// 这样按电量/温度等数值变色只需写 value + colorMap，不必重复写一遍占位符。
+  Color? _nodeColor(
+    CardLayoutNode node,
+    ThemeData theme,
+    CardEvalContext eval, [
+    Map<String, String>? colorMap,
+  ]) {
+    final Map<String, String>? cm = colorMap ?? CardEvalContext.parseValueMap(node.colorMap);
+    if (cm == null || cm.isEmpty) return _color(node.color, theme, eval);
+    final String? raw = (node.color != null && node.color!.isNotEmpty)
+        ? node.color
+        : node.value;
+    return _color(raw, theme, eval, cm);
   }
 
   IconData _iconData(String raw) {
