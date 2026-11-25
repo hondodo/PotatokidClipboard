@@ -165,7 +165,7 @@ function buildThresholdRules() {
     '| `on=` / `off=` 等普通键 | 整值精确匹配（兼容旧写法），优先于阈值判断 |',
     '',
     '适用字段：`map`、`colorMap`、`iconMap`、`labelMap`、`bgMap`（以及占位符内联 `|>=30=...`）。',
-    '`iconMap` 的图标名必须是 App 内置白名单里的名字（如 `battery_full` / `battery_6_bar` … `battery_0_bar` / `battery_alert` / `battery_charging_full`、`power`、`lightbulb`、`ac_unit`、`water_drop`、`wind`、`tv`、`cloud`、`lock`、`show_chart` 等）；写成不认识的名字会显示成默认「设备」图标。也支持单个符号（☀ ❄ ⏻）或图片 URL。',
+    '`iconMap` 的图标名填 Flutter Material Icons 名即可，App 已从 SDK 全量导入 8825 个（含 `_rounded` / `_sharp` / `_outlined` 变体），如 `battery_full` / `battery_6_bar` … `battery_0_bar` / `battery_alert`、`wifi`、`ac_unit`、`water_drop`、`wind` 等，后台改名字即时生效、无需重编 App；拼错的名字会回退成默认「设备」图标。也支持单个符号（☀ ❄ ⏻）或图片 URL。注意管理端预览没有内置这套字体，白名单外的图标在预览里只显示名字文字，以 App 实际显示为准。',
     '`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。',
     '',
     '`visibleWhen` / `enabledWhen` 同样支持数值比较，例如 `"{attr.battery_level}>=20"`、`"{attr.current_temperature}<28"`；两边都能转成数字时按数值比，否则按字符串比。',

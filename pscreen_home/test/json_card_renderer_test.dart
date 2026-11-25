@@ -1413,6 +1413,49 @@ void main() {
         reason: '85% 应命中 >=75 -> battery_6_bar，而非回退成 devices_other');
   });
 
+  testWidgets('白名单外的任意 Material 图标名可由全量表动态构造', (WidgetTester tester) async {
+    // wifi / add 不在 _materialIcons 白名单，但应能从 codepoint 表构造，
+    // 不再回退成 Icons.devices_other。
+    for (final MapEntry<String, IconData> case_ in <MapEntry<String, IconData>>[
+      MapEntry<String, IconData>('wifi', Icons.wifi),
+      MapEntry<String, IconData>('add', Icons.add),
+      MapEntry<String, IconData>('battery_charging_full', Icons.battery_charging_full),
+    ]) {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev_icon',
+        title: '图标',
+        entities: <HaEntityStateModel>[_entity('sensor.x', '1', name: 'x')],
+      );
+      final DeviceCardConfig card = DeviceCardConfig(
+        label: '图标',
+        color: '#4dd4ac',
+        layout: CardLayoutNode.fromJson(<String, dynamic>{
+          'type': 'icon',
+          'value': case_.key,
+          'size': 24,
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 120,
+              height: 80,
+              child: JsonCardRenderer(
+                group: group, card: card, typeKey: 'sensor',
+                onOpenDetail: () {}, onAction: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
+      expect(icon.icon!.codePoint, case_.value.codePoint,
+          reason: '${case_.key} 应动态构造同名图标，而非回退成 devices_other');
+    }
+  });
+
   testWidgets('stack 叠放：背景与前景同槽渲染不溢出', (WidgetTester tester) async {
     final Map<String, dynamic> layout = <String, dynamic>{
       'type': 'stack',

@@ -11,6 +11,7 @@ import 'package:pscreen_home/features/home/presentation/components/cached_card_i
 import 'package:pscreen_home/features/home/presentation/components/card_title.dart';
 import 'package:pscreen_home/features/home/presentation/components/gradient_slider.dart';
 import 'package:pscreen_home/features/home/presentation/components/marquee_text.dart';
+import 'package:pscreen_home/features/home/presentation/components/material_icon_codepoints.dart';
 import 'package:pscreen_home/features/home/presentation/components/metric_sparkline.dart';
 
 /// 通用 JSON 卡片渲染器：递归解释服务端下发的布局树，生成原生 Flutter Widget。
@@ -758,9 +759,16 @@ class JsonCardRenderer extends StatelessWidget {
 
   IconData _iconData(String raw) {
     if (raw.isEmpty) return Icons.circle;
-    // 先试 Material 图标名
-    final IconData? m = _materialIcons[raw.toLowerCase()];
+    final String key = raw.toLowerCase();
+    // 1) 白名单优先：保留少量映射到特定变体的名字（如 lightbulb→rounded、
+    //    wind→wind_power、brightness→brightness_6），维持既有显示效果。
+    final IconData? m = _materialIcons[key];
     if (m != null) return m;
+    // 2) 全量 codepoint 表：后台 JSON 里写任意 Material Icons 名（含 _rounded/
+    //    _sharp/_outlined 变体）都能动态构造，无需改 Dart 重编 App。
+    final int? cp = kMaterialIconCodepoints[key];
+    // ignore: non_const_argument_for_const_parameter
+    if (cp != null) return IconData(cp, fontFamily: 'MaterialIcons');
     // 单个 emoji / 字符（如 ♨ ☀ ▦）由 _buildIcon 的 Text 分支绘制，
     // 这里只作为该分支之外的兜底（例如空值）。
     if (raw.length <= 2 && raw.runes.isNotEmpty) {
