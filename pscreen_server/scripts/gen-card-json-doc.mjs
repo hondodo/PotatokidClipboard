@@ -170,7 +170,7 @@ function buildThresholdRules() {
     '`colorMap` 操作的是 `color` 求值出来的值；**`color` 留空时取 `value`**（所以图标/文字只写 `value` + `colorMap` 就能按数值变色）。也可给 `color` 填别的占位符来按另一个量着色。颜色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等。',
     '`bgMap` 操作的是 `bg` 求值出来的值；`bg` 留空时取 `value`。背景色支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `outline` 等（可带 2 位透明度后缀，如 `#E30B5C0F`）。',
     '',
-    '**设备不可用时的颜色（`unavailableColor`）**：当设备 state 为 `unavailable`/`unknown`（整张卡被判为不可用）时，`icon` / `text` 的前景色默认会被强制成主题禁用灰。若节点显式配了 `unavailableColor`，不可用时改用该颜色（写法与 `color` 一致，支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `{color}` 占位符 / `colorMap` 阈值）。未配置时维持原有置灰行为。',
+    '**设备不可用时的颜色（`unavailableColor`）**：当设备 state 为 `unavailable`/`unknown`（整张卡被判为不可用）时，`icon` / `text` 的前景色按 `unavailableColor` > 节点 `color`（含 `colorMap` 取 value）> 主题禁用灰 的优先级取色。所以只在节点写 `color`（如 `{color}`）也能让离线时保持该色；只有两者都没配才回退主题灰。写法与 `color` 一致，支持 `#RRGGBB` / `#RRGGBBAA` / 语义色名 / `{color}` 占位符 / `colorMap` 阈值。',
     '```json',
     '{ "type": "icon", "value": "{icon}", "size": 24,',
     '  "color": "{color}", "unavailableColor": "#4dd4ac",',

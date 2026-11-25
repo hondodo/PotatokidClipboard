@@ -696,7 +696,7 @@ void main() {
         reason: '离线文字应使用 unavailableColor #00BFFF');
   });
 
-  testWidgets('离线且未配置 unavailableColor 时图标回退主题禁用色（兼容旧行为）', (WidgetTester tester) async {
+  testWidgets('离线未配 unavailableColor 时图标用节点 color，两者都无才回退主题禁用色', (WidgetTester tester) async {
     final HaDeviceGroup offlineGroup = HaDeviceGroup(
       deviceId: 'dev_router_offline2',
       title: '书房 路由器',
@@ -709,16 +709,21 @@ void main() {
       ],
     );
     final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
-      'type': 'icon',
-      'value': 'router',
-      'size': 24,
-      'color': '#FF0000',
+      'type': 'row',
+      'children': <dynamic>[
+        <String, dynamic>{
+          'type': 'icon', 'value': 'router', 'size': 24, 'color': '#FF0000',
+        },
+        <String, dynamic>{
+          'type': 'icon', 'value': 'router', 'size': 24,
+        },
+      ],
     });
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: SizedBox(
-            width: 200,
+            width: 240,
             height: 120,
             child: JsonCardRenderer(
               group: offlineGroup,
@@ -733,10 +738,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     final BuildContext ctx = tester.element(find.byType(JsonCardRenderer));
-    final Color expected = Theme.of(ctx).colorScheme.outline;
-    final Icon icon = tester.widget<Icon>(find.byType(Icon).first);
-    expect(icon.color, expected,
-        reason: '未配 unavailableColor 时离线图标仍用主题禁用色，保持旧行为');
+    final Color outline = Theme.of(ctx).colorScheme.outline;
+    final Icon withColor = tester.widget<Icon>(find.byType(Icon).at(0));
+    final Icon noColor = tester.widget<Icon>(find.byType(Icon).at(1));
+    expect(withColor.color, const Color(0xFFFF0000),
+        reason: '离线未配 unavailableColor 时用节点 color #FF0000');
+    expect(noColor.color, outline,
+        reason: 'unavailableColor 和 color 都未配时才回退主题禁用色');
   });
 
   testWidgets('单字符符号图标用 Text 渲染，不再回退成圆圈', (WidgetTester tester) async {
