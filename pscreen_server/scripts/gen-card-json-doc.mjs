@@ -118,7 +118,7 @@ function buildPlaceholders() {
 // ---------------------------------------------------------------- 内联规则
 const INLINE_META = {
   pct: { name: 'pct', desc: 'HA light 的 0-255 → 0-100 百分比；>255 视为已是百分比，不再换算' },
-  date: { name: 'date[:pattern]', desc: 'ISO 时间按 Flutter DateFormat 格式化；支持 `zh:` / `en_US:` 前缀，省略 pattern 用 yMd' },
+  date: { name: 'date[:pattern]', desc: 'ISO 时间按 Flutter DateFormat 格式化，带时区偏移（如 `+00:00`）会先转本地时间再显示；支持 `zh:` / `en_US:` 前缀，省略 pattern 用 yMd' },
   maxwith: { name: 'maxWith=<占位符 key>', desc: '当前值与另一个占位符都是 ISO 时间时取较晚者；非时间值以可解析的一方为准' },
   ago: { name: 'ago', desc: 'ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）；非时间值原样返回' },
   when: { name: 'when=<key>:<期望值>=<文案>', desc: '另一个占位符当前值等于期望值时，把本占位符输出替换为文案（key 含冒号，如 s:_charging_state_p_5_2；如充电中覆盖开机文案）' },

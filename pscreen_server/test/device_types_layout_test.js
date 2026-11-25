@@ -28,6 +28,15 @@ console.log('[device types] 布局模板完整性：');
 const layout = normalizeCard({}, 'climate').layout;
 const chips = layout.children[2].children;
 
+ok('空调默认布局右上角电源键走主实体 toggle 通道', () => {
+    const header = layout.children[0].children;
+    const power = header[2];
+    assert.strictEqual(power.type, 'chip');
+    assert.strictEqual(power.round, true);
+    assert.strictEqual(power.icon, 'power_settings_new');
+    assert.strictEqual(power.onClick, 'toggle@{primary.entityId}');
+});
+
 ok('空调默认布局 chip label 保留完整内联规则', () => {
     const mode = chips[0].label;
     assert.strictEqual(mode, '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动}');

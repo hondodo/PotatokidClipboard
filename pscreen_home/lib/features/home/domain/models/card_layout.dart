@@ -412,7 +412,8 @@ class CardEvalContext {
 
   /// 占位符内联规则：
   /// - pct：HA light 的 0-255 → 0-100 百分比；
-  /// - date / date:<pattern>：把 ISO 时间串按 Flutter DateFormat 格式化；
+  /// - date / date:`pattern`：把 ISO 时间串按 Flutter DateFormat 格式化；
+  ///   带时区偏移（如 `+00:00`/`Z`）的时间会先转成本地时间再显示；
   ///   pattern 省略时默认 'yMd'；支持 'zh'/'en_US' 等 locale 前缀 `zh:yMd`；
   ///   也支持 DateFormat 简写名（yMd/Hms/yMEd/yMMM…），见 [_dateFormat]。
   /// - maxWith=<占位符 key>：当前值与另一个占位符都是 ISO 时间时取较晚者。
@@ -530,10 +531,13 @@ class CardEvalContext {
   }
 
   /// ISO 时间 → DateFormat。spec 形如 `yMd`、`zh:yMd`、`yyyy-MM-dd HH:mm`。
-  /// 无法解析成时间时原样返回（如 off 时的 'unknown'/空串）。
+  /// HA 的 last_updated 等字段常带 `+00:00`，DateTime.parse 会得到 UTC 时间；
+  /// 直接格式化会少 8 小时，所以统一 toLocal() 再显示。无时区的裸时间串解析出来
+  /// 已是本地时间，toLocal() 不会改变它。无法解析时原样返回（如 off 时的 'unknown'）。
   static String _formatInlineDate(String raw, String spec) {
-    final DateTime? dt = DateTime.tryParse(raw.trim());
-    if (dt == null) return raw;
+    final DateTime? parsed = DateTime.tryParse(raw.trim());
+    if (parsed == null) return raw;
+    final DateTime dt = parsed.toLocal();
     String pattern = 'yMd';
     String locale = 'zh';
     final String trimmed = spec.trim();

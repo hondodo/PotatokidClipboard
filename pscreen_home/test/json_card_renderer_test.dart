@@ -822,6 +822,29 @@ void main() {
     );
   });
 
+  test('占位符 date 规则：带 +00:00 的 ISO 时间按本地时区显示', () {
+    const String raw = '2026-11-24T12:09:10.156+00:00';
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_ws2',
+      title: '双键无线开关',
+      entities: <HaEntityStateModel>[
+        _entity('event.wireless_click_e_3_1012', raw, name: '单击'),
+      ],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(label: '双键');
+    final CardEvalContext ctx = CardEvalContext(group: group, card: card);
+
+    final DateTime local = DateTime.parse(raw).toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final String expected = '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+    final String resolved = ctx.resolve('{s:wireless_click_e_3_1012|date:yyyy-MM-dd HH:mm}');
+    expect(resolved, expected);
+    if (local.timeZoneOffset != Duration.zero) {
+      expect(resolved, isNot('2026-11-24 12:09'));
+    }
+  });
+
   test('占位符 maxWith + ago：取接入/断开中较晚的时间并显示相对时间', () {
     final DateTime now = DateTime.now().toUtc();
     // 接入更早、断开更晚 → 副标题应显示断开时间。
@@ -1454,7 +1477,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('空调 1×2 交互卡：温湿度/目标温度/模式/三个快捷开关正确渲染', (
+  testWidgets('空调 1×2 交互卡：电源/温湿度/目标温度/模式/三个快捷开关正确渲染', (
     WidgetTester tester,
   ) async {
     final HaEntityStateModel ac = HaEntityStateModel(
@@ -1489,6 +1512,7 @@ void main() {
       subTpl: '{s1} · 目标 {s2}°C', icon: '❄', color: '#2f9cff',
       layout: layout,
     );
+    final List<String> actions = <String>[];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -1500,7 +1524,7 @@ void main() {
               card: card,
               typeKey: 'climate',
               onOpenDetail: () {},
-              onAction: (_) {},
+              onAction: actions.add,
             ),
           ),
         ),
@@ -1515,6 +1539,11 @@ void main() {
     expect(find.text('节能'), findsOneWidget);
     expect(find.text('睡眠'), findsOneWidget);
     expect(find.text('防直吹'), findsOneWidget);
+    // 右上角电源键走主实体安全通道，不猜开关后缀。
+    expect(find.byIcon(Icons.power_settings_new), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.power_settings_new));
+    await tester.pump();
+    expect(actions, contains('toggle@climate.xiaomi_cn_735376016_m9'));
     expect(tester.takeException(), isNull);
   });
 }
@@ -1539,6 +1568,11 @@ Map<String, dynamic> _acLayoutJson() => <String, dynamic>{
             <String, dynamic>{'type': 'text', 'value': '{title}', 'size': 14, 'weight': 700, 'maxLines': 1},
             <String, dynamic>{'type': 'text', 'value': '{state|cool=制冷,dry=除湿,fan_only=送风,heat=制热,off=已关闭,auto=自动} · 湿度 {attr.current_humidity}%', 'size': 12, 'color': '{color}', 'maxLines': 1},
           ],
+        },
+        <String, dynamic>{
+          'type': 'chip', 'round': true, 'icon': 'power_settings_new', 'size': 40,
+          'style': '{state|off=normal,on=active}', 'color': '{color}',
+          'onClick': 'toggle@{primary.entityId}',
         },
       ],
     },

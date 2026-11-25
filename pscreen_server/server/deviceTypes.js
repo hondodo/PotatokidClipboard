@@ -235,6 +235,7 @@ const CARD_LAYOUTS = {
     // 空调（米家巨省电等）：1×2 交互卡。当前温度/湿度/目标温度/模式/风速全部从
     // 主实体（climate）的 attributes 取，避免 {s1}/{s2} 按组内下标取错实体（旧版
     // 「目标 on°C」就是这个 bug）。空调设备组主实体恒为 climate，两台空调通用。
+    // 右上角圆形电源键走 toggle@{primary.entityId} 安全通道（主实体就是 climate）。
     // 目标温度 ±/模式/风速用 climate*@{primary.entityId} 安全通道，
     // 节能/睡眠/防直吹是独立 switch 实体，用 toggle@{id:后缀} 精确控制。
     climate: {
@@ -256,6 +257,9 @@ const CARD_LAYOUTS = {
                               size: 12, color: '{color}', maxLines: 1 },
                         ],
                     },
+                    { type: 'chip', round: true, icon: 'power_settings_new', size: 40,
+                      style: '{state|off=normal,on=active}', color: '{color}',
+                      onClick: 'toggle@{primary.entityId}' },
                 ],
             },
             {
