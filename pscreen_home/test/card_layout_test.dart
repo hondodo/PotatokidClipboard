@@ -192,6 +192,166 @@ void main() {
     });
   });
 
+  group('selectOption 动作解析', () {
+    test('按第一个冒号拆分实体与选项', () {
+      final parsed = parseSelectOptionAction(
+        'selectOption@select.viomi_v12_fan_level_p_10_2:低风',
+      );
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.viomi_v12_fan_level_p_10_2');
+      expect(parsed.option, '低风');
+    });
+
+    test('选项本身含冒号时完整保留（如 23:00-06:00）', () {
+      final parsed = parseSelectOptionAction(
+        'selectOption@select.vm_enable_time:23:00-06:00',
+      );
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.vm_enable_time');
+      expect(parsed.option, '23:00-06:00');
+    });
+
+    test('不带选项（无冒号）表示循环下一项', () {
+      final parsed = parseSelectOptionAction('selectOption@select.mode');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.mode');
+      expect(parsed.option, isNull);
+    });
+
+    test('格式非法返回 null（无前缀 / 空实体 / 空选项）', () {
+      expect(parseSelectOptionAction('toggle@switch.light'), isNull);
+      expect(parseSelectOptionAction('selectOption@'), isNull);
+      expect(parseSelectOptionAction('selectOption@:低风'), isNull);
+      expect(parseSelectOptionAction('selectOption@select.fan:'), isNull);
+    });
+  });
+
+  group('fanOscillate / fanMode 动作解析', () {
+    test('fanOscillate 不带参数表示取反', () {
+      final parsed = parseFanOscillateAction('fanOscillate@fan.living');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'fan.living');
+      expect(parsed.oscillating, isNull);
+    });
+
+    test('fanOscillate 带 on/off 直接设定，含兼容写法', () {
+      expect(parseFanOscillateAction('fanOscillate@fan.living:on')!.oscillating, true);
+      expect(parseFanOscillateAction('fanOscillate@fan.living:off')!.oscillating, false);
+      expect(parseFanOscillateAction('fanOscillate@fan.living:true')!.oscillating, true);
+      expect(parseFanOscillateAction('fanOscillate@fan.living:0')!.oscillating, false);
+      expect(parseFanOscillateAction('fanOscillate@fan.living:maybe'), isNull);
+    });
+
+    test('fanMode 不带 mode 表示循环下一个', () {
+      final parsed = parseFanModeAction('fanMode@fan.living');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'fan.living');
+      expect(parsed.mode, isNull);
+    });
+
+    test('fanMode 带 mode 直接设定，含中文模式名', () {
+      final parsed = parseFanModeAction('fanMode@fan.living:睡眠风');
+      expect(parsed, isNotNull);
+      expect(parsed!.mode, '睡眠风');
+      expect(parseFanModeAction('fanMode@fan.living:'), isNull);
+      expect(parseFanModeAction('toggle@fan.living'), isNull);
+    });
+  });
+
+  group('waterHeaterTemp 动作解析', () {
+    test('按最后一个冒号拆分实体与带符号增量', () {
+      final plus = parseWaterHeaterTempAction(
+        'waterHeaterTemp@water_heater.xiaomi_cn_m3_s_2_water_heater:+1',
+      );
+      expect(plus, isNotNull);
+      expect(plus!.entityId, 'water_heater.xiaomi_cn_m3_s_2_water_heater');
+      expect(plus.delta, 1);
+
+      final minus = parseWaterHeaterTempAction(
+        'waterHeaterTemp@water_heater.xiaomi_cn_m3_s_2_water_heater:-1',
+      );
+      expect(minus, isNotNull);
+      expect(minus!.delta, -1);
+    });
+
+    test('支持小数增量（step 0.5 的设备）', () {
+      final parsed = parseWaterHeaterTempAction(
+        'waterHeaterTemp@water_heater.demo:-0.5',
+      );
+      expect(parsed, isNotNull);
+      expect(parsed!.delta, -0.5);
+    });
+
+    test('格式非法返回 null（无前缀 / 无冒号 / 空实体 / 非数字 / 零增量）', () {
+      expect(parseWaterHeaterTempAction('climateTemp@climate.ac:+1'), isNull);
+      expect(parseWaterHeaterTempAction('waterHeaterTemp@water_heater.demo'), isNull);
+      expect(parseWaterHeaterTempAction('waterHeaterTemp@:+1'), isNull);
+      expect(parseWaterHeaterTempAction('waterHeaterTemp@water_heater.demo:abc'), isNull);
+      expect(parseWaterHeaterTempAction('waterHeaterTemp@water_heater.demo:0'), isNull);
+    });
+  });
+
+  group('number 动作解析与步进', () {
+    test('按最后一个冒号拆分实体与带符号增量', () {
+      final plus = parseNumberAction(
+        'number@number.xiaomi_cn_maf16_target_temperature_p_2_7:+5',
+      );
+      expect(plus, isNotNull);
+      expect(plus!.entityId, 'number.xiaomi_cn_maf16_target_temperature_p_2_7');
+      expect(plus.delta, 5);
+
+      final minus = parseNumberAction(
+        'number@number.xiaomi_cn_maf16_target_time_p_2_5:-1',
+      );
+      expect(minus, isNotNull);
+      expect(minus!.delta, -1);
+    });
+
+    test('格式非法返回 null（无前缀 / 无冒号 / 空实体 / 非数字 / 零增量）', () {
+      expect(parseNumberAction('fan@fan.living:33'), isNull);
+      expect(parseNumberAction('number@number.demo'), isNull);
+      expect(parseNumberAction('number@:+5'), isNull);
+      expect(parseNumberAction('number@number.demo:abc'), isNull);
+      expect(parseNumberAction('number@number.demo:0'), isNull);
+    });
+
+    test('按 step 对齐并钳制在 min/max', () {
+      // 温度 180 +5 → 185（step 5 对齐），上界 230 内。
+      expect(
+        numberStepTarget(current: 180, delta: 5, min: 40, max: 230, step: 5),
+        185,
+      );
+      // 到上界后不再增加：228 +5 → clamp 230 → 对齐仍 230。
+      expect(
+        numberStepTarget(current: 228, delta: 5, min: 40, max: 230, step: 5),
+        230,
+      );
+      // 时间 1 -1 → clamp 到 min 1。
+      expect(
+        numberStepTarget(current: 1, delta: -1, min: 1, max: 1440, step: 1),
+        1,
+      );
+      // 未对齐的当前值按 step 就近对齐：43 +5=48 → 以 min 40 为基准对齐到 50。
+      expect(
+        numberStepTarget(current: 43, delta: 5, min: 40, max: 230, step: 5),
+        50,
+      );
+    });
+
+    test('字符串型 min/max/step 也能解析', () {
+      expect(
+        numberStepTarget(
+          current: 10,
+          delta: 5,
+          min: '0',
+          max: '100',
+          step: '5',
+        ),
+        15,
+      );
+    });
+  });
+
   group('数值阈值映射', () {
     test('applyRules 按出现顺序取首个命中，default 兜底', () {
       final Map<String, String> rules = CardEvalContext.parseValueMap(

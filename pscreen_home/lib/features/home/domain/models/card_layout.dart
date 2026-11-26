@@ -962,6 +962,128 @@ String? climateFanStepTarget(List<String> modes, String current, {int? delta}) {
   return modes[next];
 }
 
+/// 解析 `selectOption@<entityId>[:<option>]` 动作。
+///
+/// 实体 id 里不会有冒号，按第一个冒号拆分，选项本身可含冒号
+/// （如假日模式的 `23:00-06:00`）。不带选项（无冒号）时 option 为 null，
+/// 表示按实体 options 循环到下一项（菜单只有一个大按钮时用）。
+/// 返回 null 表示动作格式非法，调用方应拒绝下发。
+({String entityId, String? option})? parseSelectOptionAction(String action) {
+  const String prefix = 'selectOption@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.indexOf(':');
+  if (sep < 0) {
+    if (rest.isEmpty) return null;
+    return (entityId: rest, option: null);
+  }
+  if (sep == 0) return null;
+  final String entityId = rest.substring(0, sep).trim();
+  final String option = rest.substring(sep + 1).trim();
+  if (entityId.isEmpty || option.isEmpty) return null;
+  return (entityId: entityId, option: option);
+}
+
+/// 解析 `fanOscillate@<entityId>[:<on|off>]` 动作。
+///
+/// 不带参数：由调用方按实体当前 `oscillating` 取反；带参数直接设定。
+/// 返回 null 表示格式非法，调用方应拒绝下发。
+({String entityId, bool? oscillating})? parseFanOscillateAction(String action) {
+  const String prefix = 'fanOscillate@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.indexOf(':');
+  final String entityId = (sep > 0 ? rest.substring(0, sep) : rest).trim();
+  if (entityId.isEmpty) return null;
+  if (sep <= 0) return (entityId: entityId, oscillating: null);
+  final String arg = rest.substring(sep + 1).trim().toLowerCase();
+  if (arg == 'on' || arg == 'true' || arg == '1') {
+    return (entityId: entityId, oscillating: true);
+  }
+  if (arg == 'off' || arg == 'false' || arg == '0') {
+    return (entityId: entityId, oscillating: false);
+  }
+  return null;
+}
+
+/// 解析 `fanMode@<entityId>[:<mode>]` 动作。
+///
+/// 不带 mode：由调用方在实体 `preset_modes` 里循环到下一个；
+/// 带 mode：直接设为指定模式（bloc 会校验该值在列表里）。
+({String entityId, String? mode})? parseFanModeAction(String action) {
+  const String prefix = 'fanMode@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.indexOf(':');
+  final String entityId = (sep > 0 ? rest.substring(0, sep) : rest).trim();
+  if (entityId.isEmpty) return null;
+  if (sep <= 0) return (entityId: entityId, mode: null);
+  final String mode = rest.substring(sep + 1).trim();
+  if (mode.isEmpty) return null;
+  return (entityId: entityId, mode: mode);
+}
+
+/// 解析 `waterHeaterTemp@<entityId>:<delta>` 动作。
+///
+/// delta 为带符号的温度增量（如 `+1` / `-1` / `0.5`），实体 id 里不会有冒号，
+/// 按最后一个冒号拆分。返回 null 表示格式非法，调用方应拒绝下发。
+/// 真正的 step 对齐与 min/max 钳制由 bloc 完成，这里只负责解析。
+({String entityId, double delta})? parseWaterHeaterTempAction(String action) {
+  const String prefix = 'waterHeaterTemp@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.lastIndexOf(':');
+  if (sep <= 0) return null;
+  final String entityId = rest.substring(0, sep).trim();
+  final double? delta = double.tryParse(rest.substring(sep + 1).trim());
+  if (entityId.isEmpty || delta == null || delta == 0) return null;
+  return (entityId: entityId, delta: delta);
+}
+
+/// 解析 `number@<entityId>:<delta>` 动作。
+///
+/// delta 为带符号增量（如 `+5` / `-5` / `+1`），实体 id 里不会有冒号，
+/// 按最后一个冒号拆分。返回 null 表示格式非法，调用方应拒绝下发。
+({String entityId, double delta})? parseNumberAction(String action) {
+  const String prefix = 'number@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.lastIndexOf(':');
+  if (sep <= 0) return null;
+  final String entityId = rest.substring(0, sep).trim();
+  final double? delta = double.tryParse(rest.substring(sep + 1).trim());
+  if (entityId.isEmpty || delta == null || delta == 0) return null;
+  return (entityId: entityId, delta: delta);
+}
+
+/// 按 number 实体的 min/max/step 计算 ± 后的目标值：先钳制到 [min, max]，
+/// 再按 step 对齐（以 min 为基准）。min/max/step 缺失时用宽松兜底。
+double numberStepTarget({
+  required double current,
+  required double delta,
+  Object? min,
+  Object? max,
+  Object? step,
+}) {
+  double? asDouble(Object? v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+  }
+
+  final double lo = asDouble(min) ?? 0;
+  final double hi = asDouble(max) ?? double.maxFinite;
+  final double st = asDouble(step) ?? 1;
+  double target = current + delta;
+  if (target < lo) target = lo;
+  if (target > hi) target = hi;
+  if (st > 0 && hi < double.maxFinite) {
+    final double aligned = lo + ((target - lo) / st).round() * st;
+    target = aligned < lo ? lo : (aligned > hi ? hi : aligned);
+  }
+  return target;
+}
+
 /// 由分组生成 repeat 的 gangs 列表值（每路一组占位符）。
 List<Map<String, String>> gangValues(HaDeviceGroup group) {
   final List<Map<String, String>> out = <Map<String, String>>[];

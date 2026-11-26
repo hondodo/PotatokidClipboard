@@ -458,6 +458,13 @@ class JsonCardRenderer extends StatelessWidget {
     final Color accent = _nodeColor(node, theme, eval, colorMap) ?? _accent(theme);
     final String resolvedStyle = node.style == null ? '' : eval.resolve(node.style!);
     final bool active = resolvedStyle == 'active';
+    // 按钮禁用态前景色：
+    // - 设备在线但 enabledWhen 不满足（如关机时挡位不可调）：沿用 color 配置本身，
+    //   后台在 color 规则里写 when=state:off=#RRGGBB 时即为该暗色，不被 Flutter 系统灰覆盖。
+    // - 设备离线：只用 unavailableColor，未配回退主题禁用色，绝不拿 color 顶替（职责分离）。
+    final Color disabledFg = available
+        ? accent
+        : (_color(node.unavailableColor, theme, eval, colorMap) ?? theme.colorScheme.outline);
 
     // enabledWhen：条件不满足时按钮仍显示但禁用（暗色由 colorMap 负责）。
     final bool nodeEnabled = node.enabledWhen == null
@@ -502,6 +509,7 @@ class JsonCardRenderer extends StatelessWidget {
                 ? accent.withValues(alpha: 0.28)
                 : Colors.transparent,
             foregroundColor: accent,
+            disabledForegroundColor: disabledFg,
             side: BorderSide(color: accent.withValues(alpha: 0.9), width: 2),
             padding: EdgeInsets.zero,
             minimumSize: Size.zero,
@@ -534,6 +542,7 @@ class JsonCardRenderer extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: accent.withValues(alpha: 0.5)),
           foregroundColor: accent,
+          disabledForegroundColor: disabledFg,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           minimumSize: Size(56, multiline ? 0 : h),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -555,6 +564,7 @@ class JsonCardRenderer extends StatelessWidget {
               ? accent.withValues(alpha: active ? 0.28 : 0.9)
               : Colors.transparent,
           foregroundColor: filled ? (active ? accent : Colors.white) : accent,
+          disabledForegroundColor: disabledFg,
           side: filled ? null : BorderSide(color: accent.withValues(alpha: 0.5)),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           minimumSize: Size.zero,

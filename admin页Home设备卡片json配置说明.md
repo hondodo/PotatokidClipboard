@@ -348,9 +348,14 @@
 | `kettle@action` | 热水瓶专用：按实时状态选择开始 / 停止，不猜实体 |
 | `toggle@` | toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。 |
 | `press@` | press@<entityId>：按指定实体按钮。 |
+| `selectOption@` | selectOption@<entityId>[:<option>]：把 select 实体切到指定选项； 不带 option 时在 options 里循环到下一项（单个大按钮切换用）。 实体 id 里不会有冒号，按第一个冒号拆分，选项本身可含冒号 （如假日模式的 23:00-06:00）。只对 domain=select 下发， 指定选项时必须在 options 列表里，避免误动作；bloc 做校验与乐观更新。 |
 | `brightness@` | brightness@<entityId>:<percent>：卡片亮度条松手时下发。 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。 |
 | `fan@` | fan@<entityId>:<percent>：风扇风速条松手时下发。 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。 |
+| `fanOscillate@` | 风扇左右摆风：fanOscillate@<实体> 按当前状态取反；fanOscillate@<实体>:on / :off 直接设定。只对 fan 实体下发 |
+| `fanMode@` | 风扇模式：fanMode@<实体> 在 preset_modes 里循环下一个；fanMode@<实体>:<模式>（如 睡眠风）直接设定，bloc 校验模式值。只对 fan 实体下发 |
 | `climateTemp@` | 空调目标温度 ±：climateTemp@<实体>:<增量>（如 -0.5 / +0.5） |
+| `waterHeaterTemp@` | 热水器目标温度 ±：waterHeaterTemp@<实体>:<增量>（如 +1 / -1，支持小数）；只对 water_heater 实体下发，bloc 按 target_temp_step 对齐并 clamp 到 min/max |
+| `number@` | number 实体数值 ±：number@<实体>:<增量>（如 +5 / -5 / +1，支持小数）；只对 number 实体下发，按实体 min/max/step 对齐并钳制在范围内（空气炸锅温度/时间 ± 用） |
 | `climateMode@` | 空调模式循环：climateMode@<实体>，依次切下一个 hvac_mode |
 | `climateFan@` | 空调风速：climateFan@<实体> 循环下一档；climateFan@<实体>:+1 / :-1 按实体 fan_modes 索引步进并钳制在两端（± 按钮用，不会回绕） |
 | `toggle` | 切换主实体（未指定 entityId 时） |

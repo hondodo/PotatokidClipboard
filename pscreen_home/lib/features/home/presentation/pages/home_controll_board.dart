@@ -1101,6 +1101,44 @@ class _ControlGridState extends State<_ControlGrid> {
               if (target.isNotEmpty) bloc.add(PressEntityButton(entityId: target));
               return;
             }
+            // selectOption@<entityId>[:<option>]：把 select 实体切到指定选项；
+            // 不带 option 时在 options 里循环到下一项（单个大按钮切换用）。
+            // 实体 id 里不会有冒号，按第一个冒号拆分，选项本身可含冒号
+            // （如假日模式的 23:00-06:00）。只对 domain=select 下发，
+            // 指定选项时必须在 options 列表里，避免误动作；bloc 做校验与乐观更新。
+            if (trimmed.startsWith('selectOption@')) {
+              final ({String entityId, String? option})? parsed =
+                  parseSelectOptionAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? selectEntity = state.entities[parsed.entityId];
+              if (selectEntity == null ||
+                  selectEntity.domain != 'select' ||
+                  selectEntity.options.isEmpty) {
+                reject();
+                return;
+              }
+              final String option;
+              if (parsed.option != null) {
+                option = parsed.option!;
+                if (!selectEntity.options.contains(option)) {
+                  reject();
+                  return;
+                }
+              } else {
+                // 不带选项：在 options 里循环到下一项（单个大按钮切换用）。
+                final List<String> options = selectEntity.options;
+                final int idx = options.indexOf(selectEntity.state);
+                option = options[(idx + 1) % options.length];
+              }
+              bloc.add(SelectEntityOption(
+                entityId: parsed.entityId,
+                option: option,
+              ));
+              return;
+            }
             // brightness@<entityId>:<percent>：卡片亮度条松手时下发。
             // 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。
             if (trimmed.startsWith('brightness@')) {
@@ -1140,6 +1178,53 @@ class _ControlGridState extends State<_ControlGrid> {
               bloc.add(SetFanPercentage(entityId: target, percentage: percent, completer: completer));
               return;
             }
+            // fanOscillate@<entityId>[:<on|off>]：风扇左右摆风。
+            // 不带参数时按当前 oscillating 取反，带参数则直接设定；只对 fan 实体下发。
+            if (trimmed.startsWith('fanOscillate@')) {
+              final ({String entityId, bool? oscillating})? parsed =
+                  parseFanOscillateAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? fanEntity = state.entities[parsed.entityId];
+              if (fanEntity == null || !fanEntity.isFan) {
+                reject();
+                return;
+              }
+              bloc.add(SetFanOscillating(
+                entityId: parsed.entityId,
+                oscillating: parsed.oscillating ?? !fanEntity.isOscillating,
+              ));
+              return;
+            }
+            // fanMode@<entityId>[:<mode>]：风扇预设模式（直吹风 / 睡眠风）。
+            // 不带 mode 在 preset_modes 里循环下一个；带 mode 由 bloc 校验。
+            if (trimmed.startsWith('fanMode@')) {
+              final ({String entityId, String? mode})? parsed =
+                  parseFanModeAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? fanEntity = state.entities[parsed.entityId];
+              if (fanEntity == null ||
+                  !fanEntity.isFan ||
+                  fanEntity.presetModes.isEmpty) {
+                reject();
+                return;
+              }
+              final String mode;
+              if (parsed.mode != null) {
+                mode = parsed.mode!;
+              } else {
+                final List<String> modes = fanEntity.presetModes;
+                final int idx = modes.indexOf(fanEntity.presetMode ?? '');
+                mode = modes[(idx + 1) % modes.length];
+              }
+              bloc.add(SetFanPresetMode(entityId: parsed.entityId, mode: mode));
+              return;
+            }
             // climateTemp@<entityId>:<delta>：空调目标温度 ±（delta 如 -0.5 / +0.5）。
             // 只对明确写了 climate 实体下发；bloc 内部会 clamp 到 min/max 并按 step 对齐。
             if (trimmed.startsWith('climateTemp@')) {
@@ -1158,6 +1243,56 @@ class _ControlGridState extends State<_ControlGrid> {
               }
               final double base = ac.targetTemperature ?? ac.minTargetTemperature;
               bloc.add(SetClimateTemperature(entityId: target, temperature: base + delta));
+              return;
+            }
+            // waterHeaterTemp@<entityId>:<delta>：热水器目标温度 ±（delta 如 +1 / -1）。
+            // 只对明确写了 water_heater 实体下发；bloc 内部按 target_temp_step
+            // 对齐并 clamp 到 min_temp/max_temp，不会误伤其它实体。
+            if (trimmed.startsWith('waterHeaterTemp@')) {
+              final ({String entityId, double delta})? parsed =
+                  parseWaterHeaterTempAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? heater = state.entities[parsed.entityId];
+              if (heater == null || !heater.isWaterHeater) {
+                reject();
+                return;
+              }
+              final double base = heater.targetTemperature ?? heater.minTargetTemperature;
+              bloc.add(SetWaterHeaterTemperature(
+                entityId: parsed.entityId,
+                temperature: base + parsed.delta,
+              ));
+              return;
+            }
+            // number@<entityId>:<delta>：number 实体数值 ±（如空气炸锅温度/时间）。
+            // 只对 number 实体下发；按实体 min/max/step 对齐并钳制，避免设出范围。
+            if (trimmed.startsWith('number@')) {
+              final ({String entityId, double delta})? parsed =
+                  parseNumberAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? numEntity = state.entities[parsed.entityId];
+              if (numEntity == null || numEntity.domain != 'number') {
+                reject();
+                return;
+              }
+              final double current = double.tryParse(numEntity.state) ?? 0;
+              final double value = numberStepTarget(
+                current: current,
+                delta: parsed.delta,
+                min: numEntity.attributes['min'],
+                max: numEntity.attributes['max'],
+                step: numEntity.attributes['step'],
+              );
+              bloc.add(SetNumberEntityValue(
+                entityId: parsed.entityId,
+                value: value,
+              ));
               return;
             }
             // climateMode@<entityId>：在 hvac_modes（去掉 off）里循环到下一个模式。

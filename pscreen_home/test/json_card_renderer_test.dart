@@ -1695,7 +1695,7 @@ void main() {
           'type': 'chip',
           'label': '快速出香',
           'color': '{s:_on_p_2_1}',
-          'colorMap': 'on=#fb923c,off=#6b7280',
+          'colorMap': 'on=#fb923c,off=#2e6e64',
           'enabledWhen': '{s:_on_p_2_1}=on',
           'onClick': 'press@{id:_on_p_2_1}',
         },
@@ -1707,6 +1707,10 @@ void main() {
     OutlinedButton offBtn = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, '快速出香'));
     expect(offBtn.onPressed, isNull);
+    // 禁用态文字沿用 color 配置的暗色（#2e6e64），不被 Flutter 系统默认灰覆盖。
+    final Color? disabledFg = offBtn.style?.foregroundColor
+        ?.resolve(<WidgetState>{WidgetState.disabled});
+    expect(disabledFg, const Color(0xFF2E6E64));
     // 开机：同位置按钮可点。
     await pumpLayout(tester, 'on', layout);
     expect(find.text('快速出香'), findsOneWidget);
