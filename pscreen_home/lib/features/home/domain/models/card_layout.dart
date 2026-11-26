@@ -451,6 +451,7 @@ class CardEvalContext {
 
   /// 占位符内联规则：
   /// - pct：HA light 的 0-255 → 0-100 百分比；
+  /// - int：数值取整显示（去掉 `.0`，如 180.0 → 180）；非数值原样返回；
   /// - date / date:`pattern`：把 ISO 时间串按 Flutter DateFormat 格式化；
   ///   带时区偏移（如 `+00:00`/`Z`）的时间会先转成本地时间再显示；
   ///   pattern 省略时默认 'yMd'；支持 'zh'/'en_US' 等 locale 前缀 `zh:yMd`；
@@ -477,6 +478,12 @@ class CardEvalContext {
           // HA light.brightness 规范为 0-255；若已是 0-100 则不再换算。
           out = '${n > 255 ? n.round() : (n / 255 * 100).round()}';
         }
+        continue;
+      }
+      if (low == 'int') {
+        // 数值取整显示：HA number 实体 state 常带 ".0"（如 180.0），去掉小数尾巴。
+        final num? n = num.tryParse(out);
+        if (n != null) out = '${n.round()}';
         continue;
       }
       if (low == 'date' || low.startsWith('date:') || low.startsWith('date=')) {
@@ -898,12 +905,16 @@ class CardEvalContext {
 
   bool _evalCondition(String raw) {
     if (raw.isEmpty) return true;
+    // 先把占位符整体求值，再找比较符。内联规则里含 '='
+    // （如 {s:status|关机中=show,default=hide}=show）时，若直接在原始串上找
+    // '=' 会命中规则内部导致拆分错位；resolve 后规则已被消化，只剩真正的比较符。
+    final String resolved = resolve(raw);
     // 长操作符优先，避免 ">=" 被当成 ">" 或 "=" 提前截断。
     for (final String op in <String>['>=', '<=', '!=', '==', '>', '<', '=']) {
-      final int idx = raw.indexOf(op);
+      final int idx = resolved.indexOf(op);
       if (idx <= 0) continue;
-      final String left = resolve(raw.substring(0, idx).trim());
-      final String right = _unquote(resolve(raw.substring(idx + op.length).trim()));
+      final String left = resolved.substring(0, idx).trim();
+      final String right = _unquote(resolved.substring(idx + op.length).trim());
       final num? ln = num.tryParse(left.trim());
       final num? rn = num.tryParse(right.trim());
       if (ln != null && rn != null) {
@@ -939,8 +950,7 @@ class CardEvalContext {
           return left == right;
       }
     }
-    final String v = resolve(raw);
-    return v.isNotEmpty && v != 'false' && v != '0';
+    return resolved.isNotEmpty && resolved != 'false' && resolved != '0';
   }
 }
 

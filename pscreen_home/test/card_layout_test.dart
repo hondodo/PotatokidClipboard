@@ -403,6 +403,22 @@ void main() {
       expect(ctx.resolve('{s:hum|>=50=潮,default=干}'), '干');
     });
 
+    test('|int 取整显示，去掉 number 实体 state 的 .0', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev.fryer',
+        title: '厨房',
+        entities: <HaEntityStateModel>[
+          _entity('number.target_temperature', '180.0', name: '设定温度'),
+          _entity('sensor.mode', '手动模式', name: '模式'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('{s:target_temperature|int}'), '180');
+      expect(ctx.resolve('{s:target_temperature|int}°C'), '180°C');
+      // 非数值原样返回。
+      expect(ctx.resolve('{s:mode|int}'), '手动模式');
+    });
+
     test('visibleWhen 支持数值比较', () {
       final HaDeviceGroup group = HaDeviceGroup(
         deviceId: 'dev.test',
@@ -414,6 +430,38 @@ void main() {
       expect(ctx.evalCondition('{s:battery}>=30'), isFalse);
       expect(ctx.evalCondition('{s:battery}<30'), isTrue);
       expect(ctx.evalCondition('{s:battery}!=25'), isFalse);
+    });
+
+    test('内联规则含 = 时先 resolve 再比较（多状态归组显隐）', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev.fryer',
+        title: '厨房',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.fryer_status_p_2_2', '烹饪中', name: '工作状态'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      // 规则内的 '=' 不应被当成比较符：烹饪中归为 show。
+      expect(
+        ctx.evalCondition(
+          '{s:status_p_2_2|烹饪中=show,速烤中=show,待机中=hide,default=hide}=show',
+        ),
+        isTrue,
+      );
+      // 不在分组里的状态归为 hide。
+      expect(
+        ctx.evalCondition(
+          '{s:status_p_2_2|暂停中=show,抽锅暂停=show,default=hide}=show',
+        ),
+        isFalse,
+      );
+      // 取反分组。
+      expect(
+        ctx.evalCondition(
+          '{s:status_p_2_2|关机中=hide,待机中=hide,default=show}=show',
+        ),
+        isTrue,
+      );
     });
   });
 
