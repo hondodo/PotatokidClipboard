@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const multer = require('multer');
+const express = require('express');
 const definds = require('./definds');
 const { attachPrograms } = require('./programs');
 const { ACCOUNT_PATTERN, roleForNewAccount } = require('./accounts');
@@ -480,31 +481,35 @@ function normalizeEspButton(raw, index, usedSlots) {
     // 自动化的按键触发里把动作再抄一遍。sceneId 只做格式校验——场景可能已被
     // 删除，这里丢掉整条按键会让用户的配置静默消失，改由按下时明确报错。
     const isScene = raw.kind === 'scene';
+    // 录音键：长按在设备本地采集，松开后把 WAV 上传到本服务；不绑实体、不执行 HA。
+    const isRec = raw.kind === 'rec';
     const sceneId = isScene ? String(raw.sceneId || '').trim() : '';
     if (isScene && !/^[A-Za-z0-9_-]{1,40}$/.test(sceneId)) return null;
-    const isSys = !isScene && ESP_SYS_ACTIONS.has(rawAction);
+    const isSys = !isScene && !isRec && ESP_SYS_ACTIONS.has(rawAction);
     // 遥控动作：命令必须登记在 REMOTE_COMMANDS 里，实体字段留空。
     const isRemote = raw.kind === 'remote';
     const remoteSpec = isRemote ? REMOTE_CMD_MAP.get(rawAction) : null;
     if (isRemote && !remoteSpec) return null;
-    const entityId = isRemote || isScene ? '' : String(raw.entityId || '').trim().slice(0, 128);
-    if (!isSys && !isRemote && !isScene && !ESP_ENTITY_RE.test(entityId)) return null;
+    const entityId = isRemote || isScene || isRec ? '' : String(raw.entityId || '').trim().slice(0, 128);
+    if (!isSys && !isRemote && !isScene && !isRec && !ESP_ENTITY_RE.test(entityId)) return null;
     // 动作可能是带参写法 `set_temperature(+0.5)` / `select_option(制冷)`；
     // 拆成 {action, param}，只按动作名做白名单校验，参数原样留给 callHaService。
     const m = rawAction.match(/^([a-z_]+)(?:\(([^)]*)\))?$/i);
-    const action = isRemote ? remoteSpec.cmd
-        : isSys ? rawAction
-            : isScene ? 'run'
-                : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
-    const param = isRemote ? normalizeRemoteParam(remoteSpec, raw.param)
-        : (isSys || isScene) ? ''
-            // 优先用动作串里的 `(+0.5)`；没有括号时回落到独立 param 字段，
-            // 兼容「动作选 set_temperature、参数单独填」的配置。
-            : ((m && m[2] != null ? m[2].slice(0, 40) : '')
-                || String(raw.param || '').trim().slice(0, 40));
+    const action = isRec ? 'record'
+        : isRemote ? remoteSpec.cmd
+            : isSys ? rawAction
+                : isScene ? 'run'
+                    : (m && ESP_ACTION_KINDS.has(m[1]) ? m[1] : 'toggle');
+    const param = isRec ? ''
+        : isRemote ? normalizeRemoteParam(remoteSpec, raw.param)
+            : (isSys || isScene) ? ''
+                // 优先用动作串里的 `(+0.5)`；没有括号时回落到独立 param 字段，
+                // 兼容「动作选 set_temperature、参数单独填」的配置。
+                : ((m && m[2] != null ? m[2].slice(0, 40) : '')
+                    || String(raw.param || '').trim().slice(0, 40));
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `b${index + 1}`;
-    const name = normalizeEspOnscreenText(String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40)) || entityId || (isScene ? '手动控制' : action);
+    const name = normalizeEspOnscreenText(String(raw.name || raw.label || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40)) || entityId || (isScene ? '手动控制' : (isRec ? '录音' : action));
     // 名称就是屏幕上显示的文字，不再另存「短标签」：底部提示行本来就会按
     // 自己的节拍滚动，放不下时自动走马灯，不需要提前缩成两个字。
     // 旧数据里的 label 可能是被截断的短名，这里统一以完整 name 为准。
@@ -518,8 +523,8 @@ function normalizeEspButton(raw, index, usedSlots) {
         id,
         name,
         label,
-        entityId: isSys || isRemote || isScene ? '' : entityId,
-        kind: isRemote ? 'remote' : (isSys ? 'sys' : (isScene ? 'scene' : 'ha')),
+        entityId: isSys || isRemote || isScene || isRec ? '' : entityId,
+        kind: isRec ? 'rec' : (isRemote ? 'remote' : (isSys ? 'sys' : (isScene ? 'scene' : 'ha'))),
         // 只有手动控制按键带该字段；切到别的类型时自然清空，不留脏引用。
         sceneId,
         // 遥控按键各自的目标设备；非遥控按键不留该字段。
@@ -4047,6 +4052,8 @@ function attachAdmin(app, options = {}) {
                 latestFw: machine.fwTarget ? ((readFirmwareMeta(machine.fwTarget) || {}).version || '') : '',
                 // 远程配置版本号：与本机已应用版本不同就去 /api/device/esp/config 拉取。
                 cfgVer: normalizeEspCfg(machine.espCfg).ver,
+                // 语音播放音量（0~100）：跟心跳一起下发，改完最多 60 秒生效，不重启设备。
+                vol: normalizeEspVolume(machine.espVolume),
             },
         };
     }
@@ -4641,6 +4648,448 @@ function attachAdmin(app, options = {}) {
         return jsonOk(res, { deviceId: id, page, pageTotal, actions, display });
     });
 
+    // ------------------------------------------------------------ ESP 长按录音
+    //
+    // 设备在录音键上松开手指后，把 16kHz/16bit/单声道 WAV 作为原始请求体 POST 上来；
+    // 后台「ESP 设备分类」页可试听。每台设备只保留最近 20 条，避免占满磁盘。
+    const espAudioDir = path.join(datasDir, 'esp_audio');
+    fs.mkdirSync(espAudioDir, { recursive: true });
+    const ESP_AUDIO_FILE_RE = /^[A-Za-z0-9_-]+_\d{10,16}_\d{1,2}\.wav$/;
+    const ESP_AUDIO_MAX_BYTES = 2 * 1024 * 1024;
+    const ESP_AUDIO_KEEP = 20;
+
+    // 录音与语音文件都存到 yuntu（公网直连，设备下载比隧道快一个量级）。
+    // 本地只作转发失败时的兜底：成功即删本地文件，列表优先查 yuntu。
+    const espAudioIndexFile = path.join(espAudioDir, 'index.json');
+
+    function readYuntuConfig() {
+        const cfg = readJson(path.join(datasDir, 'forward_config.json'), {}) || {};
+        return {
+            // enabled：普通上传镜像转发总开关（原有行为）。
+            enabled: cfg.enabled !== false,
+            // espAudioEnabled：仅控制设备录音 / 语音播放文件要不要存 yuntu，
+            // 与总开关解耦——关掉它不影响原有上传转发。
+            audioEnabled: cfg.espAudioEnabled !== false,
+            baseUrl: String(cfg.baseUrl || '').replace(/\/+$/, ''),
+            serviceToken: String(cfg.serviceToken || ''),
+        };
+    }
+
+    function readAudioIndex() {
+        const raw = readJson(espAudioIndexFile, {});
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    }
+
+    function writeAudioIndex(map) {
+        const keys = Object.keys(map)
+            .sort((a, b) => (Number(map[b].ts) || 0) - (Number(map[a].ts) || 0))
+            .slice(0, 200);
+        const out = {};
+        for (const key of keys) out[key] = map[key];
+        writeJson(espAudioIndexFile, out);
+    }
+
+    /** 给 yuntu 文件签一个 7 天有效的免登录下载链接（HMAC 与服务端一致）。 */
+    function yuntuAudioUrl(fileId) {
+        const { enabled, audioEnabled, baseUrl, serviceToken } = readYuntuConfig();
+        if (!enabled || !audioEnabled || !baseUrl || !serviceToken || !fileId) return '';
+        const exp = nowMs() + 7 * 24 * 3600 * 1000;
+        const sig = crypto.createHmac('sha256', serviceToken)
+            .update(`${fileId}.${exp}`).digest('hex').slice(0, 32);
+        return `${baseUrl}/api/files/${encodeURIComponent(fileId)}/audio?exp=${exp}&sig=${sig}`;
+    }
+
+    // 只按 originPath 前缀查：originServer 是转发方主机名，不同机器不一样，不能用来过滤。
+    async function yuntuListAudio(prefix, limit) {
+        const { enabled, audioEnabled, baseUrl, serviceToken } = readYuntuConfig();
+        if (!enabled || !audioEnabled || !baseUrl || !serviceToken) throw new Error('yuntu 未启用');
+        const url = `${baseUrl}/api/files/list?prefix=${encodeURIComponent(prefix)}&limit=${limit}`;
+        const resp = await fetch(url, {
+            headers: { 'x-service-token': serviceToken },
+            signal: AbortSignal.timeout(8000),
+        });
+        const body = await resp.json().catch(() => null);
+        if (!resp.ok || !body || Number(body.code) !== 0) throw new Error(`yuntu list ${resp.status}`);
+        return body.data && Array.isArray(body.data.items) ? body.data.items : [];
+    }
+
+    /** 录音文件名 → yuntu 文件 id：先查本地索引，再按设备前缀列一次。 */
+    async function findRecordingId(safeId, name) {
+        const index = readAudioIndex();
+        const hit = index[`${safeId}/${name}`];
+        if (hit && hit.id) return hit.id;
+        try {
+            const items = await yuntuListAudio(`esp_audio/${safeId}/`, ESP_AUDIO_KEEP);
+            const found = items.find((item) => String(item.name || '') === name);
+            if (found) {
+                index[`${safeId}/${name}`] = { id: found.id, ts: nowMs() };
+                writeAudioIndex(index);
+                return found.id;
+            }
+        } catch (_) { /* 交给本地兜底 */ }
+        return '';
+    }
+
+    app.post('/api/device/esp/audio',
+        express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '2mb' }),
+        async (req, res) => {
+            const id = safeDeviceId(req.query.deviceId);
+            const machine = espMachineOrFail(req, res, id);
+            if (!machine) return undefined;
+            const buf = Buffer.isBuffer(req.body) ? req.body : null;
+            if (!buf || buf.length < 200) return jsonFail(res, '录音数据为空或过短');
+            if (buf.length > ESP_AUDIO_MAX_BYTES) return jsonFail(res, '录音文件过大');
+            if (buf.slice(0, 4).toString('ascii') !== 'RIFF'
+                || buf.slice(8, 12).toString('ascii') !== 'WAVE') {
+                return jsonFail(res, '不是合法的 WAV 数据');
+            }
+            const slot = Math.min(MAX_ESP_BUTTONS, Math.max(0, Number(req.query.slot) || 0));
+            const ms = Math.min(60000, Math.max(0, Number(req.query.ms) || 0));
+            const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_');
+            const name = `${safeId}_${Date.now()}_${slot}.wav`;
+            try {
+                fs.writeFileSync(path.join(espAudioDir, name), buf);
+            } catch (error) {
+                console.error('[esp] 录音写入失败:', error.message);
+                return jsonFail(res, '录音保存失败');
+            }
+            // 只保留本设备最近 N 条；清理失败不影响本次上传。
+            try {
+                const files = fs.readdirSync(espAudioDir)
+                    .filter((n) => n.startsWith(`${safeId}_`) && ESP_AUDIO_FILE_RE.test(n))
+                    .map((n) => ({ n, t: Number(n.slice(safeId.length + 1).split('_')[0]) || 0 }))
+                    .sort((a, b) => b.t - a.t);
+                for (const item of files.slice(ESP_AUDIO_KEEP)) {
+                    fs.unlinkSync(path.join(espAudioDir, item.n));
+                }
+            } catch (_) { /* 忽略清理错误 */ }
+            // 转发到 yuntu，成功后删本地；失败保留本地兜底。
+            if (forward && readYuntuConfig().audioEnabled) {
+                try {
+                    const result = await forward.mirrorAndWait(
+                        path.join(espAudioDir, name), `esp_audio/${safeId}/${name}`);
+                    if (result && result.id) {
+                        const index = readAudioIndex();
+                        index[`${safeId}/${name}`] = { id: result.id, ts: nowMs() };
+                        writeAudioIndex(index);
+                        try { fs.unlinkSync(path.join(espAudioDir, name)); } catch (_) { /* 已删 */ }
+                    }
+                } catch (error) {
+                    console.warn('[esp] 录音转发 yuntu 失败，保留本地文件:', error.message);
+                }
+            }
+            console.log(`[esp] ${id} 录音已上传：${name}（${buf.length} 字节 / ${ms}ms）`);
+            return jsonOk(res, { name, size: buf.length, ms }, '录音已收到');
+        });
+
+    // 录音列表：优先从 yuntu 取（带 7 天签名直链），取不到再回落到本地兜底目录。
+    app.get('/api/admin/machines/:id/esp/audio', requireAdmin, async (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_');
+        const localFiles = () => {
+            let names = [];
+            try { names = fs.readdirSync(espAudioDir); } catch (_) { names = []; }
+            return names
+                .filter((n) => n.startsWith(`${safeId}_`) && ESP_AUDIO_FILE_RE.test(n))
+                .map((n) => {
+                    const rest = n.slice(safeId.length + 1, -4);
+                    const [ts, slot] = rest.split('_');
+                    let size = 0;
+                    try { size = fs.statSync(path.join(espAudioDir, n)).size; } catch (_) { /* 已删除 */ }
+                    return {
+                        name: n,
+                        ts: Number(ts) || 0,
+                        slot: Number(slot) || 0,
+                        size,
+                        url: `/api/admin/esp/audio/${encodeURIComponent(n)}`,
+                    };
+                })
+                .sort((a, b) => b.ts - a.ts)
+                .slice(0, ESP_AUDIO_KEEP);
+        };
+        let files = [];
+        try {
+            const items = await yuntuListAudio(`esp_audio/${safeId}/`, ESP_AUDIO_KEEP);
+            files = items
+                .map((item) => {
+                    const name = String(item.name || '');
+                    if (!ESP_AUDIO_FILE_RE.test(name)) return null;
+                    const rest = name.slice(safeId.length + 1, -4);
+                    const [ts, slot] = rest.split('_');
+                    return {
+                        name,
+                        ts: Number(ts) || Date.parse(item.createdAt) || 0,
+                        slot: Number(slot) || 0,
+                        size: Number(item.size) || 0,
+                        url: yuntuAudioUrl(item.id),
+                        remote: true,
+                    };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.ts - a.ts)
+                .slice(0, ESP_AUDIO_KEEP);
+        } catch (error) {
+            console.warn('[esp] 读取 yuntu 录音列表失败，回落本地:', error.message);
+        }
+        if (!files.length) files = localFiles();
+        return jsonOk(res, { deviceId: id, files });
+    });
+
+    // 试听：<audio> 同源请求会自动带上后台会话 cookie，直接用 requireAdmin 保护。
+    app.get('/api/admin/esp/audio/:name', requireAdmin, (req, res) => {
+        const name = String(req.params.name || '');
+        if (!ESP_AUDIO_FILE_RE.test(name)) return res.status(404).end();
+        const file = path.join(espAudioDir, name);
+        if (!fs.existsSync(file)) return res.status(404).end();
+        res.setHeader('Cache-Control', 'no-store');
+        res.type('audio/wav');
+        return res.sendFile(file);
+    });
+
+    // ------------------------------------------------------------ ESP 语音播放
+    //
+    // 后台把一段 PCM WAV（上传，或直接复用刚录的音）排进该设备的播放队列；
+    // 设备每 5 秒问一次，取到任务后下载播放，播完回报 done。队列与文件都在 datas/esp_speech。
+    const espSpeechDir = path.join(datasDir, 'esp_speech');
+    fs.mkdirSync(espSpeechDir, { recursive: true });
+    const espSpeechJobsFile = path.join(espSpeechDir, 'jobs.json');
+    const ESP_SPEECH_KEEP = 5;                 // 每台设备最多排队条数
+    const ESP_SPEECH_TTL_MS = 10 * 60 * 1000;  // 没被取走就过期，避免设备离线时无限堆积
+    const ESP_SPEECH_FILE_RE = /^speech_[a-f0-9]{12}\.wav$/;
+
+    /** 生成一段 PCM WAV 测试音（16kHz 单声道 16bit），用来排查接线。 */
+    function makeToneWav(ms, hz, volume) {
+        const rate = 16000;
+        const samples = Math.max(1, Math.round(rate * ms / 1000));
+        const dataSize = samples * 2;
+        const buf = Buffer.alloc(44 + dataSize);
+        buf.write('RIFF', 0, 'ascii');
+        buf.writeUInt32LE(36 + dataSize, 4);
+        buf.write('WAVE', 8, 'ascii');
+        buf.write('fmt ', 12, 'ascii');
+        buf.writeUInt32LE(16, 16);
+        buf.writeUInt16LE(1, 20);
+        buf.writeUInt16LE(1, 22);
+        buf.writeUInt32LE(rate, 24);
+        buf.writeUInt32LE(rate * 2, 28);
+        buf.writeUInt16LE(2, 32);
+        buf.writeUInt16LE(16, 34);
+        buf.write('data', 36, 'ascii');
+        buf.writeUInt32LE(dataSize, 40);
+        const amp = Math.round(32767 * Math.max(0.05, Math.min(1, volume || 0.3)));
+        const fade = rate * 0.02;
+        for (let i = 0; i < samples; i++) {
+            const edge = Math.min(i, samples - 1 - i) / fade;
+            const gain = Math.min(1, Math.max(0, edge));
+            buf.writeInt16LE(Math.round(Math.sin(2 * Math.PI * hz * i / rate) * amp * gain), 44 + i * 2);
+        }
+        return buf;
+    }
+
+    function readSpeechJobs() {
+        const raw = readJson(espSpeechJobsFile, {});
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    }
+
+    function writeSpeechJobs(jobs) {
+        writeJson(espSpeechJobsFile, jobs);
+    }
+
+    /** 从队列移除一条任务并删文件；返回被移除的任务。 */
+    function dropSpeechJob(jobs, deviceId, jobId) {
+        const list = Array.isArray(jobs[deviceId]) ? jobs[deviceId] : [];
+        const job = list.find((item) => item.id === jobId) || null;
+        if (job && ESP_SPEECH_FILE_RE.test(job.file)) {
+            try {
+                fs.rmSync(path.join(espSpeechDir, job.file), { force: true });
+            } catch (_) { /* 忽略删除失败 */ }
+        }
+        jobs[deviceId] = list.filter((item) => item.id !== jobId);
+        if (!jobs[deviceId].length) delete jobs[deviceId];
+        return job;
+    }
+
+    // 后台：上传 WAV（原始请求体），或用 ?rec=<录音文件名> 把设备刚录的音发回去播放。
+    // 录音与上传文件都先放 yuntu，设备拿签名直链下载；转发失败才用本地副本。
+    app.post('/api/admin/machines/:id/esp/speech', requireAdmin,
+        express.raw({ type: ['audio/wav', 'application/octet-stream'], limit: '2mb' }),
+        async (req, res) => {
+            const id = safeDeviceId(req.params.id);
+            if (!id) return jsonFail(res, '设备 id 无效');
+            const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_');
+            const jobs = readSpeechJobs();
+            // 顺手清掉过期的旧任务。
+            for (const key of Object.keys(jobs)) {
+                for (const job of [...(jobs[key] || [])]) {
+                    if (nowMs() - (Number(job.createdAt) || 0) > ESP_SPEECH_TTL_MS) {
+                        dropSpeechJob(jobs, key, job.id);
+                    }
+                }
+            }
+            const recName = String(req.query.rec || '');
+            let buf = Buffer.isBuffer(req.body) ? req.body : null;
+            let label = String(req.query.name || '').trim().replace(/[|\r\n]/g, ' ').slice(0, 40) || '语音';
+            let fileUrl = '';
+            if (String(req.query.tone || '') === '1') {
+                buf = makeToneWav(1200, 880, 0.45);
+                label = '测试音';
+            } else if (recName) {
+                if (!ESP_AUDIO_FILE_RE.test(recName)) return jsonFail(res, '录音文件名无效');
+                // 录音本身已在 yuntu：直接签直链，不再本地存一份。
+                const recId = await findRecordingId(safeId, recName);
+                if (recId) fileUrl = yuntuAudioUrl(recId);
+                if (!fileUrl) {
+                    const src = path.join(espAudioDir, recName);
+                    if (!fs.existsSync(src)) return jsonFail(res, '录音已不存在');
+                    buf = fs.readFileSync(src);
+                }
+                label = '录音回放';
+            }
+            if (!fileUrl) {
+                if (!buf || buf.length < 200) return jsonFail(res, '音频数据为空或过短');
+                if (buf.length > ESP_AUDIO_MAX_BYTES) return jsonFail(res, '音频文件过大（上限 2MB）');
+                if (buf.slice(0, 4).toString('ascii') !== 'RIFF'
+                    || buf.slice(8, 12).toString('ascii') !== 'WAVE') {
+                    return jsonFail(res, '只支持 PCM WAV（RIFF/WAVE）');
+                }
+            }
+            const jobId = crypto.randomBytes(6).toString('hex');
+            const file = `speech_${jobId}.wav`;
+            let localFile = '';
+            if (!fileUrl && buf) {
+                try {
+                    fs.writeFileSync(path.join(espSpeechDir, file), buf);
+                    localFile = file;
+                } catch (error) {
+                    return jsonFail(res, `保存失败：${error.message}`);
+                }
+                // 能上 yuntu 就上，设备直连下载比走隧道快得多。
+                if (forward && readYuntuConfig().audioEnabled) {
+                    try {
+                        const result = await forward.mirrorAndWait(
+                            path.join(espSpeechDir, file), `esp_speech/${safeId}/${file}`);
+                        if (result && result.id) {
+                            fileUrl = yuntuAudioUrl(result.id);
+                            try { fs.rmSync(path.join(espSpeechDir, file), { force: true }); } catch (_) { /* 已删 */ }
+                            localFile = '';
+                        }
+                    } catch (error) {
+                        console.warn('[esp] 语音转发 yuntu 失败，保留本地副本:', error.message);
+                    }
+                }
+            }
+            const list = Array.isArray(jobs[id]) ? jobs[id] : [];
+            list.push({
+                id: jobId,
+                file: localFile,
+                fileUrl,
+                name: label,
+                size: buf ? buf.length : 0,
+                createdAt: nowMs(),
+                state: 'queued',
+                updatedAt: nowMs(),
+            });
+            // 超上限先丢最旧的（含文件）。
+            while (list.length > ESP_SPEECH_KEEP) {
+                const old = list.shift();
+                if (old && ESP_SPEECH_FILE_RE.test(old.file || '')) {
+                    try { fs.rmSync(path.join(espSpeechDir, old.file), { force: true }); } catch (_) { /* 忽略 */ }
+                }
+            }
+            jobs[id] = list;
+            writeSpeechJobs(jobs);
+            console.log(`[esp] ${id} 语音已排队：${jobId}（${fileUrl ? 'yuntu' : '本地'}）`);
+            return jsonOk(res, { id: jobId, size: buf ? buf.length : 0, queued: list.length }, '已加入播放队列');
+        });
+
+    // 设备：取当前待播放任务；文本格式 `id|url`，没有任务时返回空。
+    app.get('/api/device/esp/speech', (req, res) => {
+        const id = safeDeviceId(req.query.deviceId);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const jobs = readSpeechJobs();
+        const list = (Array.isArray(jobs[id]) ? jobs[id] : [])
+            .filter((job) => nowMs() - (Number(job.createdAt) || 0) <= ESP_SPEECH_TTL_MS);
+        if (list.length) jobs[id] = list;
+        else delete jobs[id];
+        writeSpeechJobs(jobs);
+        if (!list.length) return res.type('text/plain; charset=utf-8').send('');
+        const job = list[0];
+        // 设备来取任务就算开始下载，后台据此显示「下载中」；播放时设备再单独回报。
+        if (job.state !== 'fetching' && job.state !== 'playing') {
+            job.state = 'fetching';
+            job.updatedAt = nowMs();
+            writeSpeechJobs(jobs);
+        }
+        // 有 yuntu 直链就下发绝对地址（设备直连更快）；否则用本地兜底路径。
+        const url = (job.fileUrl && /^https?:\/\//i.test(job.fileUrl))
+            ? job.fileUrl
+            : `/api/device/esp/speech/file?id=${encodeURIComponent(job.id)}`
+                + `&deviceId=${encodeURIComponent(id)}`;
+        if (String(req.query.format || '') === 'text') {
+            return res.type('text/plain; charset=utf-8').send(`${job.id}|${url}`);
+        }
+        return jsonOk(res, { id: job.id, name: job.name, size: job.size, url });
+    });
+
+    // 设备：下载任务音频。
+    app.get('/api/device/esp/speech/file', (req, res) => {
+        const id = safeDeviceId(req.query.deviceId);
+        const jobId = String(req.query.id || '');
+        if (!id || !/^[a-f0-9]{12}$/.test(jobId)) return res.status(404).end();
+        const jobs = readSpeechJobs();
+        const job = (jobs[id] || []).find((item) => item.id === jobId);
+        if (!job || !ESP_SPEECH_FILE_RE.test(job.file)) return res.status(404).end();
+        const file = path.join(espSpeechDir, job.file);
+        if (!fs.existsSync(file)) return res.status(404).end();
+        res.setHeader('Cache-Control', 'no-store');
+        res.type('audio/wav');
+        return res.sendFile(file);
+    });
+
+    // 设备：播放结束（无论成功与否）回报，服务端删除任务，避免反复播放。
+    app.post('/api/device/esp/speech/done', (req, res) => {
+        const body = req.body || {};
+        const id = safeDeviceId(body.deviceId);
+        const jobId = String(body.id || '');
+        if (!id || !jobId) return jsonFail(res, '参数不完整');
+        const jobs = readSpeechJobs();
+        const job = dropSpeechJob(jobs, id, jobId);
+        writeSpeechJobs(jobs);
+        console.log(`[esp] ${id} 播放结束 id=${jobId} ok=${body.ok === true}`);
+        return jsonOk(res, { removed: !!job });
+    });
+
+    // 设备：开始真正放音时回报，后台据此把「下载中」切成「播放中」。
+    app.post('/api/device/esp/speech/status', (req, res) => {
+        const body = req.body || {};
+        const id = safeDeviceId(body.deviceId);
+        const jobId = String(body.id || '');
+        if (!id || !jobId) return jsonFail(res, '参数不完整');
+        const jobs = readSpeechJobs();
+        const job = (jobs[id] || []).find((item) => item.id === jobId);
+        if (job) {
+            job.state = body.state === 'playing' ? 'playing' : 'fetching';
+            job.updatedAt = nowMs();
+            writeSpeechJobs(jobs);
+        }
+        return jsonOk(res, { found: !!job });
+    });
+
+    // 后台：看当前播放任务与阶段（排队 / 下载中 / 播放中），用于面板状态提示。
+    app.get('/api/admin/machines/:id/esp/speech', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        if (!id) return jsonFail(res, '设备 id 无效');
+        const jobs = readSpeechJobs();
+        const list = (Array.isArray(jobs[id]) ? jobs[id] : [])
+            .filter((job) => nowMs() - (Number(job.createdAt) || 0) <= ESP_SPEECH_TTL_MS);
+        const job = list[0] || null;
+        return jsonOk(res, {
+            job: job ? { id: job.id, name: job.name, size: job.size, state: job.state || 'queued' } : null,
+            pending: list.length,
+        });
+    });
+
     app.post('/api/device/esp/press', async (req, res) => {
         const body = req.body || {};
         const id = safeDeviceId(body.deviceId);
@@ -4671,6 +5120,13 @@ function attachAdmin(app, options = {}) {
                 : null;
         }
         if (!action) return jsonFail(res, '该按键未配置动作，或尚未在后台启用', definds.code.FAILED, 403);
+
+        // 录音键：由设备本地长按采集、松开上传，服务端不执行任何 HA/场景动作。
+        // 这里回执成功，兼容还没升级固件、仍按普通按键上报的情况。
+        if (action.kind === 'rec') {
+            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 录音键`);
+            return jsonOk(res, { name: action.name, rec: true, page: pageNo }, '录音由设备本地处理');
+        }
 
         // 按键联动：按下即触发，不依赖该按键自己的动作是否成功
         // （用户的心智是「我按了这个键」，而不是「这个键成功执行了」）。
@@ -4880,6 +5336,13 @@ function attachAdmin(app, options = {}) {
         return jsonOk(res, { cfg }, '已保存，设备下次心跳或唤醒时生效');
     });
 
+    /** 语音播放音量：0~100，未配置时 70。 */
+    function normalizeEspVolume(value, fallback = 70) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(0, Math.min(100, Math.round(n)));
+    }
+
     /** admin 页：读取某台 ESP 设备的页面配置 + 可选设备类型。 */
     app.get('/api/admin/machines/:id/pages', requireAdmin, (req, res) => {
         const machine = espMachineOrFail(req, res, safeDeviceId(req.params.id));
@@ -4892,6 +5355,8 @@ function attachAdmin(app, options = {}) {
             slotNames: machine.espSlotNames || {},
             // 熄屏（人体感应）：人离开后多少秒熄屏，0 = 常亮。
             screen: normalizeEspScreen(machine.espScreen),
+            // 语音播放音量（0~100）。
+            volume: normalizeEspVolume(machine.espVolume),
             types: deviceTypeService.list(),
         });
     });
@@ -4912,6 +5377,10 @@ function attachAdmin(app, options = {}) {
         // 熄屏（人体感应）也是设备级配置；没传时保留原值。
         if (body.screen !== undefined) {
             machines[id].espScreen = normalizeEspScreen(body.screen);
+        }
+        // 语音音量（设备级）；没传时保留原值。
+        if (body.volume !== undefined) {
+            machines[id].espVolume = normalizeEspVolume(body.volume);
         }
         // 迁移落盘：旧字段不再保留，避免下次读取又走迁移分支。
         delete machines[id].espActions;

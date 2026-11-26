@@ -3,6 +3,8 @@
  * S3 接线: VCC->3V3, GND->GND, SCL->GPIO9, SDA->GPIO8
  * C6 接线: VCC->3V3, GND->GND, SCL->GPIO19, SDA->GPIO20（仅用外排针）
  * 按键: 槽位 1..8 的 GPIO 映射在设备设置页配置（存 NVS），对地短接即触发
+ * 音频: S3 麦克风 INMP441 I2S 14/15/16，功放 MAX98357 I2S 17/18/47（两路独立）
+ * 遥控: S3 433 接收 DATA 接 GPIO21（RTC，深睡可唤醒）；C6 暂未预留音频/433
  *
  * 逻辑:
  *  1. 读取 NVS 里保存的 WiFi / 控制端地址 / 按键槽位，首次上电用下方默认值
@@ -19,6 +21,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
+#include <ESP_I2S.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_sleep.h>
@@ -36,6 +39,14 @@
   static const int PIN_SDA = 20;
   static const int PIN_SCL = 19;
   static const int DEFAULT_BTN_PINS[] = {0, 1, 2};
+  // 音频（INMP441 + MAX98357）与 433 接收目前只在 S3 板上预留，C6 未接
+  static const int PIN_I2S_MIC_BCLK = -1;
+  static const int PIN_I2S_MIC_WS   = -1;
+  static const int PIN_I2S_MIC_SD   = -1;
+  static const int PIN_I2S_AMP_BCLK = -1;
+  static const int PIN_I2S_AMP_LRC  = -1;
+  static const int PIN_I2S_AMP_DIN  = -1;
+  static const int PIN_RF433_DATA   = -1;
 #else
   #define CHIP_TAG       "esp32s3"
   #define CHIP_MODEL     "ESP32-S3 1.3 OLED"
@@ -43,6 +54,17 @@
   static const int PIN_SDA = 8;
   static const int PIN_SCL = 9;
   static const int DEFAULT_BTN_PINS[] = {4, 5, 6};
+  // 音频与 433 固定预留脚（设备设置页不再允许配成按键/人体感应）：
+  // INMP441 麦克风：SCK / WS / SD；MAX98357 功放：BCLK / LRC / DIN。
+  // 两路独立 I2S，不共用时钟，后续可按各自采样率接业务逻辑。
+  static const int PIN_I2S_MIC_BCLK = 14;
+  static const int PIN_I2S_MIC_WS   = 15;
+  static const int PIN_I2S_MIC_SD   = 16;
+  static const int PIN_I2S_AMP_BCLK = 17;
+  static const int PIN_I2S_AMP_LRC  = 18;
+  static const int PIN_I2S_AMP_DIN  = 47;
+  // 433 遥控接收 DATA：RTC GPIO，深睡可走 EXT1 唤醒（47/48 不能唤醒）
+  static const int PIN_RF433_DATA   = 21;
 #endif
 
 // 物理按键槽位：最多 8 个，槽位号与后台页面里的「槽位」一一对应。
@@ -151,7 +173,17 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 //           入睡瞬间引脚为高时才轮询），保证离开事件不会被拖到 otachk 那么久。
 // oled-7.9：电池电量可选显示——状态栏新增「电量」「电压」两项（BAR 第 7/8 段），
 //           内容模板新增 {sys.batt}（86%）与 {sys.volt}（4.64V）两个本机变量。
-static const char *APP_VER             = "oled-7.9";
+// oled-7.10：预留音频与 433 遥控引脚——S3 麦克风 INMP441 I2S 14/15/16、
+//           功放 MAX98357 I2S 17/18/47、433 接收 DATA 21；这些脚不再允许
+//           配成按键/人体感应。本次只做引脚预留，尚未初始化 I2S 业务。
+// oled-7.11：新增「录音」按键动作——长按录音键 >0.7 秒开始用 INMP441 采集，
+//           松开（或 15 秒上限）后编码 WAV 上传后台，ESP 设备页可直接试听。
+// oled-7.12：录音改 32bit 时隙（INMP441 是 24bit 器件，16bit 时隙会让它降半速
+//           采样、样本成对重复而发闷），并丢弃启动瞬态 + 峰值归一化放大。
+// oled-7.13：接上 MAX98357——后台把 WAV 排进队列，设备轮询取任务后下载播放。
+// oled-7.14：音量后台可配（随心跳下发）；播放阶段显示在屏幕、并回报给后台。
+// oled-7.15：播放任务可以直接是 yuntu 绝对地址（设备直连下载，绕开隧道限速）。
+static const char *APP_VER             = "oled-7.15";
 static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -181,6 +213,27 @@ int btnCount = sizeof(DEFAULT_BTN_PINS) / sizeof(DEFAULT_BTN_PINS[0]);
 int btnPins[MAX_BTN] = {4, 5, 6, -1, -1, -1, -1, -1};
 struct BtnState { bool down; uint32_t changedAt; };
 BtnState buttons[MAX_BTN];
+
+// 长按录音：按住录音键超过阈值后采集，松开（或到上限）停止并上传 WAV。
+// 15 秒 × 16kHz × 16bit ≈ 480KB，放 PSRAM；不占用内部 RAM。
+static const uint32_t REC_LONG_PRESS_MS = 700;
+static const uint32_t REC_MAX_MS        = 15000;
+static const uint32_t REC_RATE          = 16000;
+// 每次读 256 帧（32bit × 左右声道 = 8 字节/帧），转成 256 个 16bit 采样。
+static const size_t   REC_READ_FRAMES   = 256;
+static const uint32_t REC_SKIP_MS       = 100;   // 丢掉 I2S 起的满幅毛刺
+int recPendingSlot = 0;       // 已按下、等待长按阈值
+uint32_t recPendingAt = 0;
+bool recBusy = false;         // 采集/上传期间阻止重复触发
+I2SClass i2sMic;
+
+// 功放播放（MAX98357）：后台排队 → 设备轮询 → 下载 WAV 播放。
+static const uint32_t AMP_POLL_MS   = 5000;   // 每 5 秒问一次有没有要播的语音
+static const uint32_t AMP_MAX_BYTES = 1536 * 1024;
+int ampVolume = 70;                // 软件音量 0~100，后台可配，随心跳下发
+volatile uint8_t ampUiState = 0;   // 0 空闲 / 1 下载中 / 2 播放中（主循环负责刷屏）
+volatile uint32_t ampUiSeq = 0;
+I2SClass i2sAmp;
 
 // ---- 后台网络任务 ----
 // 心跳 / 拉配置 / 查 OTA 以前都塞在 loop 里同步执行，每次 HTTP 会阻塞
@@ -459,11 +512,18 @@ uint32_t cfgVerApplied = 0;   // 已应用的远程配置版本（NVS cfg.cfgver
  * - 26~32：Flash；
  * - 33~37：OPI PSRAM（本板 PSRAM=opi，最容易误填的就是这一段）；
  * - 19/20：USB；0/3/45/46：启动脚；8/9：OLED I2C。
+ * - 14~18/21/47：音频 I2S 与 433 接收预留脚（PIN_I2S_* / PIN_RF433_DATA）。
  * ESP32-C6-SuperMini 只焊接了外排针（0~18），8/9/15 为板载外设，12/13 为 USB。
  * 存进 NVS 的旧值也要过这一层，避免升级后把设备带进重启循环。
  */
 static bool pinUsable(int pin) {
   if (pin < 0 || pin > 48) return false;
+  // 音频与 433 是固定用途，不允许再被配置成按键或人体感应（C6 上常量为 -1，不生效）
+  if (pin == PIN_I2S_MIC_BCLK || pin == PIN_I2S_MIC_WS || pin == PIN_I2S_MIC_SD ||
+      pin == PIN_I2S_AMP_BCLK || pin == PIN_I2S_AMP_LRC || pin == PIN_I2S_AMP_DIN ||
+      pin == PIN_RF433_DATA) {
+    return false;
+  }
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
   // C6-SuperMini：只用已焊的外排针（0~18）。内部 21/22/23 未焊，12/13 为板载 USB，
   // 4/5/8/9/15 为启动配置脚（开机被按下会改变启动模式），均不可配为按键/感应。
@@ -740,12 +800,13 @@ void oledShow(const String &title, const String &l1 = "", const String &l2 = "",
 // 按键反馈：临时占屏 2.5 秒，之后由主循环恢复常规页面。
 // 控制项名称来自服务端，可能是中文，必须用 UTF-8 中文字库 + drawUTF8，
 // 否则按字节渲染就是乱码。
-void oledToast(const String &title, const String &name = "", const String &status = "") {
+void oledToast(const String &title, const String &name = "", const String &status = "",
+               uint32_t keepMs = 2500) {
   if (!oledOk) return;
   // 按键反馈用同一套四行布局；第 2 行反白表示「这是临时反馈态」。
   // 单色屏做不到变暗，靠反白块 + 文案表达（E4）。
   drawScreen(title, name, status, "", true);
-  toastUntil = millis() + 2500;
+  toastUntil = millis() + keepMs;
 }
 
 void initOled() {
@@ -1578,6 +1639,13 @@ void handleServerVars() {
     }
   }
 
+  // 语音音量（0~100）：跟心跳下发，改完最迟 60 秒生效，不需要重启。
+  int vp = lastPostResp.indexOf("\"vol\"");
+  if (vp >= 0) {
+    int vc = lastPostResp.indexOf(':', vp);
+    if (vc >= 0) ampVolume = constrain(lastPostResp.substring(vc + 1).toInt(), 0, 100);
+  }
+
   int q = lastPostResp.indexOf("\"latestFw\"");
   if (q < 0) return;
   int c2 = lastPostResp.indexOf(':', q);
@@ -1786,6 +1854,366 @@ void onButtonPress(int slot) {
   if (ok) netRefreshAt = millis() + 700;
 }
 
+// ------------------------------------------------------------ 长按录音
+//
+// 录音键（后台动作选「录音」）：按下只记录时间，不执行普通按键动作；
+// 按住超过 REC_LONG_PRESS_MS 后开始采集 INMP441，松开或到 REC_MAX_MS 停止，
+// 编码成 WAV 直接 POST 到服务端 /api/device/esp/audio，后台可试听。
+// 采集期间阻塞 loop，但网络任务独立运行，20 秒心跳不受影响。
+
+static void recWriteLe16(uint8_t *p, uint16_t v) {
+  p[0] = (uint8_t)(v & 0xFF);
+  p[1] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+static void recWriteLe32(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)(v & 0xFF);
+  p[1] = (uint8_t)((v >> 8) & 0xFF);
+  p[2] = (uint8_t)((v >> 16) & 0xFF);
+  p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+
+static void recWriteWavHeader(uint8_t *p, uint32_t dataLen) {
+  memcpy(p, "RIFF", 4);
+  recWriteLe32(p + 4, 36 + dataLen);
+  memcpy(p + 8, "WAVEfmt ", 8);
+  recWriteLe32(p + 16, 16);
+  recWriteLe16(p + 20, 1);              // PCM
+  recWriteLe16(p + 22, 1);              // 单声道
+  recWriteLe32(p + 24, REC_RATE);
+  recWriteLe32(p + 28, REC_RATE * 2);   // byte rate
+  recWriteLe16(p + 32, 2);              // block align
+  recWriteLe16(p + 34, 16);             // bits per sample
+  memcpy(p + 36, "data", 4);
+  recWriteLe32(p + 40, dataLen);
+}
+
+static bool recUpload(const uint8_t *data, size_t len, int slot, uint32_t ms) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String url = serverBase + "/api/device/esp/audio?deviceId=" + deviceId
+      + "&slot=" + String(slot) + "&ms=" + String(ms);
+  WiFiClient client;
+  HTTPClient http;
+  http.setTimeout(20000);
+  if (!http.begin(client, url)) return false;
+  http.addHeader("Content-Type", "audio/wav");
+  int code = http.POST((uint8_t *)data, len);
+  String body = code > 0 ? http.getString() : String();
+  http.end();
+  Serial.printf("[rec] upload %u bytes -> HTTP %d %s\n", (unsigned)len, code, body.c_str());
+  return code == 200;
+}
+
+void recordAndUpload(int slot) {
+  if (slot < 1 || slot > btnCount || btnPins[slot - 1] < 0) return;
+  if (PIN_I2S_MIC_BCLK < 0 || PIN_I2S_MIC_SD < 0) {
+    oledToast("录音", "本机没有麦克风", "请用 S3 板");
+    return;
+  }
+  if (deviceRole == "slave") {
+    oledToast("录音", "从机暂不支持", "请在主机上录音");
+    return;
+  }
+  const size_t dataCap = (size_t)REC_RATE * 2 * (REC_MAX_MS / 1000);
+  uint8_t *buf = (uint8_t *)ps_malloc(dataCap + 44);
+  if (!buf) {
+    oledToast("录音", "内存不足", "PSRAM 分配失败");
+    return;
+  }
+  recBusy = true;
+  wakeScreen();
+  lastPresenceAt = millis();
+  lastActivityAt = lastPresenceAt;
+  oledShow("录音中", String("槽位 ") + slot, "按住说话，松开结束");
+
+  i2sMic.setPins(PIN_I2S_MIC_BCLK, PIN_I2S_MIC_WS, -1, PIN_I2S_MIC_SD);
+  // INMP441 是 24bit 器件，必须给满 32bit 时隙（每帧 64 个 SCK）。用 16bit 时隙时
+  // 它实际按半速采样、每个样本重复两次，听感发闷发硬。这里按 32bit 立体声读，
+  // 只取左声道（L/R 接 GND = 左），再把 24bit 数据截成 16bit。
+  if (!i2sMic.begin(I2S_MODE_STD, REC_RATE, I2S_DATA_BIT_WIDTH_32BIT,
+                    I2S_SLOT_MODE_STEREO)) {
+    free(buf);
+    recBusy = false;
+    oledToast("录音", "麦克风初始化失败", "检查 14/15/16 接线");
+    return;
+  }
+
+  // 丢掉启动瞬态：DMA 刚启动的前 100ms 常有满幅毛刺，留着会顶住归一化的峰值。
+  {
+    static uint8_t dump[REC_READ_FRAMES * 8];
+    size_t drop = (size_t)REC_RATE * REC_SKIP_MS / 1000 * 8;
+    while (drop) {
+      size_t want = drop > sizeof(dump) ? sizeof(dump) : drop;
+      size_t got = i2sMic.readBytes((char *)dump, want);
+      if (!got) { delay(1); continue; }
+      drop -= got;
+    }
+  }
+
+  int pin = btnPins[slot - 1];
+  size_t len = 0;                 // 输出的 16bit PCM 字节数
+  uint32_t startedAt = millis();
+  uint32_t releasedAt = 0;
+  uint32_t lastUiAt = startedAt;
+  static int32_t recRaw[REC_READ_FRAMES * 2];   // 左/右声道各 32bit
+  while (len < dataCap) {
+    size_t framesWant = (dataCap - len) / 2;
+    if (framesWant > REC_READ_FRAMES) framesWant = REC_READ_FRAMES;
+    size_t got = i2sMic.readBytes((char *)recRaw, framesWant * 8);
+    got -= got % 8;               // 只处理完整帧
+    size_t frames = got / 8;
+    int16_t *dst = (int16_t *)(buf + 44 + len);
+    for (size_t f = 0; f < frames; f++) {
+      dst[f] = (int16_t)(recRaw[f * 2] >> 16);   // 24bit 左对齐 → 取高 16bit
+    }
+    len += frames * 2;
+    uint32_t now = millis();
+    if (now - lastUiAt >= 500) {
+      lastUiAt = now;
+      oledShow("录音中", String("槽位 ") + slot,
+               String((now - startedAt) / 1000.0f, 1) + "s / 松开结束");
+    }
+    // 80ms 去抖：按住期间偶尔的毛刺不提前结束录音。
+    if (digitalRead(pin) != LOW) {
+      if (!releasedAt) releasedAt = now;
+      else if (now - releasedAt >= 80) break;
+    } else {
+      releasedAt = 0;
+    }
+    if (now - startedAt >= REC_MAX_MS) break;
+    if (!frames) delay(1);
+  }
+  i2sMic.end();
+
+  // 峰值归一化：说话声普遍偏小，整体放大到约 -2dBFS（最多 8 倍 / +18dB），
+  // 超过上限才削顶；安静录音不再需要贴近麦克风。
+  if (len >= 4) {
+    size_t count = len / 2;
+    int16_t *pcm = (int16_t *)(buf + 44);
+    int32_t peak = 1;
+    for (size_t i = 0; i < count; i++) {
+      int32_t v = pcm[i] < 0 ? -(int32_t)pcm[i] : pcm[i];
+      if (v > peak) peak = v;
+    }
+    if (peak < 26000) {
+      float gain = 26000.0f / (float)peak;
+      if (gain > 8.0f) gain = 8.0f;
+      for (size_t i = 0; i < count; i++) {
+        int32_t v = (int32_t)(pcm[i] * gain);
+        if (v > 32767) v = 32767;
+        else if (v < -32768) v = -32768;
+        pcm[i] = (int16_t)v;
+      }
+    }
+  }
+
+  uint32_t recordedMs = millis() - startedAt;
+  if (len < REC_RATE / 4) {   // < 250ms 视为误触
+    free(buf);
+    recBusy = false;
+    oledToast("录音", "太短未上传", "按住再说话");
+    return;
+  }
+  recWriteWavHeader(buf, (uint32_t)len);
+  oledShow("上传录音", String((unsigned)(len / 1024)) + " KB", "请稍候…");
+  bool ok = recUpload(buf, len + 44, slot, recordedMs);
+  free(buf);
+  recBusy = false;
+  lastActivityAt = millis();
+  oledToast("录音", ok ? "已上传" : "上传失败",
+            ok ? "后台可试听" : "检查 WiFi / 主机地址");
+  if (ok) netRefreshAt = millis() + 300;
+}
+
+// 在 loop 里调用：按住录音键达到阈值后启动一次采集（阻塞到松开/超时）。
+void maybeStartRecording() {
+  if (!recPendingSlot || recBusy) return;
+  if (millis() - recPendingAt < REC_LONG_PRESS_MS) return;
+  int slot = recPendingSlot;
+  recPendingSlot = 0;
+  if (digitalRead(btnPins[slot - 1]) != LOW) return;
+  recordAndUpload(slot);
+}
+
+// ------------------------------------------------------------ 功放播放
+//
+// 后台把一段 PCM WAV 排进设备播放队列，设备在后台任务里每 5 秒问一次；
+// 取到任务后下载到 PSRAM，用第二路 I2S（17/18/47）推给 MAX98357。
+// MAX98357 没有音量脚，音量在这里按 ampVolume 做软件衰减。
+
+static void ampSetUi(uint8_t state) {
+  ampUiState = state;
+  ampUiSeq++;
+}
+
+static uint16_t ampLe16(const uint8_t *p) {
+  return (uint16_t)(p[0] | (p[1] << 8));
+}
+
+static uint32_t ampLe32(const uint8_t *p) {
+  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+// 播放内存里的 WAV（PCM 16bit，单/双声道）。成功返回 true。
+static bool ampPlayWav(const uint8_t *wav, size_t len) {
+  if (len < 44 || memcmp(wav, "RIFF", 4) != 0 || memcmp(wav + 8, "WAVE", 4) != 0) return false;
+  uint32_t rate = 0;
+  uint16_t channels = 0;
+  uint16_t bits = 0;
+  const uint8_t *pcm = nullptr;
+  size_t pcmLen = 0;
+  size_t pos = 12;
+  while (pos + 8 <= len) {
+    const uint32_t size = ampLe32(wav + pos + 4);
+    if (memcmp(wav + pos, "fmt ", 4) == 0 && pos + 24 <= len) {
+      channels = ampLe16(wav + pos + 10);
+      rate = ampLe32(wav + pos + 12);
+      bits = ampLe16(wav + pos + 22);
+    } else if (memcmp(wav + pos, "data", 4) == 0) {
+      pcm = wav + pos + 8;
+      pcmLen = len - pos - 8;
+      if (pcmLen > size) pcmLen = size;
+      break;
+    }
+    pos += 8 + size + (size & 1);
+  }
+  if (!pcm || !rate || bits != 16 || (channels != 1 && channels != 2)) return false;
+  if (pcmLen < (size_t)channels * 2 || rate < 8000 || rate > 48000) return false;
+
+  i2sAmp.setPins(PIN_I2S_AMP_BCLK, PIN_I2S_AMP_LRC, PIN_I2S_AMP_DIN);
+  if (!i2sAmp.begin(I2S_MODE_STD, rate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+    return false;
+  }
+  // MAX98357 输出 (L+R)/2：单声道要复制到左右两路，否则只推左声道会被减半。
+  int16_t out[256 * 2];
+  const int16_t *src = (const int16_t *)pcm;
+  size_t frames = pcmLen / (2 * channels);
+  for (size_t i = 0; i < frames;) {
+    size_t n = frames - i;
+    if (n > 256) n = 256;
+    for (size_t k = 0; k < n; k++, i++) {
+      int32_t v = src[i * channels];
+      if (channels == 2) v = (v + src[i * channels + 1]) / 2;
+      v = v * ampVolume / 100;
+      if (v > 32767) v = 32767;
+      else if (v < -32768) v = -32768;
+      out[k * 2] = (int16_t)v;
+      out[k * 2 + 1] = (int16_t)v;
+    }
+    i2sAmp.write((uint8_t *)out, n * 4);
+  }
+  i2sAmp.end();
+  return true;
+}
+
+// 下载一个播放任务的 WAV 到 PSRAM；失败返回 nullptr。调用方负责 free。
+static uint8_t *ampDownload(const String &path, int *outLen) {
+  *outLen = 0;
+  WiFiClient client;
+  HTTPClient http;
+  // yuntu 直链是绝对地址（http://...），走隧道的兜底路径才需要拼 serverBase。
+  String full = (path.startsWith("http://") || path.startsWith("https://")) ? path : serverBase + path;
+  if (!http.begin(client, full)) return nullptr;
+  http.setTimeout(15000);
+  int code = http.GET();
+  if (code != 200) {
+    http.end();
+    Serial.printf("[amp] download HTTP %d\n", code);
+    return nullptr;
+  }
+  int size = http.getSize();
+  if (size <= 44 || size > (int)AMP_MAX_BYTES) {
+    http.end();
+    Serial.printf("[amp] size %d rejected\n", size);
+    return nullptr;
+  }
+  uint8_t *buf = (uint8_t *)ps_malloc(size);
+  if (!buf) {
+    http.end();
+    Serial.println("[amp] ps_malloc failed");
+    return nullptr;
+  }
+  WiFiClient *stream = http.getStreamPtr();
+  size_t got = 0;
+  uint32_t lastData = millis();
+  while (got < (size_t)size) {
+    size_t avail = stream->available();
+    if (avail) {
+      size_t want = (size_t)size - got;
+      if (want > avail) want = avail;
+      int n = stream->readBytes(buf + got, want);
+      if (n > 0) {
+        got += n;
+        lastData = millis();
+      }
+    } else if (millis() - lastData > 5000) {
+      break;
+    } else {
+      delay(1);
+    }
+  }
+  http.end();
+  if (got < 44) {
+    free(buf);
+    return nullptr;
+  }
+  Serial.printf("[amp] downloaded %u/%d bytes\n", (unsigned)got, size);
+  *outLen = (int)got;
+  return buf;
+}
+
+// 回报播放阶段，后台据此把「下载中」切成「播放中」。
+static void postSpeechState(const String &jobId, const char *state) {
+  String req = "{\"deviceId\":\"" + deviceId + "\",\"id\":\"" + jobId
+      + "\",\"state\":\"" + state + "\"}";
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, serverBase + "/api/device/esp/speech/status")) {
+    http.setTimeout(4000);
+    http.addHeader("Content-Type", "application/json");
+    http.POST((uint8_t *)req.c_str(), req.length());
+    http.end();
+  }
+}
+
+// 后台任务里调用：问服务端有没有待播任务，有就下载播放并回报。
+static void pollSpeechPlayback() {
+  if (PIN_I2S_AMP_BCLK < 0 || PIN_I2S_AMP_DIN < 0) return;   // 该板没有功放
+  if (deviceId.isEmpty() || WiFi.status() != WL_CONNECTED) return;
+  if (recBusy) return;                                // 正在录音，等下一轮
+  String body;
+  if (!getText("/api/device/esp/speech?deviceId=" + deviceId + "&format=text", body)) return;
+  body.trim();
+  if (!body.length()) return;
+  int bar = body.indexOf('|');
+  if (bar <= 0) return;
+  String jobId = body.substring(0, bar);
+  String path = body.substring(bar + 1);
+  ampSetUi(1);                                        // 屏幕：下载中
+  int len = 0;
+  uint8_t *wav = ampDownload(path, &len);
+  bool ok = false;
+  if (wav) {
+    ampSetUi(2);                                      // 屏幕：播放中
+    postSpeechState(jobId, "playing");
+    ok = ampPlayWav(wav, len);
+    free(wav);
+  }
+  ampSetUi(0);
+  Serial.printf("[amp] job %s %s\n", jobId.c_str(), ok ? "ok" : "fail");
+  // 无论成败都回报：失败任务若留在队列会被每 5 秒重播一次。
+  String req = "{\"deviceId\":\"" + deviceId + "\",\"id\":\"" + jobId
+      + "\",\"ok\":" + (ok ? "true" : "false") + "}";
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, serverBase + "/api/device/esp/speech/done")) {
+    http.setTimeout(6000);
+    http.addHeader("Content-Type", "application/json");
+    http.POST((uint8_t *)req.c_str(), req.length());
+    http.end();
+  }
+}
+
 // 轮询物理按键：内部上拉，对地短接为按下；60ms 去抖。
 // 槽位表来自 NVS（btnCount / btnPins），未启用（-1）的槽位跳过。
 void pollButtons() {
@@ -1797,7 +2225,24 @@ void pollButtons() {
     if (now - buttons[i].changedAt < 60) continue;
     buttons[i].down = down;
     buttons[i].changedAt = now;
-    if (down) onButtonPress(i + 1);
+    if (down) {
+      // 录音键不执行普通动作：先记住按下时间，超时后由 maybeStartRecording 采集。
+      // peek 模式不开射频，录完也传不上去，直接忽略。
+      if (btnAction[i + 1] == "record") {
+        if (peekMode) continue;
+        recPendingSlot = i + 1;
+        recPendingAt = now;
+        lastPresenceAt = now;
+        lastActivityAt = now;
+        wakeScreen();
+        oledShow("录音键", btnName[i + 1].length() ? btnName[i + 1] : String("Slot ") + (i + 1),
+                 "长按开始录音");
+      } else {
+        onButtonPress(i + 1);
+      }
+    } else if (recPendingSlot == i + 1) {
+      recPendingSlot = 0;   // 没到长按阈值就松开：忽略，不做任何动作
+    }
   }
 }
 
@@ -2099,11 +2544,17 @@ void applyNetSnapshot() {
 void netTask(void *) {
   uint32_t lastHeartbeat = 0;
   uint32_t lastFwCheck = 0;
+  uint32_t lastSpeechPoll = 0;
   uint32_t pirRetryAt = 0;
   static const uint32_t FW_CHECK_MS = 5UL * 60UL * 1000UL;  // OTA 检查 5 分钟一次
   for (;;) {
     // 主机：先把从机排队的请求转发完，再做自己的心跳/拉页面。
     processRelayRequests();
+    // 语音播放：独立于 60 秒心跳，每 5 秒问一次，点播延迟更短。
+    if (millis() - lastSpeechPoll >= AMP_POLL_MS) {
+      lastSpeechPoll = millis();
+      if (netEnabled) pollSpeechPlayback();
+    }
     // 到点刷新：翻页是立即，按键动作后延迟 ~0.7 秒等 HA 状态机更新。
     // 用有符号差值比较，millis() 回绕也不会漏触发。
     bool refresh = netRefreshAt != 0 && (int32_t)(millis() - netRefreshAt) >= 0;
@@ -3089,6 +3540,7 @@ void loop() {
 
   lostSince = 0;
   pollButtons();
+  maybeStartRecording();
 
   // 人体感应：有人立即亮屏并刷新计时；人走后按服务端给的秒数熄屏。
   // 没接感应（pirPin=-1）或后台设为常亮（screenOnSec=0）时这里什么都不做。
@@ -3137,6 +3589,16 @@ void loop() {
   }
 
   tickMarquee();   // E3：~10fps 分速滚动（仅超长文本触发）
+
+  // 语音播放状态由网络任务置位，这里统一刷屏（避免两个任务同时操作 I2C）。
+  static uint32_t ampUiSeen = 0;
+  if (ampUiSeq != ampUiSeen) {
+    ampUiSeen = ampUiSeq;
+    uint8_t st = ampUiState;
+    if (st == 1) oledToast("语音", "下载中…", "", 60000);
+    else if (st == 2) oledToast("语音", "播放中", "", 60000);
+    else { toastUntil = 0; drawMain(); }
+  }
 
   static uint32_t lastDraw = 0;
   if (toastUntil && millis() > toastUntil) {

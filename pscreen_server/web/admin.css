@@ -687,6 +687,15 @@
     .esp-scene-cell select { max-width: 100%; }
     .esp-scene-desc { font-size: 11px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
     .esp-scene-hint { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .esp-audio-panel { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .esp-audio-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .esp-audio-head h4 { margin: 0; font-size: 13px; }
+    .esp-audio-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-height: 260px; overflow: auto; }
+    .esp-audio-tools { display: flex; align-items: center; gap: 6px; }
+    .esp-audio-status { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--accent, #2f6feb); }
+    .esp-audio-item { display: flex; align-items: center; gap: 10px; }
+    .esp-audio-meta { display: flex; flex-direction: column; gap: 2px; min-width: 118px; font-size: 12px; color: var(--muted); }
+    .esp-audio-item audio { flex: 1 1 auto; height: 32px; min-width: 180px; }
 
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);

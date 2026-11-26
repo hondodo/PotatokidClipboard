@@ -840,6 +840,8 @@
     const slotNames = (espDevDraft && espDevDraft.slotNames) || {};
     // 熄屏秒数（设备级）：0 = 常亮。
     const screenOnSec = Number((espDevDraft.screen || {}).onSeconds) || 0;
+    const volNum = Number(espDevDraft && espDevDraft.volume);
+    const voiceVol = Number.isFinite(volNum) ? Math.max(0, Math.min(100, volNum)) : 70;
     // 只列出实际用到的槽位（本机已映射 + 各页面按键），没有时给 1~4 方便先起名。
     const usedSlots = new Set();
     (espDevDraft.buttons || []).forEach((item) => {
@@ -861,6 +863,8 @@
       const isRemote = button.kind === 'remote';
       // 手动控制：按下即执行「智能」页里那条场景的动作组。
       const isScene = button.kind === 'scene';
+      // 录音键：长按在设备本地采集，松开后上传到服务端，后台可试听。
+      const isRec = button.kind === 'rec';
       const sceneObj = isScene ? espSceneOf(button.sceneId) : null;
       const pin = pinOf(button.slot);
       // 每个遥控按键各自绑定目标设备；旧配置按键没这字段时回退页面级 remoteTarget。
@@ -913,19 +917,22 @@
         <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
         <td><div class="esp-action-cell">
           <select data-f="kind">
-            <option value="ha" ${!isSys && !isRemote && !isScene ? 'selected' : ''}>HA 动作</option>
+            <option value="ha" ${!isSys && !isRemote && !isScene && !isRec ? 'selected' : ''}>HA 动作</option>
             <option value="remote" ${isRemote ? 'selected' : ''}>设备遥控</option>
             <option value="sys" ${isSys ? 'selected' : ''}>系统动作</option>
             <option value="scene" ${isScene ? 'selected' : ''}>手动控制</option>
+            <option value="rec" ${isRec ? 'selected' : ''}>录音</option>
           </select>
           ${isRemote ? `<select class="esp-remote-target" data-f="remoteTarget" title="${esc(remoteDev ? `本按键控制：${remoteDev.name}` : '本按键要控制的中控/电视')}"><option value="">选择目标设备…</option>${remoteDevOptsFor(btnTarget)}</select>` : ''}
-          ${isScene ? '<span class="esp-scene-hint" title="动作组在「智能」页维护，这里只选执行哪一个">执行所选场景</span>' : `<select data-f="action">${actionOpts}</select>`}
+          ${isRec ? '<span class="esp-scene-hint">长按录音，松开上传</span>'
+            : isScene ? '<span class="esp-scene-hint" title="动作组在「智能」页维护，这里只选执行哪一个">执行所选场景</span>'
+              : `<select data-f="action">${actionOpts}</select>`}
           ${needsHaParam ? `<input data-f="param" class="esp-ha-param" value="${esc(button.param || '')}"
             placeholder="参数：+0.5 / -0.5 / 制冷"
             title="该动作必须填参数，否则 HA 会拒绝"
             style="${button.param ? '' : 'border-color:rgba(248,113,113,.65);'}">` : ''}
         </div></td>
-        <td><div class="esp-ent-cell">${isRemote ? paramCell : isScene ? espSceneCell(button, sceneObj) : isSys ? '<span class="hint">无需参数</span>' : `
+        <td><div class="esp-ent-cell">${isRemote ? paramCell : isScene ? espSceneCell(button, sceneObj) : isSys ? '<span class="hint">无需参数</span>' : isRec ? '<span class="hint">无需实体</span>' : `
           <input data-f="entity" value="${esc(button.entityId || '')}" placeholder="entity_id" autocomplete="off">
           <button class="btn small" type="button" data-pickbtn="${esc(button.id)}">选择</button>`}
         </div></td>
@@ -1100,6 +1107,10 @@
             <option value="120" ${screenOnSec === 120 ? 'selected' : ''}>人离开后 2 分钟熄屏</option>
             <option value="300" ${screenOnSec === 300 ? 'selected' : ''}>人离开后 5 分钟熄屏</option>
           </select>
+        </div>
+        <div class="esp-field-row"><label>语音音量</label>
+          <input type="range" id="esp-voice-vol" min="0" max="100" step="5" value="${voiceVol}" style="flex:1">
+          <span class="hint" id="esp-voice-vol-val">${voiceVol}%</span>
         </div>
         <p class="hint">翻页不需要额外硬件：把任意槽位的行为设为「下一页」即可。<br>
         熄屏需要设备本机设置页填「人体感应 OUT GPIO」：有人时亮屏，人持续在就一直亮，人离开后按这里选的秒数熄屏；熄屏期间只保心跳、不拉页面，唤醒时立刻刷新。</p>
@@ -1322,6 +1333,14 @@
       // 设备级：保存在 draft 上，随页面一起提交；不随切换页面丢失。
       espDevDraft.screen = { onSeconds: Number(event.target.value) || 0 };
     });
+    const volInput = $('esp-voice-vol');
+    if (volInput) {
+      volInput.addEventListener('input', (event) => {
+        espDevDraft.volume = Number(event.target.value) || 0;
+        const label = $('esp-voice-vol-val');
+        if (label) label.textContent = `${espDevDraft.volume}%`;
+      });
+    }
     $('esp-add-btn').addEventListener('click', () => {
       page.buttons.push({
         id: espUid('b'), name: '', label: '',
@@ -1367,11 +1386,15 @@
             }
           } else if (field === 'kind') {
             const kind = el.value === 'sys' ? 'sys' : el.value === 'remote' ? 'remote'
-              : el.value === 'scene' ? 'scene' : 'ha';
+              : el.value === 'scene' ? 'scene' : el.value === 'rec' ? 'rec' : 'ha';
             button.kind = kind;
             button.param = '';
             button.entityId = '';
-            if (kind === 'scene') {
+            if (kind === 'rec') {
+              // 录音键：不绑实体/参数，长按/松开由固件本地处理。
+              button.action = 'record';
+              if (!button.name || button.name === '切换') button.name = '录音';
+            } else if (kind === 'scene') {
               // 默认选第一条手动控制，省掉「切了类型还要再选一次」的空状态。
               const first = (state.scenes || []).find((item) => item.kind === 'manual');
               button.sceneId = button.sceneId || (first ? first.id : '');
@@ -1471,6 +1494,145 @@
     }
   }
 
+  /**
+   * 设备最近录音：录音键在设备上松开后上传，这里按时间倒序列出并直接试听。
+   * 音频走同源会话 cookie 鉴权，<audio src> 不需要额外带 token。
+   */
+  async function loadEspAudio(deviceId) {
+    const box = $('espdev-audio');
+    if (!box) return;
+    const id = deviceId || (espDevDraft && espDevDraft.id);
+    if (!id) {
+      box.innerHTML = '<span class="hint">请选择左侧设备</span>';
+      return;
+    }
+    box.innerHTML = '<span class="hint">加载中…</span>';
+    const count = $('espdev-audio-count');
+    if (count) count.textContent = '';
+    try {
+      const cfg = await api(`/api/admin/machines/${encodeURIComponent(id)}/esp/audio`);
+      const files = (cfg && cfg.files) || [];
+      if (count) count.textContent = files.length ? `${files.length} 条` : '';
+      if (!files.length) {
+        box.innerHTML = '<span class="hint">还没有录音。在设备上长按「录音」键，松手后会自动上传。</span>';
+        return;
+      }
+      const slotNames = (espDevDraft && espDevDraft.slotNames) || {};
+      const pad = (n) => String(n).padStart(2, '0');
+      box.innerHTML = files.map((file) => {
+        const at = new Date(Number(file.ts) || 0);
+        const when = `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+        const slotName = slotNames[String(file.slot)] || '';
+        const slotText = file.slot
+          ? `槽位 ${file.slot}${slotName ? ` · ${slotName}` : ''}`
+          : '未绑定槽位';
+        const kb = Math.max(1, Math.round((Number(file.size) || 0) / 1024));
+        return `<div class="esp-audio-item">
+          <div class="esp-audio-meta"><b>${esc(when)}</b><span>${esc(slotText)} · ${kb} KB</span></div>
+          <audio controls preload="none" src="${esc(file.url)}"></audio>
+          <button class="btn small" type="button" data-speech="${esc(file.name)}">设备播放</button>
+        </div>`;
+      }).join('');
+      box.querySelectorAll('[data-speech]').forEach((btn) => {
+        btn.onclick = () => queueEspSpeech(id, btn.getAttribute('data-speech'), btn);
+      });
+    } catch (error) {
+      box.innerHTML = `<span class="hint">加载失败：${esc(error.message)}</span>`;
+    }
+  }
+
+  /**
+   * 把一段音频排进设备的播放队列：上传的 WAV 直接 POST 原始字节，
+   * 列表里的录音传文件名让服务端直接复用，不用浏览器再读一遍。
+   */
+  async function queueEspSpeech(deviceId, recName, btn) {
+    const id = deviceId || (espDevDraft && espDevDraft.id);
+    if (!id) return;
+    const path = `/api/admin/machines/${encodeURIComponent(id)}/esp/speech`
+      + (recName ? `?rec=${encodeURIComponent(recName)}` : '');
+    if (btn) { btn.disabled = true; btn.textContent = '已排队'; }
+    try {
+      await api(path, { method: 'POST' });
+      toast('已加入播放队列，设备在线时几秒内播放', 'success');
+      if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = '设备播放'; }, 3000);
+      refreshEspSpeechStatus(id);
+    } catch (error) {
+      toast('发送失败：' + error.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '设备播放'; }
+    }
+  }
+
+  /** 发一段服务端合成的测试音，用来排查功放接线（不依赖录音/上传）。 */
+  async function queueEspTone(deviceId) {
+    const id = deviceId || (espDevDraft && espDevDraft.id);
+    if (!id) return;
+    try {
+      await api(`/api/admin/machines/${encodeURIComponent(id)}/esp/speech?tone=1`, { method: 'POST' });
+      toast('已发送测试音，设备几秒内播放', 'success');
+      refreshEspSpeechStatus(id);
+    } catch (error) {
+      toast('发送失败：' + error.message, 'error');
+    }
+  }
+
+  async function uploadEspSpeech(deviceId, file) {
+    const id = deviceId || (espDevDraft && espDevDraft.id);
+    if (!id || !file) return;
+    try {
+      await api(`/api/admin/machines/${encodeURIComponent(id)}/esp/speech?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: file,
+      });
+      toast('已加入播放队列，设备在线时几秒内播放', 'success');
+      // 上传成功后立刻刷新列表和播放状态，不用手动点刷新。
+      loadEspAudio(id);
+      refreshEspSpeechStatus(id);
+    } catch (error) {
+      toast('上传失败：' + error.message, 'error');
+    }
+  }
+
+  // 播放状态轮询：面板打开期间每 2 秒问一次，播完自动刷新录音列表。
+  let espSpeechTimer = 0;
+  let espSpeechLastState = '';
+
+  async function refreshEspSpeechStatus(deviceId) {
+    const box = $('espdev-speech-status');
+    if (!box) {
+      if (espSpeechTimer) { clearInterval(espSpeechTimer); espSpeechTimer = 0; }
+      return;
+    }
+    let data;
+    try {
+      data = await api(`/api/admin/machines/${encodeURIComponent(deviceId)}/esp/speech`);
+    } catch (_) {
+      return;
+    }
+    const job = data && data.job;
+    if (!job) {
+      if (espSpeechLastState) {
+        espSpeechLastState = '';
+        loadEspAudio(deviceId);
+      }
+      box.hidden = true;
+      box.textContent = '';
+      return;
+    }
+    espSpeechLastState = job.state || 'queued';
+    const text = espSpeechLastState === 'playing' ? '播放中'
+      : espSpeechLastState === 'fetching' ? '下载中' : '排队中';
+    box.hidden = false;
+    box.textContent = `${text}：${job.name || '语音'}`;
+  }
+
+  function startEspSpeechWatch(deviceId) {
+    if (espSpeechTimer) clearInterval(espSpeechTimer);
+    espSpeechLastState = '';
+    refreshEspSpeechStatus(deviceId);
+    espSpeechTimer = setInterval(() => refreshEspSpeechStatus(deviceId), 2000);
+  }
+
   async function openEspDevEditor(id) {
     const host = $('espdev-editor');
     host.innerHTML = '<div class="empty">加载中…</div>';
@@ -1533,6 +1695,8 @@
       slotNames: Object.assign({}, cfg.slotNames || {}),
       // 熄屏秒数（设备级）：0 = 常亮。
       screen: Object.assign({ onSeconds: 0 }, cfg.screen || {}),
+      // 语音播放音量（设备级）：0~100，随心跳下发。
+      volume: Number.isFinite(Number(cfg.volume)) ? Number(cfg.volume) : 70,
     };
 
     // 从「HA 实体库 → 绑定到 ESP」跳过来：预填成当前页的一个按键。
@@ -1555,6 +1719,22 @@
     $('espdev-title').textContent = `页面配置 · ${espDevDraft.name}`;
     renderEspPages();
     renderEspPageEditor();
+    const audioRefresh = $('espdev-audio-refresh');
+    if (audioRefresh) audioRefresh.onclick = () => loadEspAudio(id);
+    const speechUpload = $('espdev-speech-upload');
+    const speechFile = $('espdev-speech-file');
+    const speechTone = $('espdev-speech-tone');
+    if (speechTone) speechTone.onclick = () => queueEspTone(id);
+    if (speechUpload && speechFile) {
+      speechUpload.onclick = () => speechFile.click();
+      speechFile.onchange = () => {
+        const file = speechFile.files && speechFile.files[0];
+        speechFile.value = '';
+        if (file) uploadEspSpeech(id, file);
+      };
+    }
+    loadEspAudio(id);
+    startEspSpeechWatch(id);
   }
 
   async function saveEspPages() {
@@ -1565,6 +1745,8 @@
       slotNames: espDevDraft.slotNames || {},
       // 熄屏秒数（设备级）：0 = 常亮。
       screen: { onSeconds: Number((espDevDraft.screen || {}).onSeconds) || 0 },
+      // 语音音量（设备级）：随心跳下发。
+      volume: Number.isFinite(Number(espDevDraft.volume)) ? Number(espDevDraft.volume) : 70,
       pages: espDevDraft.pages.map((page) => ({
         id: page.id,
         name: page.name,
@@ -1594,13 +1776,14 @@
           // label 仅保留给旧固件协议，值与完整名称一致，不再截短。
           label: button.name || button.label || '',
           kind: button.kind === 'sys' ? 'sys' : button.kind === 'remote' ? 'remote'
-            : button.kind === 'scene' ? 'scene' : 'ha',
+            : button.kind === 'scene' ? 'scene' : button.kind === 'rec' ? 'rec' : 'ha',
           sceneId: button.kind === 'scene' ? (button.sceneId || '') : '',
           remoteTarget: button.kind === 'remote' ? (button.remoteTarget || '') : '',
-          action: button.kind === 'remote' ? button.action
-            : button.kind === 'sys' ? button.action
-              : button.kind === 'scene' ? 'run'
-                : `${button.action}${button.param ? `(${button.param})` : ''}`,
+          action: button.kind === 'rec' ? 'record'
+            : button.kind === 'remote' ? button.action
+              : button.kind === 'sys' ? button.action
+                : button.kind === 'scene' ? 'run'
+                  : `${button.action}${button.param ? `(${button.param})` : ''}`,
           param: button.param || '',
           entityId: button.kind === 'ha' ? (button.entityId || '') : '',
           slot: Number(button.slot) || 0,

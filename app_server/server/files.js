@@ -373,6 +373,65 @@ function createFilesRouter({ config, store, audit }) {
   router.get('/api/files/:id/download', requireServiceToken(config), serviceDownload);
   router.head('/api/files/:id/download', requireServiceToken(config), serviceDownload);
 
+  /** 服务间：按来源列出镜像文件，pscreen_server 用它展示设备录音/语音列表。
+   *  originServer 精确匹配，prefix 匹配 originPath 前缀（如 `esp_audio/设备id/`）。 */
+  router.get('/api/files/list', requireServiceToken(config), wrap((req, res) => {
+    const originServer = String(req.query.originServer || '').trim();
+    const prefix = String(req.query.prefix || '').trim();
+    const limit = Math.min(200, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
+    let items = Object.values(store.data.files || {});
+    if (originServer) items = items.filter((item) => String(item.originServer || '') === originServer);
+    if (prefix) items = items.filter((item) => String(item.originPath || '').startsWith(prefix));
+    items.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    ok(res, {
+      total: items.length,
+      items: items.slice(0, limit).map((item) => ({
+        id: item.id,
+        name: item.name,
+        size: item.size,
+        sha256: item.sha256 || '',
+        createdAt: item.createdAt,
+        originServer: item.originServer || '',
+        originPath: item.originPath || '',
+      })),
+    });
+  }));
+
+  /** 公开音频下载：用 serviceToken 对 `id.exp` 做 HMAC 签名，链接过期即失效。
+   *  只放行音频扩展名，避免镜像里的普通文件被公网扫走。 */
+  const publicAudioMime = { '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg' };
+  function publicAudio(req, res, next) {
+    const record = (store.data.files || {})[req.params.id];
+    if (!record) throw new ApiError(404, 400018, '资源不存在');
+    const secret = String((config.files && config.files.serviceToken) || '');
+    const exp = Number(req.query.exp) || 0;
+    const given = String(req.query.sig || '');
+    const want = secret
+      ? crypto.createHmac('sha256', secret).update(`${req.params.id}.${exp}`).digest('hex').slice(0, 32)
+      : '';
+    const a = Buffer.from(given);
+    const b = Buffer.from(want);
+    if (!secret || !exp || exp < Date.now() || a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      throw new ApiError(403, 400011, '链接无效或已过期');
+    }
+    const ext = path.extname(String(record.name || record.originPath || '')).toLowerCase();
+    const mime = publicAudioMime[ext];
+    if (!mime) throw new ApiError(403, 400011, '仅支持音频文件');
+    const abs = absMirrorPath(config, record);
+    if (!abs.startsWith(path.resolve(config.mirrorRoot) + path.sep) || !fs.existsSync(abs)) {
+      throw new ApiError(410, 400018, '资源已失效');
+    }
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.sendFile(abs, (err) => {
+      if (!err) return;
+      if (!res.headersSent) return next(err);
+      return undefined;
+    });
+  }
+  router.get('/api/files/:id/audio', publicAudio);
+  router.head('/api/files/:id/audio', publicAudio);
+
   /** 公开下载 pinned 记录（儿童档案头像等）：无令牌，返回 image/*，长缓存。
    *  只有 `record.pinned === true` 才能访问，防止普通镜像文件被公网扫走。 */
   const publicMimeByExt = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };

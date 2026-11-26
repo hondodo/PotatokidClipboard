@@ -599,6 +599,19 @@
             <div class="card">
               <h3 id="espdev-title">页面配置</h3>
               <div id="espdev-editor"><div class="empty">请选择左侧设备</div></div>
+              <div class="esp-audio-panel">
+                <div class="esp-audio-head">
+                  <h4>最近录音 <span class="muted" id="espdev-audio-count"></span></h4>
+                  <div class="esp-audio-tools">
+                    <input type="file" id="espdev-speech-file" accept=".wav,audio/wav" hidden>
+                    <button class="btn small" type="button" id="espdev-speech-tone">测试音</button>
+                    <button class="btn small" type="button" id="espdev-speech-upload">上传 WAV 播放</button>
+                    <button class="btn small" type="button" id="espdev-audio-refresh">刷新</button>
+                  </div>
+                </div>
+                <div class="esp-audio-status" id="espdev-speech-status" hidden></div>
+                <div class="esp-audio-list" id="espdev-audio"><span class="hint">选择设备后显示</span></div>
+              </div>
             </div>
             <div class="card esp-preview-card2">
               <h3>128×64 实时预览</h3>
