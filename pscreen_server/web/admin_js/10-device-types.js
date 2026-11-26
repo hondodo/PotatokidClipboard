@@ -1270,13 +1270,19 @@
         const interactive = node.interactive === true;
         const color = online ? pvNodeColor(node, ctx, ctx.color) : '#6b7d8e';
         const thumbH = h + 14;
+        // 槽色/拇指色可被后台覆盖：trackColor 管底轨、thumbColor 管拖动白条；
+        // 未配时保持原有在线/离线默认配色。
+        const configuredTrack = pvColor(node.trackColor, ctx, node, null);
+        const configuredThumb = pvColor(node.thumbColor, ctx, node, null);
+        const trackBg = configuredTrack || (online ? 'rgba(148,163,184,.28)' : 'rgba(148,163,184,.14)');
+        const thumbBg = configuredThumb || (online ? '#fff' : '#93a4b5');
         const fill = `<div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;`
           + `border-radius:${h / 2}px;background:${color}"></div>`;
         const thumb = `<div style="position:absolute;left:calc(${pct}% - 6px);top:${-(thumbH - h) / 2}px;`
-          + `width:12px;height:${thumbH}px;border-radius:6px;background:${online ? '#fff' : '#93a4b5'};`
+          + `width:12px;height:${thumbH}px;border-radius:6px;background:${thumbBg};`
           + `border:1.5px solid ${online ? '#cfcfcf' : '#6b7d8e'};box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>`;
         return `<div style="position:relative;width:100%;height:${h}px;`
-          + `background:${online ? 'rgba(148,163,184,.28)' : 'rgba(148,163,184,.14)'};`
+          + `background:${trackBg};`
           + `border-radius:${h / 2}px;margin:7px 0">${fill}${thumb}</div>`;
       }
       if (type === 'divider') {

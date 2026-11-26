@@ -46,6 +46,10 @@ class CardLayoutNode {
     this.max,
     this.min,
     this.height,
+    // progress 滑条配色：trackColor=未填充底轨/槽色，thumbColor=拖动拇指（白条）色。
+    // 留空保持现状（在线白拇指/主题槽色、离线灰拇指）；配了即覆盖，支持占位符/颜色规范。
+    this.trackColor,
+    this.thumbColor,
     this.metric,
     this.window,
     this.showLabels = false,
@@ -111,6 +115,10 @@ class CardLayoutNode {
   final String? max;
   final String? min;
   final double? height;
+  /// progress 未填充底轨/槽色（颜色规范/占位符/阈值结果）；留空保持主题默认。
+  final String? trackColor;
+  /// progress 拖动拇指（白条）颜色；留空在线白/离线主题灰。
+  final String? thumbColor;
   final String? metric;
   final String? window;
   final bool showLabels;
@@ -208,6 +216,8 @@ class CardLayoutNode {
       max: json['max'] == null ? null : '${json['max']}',
       min: json['min'] == null ? null : '${json['min']}',
       height: _num(json['height']),
+      trackColor: json['trackColor'] == null ? null : '${json['trackColor']}',
+      thumbColor: json['thumbColor'] == null ? null : '${json['thumbColor']}',
       metric: json['metric'] as String?,
       window: json['window'] as String?,
       showLabels: json['showLabels'] == true,

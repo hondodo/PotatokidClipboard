@@ -169,6 +169,14 @@
 ```
 注意：App 端图标前景色取自节点的 `color`/`unavailableColor`（或卡片 `{color}`），**不读 `box.color`**（`box.color` 只在后台预览里作近似前景色）；`box.bg` 背景色不受在线状态影响，始终显示。
 
+**亮度/进度滑条的槽色与拖动白条色（`trackColor` / `thumbColor`）**：`progress` 节点（含 `interactive:true` 的亮度滑条）底色与拖动拇指可用这两个字段覆盖，`color`/`colorMap` 仍管已填充的彩色部分（三者互不影响）。`trackColor` = 未填充的底轨/槽色，`thumbColor` = 可拖动的白色拇指条颜色；两者写法与 `color` 一致（`#RRGGBB` / `#RRGGBBAA` / 语义色名 / `{color}` 占位符），**在线与离线都会生效**。不填时保持原有默认（在线白拇指+主题槽色、离线灰拇指+深槽色）。例如：
+```json
+{ "type": "progress", "interactive": true, "value": "{brightnessPercent}",
+  "onClick": "brightness", "height": 12,
+  "color": "{color}", "trackColor": "#334155", "thumbColor": "#FFFFFF" }
+```
+提示：只想改白条颜色就只写 `thumbColor`；只想改槽色就只写 `trackColor`。
+
 **背景与内边距的正确写法**：`padding` 是所有节点通用的内容内边距（数组 `[垂直, 水平]`，`[0,0]` 可取消缩进；根节点留空默认 `[12,10]`）。`bg` 画在 `padding` 外层——所以「背景铺满 + 内容留白」只需在**同一个节点**同时写 `bg`/`bgMap` 和 `padding`，不要再外套一层（外套一层会让内层 `padding` 失效）。例如：
 ```json
 { "type": "column", "fill": true, "mainAlign": "spaceBetween",
@@ -277,6 +285,8 @@
 | `subLabel` | 字符串 ≤400 | button / chip |
 | `template` | 节点对象（repeat 模板） | repeat |
 | `thickness` | 数值 1~8（默认 1） | divider |
+| `thumbColor` | 字符串 ≤400 | 通用 |
+| `trackColor` | 字符串 ≤400 | 通用 |
 | `unavailableColor` | 字符串 ≤400 | 通用 |
 | `value` | 字符串 ≤400；字符串 ≤40 | text / icon / button / chip / progress |
 | `visibleWhen` | 字符串 ≤120 | 通用 / button / chip / progress |

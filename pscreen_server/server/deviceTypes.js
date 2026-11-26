@@ -774,6 +774,10 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
     if (value.bg != null) node.bg = str(value.bg, 400);
     if (value.bgMap != null) node.bgMap = str(value.bgMap, 240);
     if (value.bgRadius != null) node.bgRadius = num(value.bgRadius, 12, 0, 32);
+    // progress 滑条配色：trackColor=底轨/槽色，thumbColor=拖动拇指（白条）色。
+    // 留空保持主题默认；支持 #RRGGBB / #RRGGBBAA / 语义色名 / {color} 占位符 / 阈值规则。
+    if (value.trackColor != null) node.trackColor = str(value.trackColor, 400);
+    if (value.thumbColor != null) node.thumbColor = str(value.thumbColor, 400);
     // 条件显隐是渲染层通用能力（_buildNode 开头统一判断），所有节点都该保留，
     // 不能只放在 chip/progress 分支里——否则 text/row 的 visibleWhen 会被 persist 吃掉。
     if (value.visibleWhen != null) node.visibleWhen = str(value.visibleWhen, 120);

@@ -20,6 +20,7 @@ class GradientSlider extends StatefulWidget {
     this.thumbHeight = 42,
     this.enabled = true,
     this.trackColor,
+    this.offlineTrackColor,
     this.offline = false,
     this.thumbColor,
     this.thumbBorderColor,
@@ -47,6 +48,10 @@ class GradientSlider extends StatefulWidget {
   /// 触屏没有 hover，若底轨与卡片背景同色会导致滑条「看不见」。
   /// 常显场景（如首页灯卡）应传与背景对比明显的颜色（如 outlineVariant）。
   final Color? trackColor;
+
+  /// 离线态底轨颜色；不传时沿用 surfaceContainerHighest（原有行为）。
+  /// 供后台 JSON 的 progress.trackColor 在设备离线时也生效。
+  final Color? offlineTrackColor;
 
   /// 离线态：用暗灰渐变 + 暗色拇指，仍常显可辨，但一眼能看出设备离线。
   /// 与 enabled=false（禁用拖动）不同，这里只换配色，不隐藏滑条。
@@ -134,8 +139,10 @@ class _GradientSliderState extends State<GradientSlider> {
                 theme.colorScheme.outlineVariant,
               ]
             : widget.colors;
+        // 底轨：在线优先 trackColor；离线优先 offlineTrackColor（后台 trackColor 透传），
+        // 都没配才回退各状态主题默认，保持未配置时与旧版完全一致。
         final Color resolvedTrack = widget.offline
-            ? theme.colorScheme.surfaceContainerHighest
+            ? (widget.offlineTrackColor ?? theme.colorScheme.surfaceContainerHighest)
             : (widget.trackColor ?? theme.colorScheme.surfaceContainerHighest);
         final Color resolvedThumb =
             widget.thumbColor ?? (widget.offline ? theme.colorScheme.outline : Colors.white);

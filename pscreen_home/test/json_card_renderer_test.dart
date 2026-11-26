@@ -623,6 +623,46 @@ void main() {
     expect(slider.offline, isTrue, reason: '离线设备应使用暗灰配色');
   });
 
+  testWidgets('progress 的 trackColor/thumbColor 可配置（在线与离线都透传）', (WidgetTester tester) async {
+    // 在线设备 + 配置槽色/拇指色，验证参数被透传给 GradientSlider
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_light_slider_color',
+      title: '客厅 大灯',
+      entities: <HaEntityStateModel>[_entity('light.living', 'on', name: '大灯')],
+    );
+    final CardLayoutNode layout = CardLayoutNode.fromJson(<String, dynamic>{
+      'type': 'progress',
+      'interactive': true,
+      'value': '64',
+      'onClick': 'brightness',
+      'height': 12,
+      'trackColor': '#112233',
+      'thumbColor': '#FF00FF',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 80,
+            child: JsonCardRenderer(
+              group: group,
+              card: DeviceCardConfig(label: '灯光', color: '#facc15', layout: layout),
+              typeKey: 'light',
+              onOpenDetail: () {},
+              onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final GradientSlider slider = tester.widget<GradientSlider>(find.byType(GradientSlider));
+    expect(slider.trackColor, const Color(0xFF112233), reason: '在线槽色应取配置的 trackColor');
+    expect(slider.offlineTrackColor, const Color(0xFF112233), reason: '离线槽色同样应取配置的 trackColor');
+    expect(slider.thumbColor, const Color(0xFFFF00FF), reason: '拇指（白条）色应取配置的 thumbColor');
+  });
+
   testWidgets('不可用时图标/文字用 unavailableColor，未配置回退主题禁用色', (WidgetTester tester) async {
     final HaDeviceGroup offlineGroup = HaDeviceGroup(
       deviceId: 'dev_router_offline',

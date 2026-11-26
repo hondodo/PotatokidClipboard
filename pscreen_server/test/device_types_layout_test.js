@@ -151,4 +151,16 @@ ok('unavailableColor 字段通过白名单（不可用时自定义前景色）',
     assert.strictEqual(custom.children[1].unavailableColor, '>=80=#00BFFF,default=#E30B5C');
 });
 
+ok('progress 的 trackColor/thumbColor 通过白名单（槽色/拖动拇指色）', () => {
+    const custom = normalizeCard({
+        layout: {
+            type: 'progress', interactive: true, value: '{brightnessPercent}',
+            onClick: 'brightness', height: 12,
+            trackColor: '#11223326', thumbColor: '{color}',
+        },
+    }, 'light').layout;
+    assert.strictEqual(custom.trackColor, '#11223326');
+    assert.strictEqual(custom.thumbColor, '{color}');
+});
+
 console.log(`[device types] 通过 ${passed} 项`);

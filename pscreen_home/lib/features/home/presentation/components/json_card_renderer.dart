@@ -592,6 +592,10 @@ class JsonCardRenderer extends StatelessWidget {
     final double max = num.tryParse(eval.resolve(node.max ?? '100'))?.toDouble() ?? 100;
     final double progress = max > 0 ? (value / max).clamp(0.0, 1.0) : 0;
     final Color accent = _nodeColor(node, theme, eval) ?? _accent(theme);
+    // 滑条配色可配：trackColor=底轨/槽色，thumbColor=拖动拇指（白条）色。
+    // 未配时传 null，保留各状态原有默认；配了即覆盖（含离线态）。
+    final Color? configuredTrack = _color(node.trackColor, theme, eval);
+    final Color? configuredThumb = _color(node.thumbColor, theme, eval);
 
     // 可交互进度条（亮度）：用与旧版灯卡一致的 GradientSlider，拖动即时反馈、
     // 松手才下发。onClick 写 "brightness@{primary.entityId}" 之类的动作，
@@ -622,7 +626,11 @@ class JsonCardRenderer extends StatelessWidget {
           accent.withValues(alpha: 0.65),
           accent,
         ],
-        trackColor: theme.colorScheme.outlineVariant,
+        // 在线底轨默认沿用 outlineVariant（旧行为），离线默认 surfaceContainerHighest；
+        // 配了 trackColor 则两态都覆盖。
+        trackColor: configuredTrack ?? theme.colorScheme.outlineVariant,
+        offlineTrackColor: configuredTrack,
+        thumbColor: configuredThumb,
         height: node.height ?? 12,
         thumbHeight: (node.height ?? 12) + 14,
         enabled: available && interactionsEnabled && action.isNotEmpty,
@@ -642,7 +650,7 @@ class JsonCardRenderer extends StatelessWidget {
         borderRadius: BorderRadius.circular((node.height ?? 6) / 2),
         child: LinearProgressIndicator(
           value: progress,
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          backgroundColor: configuredTrack ?? theme.colorScheme.surfaceContainerHighest,
           color: accent,
           minHeight: node.height ?? 6,
         ),
