@@ -81,6 +81,11 @@
 | `{s:后缀}` | 按 entity_id 子串匹配组内实体，取 state；支持 {s:后缀.属性} 读属性 |
 | `{a:后缀.属性}` | 按后缀匹配实体，取指定 attribute |
 | `{id:后缀}` | 按后缀匹配实体，取完整 entity_id（动作通道常用） |
+| `{draft:后缀}` | 本地暂存的选项值（按 entity_id 子串匹配，未暂存为空串）。配合 draftOption@ / draftCycle@ 使用：点模式先暂存、卡片即时显示，点开始才真正下发（如空气炸锅菜谱）。暂存只存内存，App 重启即清空；可加 `|fallback=s:后缀` 在未暂存时回退显示设备当前值 |
+| `{last:后缀}` | 最后一次可用时的 state（按 entity_id 子串匹配）。门锁等间歇休眠设备上报后 HA 会置为 unavailable，此占位符返回休眠前那帧真实值，如 `{last:door_state_p_3_1021}` → 已上锁(反锁)；支持 `{last:后缀.属性}` 读上次属性值。无历史值时返回空串，不回退当前 unavailable |
+| `{lastAt:后缀}` | 最后一次可用值的记录时刻 ISO 串，常配 `|ago` 显示「上次上报 N 分钟前」，或配 `|date:HH:mm` 显示具体时刻 |
+| `{presence}` | 设备三态的中文文案：在线 / 休眠 / 离线。由 card.sleepGraceSeconds 统一判定，配 `{presence|休眠=show,default=hide}` 控制标签显隐；判离线时卡片自动置灰 |
+| `{presenceCode}` | 设备三态的英文码：online / sleeping / offline，便于 visibleWhen / map 规则匹配 |
 <!-- AUTO:END -->
 
 ### 2.1 按实体后缀取值（最常用）
@@ -122,6 +127,10 @@
 | `|date[:pattern]` | ISO 时间按 Flutter DateFormat 格式化，带时区偏移（如 `+00:00`）会先转本地时间再显示；支持 `zh:` / `en_US:` 前缀，省略 pattern 用 yMd |
 | `|maxWith=<占位符 key>` | 当前值与另一个占位符都是 ISO 时间时取较晚者；非时间值以可解析的一方为准 |
 | `|ago` | ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）；非时间值原样返回 |
+| `|blank=<文案>` | 本占位符取值为空时替换为文案，有值时原样保留。与 default 的区别：default 是「没有任何规则命中」兜底，数值直显时会误伤（24 → 兜底值）；blank 只认空串，如 `{s:battery_level|blank=—}%` |
+| `|offline=<文案>` | 判定为离线（全组 unavailable 且超 card.sleepGraceSeconds）时替换为文案，休眠/在线时原样保留。配合 `{presence}` 使用，如 `{last:door_state|offline=离线}` |
+| `|fallback=<占位符 key>` | 本占位符取值为空时取另一个占位符的值。典型：{draft:mode_p_2_25|fallback=s:mode_p_2_25} 没暂存时显示设备当前模式 |
+| `|diff=<占位符 key>` | 当前值减去另一个占位符的值（如 7 - 5 → 2，支持负数和小数）；非数值原样返回。结果可继续接阈值规则，如 `{s:temperature|diff=s:target,>0=偏高,<=0=正常}`。注意多条规则用逗号分隔，只写第一个竖线 |
 | `|when=<key>:<期望值>=<文案>` | 另一个占位符当前值等于期望值时，把本占位符输出替换为文案（key 含冒号，如 s:_charging_state_p_5_2；如充电中覆盖开机文案） |
 | `|default` | 源码未写注释 |
 | `|key=值` | 通用映射：整值精确匹配（兼容旧写法），键也可写阈值 `>=30` / `>30` / `<=20` / `<20` / `=30` / `!=30`，从上往下取首个命中，`default=` 兜底（与位置无关）；值可用单/双引号包住以保护逗号；多条用逗号 / 中文逗号 / 分号分隔 |
@@ -209,6 +218,7 @@
 | `bg` | 卡片正常背景色：#RRGGBB / #RRGGBBAA / {color}26；留空跟随主题 |
 | `disabledBg` | 设备不可用 / 断线时的卡片背景色；留空跟随主题 |
 | `buttons` | 旧版按钮定义（新布局一般用 layout 里的 button / chip） |
+| `sleepGraceSeconds` | 休眠宽限秒数（0=关闭）。全组 unavailable 时，距最后一次上报 `{lastAt:后缀}` 未超过该值判定为「休眠」：卡片不灰、显示最后上报值；超过则判「离线」：卡片置灰并显示「离线」。计时起点优先最后一次上报，从未上报过则用 App 首次观察时刻等满一个完整周期，不会因无记录被立刻判离线。只影响视觉；按钮/滑条的实际下发仍按 HA 实时可用性拦截。门锁建议 86400（24 小时） |
 | `genericEnabled` | 是否启用通用卡片渲染 |
 | `span` | 跨格尺寸 {col,row}，各 1~4 |
 | `layout` | JSON 布局树，见第 4 节 |
@@ -350,6 +360,10 @@
 | `toggle@` | toggle@<entityId>：控制指定实体（多路开关的每路大按钮）。 |
 | `press@` | press@<entityId>：按指定实体按钮。 |
 | `selectOption@` | selectOption@<entityId>[:<option>]：把 select 实体切到指定选项； 不带 option 时在 options 里循环到下一项（单个大按钮切换用）。 实体 id 里不会有冒号，按第一个冒号拆分，选项本身可含冒号 （如假日模式的 23:00-06:00）。只对 domain=select 下发， 指定选项时必须在 options 列表里，避免误动作；bloc 做校验与乐观更新。 |
+| `notify@` | notify 域动作实体（与 press@ 分开）：notify@<实体>:<message>，message 按集成约定是 YAML 列表串（如电饭煲开始烹饪 [1]、热水瓶加热 [M0, 95, true, ...]）。onClick 渲染时已 resolve，message 里可直接写占位符拼动态参数；只对 notify 实体下发 |
+| `draftOption@` | 暂存选项（不下发设备）：draftOption@<实体> 弹底部面板列出该 select 的 options，选中写入本地暂存；draftOption@<实体>:<选项> 直接暂存指定项。用于「先选模式、点开始才生效」的两段式交互 |
+| `draftCycle@` | 原地循环暂存选项（不下发设备）：draftCycle@<实体> 切下一项，draftCycle@<实体>:-1 切上一项，到两端环绕；以暂存值为基准，无暂存时以设备当前 state 为基准。用于卡片内 −/+ 按钮和「点一下切下一项」的 chip，替代弹层选择 |
+| `commitDraft@` | 提交暂存（点开始时用）：commitDraft@<实体1>:<实体2>:… 按 domain 分类，select 实体依次下发 select.select_option（有暂存用暂存，没暂存用设备当前值），button 实体依次按下。如 commitDraft@{id:mode}:{id:texture}:{id:measure}:{id:start}。提交后自动清除所有暂存 |
 | `brightness@` | brightness@<entityId>:<percent>：卡片亮度条松手时下发。 只对明确写了支持调光的实体发指令，避免误伤纯开关灯。 |
 | `fan@` | fan@<entityId>:<percent>：风扇风速条松手时下发。 与 brightness@ 对称：只对明确写了 fan 实体下发，bloc 内部 还会再校验 isFan 并 clamp 0-100，不会误伤灯/开关。 |
 | `fanOscillate@` | 风扇左右摆风：fanOscillate@<实体> 按当前状态取反；fanOscillate@<实体>:on / :off 直接设定。只对 fan 实体下发 |

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:pscreen_home/features/home/application/history_service.dart';
+import 'package:pscreen_home/features/home/data/cache/card_draft_store.dart';
 import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
 import 'package:pscreen_home/features/home/domain/models/device_type_dictionary.dart';
 import 'package:pscreen_home/features/home/domain/models/ha_device_group.dart';
@@ -52,32 +53,53 @@ class JsonCardRenderer extends StatelessWidget {
   final bool interactionsEnabled;
   final HistoryService? historyService;
 
+  /// 真实交互可用性（HA 实时值），与传给节点重建用的「视觉可用」分离。
+  /// 休眠型设备在宽限期内视觉走可用态，但这里保持 false，
+  /// 按钮/滑条下发仍按 HA 实时值拦截，避免对休眠设备发指令。
+  bool get _interactionAvailable => !group.isUnavailable;
+
   @override
   Widget build(BuildContext context) {
-    final CardLayoutNode layout = card.layout ?? CardLayoutBuilder.defaultLayout(typeKey, card);
-    final CardEvalContext ctx = CardEvalContext(group: group, card: card, areaLabel: areaLabel ?? '');
-    final ThemeData theme = Theme.of(context);
-    final bool available = !group.isUnavailable;
-    // 卡片背景可由后台 card.bg / card.disabledBg 覆盖；留空沿用主题色。
-    final String? bgSpec = available
-        ? (card.bg.isEmpty ? null : card.bg)
-        : (card.disabledBg.isEmpty ? null : card.disabledBg);
-    final Color? cardBg = _color(bgSpec, theme, ctx);
+    // 暂存选项（点模式先选、点开始才下发）变化时立即重绘卡片，
+    // 让 {draft:后缀} 占位符即时显示用户刚选的菜谱，无需改 HomeState。
+    final CardDraftStore draftStore = CardDraftStore.instance;
+    return ValueListenableBuilder<Map<String, String>>(
+      valueListenable: draftStore.drafts,
+      builder: (BuildContext context, Map<String, String> drafts, Widget? _) {
+        final CardLayoutNode layout = card.layout ?? CardLayoutBuilder.defaultLayout(typeKey, card);
+        final CardEvalContext ctx = CardEvalContext(
+          group: group, card: card,
+          areaLabel: areaLabel ?? '', draftValues: drafts,
+        );
+        final ThemeData theme = Theme.of(context);
+        // 休眠 vs 离线由 CardEvalContext.presence 统一判定（唯一判定处）：
+        // 宽限期内按可用态渲染（不灰、显示上次上报值），超时按故障态（灰 + 离线）。
+        // 只改「看起来」，不改交互——控制下发仍按 HA 实时值拦截。
+        final bool visualOn = ctx.visualOn;
+        // 卡片背景可由后台 card.bg / card.disabledBg 覆盖；留空沿用主题色。
+        final String? bgSpec = visualOn
+            ? (card.bg.isEmpty ? null : card.bg)
+            : (card.disabledBg.isEmpty ? null : card.disabledBg);
+        final Color? cardBg = _color(bgSpec, theme, ctx);
 
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      color: cardBg ??
-          (available
-              ? theme.colorScheme.surfaceContainerHighest
-              : theme.colorScheme.surfaceContainerLowest),
-      child: InkWell(
-        onTap: available ? onOpenDetail : null,
-        // padding 下沉到节点级处理（_buildNode）：根节点留空兜底 [12,10]，
-        // 且 bg 能包在 padding 外层——背景铺满卡片、内容才缩进。
-        child: _buildNode(context, layout, ctx, available, root: true),
-      ),
+        return Card(
+          margin: EdgeInsets.zero,
+          elevation: 0,
+          clipBehavior: Clip.antiAlias,
+          color: cardBg ??
+              (visualOn
+                  ? theme.colorScheme.surfaceContainerHighest
+                  : theme.colorScheme.surfaceContainerLowest),
+          child: InkWell(
+            // 休眠设备视觉可用时仍可点进详情（详情里状态按实时值展示），
+            // 但卡片上的控制按键不因此启用（见 _buildNodeInner 传入的 available）。
+            onTap: visualOn ? onOpenDetail : null,
+            // padding 下沉到节点级处理（_buildNode）：根节点留空兜底 [12,10]，
+            // 且 bg 能包在 padding 外层——背景铺满卡片、内容才缩进。
+            child: _buildNode(context, layout, ctx, visualOn, root: true),
+          ),
+        );
+      },
     );
   }
 
@@ -117,7 +139,8 @@ class JsonCardRenderer extends StatelessWidget {
     }
     final ThemeData theme = Theme.of(context);
     final CardEvalContext eval = (itemValues != null && itemName != null)
-        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues, areaLabel: areaLabel ?? '')
+        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues,
+            areaLabel: areaLabel ?? '', draftValues: ctx.draftValues)
         : ctx;
     final String? bgSpec = node.bgMap == null
         ? node.bg
@@ -146,7 +169,8 @@ class JsonCardRenderer extends StatelessWidget {
   }) {
     final ThemeData theme = Theme.of(context);
     final CardEvalContext eval = (itemValues != null && itemName != null)
-        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues, areaLabel: areaLabel ?? '')
+        ? CardEvalContext(group: group, card: card, itemName: itemName, itemValues: itemValues,
+            areaLabel: areaLabel ?? '', draftValues: ctx.draftValues)
         : ctx;
 
     // 条件显隐：不满足时不生成节点。
@@ -471,7 +495,8 @@ class JsonCardRenderer extends StatelessWidget {
         || node.enabledWhen!.isEmpty
         || eval.evalCondition(node.enabledWhen!);
     VoidCallback? onPressed;
-    if (available && nodeEnabled && onClick.isNotEmpty) {
+    // 用真实 HA 可用性判断下发，不用视觉可用：休眠设备视觉正常但不可控制。
+    if (_interactionAvailable && available && nodeEnabled && onClick.isNotEmpty) {
       onPressed = () {
         final String? confirm = node.confirm;
         if (confirm != null && confirm.isNotEmpty) {
@@ -643,8 +668,11 @@ class JsonCardRenderer extends StatelessWidget {
         thumbColor: configuredThumb,
         height: node.height ?? 12,
         thumbHeight: (node.height ?? 12) + 14,
-        enabled: available && interactionsEnabled && action.isNotEmpty,
-        offline: !available,
+        enabled: _interactionAvailable &&
+            available &&
+            interactionsEnabled &&
+            action.isNotEmpty,
+        offline: !_interactionAvailable,
         onChangeEnd: onActionResult == null
             ? (double v) => onAction('$action:${v.round()}')
             : null,

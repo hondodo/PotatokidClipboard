@@ -203,6 +203,43 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
   }
 
+  /// 合并「最后一次可用值」：可用时记录当前值，休眠（unavailable/unknown）
+  /// 时保留上一次的记录，供门锁这类间歇唤醒设备展示休眠前状态。
+  ///
+  /// 不改动 [state] / [isAvailable]：可控性、置灰、卡片排序仍按 HA 实时值，
+  /// 只有卡片文本通过 `{last:后缀}` 读取这里保留的快照值。
+  HaEntityStateModel _withLastKnown(
+    HaEntityStateModel incoming,
+    HaEntityStateModel? previous,
+  ) {
+    // 首次观察时刻：可用帧和休眠帧都要记，用于「启动后正好休眠、
+    // 从无上报记录」时从首次观察起等满宽限期，而不是用 0 直接判离线。
+    final DateTime observedAt =
+        incoming.firstObservedAt ?? previous?.firstObservedAt ?? DateTime.now();
+    if (incoming.isAvailable) {
+      return incoming.copyWith(
+        firstObservedAt: observedAt,
+        lastKnownState: incoming.state,
+        lastKnownAttributes: Map<String, dynamic>.from(incoming.attributes),
+        lastKnownAt: DateTime.now(),
+      );
+    }
+    // 休眠帧：保留上一次可用值（含快照恢复出来的旧值）。
+    final String? savedState = incoming.lastKnownState ?? previous?.lastKnownState;
+    final Map<String, dynamic>? savedAttrs =
+        incoming.lastKnownAttributes ?? previous?.lastKnownAttributes;
+    final DateTime? savedAt = incoming.lastKnownAt ?? previous?.lastKnownAt;
+    if (savedState == null && savedAttrs == null) {
+      return incoming.copyWith(firstObservedAt: observedAt);
+    }
+    return incoming.copyWith(
+      firstObservedAt: observedAt,
+      lastKnownState: savedState,
+      lastKnownAttributes: savedAttrs,
+      lastKnownAt: savedAt,
+    );
+  }
+
   /// 全量加载成功后异步刷新快照；失败不影响本次展示。
   void _saveStates(List<HaEntityStateModel> states) {
     final HomeStateCache? cache = _stateCache;
@@ -292,14 +329,19 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         selectedArea = '';
       }
       _loadRetryAttempt = 0;
+      // 合并后的实体才写快照：否则门锁休眠时全量 get_states 返回的
+      // unavailable 会把 lastKnown 冲掉，冷启动又变回一片 unavailable。
+      final Map<String, HaEntityStateModel> mergedEntities =
+          <String, HaEntityStateModel>{
+        for (final HaEntityStateModel s in states)
+          s.entityId: _withLastKnown(s, state.entities[s.entityId]),
+      };
       emit(
         state.copyWith(
           isLoading: false,
           hasLoaded: true,
           isFromCache: false,
-          entities: <String, HaEntityStateModel>{
-            for (final HaEntityStateModel s in states) s.entityId: s,
-          },
+          entities: mergedEntities,
           registry: registry,
           selectedHomeName: selectedHome,
           selectedAreaId: selectedArea,
@@ -307,7 +349,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           loadedAt: DateTime.now(),
         ),
       );
-      _saveStates(states);
+      _saveStates(mergedEntities.values.toList(growable: false));
       completeBlocEvent(event.completer, success: true);
     } catch (e, s) {
       Injection.get<LogService>().error('加载实体状态失败', error: e, stackTrace: s);
@@ -358,14 +400,28 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     // 加载完成后允许补入未知实体：空/不完整加载（例如 HA 重启窗口内
     // 只拿到部分实体）可以靠后续 state_changed 自动补齐，不必等手动刷新。
     if (!state.hasLoaded) return;
+    final String id = event.entity.entityId;
+    final HaEntityStateModel merged =
+        _withLastKnown(event.entity, state.entities[id]);
     emit(
       state.copyWith(
         entities: <String, HaEntityStateModel>{
           ...state.entities,
-          event.entity.entityId: event.entity,
+          id: merged,
         },
       ),
     );
+    // 门锁这类设备上报后很快休眠，可用值必须尽快落盘，否则冷启动时
+    // get_states 已是 unavailable，lastKnown 就永远补不回来。
+    // 「刚从 unavailable 唤醒」是低频事件，重置节流让这一帧必定写入；
+    // 普通状态变化仍走 5 分钟节流，避免一千多个实体频繁序列化卡帧。
+    final bool wokeUp =
+        merged.isAvailable &&
+        state.entities[id]?.isUnavailable == true;
+    if (merged.isAvailable && merged.lastKnownState != null) {
+      if (wokeUp) _lastCacheSavedAt = null;
+      _saveStates(state.entities.values.toList(growable: false));
+    }
   }
 
   Future<void> _onToggleEntity(

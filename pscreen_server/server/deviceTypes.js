@@ -220,6 +220,10 @@ const DEFAULT_RULES = {
 const CARD_DEFAULTS = {
     label: '当前值', mainAttr: 'state', mainFmt: '{v}', subTpl: '{state}',
     icon: '✦', color: '#4dd4ac', bg: '', disabledBg: '', mainEntity: '主实体', buttons: [{ label: '开关', action: 'toggle' }],
+    // 休眠型设备（门锁）宽限秒数：全组 unavailable 时距最后上报未超过该值
+    // 按「休眠」渲染（不灰），超过判「离线」（灰 + 显示离线）。0=关闭。
+    // 只影响外观，控制指令仍按 HA 实时可用性拦截。
+    sleepGraceSeconds: 0,
     // 灰度开关：home 端是否启用通用卡片渲染（全量切换后所有类型都为 true）。
     genericEnabled: false,
     // 跨格尺寸：col/row 各 1~4；默认 1×1。
@@ -821,13 +825,16 @@ function sanitizeLayout(value, depth = 0, counter = { n: 0 }) {
         case 'icon':
             node.value = str(value.value, 40);
             if (value.size != null) node.size = num(value.size, 24, 8, 64);
-            if (value.color != null) node.color = str(value.color, 40);
+            // color 也支持内联状态规则（如 {s:status|烹饪中=#FB923C,...,default=#7DD3C0}），
+            // 40 会截掉右花括号导致占位符不闭合、颜色回退；与 text/chip 一致放宽到 400。
+            if (value.color != null) node.color = str(value.color, 400);
             if (value.box && typeof value.box === 'object') {
                 node.box = {
                     size: num(value.box.size, 46, 16, 96),
                     radius: num(value.box.radius, 12, 0, 32),
-                    bg: str(value.box.bg, 40),
-                    color: str(value.box.color, 40),
+                    // 图标底同理：按状态着色的长规则常被 40 截断。
+                    bg: str(value.box.bg, 400),
+                    color: str(value.box.color, 400),
                 };
             }
             break;
@@ -1039,6 +1046,11 @@ function normalizeCard(value, key) {
             action: clampText(b.action || 'toggle', 60),
         }));
     }
+    // 休眠宽限秒数：0~2592000（30 天），非数值归 0。
+    const grace = Number(value.sleepGraceSeconds);
+    out.sleepGraceSeconds = Number.isFinite(grace)
+        ? Math.max(0, Math.min(2592000, Math.round(grace)))
+        : 0;
     out.genericEnabled = value.genericEnabled === true;
     // 跨格：col/row 各 1~4，默认 1×1。
     if (value.span && typeof value.span === 'object') {

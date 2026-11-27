@@ -226,6 +226,240 @@ void main() {
     });
   });
 
+  group('notify 动作解析', () {
+    test('按第一个冒号拆分实体与 YAML 列表消息', () {
+      final parsed = parseNotifyAction(
+        'notify@notify.chunmi_cn_958338880_cmwy3_start_cook_a_2_1:[1]',
+      );
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId,
+          'notify.chunmi_cn_958338880_cmwy3_start_cook_a_2_1');
+      expect(parsed.message, '[1]');
+    });
+
+    test('消息含逗号/方括号完整保留（热水瓶 8 项参数）', () {
+      final parsed = parseNotifyAction('notify@notify.kettle_start:[M0, 95, true, 55, false, false, 45, 40]');
+      expect(parsed, isNotNull);
+      expect(parsed!.message, '[M0, 95, true, 55, false, false, 45, 40]');
+    });
+
+    test('格式非法返回 null（无前缀 / 无冒号 / 空实体）', () {
+      expect(parseNotifyAction('press@button.start'), isNull);
+      expect(parseNotifyAction('notify@notify.start'), isNull);
+      expect(parseNotifyAction('notify@:[1]'), isNull);
+    });
+  });
+
+  group('draftOption / commitDraft 动作解析', () {
+    test('draftOption 复用 selectOption 拆分，带选项直接暂存', () {
+      final parsed = parseDraftOptionAction('draftOption@select.mode:鸡翅');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.mode');
+      expect(parsed.option, '鸡翅');
+    });
+
+    test('draftOption 不带选项表示弹层选择', () {
+      final parsed = parseDraftOptionAction('draftOption@select.mode');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.mode');
+      expect(parsed.option, isNull);
+    });
+
+    test('draftOption 格式非法返回 null', () {
+      expect(parseDraftOptionAction('selectOption@select.mode'), isNull);
+      expect(parseDraftOptionAction('draftOption@'), isNull);
+    });
+
+    test('commitDraft 支持多个 select + 启动按钮', () {
+      final parsed = parseCommitDraftAction(
+        'commitDraft@select.mode:texture_p_2_32:target_cooking_measure_p_2_29:button.start',
+      );
+      expect(parsed, <String>[
+        'select.mode',
+        'texture_p_2_32',
+        'target_cooking_measure_p_2_29',
+        'button.start',
+      ]);
+    });
+
+    test('commitDraft 单个实体也可解析', () {
+      expect(parseCommitDraftAction('commitDraft@select.mode'), <String>['select.mode']);
+    });
+
+    test('commitDraft 格式非法返回 null', () {
+      expect(parseCommitDraftAction('draftOption@select.mode'), isNull);
+      expect(parseCommitDraftAction('commitDraft@:button.start'), isNull);
+      expect(parseCommitDraftAction('commitDraft@select.mode:'), isNull);
+      expect(parseCommitDraftAction('commitDraft@'), isNull);
+    });
+  });
+
+  group('draftCycle 动作解析', () {
+    test('draftCycle 默认下一项', () {
+      final parsed = parseDraftCycleAction('draftCycle@select.mode');
+      expect(parsed, isNotNull);
+      expect(parsed!.entityId, 'select.mode');
+      expect(parsed.delta, 1);
+    });
+
+    test('draftCycle 支持上一项/下一项', () {
+      final next = parseDraftCycleAction('draftCycle@select.mode:+1');
+      expect(next!.delta, 1);
+      final prev = parseDraftCycleAction('draftCycle@select.mode:-1');
+      expect(prev!.entityId, 'select.mode');
+      expect(prev.delta, -1);
+    });
+
+    test('draftCycle 格式非法返回 null', () {
+      expect(parseDraftCycleAction('draftOption@select.mode'), isNull);
+      expect(parseDraftCycleAction('draftCycle@'), isNull);
+      expect(parseDraftCycleAction('draftCycle@select.mode:0'), isNull);
+      expect(parseDraftCycleAction('draftCycle@select.mode:abc'), isNull);
+    });
+  });
+
+  group('摄像机跨型号字段匹配', () {
+    test('fallback 取到备选实体值后，节点级 map 仍能映射成文案', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-cam-hlmax',
+        title: 'CW500双摄版',
+        entities: <HaEntityStateModel>[
+          _entity('switch.isa_cn_1142592181_hlmax_hl_filllight_switch_p_6_16', 'off'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      final Map<String, String>? map = CardEvalContext.parseValueMap('on=补光灯 开,off=补光灯 关,default=补光灯');
+      final String raw = ctx.resolve('{s:_s_21_white_light|fallback=s:_hl_filllight_switch_p_6_16}', map);
+      expect(raw, '补光灯 关');
+    });
+
+    test('4双摄版有首选字段时 fallback 不生效，map 映射首选值', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-cam-cw501d',
+        title: '4双摄版',
+        entities: <HaEntityStateModel>[
+          _entity('light.isa_cn_1179402375_cw501d_s_21_white_light', 'on'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      final Map<String, String>? map = CardEvalContext.parseValueMap('on=补光灯 开,off=补光灯 关,default=补光灯');
+      expect(ctx.resolve('{s:_s_21_white_light|fallback=s:_hl_filllight_switch_p_6_16}', map), '补光灯 开');
+    });
+
+    test('动作 id 通过 fallback 命中真实存在的实体', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-cam-hlmax',
+        title: 'CW500双摄版',
+        entities: <HaEntityStateModel>[
+          _entity('switch.isa_cn_1142592181_hlmax_hl_filllight_switch_p_6_16', 'off'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('toggle@{id:_s_21_white_light|fallback=id:_hl_filllight_switch_p_6_16}'),
+          'toggle@switch.isa_cn_1142592181_hlmax_hl_filllight_switch_p_6_16');
+    });
+  });
+
+  group('摄像机三型号实测', () {
+    CardEvalContext ctxFor(List<HaEntityStateModel> es) => CardEvalContext(
+          group: HaDeviceGroup(deviceId: 'cam', title: 'cam', entities: es),
+          card: const DeviceCardConfig(),
+        );
+    final Map<String, String> lightMap = CardEvalContext.parseValueMap('on=补光灯 开,off=补光灯 关,default=补光灯')!;
+    final Map<String, String> netMap = CardEvalContext.parseValueMap('LAN=有线,2 Point 4 GHz Wireless=2.4G Wi-Fi,5 GHz Wireless=5G Wi-Fi,blank=网络正常,default=网络正常')!;
+
+    test('cw501d 4双摄版：首选字段全部命中', () {
+      final c = ctxFor([
+        _entity('switch.isa_cn_1179402375_cw501d_on_p_2_1', 'on'),
+        _entity('sensor.isa_cn_1179402375_cw501d_status_p_4_1', '正常'),
+        _entity('sensor.isa_cn_1179402375_cw501d_access_mode_p_29_5', '2 Point 4 GHz Wireless'),
+        _entity('light.isa_cn_1179402375_cw501d_s_21_white_light', 'off'),
+      ]);
+      expect(c.resolve('{s:_on_p_2_1|on=运行中,off=已关闭,default=已关闭}'), '运行中');
+      expect(c.resolve('{s:_access_mode_p_29_5}', netMap), '2.4G Wi-Fi');
+      expect(c.resolve('{s:_s_21_white_light|fallback=s:_hl_filllight_switch_p_6_16}', lightMap), '补光灯 关');
+      expect(c.resolve('toggle@{id:_s_21_white_light|fallback=id:_hl_filllight_switch_p_6_16}'), 'toggle@light.isa_cn_1179402375_cw501d_s_21_white_light');
+    });
+
+    test('cw500 单摄：网络与补光灯走 fallback', () {
+      final c = ctxFor([
+        _entity('switch.isa_cn_1145794652_cw500_on_p_2_1', 'on'),
+        _entity('sensor.isa_cn_1145794652_cw500_status_p_4_1', '正常'),
+        _entity('switch.isa_cn_1145794652_cw500_hl_filllight_switch_p_6_16', 'off'),
+      ]);
+      expect(c.resolve('{s:_access_mode_p_29_5}', netMap), '网络正常');
+      expect(c.resolve('{s:_s_21_white_light|fallback=s:_hl_filllight_switch_p_6_16}', lightMap), '补光灯 关');
+      expect(c.resolve('toggle@{id:_s_21_white_light|fallback=id:_hl_filllight_switch_p_6_16}'), 'toggle@switch.isa_cn_1145794652_cw500_hl_filllight_switch_p_6_16');
+    });
+
+    test('hlmax 双摄版：网络与补光灯走 fallback', () {
+      final c = ctxFor([
+        _entity('switch.isa_cn_1142592181_hlmax_on_p_2_1', 'on'),
+        _entity('sensor.isa_cn_1142592181_hlmax_status_p_4_1', '正常'),
+        _entity('switch.isa_cn_1142592181_hlmax_hl_filllight_switch_p_6_16', 'on'),
+      ]);
+      expect(c.resolve('{s:_access_mode_p_29_5}', netMap), '网络正常');
+      expect(c.resolve('{s:_s_21_white_light|fallback=s:_hl_filllight_switch_p_6_16}', lightMap), '补光灯 开');
+      expect(c.resolve('toggle@{id:_s_21_white_light|fallback=id:_hl_filllight_switch_p_6_16}'), 'toggle@switch.isa_cn_1142592181_hlmax_hl_filllight_switch_p_6_16');
+    });
+  });
+
+  group('draft 占位符求值', () {
+    test('{draft:后缀} 按 entity_id 子串匹配暂存值，按设备隔离', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-airfryer',
+        title: '空气炸锅',
+        entities: <HaEntityStateModel>[
+          _entity('select.xiaomi_cn_877961796_maf16_mode_p_2_25', '手动模式'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(
+        group: group,
+        card: const DeviceCardConfig(),
+        draftValues: <String, String>{
+          'select.xiaomi_cn_877961796_maf16_mode_p_2_25': '鸡翅',
+          'select.other_device_mode_p_2_25': '薯条',
+        },
+      );
+      // 子串 mode_p_2_25 同时命中两个 key，取第一个遍历到的；这里用完整前缀消歧。
+      expect(ctx.resolve('{draft:xiaomi_cn_877961796_maf16}'), '鸡翅');
+      expect(ctx.resolve('{draft:other_device}'), '薯条');
+      expect(ctx.resolve('{draft:not_exists}'), '');
+    });
+
+    test('无暂存时 draft 占位符返回空串', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-airfryer',
+        title: '空气炸锅',
+        entities: <HaEntityStateModel>[
+          _entity('select.x_mode_p_2_25', '手动模式'),
+        ],
+      );
+      final CardEvalContext ctx = CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('{draft:mode_p_2_25}'), '');
+    });
+
+    test('fallback= 在无暂存时回退设备当前值，有暂存时优先暂存', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-airfryer',
+        title: '空气炸锅',
+        entities: <HaEntityStateModel>[
+          _entity('select.x_mode_p_2_25', '手动模式'),
+        ],
+      );
+      const DeviceCardConfig card = DeviceCardConfig();
+      final String token = '{draft:mode_p_2_25|fallback=s:mode_p_2_25}';
+      final CardEvalContext empty = CardEvalContext(group: group, card: card);
+      expect(empty.resolve(token), '手动模式');
+      final CardEvalContext staged = CardEvalContext(
+        group: group,
+        card: card,
+        draftValues: <String, String>{'select.x_mode_p_2_25': '鸡翅'},
+      );
+      expect(staged.resolve(token), '鸡翅');
+    });
+  });
+
   group('fanOscillate / fanMode 动作解析', () {
     test('fanOscillate 不带参数表示取反', () {
       final parsed = parseFanOscillateAction('fanOscillate@fan.living');
@@ -465,6 +699,88 @@ void main() {
     });
   });
 
+  group('diff 内联差值计算', () {
+    test('diff= 计算当前值减去另一个占位符，可继续接阈值映射', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-fridge',
+        title: '冰箱',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.midjd_cn_temperature_p_3_1', '7'),
+          _entity('number.midjd_cn_target_temperature_p_3_2', '5'),
+        ],
+      );
+      final CardEvalContext ctx =
+          CardEvalContext(group: group, card: const DeviceCardConfig());
+      const String token =
+          '{s:temperature_p_3_1|diff=s:target_temperature_p_3_2}';
+      expect(ctx.resolve(token), '2');
+      expect(
+        ctx.resolve(
+          '{s:temperature_p_3_1|diff=s:target_temperature_p_3_2,>0=偏高,default=正常}',
+        ),
+        '偏高',
+      );
+      expect(
+        ctx.resolve(
+          '{s:target_temperature_p_3_2|diff=s:temperature_p_3_1,<=0=偏低,>0=偏高}',
+        ),
+        '偏低',
+      );
+    });
+
+    test('diff= 支持小数与负值，非数值回退原值', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-fridge',
+        title: '冰箱',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.x_temperature_p_4_1', '-17.5'),
+          _entity('number.x_target_temperature_p_4_2', '-18'),
+        ],
+      );
+      final CardEvalContext ctx =
+          CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(
+        ctx.resolve('{s:temperature_p_4_1|diff=s:target_temperature_p_4_2}'),
+        '0.5',
+      );
+      expect(ctx.resolve('{s:temperature_p_4_1|diff=s:not_exists}'), '-17.5');
+    });
+  });
+
+  group('sec2min 秒转分钟', () {
+    test('秒向上取整为分钟，0 保持 0', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-rice',
+        title: '电饭煲',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.cmwy3_left_time_p_3_3', '2700'),
+        ],
+      );
+      final CardEvalContext ctx =
+          CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('{s:left_time_p_3_3}'), '2700');
+      expect(ctx.resolve('{s:left_time_p_3_3|sec2min}'), '45');
+    });
+
+    test('不足 1 分钟按 1 分钟，0 秒仍为 0，非数值原样返回', () {
+      final HaDeviceGroup group = HaDeviceGroup(
+        deviceId: 'dev-rice',
+        title: '电饭煲',
+        entities: <HaEntityStateModel>[
+          _entity('sensor.cmwy3_left_time_p_3_3', '30'),
+        ],
+      );
+      final CardEvalContext ctx =
+          CardEvalContext(group: group, card: const DeviceCardConfig());
+      expect(ctx.resolve('{s:left_time_p_3_3|sec2min}'), '1');
+      expect(ctx.resolve('{s:not_exists|sec2min}'), '');
+      expect(
+        ctx.resolve('{s:left_time_p_3_3|sec2min,>=1=烹饪中,default=待机}'),
+        '烹饪中',
+      );
+    });
+  });
+
   group('spacer / sizedBox 解析', () {
     test('flex 与 width/height 从 JSON 读出', () {
       final CardLayoutNode row = CardLayoutNode.fromJson(<String, dynamic>{
@@ -494,6 +810,115 @@ void main() {
     });
   });
 
+  group('休眠设备上次状态', () {
+    final HaEntityStateModel sleeping = HaEntityStateModel(
+      entityId: 'sensor.loock_t2pv1_door_state_p_3_1021',
+      state: 'unavailable',
+      attributes: const <String, dynamic>{'friendly_name': '门锁 门状态'},
+      lastKnownState: '已上锁(反锁)',
+      lastKnownAttributes: const <String, dynamic>{
+        'friendly_name': '门锁 门状态',
+      },
+      lastKnownAt: DateTime(2026, 11, 27, 15, 58),
+    );
+    final HaDeviceGroup lockGroup = HaDeviceGroup(
+      deviceId: 'dev_lock',
+      title: '门锁',
+      entities: <HaEntityStateModel>[sleeping],
+    );
+    const DeviceCardConfig card = DeviceCardConfig(label: '门锁', mainFmt: '{v}');
+
+    test('last:<后缀> 取休眠前 state，当前值仍是 unavailable', () {
+      final CardEvalContext ctx = CardEvalContext(group: lockGroup, card: card);
+      expect(ctx.resolve('{s:door_state_p_3_1021}'), 'unavailable');
+      expect(ctx.resolve('{last:door_state_p_3_1021}'), '已上锁(反锁)');
+      expect(
+        ctx.resolve(
+          '{last:door_state_p_3_1021|已上锁(反锁)=已锁,default=未知}',
+        ),
+        '已锁',
+      );
+    });
+
+    test('lastAt + ago 显示上次上报相对时间', () {
+      final CardEvalContext ctx = CardEvalContext(group: lockGroup, card: card);
+      final String out = ctx.resolve('{lastAt:door_state_p_3_1021|ago}');
+      expect(out, isNot(''));
+      expect(out, isNot('unavailable'));
+    });
+
+    test('last:<后缀>.<属性> 读上次属性值', () {
+      final HaEntityStateModel battery = HaEntityStateModel(
+        entityId: 'sensor.loock_t2pv1_battery_level_p_4_1003',
+        state: 'unavailable',
+        attributes: const <String, dynamic>{},
+        lastKnownAttributes: const <String, dynamic>{
+          'friendly_name': '门锁 电池电量',
+        },
+      );
+      final CardEvalContext ctx = CardEvalContext(
+        group: HaDeviceGroup(
+          deviceId: 'dev_lock_battery',
+          title: '门锁',
+          entities: <HaEntityStateModel>[battery],
+        ),
+        card: card,
+      );
+      expect(ctx.resolve('{last:battery_level_p_4_1003.friendly_name}'), '门锁 电池电量');
+    });
+
+    test('blank=<文案> 只在空值时替换，有值原样保留', () {
+      final CardEvalContext ctx = CardEvalContext(group: lockGroup, card: card);
+      expect(ctx.resolve('{last:battery_level_p_4_1003|blank=—}'), '—');
+      final HaEntityStateModel battery = HaEntityStateModel(
+        entityId: 'sensor.loock_t2pv1_battery_level_p_4_1003',
+        state: 'unavailable',
+        attributes: const <String, dynamic>{},
+        lastKnownState: '24',
+      );
+      final CardEvalContext ctx2 = CardEvalContext(
+        group: HaDeviceGroup(
+          deviceId: 'dev_lock_battery',
+          title: '门锁',
+          entities: <HaEntityStateModel>[battery],
+        ),
+        card: card,
+      );
+      expect(ctx2.resolve('{last:battery_level_p_4_1003|blank=—}'), '24');
+      expect(
+        ctx2.resolve('{last:battery_level_p_4_1003|<=20=#F87171,default=#7DD3FC}'),
+        '#7DD3FC',
+      );
+    });
+
+    test('没有 lastKnown 的设备保持空串，不误显示当前值', () {
+      final HaEntityStateModel sleeping = HaEntityStateModel(
+        entityId: 'sensor.loock_t2pv1_status_p_7_2',
+        state: 'unavailable',
+        attributes: const <String, dynamic>{},
+      );
+      final CardEvalContext ctx = CardEvalContext(
+        group: HaDeviceGroup(
+          deviceId: 'dev_lock_status',
+          title: '门锁',
+          entities: <HaEntityStateModel>[sleeping],
+        ),
+        card: card,
+      );
+      expect(ctx.resolve('{last:status_p_7_2}'), '');
+    });
+
+    test('快照 JSON 往返保留 lastKnown 字段', () {
+      final Map<String, dynamic> json = sleeping.toJson();
+      expect(json['lastKnownState'], '已上锁(反锁)');
+      expect(json['lastKnownAttributes'], isA<Map<String, dynamic>>());
+      expect(json['lastKnownAt'], isA<String>());
+      final HaEntityStateModel restored = HaEntityStateModel.fromJson(json);
+      expect(restored.lastKnownState, '已上锁(反锁)');
+      expect(restored.lastKnownAt, isNotNull);
+    });
+  });
+
   group('默认布局', () {
     test('multi_switch 用 repeat 大按钮，无「已开启路数」文字', () {
       const DeviceCardConfig card = DeviceCardConfig();
@@ -517,6 +942,189 @@ void main() {
       final CardLayoutNode layout = CardLayoutBuilder.defaultLayout('socket', card);
       expect(layout.type, 'column');
       expect(layout.children.length, 3); // header + main + wrap
+    });
+  });
+
+  group('休眠/离线三态判定', () {
+    HaDeviceGroup groupOf(HaEntityStateModel e) => HaDeviceGroup(
+          deviceId: 'd', title: '门锁', entities: <HaEntityStateModel>[e],
+        );
+
+    test('有可用实体恒为在线；未配宽限时休眠即离线', () {
+      final HaDeviceGroup online = groupOf(_entity('sensor.lock_on', 'unavailable'));
+      final CardEvalContext c1 = CardEvalContext(
+        group: groupOf(_entity('sensor.a', 'on')),
+        card: const DeviceCardConfig(sleepGraceSeconds: 3600),
+      );
+      expect(c1.presence, 'online');
+      expect(c1.visualOn, isTrue);
+      final CardEvalContext c2 = CardEvalContext(group: online, card: const DeviceCardConfig());
+      expect(c2.presence, 'offline');
+      expect(c2.visualOn, isFalse);
+    });
+
+    test('宽限期内休眠不灰、显示 {presence}=休眠；超时判离线并显示离线', () {
+      final HaDeviceGroup fresh = groupOf(HaEntityStateModel(
+        entityId: 'sensor.lock', state: 'unavailable',
+        attributes: const <String, dynamic>{'friendly_name': '门锁'},
+        lastKnownState: '已上锁',
+        lastKnownAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      ));
+      final CardEvalContext inGrace = CardEvalContext(
+        group: fresh, card: const DeviceCardConfig(sleepGraceSeconds: 600),
+      );
+      expect(inGrace.presence, 'sleeping');
+      expect(inGrace.visualOn, isTrue);
+      expect(inGrace.resolve('{presence}'), '休眠');
+      expect(inGrace.resolve('{presenceCode}'), 'sleeping');
+      expect(inGrace.resolve('{last:lock|offline=离线}'), '已上锁');
+
+      final HaDeviceGroup stale = groupOf(HaEntityStateModel(
+        entityId: 'sensor.lock', state: 'unavailable',
+        attributes: const <String, dynamic>{'friendly_name': '门锁'},
+        lastKnownState: '已上锁',
+        lastKnownAt: DateTime.now().subtract(const Duration(hours: 2)),
+      ));
+      final CardEvalContext expired = CardEvalContext(
+        group: stale, card: const DeviceCardConfig(sleepGraceSeconds: 60),
+      );
+      expect(expired.presence, 'offline');
+      expect(expired.visualOn, isFalse);
+      expect(expired.resolve('{presence}'), '离线');
+      // offline= 规则只在真离线时覆盖文案。
+      expect(expired.resolve('{last:lock|offline=离线}'), '离线');
+    });
+
+    test('启动即休眠且从无上报：从首次观察起等满周期，不立刻判离线', () {
+      final HaDeviceGroup neverReported = groupOf(HaEntityStateModel(
+        entityId: 'sensor.lock', state: 'unavailable',
+        attributes: const <String, dynamic>{'friendly_name': '门锁'},
+        firstObservedAt: DateTime.now(),
+      ));
+      final CardEvalContext ctx = CardEvalContext(
+        group: neverReported, card: const DeviceCardConfig(sleepGraceSeconds: 600),
+      );
+      expect(ctx.presence, 'sleeping', reason: '刚启动不能因无记录被当 0 立刻判离线');
+      expect(ctx.visualOn, isTrue);
+
+      final HaDeviceGroup longObserved = groupOf(HaEntityStateModel(
+        entityId: 'sensor.lock', state: 'unavailable',
+        attributes: const <String, dynamic>{'friendly_name': '门锁'},
+        firstObservedAt: DateTime.now().subtract(const Duration(hours: 2)),
+      ));
+      expect(
+        CardEvalContext(
+          group: longObserved, card: const DeviceCardConfig(sleepGraceSeconds: 60),
+        ).presence,
+        'offline',
+      );
+    });
+
+    test('firstObservedAt 随快照往返保留', () {
+      final DateTime at = DateTime.now().subtract(const Duration(minutes: 3));
+      final HaEntityStateModel e = HaEntityStateModel(
+        entityId: 'sensor.lock', state: 'unavailable',
+        attributes: const <String, dynamic>{}, firstObservedAt: at,
+      );
+      final HaEntityStateModel restored = HaEntityStateModel.fromJson(e.toJson());
+      expect(restored.firstObservedAt, isNotNull);
+      expect(restored.firstObservedAt!.difference(at).inSeconds.abs(), lessThan(2));
+    });
+
+    test('设备层 sleepGraceSeconds 从 JSON 读入并收敛到 0~30 天', () {
+      expect(
+        DeviceCardConfig.fromJson(<String, dynamic>{'sleepGraceSeconds': 86400})
+            .sleepGraceSeconds,
+        86400,
+      );
+      expect(
+        DeviceCardConfig.fromJson(<String, dynamic>{'sleepGraceSeconds': 99999999})
+            .sleepGraceSeconds,
+        2592000,
+      );
+      expect(DeviceCardConfig.fromJson(<String, dynamic>{}).sleepGraceSeconds, 0);
+    });
+  });
+
+  group('摄像机休眠友好占位符组合', () {
+    // 第三台 CW500 双摄版休眠 9 小时：on/status 有 lastKnown，补光灯是 hl_filllight 型号。
+    HaDeviceGroup sleepingCam() => HaDeviceGroup(
+          deviceId: 'cam-cw500',
+          title: '1楼 CW500双摄版',
+          entities: <HaEntityStateModel>[
+            HaEntityStateModel(
+              entityId: 'switch.isa_cn_1145794652_cw500_on_p_2_1',
+              state: 'unavailable',
+              attributes: const <String, dynamic>{'friendly_name': '摄像机 电源'},
+              lastKnownState: 'on',
+              lastKnownAt: DateTime.now().subtract(const Duration(hours: 9)),
+            ),
+            HaEntityStateModel(
+              entityId: 'sensor.isa_cn_1145794652_cw500_status_p_4_1',
+              state: 'unavailable',
+              attributes: const <String, dynamic>{'friendly_name': '摄像机 存储卡'},
+              lastKnownState: '正常',
+              lastKnownAt: DateTime.now().subtract(const Duration(hours: 9)),
+            ),
+            HaEntityStateModel(
+              entityId: 'switch.isa_cn_1145794652_cw500_hl_filllight_switch_p_6_16',
+              state: 'unavailable',
+              attributes: const <String, dynamic>{'friendly_name': '摄像机 补光灯'},
+              lastKnownState: 'off',
+              lastKnownAt: DateTime.now().subtract(const Duration(hours: 9)),
+            ),
+          ],
+        );
+
+    test('休眠宽限期内：主状态/存储卡/补光灯显示上次值，不显示离线', () {
+      final CardEvalContext ctx = CardEvalContext(
+        group: sleepingCam(),
+        // 9 小时前上报，宽限 24h → 休眠。
+        card: const DeviceCardConfig(sleepGraceSeconds: 86400),
+      );
+      expect(ctx.presence, 'sleeping');
+      expect(ctx.visualOn, isTrue);
+      expect(
+        ctx.resolve('{last:_on_p_2_1|offline=离线,on=运行中,off=已关闭,default=已关闭}'),
+        '运行中',
+      );
+      expect(ctx.resolve('{last:_status_p_4_1|offline=离线,blank=未知}'), '正常');
+      final Map<String, String> lightMap =
+          CardEvalContext.parseValueMap('on=补光灯 开,off=补光灯 关,default=补光灯')!;
+      expect(
+        ctx.resolve(
+          '{last:_s_21_white_light|fallback=last:_hl_filllight_switch_p_6_16}',
+          lightMap,
+        ),
+        '补光灯 关',
+      );
+    });
+
+    test('超时判离线：主状态与副行都显示离线文案', () {
+      final CardEvalContext ctx = CardEvalContext(
+        group: sleepingCam(),
+        // 9 小时前上报，宽限 1h → 离线。
+        card: const DeviceCardConfig(sleepGraceSeconds: 3600),
+      );
+      expect(ctx.presence, 'offline');
+      expect(ctx.visualOn, isFalse);
+      expect(
+        ctx.resolve('{last:_on_p_2_1|offline=离线,on=运行中,off=已关闭,default=已关闭}'),
+        '离线',
+      );
+      expect(ctx.resolve('{last:_status_p_4_1|offline=离线,blank=未知}'), '离线');
+      expect(ctx.resolve('{presence}'), '离线');
+    });
+
+    test('动作 id 仍按真实实体解析（休眠也指向 hl_filllight）', () {
+      final CardEvalContext ctx = CardEvalContext(
+        group: sleepingCam(),
+        card: const DeviceCardConfig(sleepGraceSeconds: 86400),
+      );
+      expect(
+        ctx.resolve('toggle@{id:_s_21_white_light|fallback=id:_hl_filllight_switch_p_6_16}'),
+        'toggle@switch.isa_cn_1145794652_cw500_hl_filllight_switch_p_6_16',
+      );
     });
   });
 }

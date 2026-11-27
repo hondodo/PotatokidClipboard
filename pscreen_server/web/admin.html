@@ -479,6 +479,11 @@
                   <span class="hint">禁用背景：</span>
                   <input type="text" id="re-card-disabled-bg" maxlength="40" placeholder="如 #171a1f" style="width:150px" title="写入 card.disabledBg。设备离线 / 不可用时的卡片背景；留空 = 跟随主题">
                 </div>
+                <div class="re-card-bg-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                  <span class="hint">休眠宽限(秒)：</span>
+                  <input type="number" id="re-sleep-grace" min="0" max="2592000" step="60" placeholder="0 = 关闭" style="width:150px" title="写入 card.sleepGraceSeconds。全组 unavailable 时距最后上报未超过该值按休眠显示（不灰），超过判离线并显示离线。门锁可填 86400（24小时）；0 = 休眠即离线">
+                  <span class="hint">门锁建议 86400（24h）；0=休眠即离线</span>
+                </div>
                 <p class="hint" style="margin:0 0 6px">
                   布局树为 JSON：节点 <code>row/column/wrap/text/icon/button/chip/progress/sparkline/repeat/divider</code>；
                   占位符 <code>{title} {sub} {main} {label} {icon} {color} {state} {gangCount} {gangOnCount}</code>；

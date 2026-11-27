@@ -14,6 +14,10 @@ class HaEntityStateModel {
     required this.attributes,
     this.lastChanged,
     this.lastUpdated,
+    this.lastKnownState,
+    this.lastKnownAttributes,
+    this.lastKnownAt,
+    this.firstObservedAt,
   });
 
   factory HaEntityStateModel.fromJson(Map<String, dynamic> json) {
@@ -31,6 +35,14 @@ class HaEntityStateModel {
           : const <String, dynamic>{},
       lastChanged: _parseTime(json['last_changed']),
       lastUpdated: _parseTime(json['last_updated']),
+      lastKnownState: json['lastKnownState'] is String
+          ? json['lastKnownState'] as String
+          : null,
+      lastKnownAttributes: json['lastKnownAttributes'] is Map
+          ? Map<String, dynamic>.from(json['lastKnownAttributes'] as Map)
+          : null,
+      lastKnownAt: _parseTime(json['lastKnownAt']),
+      firstObservedAt: _parseTime(json['firstObservedAt']),
     );
   }
 
@@ -43,6 +55,14 @@ class HaEntityStateModel {
       'last_changed': lastChanged!.toUtc().toIso8601String(),
     if (lastUpdated != null)
       'last_updated': lastUpdated!.toUtc().toIso8601String(),
+    // 休眠设备（门锁等）最后一次可用值：随快照落盘，冷启动仍可展示。
+    if (lastKnownState != null) 'lastKnownState': lastKnownState,
+    if (lastKnownAttributes != null)
+      'lastKnownAttributes': lastKnownAttributes,
+    if (lastKnownAt != null)
+      'lastKnownAt': lastKnownAt!.toUtc().toIso8601String(),
+    if (firstObservedAt != null)
+      'firstObservedAt': firstObservedAt!.toUtc().toIso8601String(),
   };
 
   /// 支持控制（开关 / 参数）的实体域
@@ -83,6 +103,42 @@ class HaEntityStateModel {
 
   /// 状态最后更新时间（含属性变化，不能用来算离线时长）
   final DateTime? lastUpdated;
+
+  /// 最后一次可用时的 state。
+  ///
+  /// 门锁等设备休眠后 HA 把 state 置为 unavailable，但设备真实状态
+  /// （已上锁 / 电量）停留在休眠前那一帧。App 收到可用值时把它记下来，
+  /// 休眠后卡片用 `{last:<后缀>}` 展示这段值，而不是干巴巴的 unavailable。
+  /// 随快照落盘，冷启动仍可显示；仅用于展示，不参与可控性判断。
+  final String? lastKnownState;
+
+  /// 最后一次可用时的 attributes（用于 `{last:<后缀>.<属性>}`）。
+  final Map<String, dynamic>? lastKnownAttributes;
+
+  /// 写入 lastKnown 的时刻（本地时间），配合 `|ago` 显示「上次上报 N 分钟前」。
+  final DateTime? lastKnownAt;
+
+  /// 本实体首次被 App 观察到的时刻（本地时间）。
+  ///
+  /// 用于「启动后正好休眠、从无上报记录」的场景：此时 [lastKnownAt] 为空，
+  /// 若直接用 0 算差值会立刻判离线。改为从首次观察起等满一个宽限周期，
+  /// 才算真的离线。随快照持久化，重启后仍沿用第一次观察时间。
+  final DateTime? firstObservedAt;
+
+  /// 取展示用的最后已知 state：优先快照里存下来的值，
+  /// 没有时若当前仍可用则退化为当前 state。
+  String? get displayLastState {
+    final String? saved = lastKnownState;
+    if (saved != null && saved.isNotEmpty) return saved;
+    return isAvailable ? state : null;
+  }
+
+  /// 取展示用的最后已知属性值。
+  Object? displayLastAttribute(String key) {
+    final Object? saved = lastKnownAttributes?[key];
+    if (saved != null) return saved;
+    return isAvailable ? attributes[key] : null;
+  }
 
   /// 实体域（entity_id 的前缀，如 light）
   String get domain => entityId.split('.').first;
@@ -305,6 +361,10 @@ class HaEntityStateModel {
     Map<String, dynamic>? attributes,
     DateTime? lastChanged,
     DateTime? lastUpdated,
+    String? lastKnownState,
+    Map<String, dynamic>? lastKnownAttributes,
+    DateTime? lastKnownAt,
+    DateTime? firstObservedAt,
   }) {
     return HaEntityStateModel(
       entityId: entityId ?? this.entityId,
@@ -312,6 +372,10 @@ class HaEntityStateModel {
       attributes: attributes ?? this.attributes,
       lastChanged: lastChanged ?? this.lastChanged,
       lastUpdated: lastUpdated ?? this.lastUpdated,
+      lastKnownState: lastKnownState ?? this.lastKnownState,
+      lastKnownAttributes: lastKnownAttributes ?? this.lastKnownAttributes,
+      lastKnownAt: lastKnownAt ?? this.lastKnownAt,
+      firstObservedAt: firstObservedAt ?? this.firstObservedAt,
     );
   }
 

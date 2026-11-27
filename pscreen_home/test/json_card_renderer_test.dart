@@ -2096,6 +2096,116 @@ void main() {
     expect(bgRect.width, 200, reason: '背景应铺满卡片宽度，不被 padding 缩小');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('休眠设备宽限期内视觉不灰，超时判离线变灰且按钮仍不可点', (
+    WidgetTester tester,
+  ) async {
+    final HaEntityStateModel sleeping = HaEntityStateModel(
+      entityId: 'sensor.lock_door_state_p_3_1',
+      state: 'unavailable',
+      attributes: const <String, dynamic>{'friendly_name': '门锁 门状态'},
+      lastKnownState: '已上锁',
+      lastKnownAt: DateTime.now(),
+    );
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_lock',
+      title: '门锁',
+      entities: <HaEntityStateModel>[sleeping],
+    );
+    final List<String> fired = <String>[];
+    final DeviceCardConfig card = DeviceCardConfig(
+      color: '#7DD3FC',
+      sleepGraceSeconds: 3600,
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'children': <dynamic>[
+          <String, dynamic>{
+            'type': 'text', 'value': '{last:door_state_p_3_1}',
+            'size': 21, 'color': '#E8F4FF',
+          },
+          <String, dynamic>{
+            'type': 'chip', 'label': '上锁', 'onClick': 'toggle@{id:lock_x}',
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 188,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'sensor',
+              onOpenDetail: () {}, onAction: fired.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 视觉按可用态：文字颜色是配置的 #E8F4FF，而不是主题禁用灰 outline。
+    final Text text = tester.widget<Text>(find.text('已上锁'));
+    expect(text.style?.color, const Color(0xFFE8F4FF));
+    // 交互仍按真实可用性：点 chip 不下发动作。
+    await tester.tap(find.text('上锁'));
+    await tester.pumpAndSettle();
+    expect(fired, isEmpty);
+  });
+
+  testWidgets('休眠超时判离线：视觉走灰态、{presence} 显示离线', (
+    WidgetTester tester,
+  ) async {
+    final HaEntityStateModel stale = HaEntityStateModel(
+      entityId: 'sensor.lock_door_state_p_3_2',
+      state: 'unavailable',
+      attributes: const <String, dynamic>{'friendly_name': '门锁'},
+      lastKnownState: '已上锁',
+      lastKnownAt: DateTime.now().subtract(const Duration(hours: 3)),
+    );
+    final HaDeviceGroup group = HaDeviceGroup(
+      deviceId: 'dev_lock_2',
+      title: '门锁',
+      entities: <HaEntityStateModel>[stale],
+    );
+    final DeviceCardConfig card = DeviceCardConfig(
+      color: '#7DD3FC',
+      sleepGraceSeconds: 60,
+      layout: CardLayoutNode.fromJson(<String, dynamic>{
+        'type': 'column',
+        'children': <dynamic>[
+          <String, dynamic>{
+            'type': 'text',
+            'value': '{presence}',
+            'size': 21,
+            'color': '#E8F4FF',
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 188,
+            child: JsonCardRenderer(
+              group: group, card: card, typeKey: 'sensor',
+              onOpenDetail: () {}, onAction: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 离线文案生效（presence 占位符 + offline 规则均可）。
+    expect(find.text('离线'), findsOneWidget);
+    // 视觉走灰态：文字回退主题 outline，而不是配置色 #E8F4FF。
+    final Text text = tester.widget<Text>(find.text('离线'));
+    expect(text.style?.color, isNot(const Color(0xFFE8F4FF)));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// 与 deviceTypes.js CARD_LAYOUTS.climate 对齐的布局 JSON（测试用）。

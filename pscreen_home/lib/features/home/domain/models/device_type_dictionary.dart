@@ -155,6 +155,10 @@ class DeviceCardConfig {
     // 卡片容器背景：留空沿用主题色；可由后台 card.bg / card.disabledBg 覆盖。
     this.bg = '',
     this.disabledBg = '',
+    // 休眠型设备（门锁等）的宽限秒数：HA 报 unavailable 时，距最后一次
+    // 上报未超过该值按「休眠」渲染（不灰），超过则判「离线」（灰 + 显示离线）。
+    // 0 = 不启用，休眠即离线。只影响视觉；控制下发仍按真实可用性拦截。
+    this.sleepGraceSeconds = 0,
     this.mainEntity = '',
     this.buttons = const <DeviceCardButton>[],
     this.genericEnabled = false,
@@ -172,6 +176,11 @@ class DeviceCardConfig {
   final String bg;
   /// 设备不可用 / 断线时的卡片背景（空串 = 主题 surfaceContainerLowest）。
   final String disabledBg;
+  /// 休眠宽限秒数（card 层单字段，0 = 关闭）。组内实体全部 unavailable 时：
+  /// 距最后一次上报（lastKnownAt，无则用 firstObservedAt）<= 该值 → 休眠，
+  /// 视觉按可用态渲染；> 该值 → 离线，按故障态渲染并显示「离线」。
+  /// 只影响视觉，不下发任何控制；按钮依旧由真实 available 决定是否可点。
+  final int sleepGraceSeconds;
   final String mainEntity;
   final List<DeviceCardButton> buttons;
   final bool genericEnabled;
@@ -203,6 +212,9 @@ class DeviceCardConfig {
       color: '${json['color'] ?? '#4dd4ac'}',
       bg: '${json['bg'] ?? ''}',
       disabledBg: '${json['disabledBg'] ?? ''}',
+      sleepGraceSeconds: json['sleepGraceSeconds'] is num
+          ? (json['sleepGraceSeconds'] as num).round().clamp(0, 2592000)
+          : 0,
       mainEntity: '${json['mainEntity'] ?? ''}',
       buttons: buttons,
       genericEnabled: json['genericEnabled'] == true,

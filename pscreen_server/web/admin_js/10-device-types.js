@@ -138,6 +138,8 @@
     if (bgEl) bgEl.value = card.bg || '';
     const dbgEl = $('re-card-disabled-bg');
     if (dbgEl) dbgEl.value = card.disabledBg || '';
+    const graceEl = $('re-sleep-grace');
+    if (graceEl) graceEl.value = String(card.sleepGraceSeconds || 0);
     const layoutEl = $('re-layout');
     if (layoutEl) {
       layoutEl.value = card.layout ? JSON.stringify(card.layout, null, 2) : '';
@@ -157,6 +159,7 @@
     const icon = iconEl ? String(iconEl.value || '').trim() : '';
     const bgEl = $('re-card-bg');
     const dbgEl = $('re-card-disabled-bg');
+    const graceEl = $('re-sleep-grace');
     const layoutEl = $('re-layout');
     let layout = null;
     if (layoutEl && layoutEl.value.trim()) {
@@ -168,6 +171,7 @@
       icon,
       bg: bgEl ? String(bgEl.value || '').trim() : '',
       disabledBg: dbgEl ? String(dbgEl.value || '').trim() : '',
+      sleepGraceSeconds: graceEl ? Math.max(0, Math.min(2592000, Math.round(Number(graceEl.value) || 0))) : 0,
       genericEnabled: !!(ge && ge.checked),
     };
   }

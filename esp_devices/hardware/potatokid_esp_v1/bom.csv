@@ -1,0 +1,20 @@
+﻿Ref,Value,Description,Note
+U1,ESP32-S3 DevKit,Local:ESP32S3_DevKit,
+J1,1.3in OLED SH1106 4Pin IIC,Local:OLED_SH1106_4P,
+J2,INMP441,Local:INMP441,
+J3,MAX98357,Local:MAX98357,GAIN open = 9dB; SD tied to 3V3
+SW1,Button 1,Local:Button3P,
+SW2,Button 2,Local:Button3P,
+SW3,Button 3,Local:Button3P,
+SW4,Button 4,Local:Button3P,
+SW5,Button 5,Local:Button3P,
+SW6,Button 6,Local:Button3P,
+SW7,Button 7,Local:Button3P,
+SW8,Button 8,Local:Button3P,
+J4,PIR (optional),Local:PIR3P,Optional; assign a free RTC GPIO for PIR_OUT
+J5,433MHz RX,Local:RF433_3P,
+J6,Speaker 4-8R,Local:Speaker2P,
+C1,100uF opt,Local:C_Polarized,Optional decoupling
+C2,100nF opt,Local:C_Ceramic,Optional decoupling
+C3,10uF opt,Local:C_Polarized,Optional decoupling
+C4,100nF opt,Local:C_Ceramic,Optional decoupling

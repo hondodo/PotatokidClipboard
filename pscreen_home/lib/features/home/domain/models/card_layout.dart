@@ -330,6 +330,7 @@ class CardEvalContext {
     this.itemName,
     this.itemValues = const <String, String>{},
     this.areaLabel = '',
+    this.draftValues = const <String, String>{},
   });
 
   final HaDeviceGroup group;
@@ -337,6 +338,36 @@ class CardEvalContext {
   final String? itemName;
   final Map<String, String> itemValues;
   final String areaLabel;
+
+  /// 本地暂存的选项值：`{entityId: option}`。由 CardDraftStore 注入。
+  /// 占位符 `{draft:<后缀>}` 按 entity_id 子串匹配读取，未暂存时为空串。
+  final Map<String, String> draftValues;
+
+  /// 设备在线状态三态（全 App 唯一判定处，渲染/占位符/规则共用）：
+  /// - online：组内至少一个实体可用；
+  /// - sleeping：全部不可用，但距最后一次上报未超过 card.sleepGraceSeconds；
+  /// - offline：全部不可用且已超时，或压根没配宽限（sleepGraceSeconds=0）。
+  ///
+  /// 计时起点：优先 lastKnownAt（最近一次真实上报），没有则用 firstObservedAt
+  /// （首次观察时刻），保证「启动即休眠、从无上报」也能等满一个完整周期，
+  /// 不会因记录为 0 被立刻判离线。两者都没有时按 sleeping 处理（宁可多等）。
+  String get presence {
+    if (!group.isUnavailable) return 'online';
+    final int grace = card.sleepGraceSeconds;
+    if (grace <= 0) return 'offline';
+    final DateTime? since = group.lastKnownAt ?? group.firstObservedAt;
+    if (since == null) return 'sleeping';
+    final Duration elapsed = DateTime.now().difference(since);
+    // 时钟回拨或刚好相等时按休眠处理，等满完整周期再判离线。
+    if (elapsed.inSeconds <= 0) return 'sleeping';
+    return elapsed.inSeconds > grace ? 'offline' : 'sleeping';
+  }
+
+  /// 视觉是否按可用态渲染：休眠仍显示上次状态、不灰；离线走故障态。
+  bool get visualOn => presence != 'offline';
+
+  /// 是否判定为离线（供规则/文案用）。
+  bool get isOffline => presence == 'offline';
 
   late final Map<String, String> _values = _buildValues();
 
@@ -368,6 +399,14 @@ class CardEvalContext {
       's1': s1,
       's2': s2,
       'status': group.statusLabel,
+      // 三态：presence 是中文文案（在线/休眠/离线），presenceCode 是英文码，
+      // 都可在 bgMap / visibleWhen / when= 规则里直接匹配。
+      'presence': switch (presence) {
+        'online' => '在线',
+        'sleeping' => '休眠',
+        _ => '离线',
+      },
+      'presenceCode': presence,
       'gangCount': '${group.switchableCount}',
       'gangOnCount': '${group.onCount}',
       'primary.entityId': primary?.entityId ?? '',
@@ -440,7 +479,21 @@ class CardEvalContext {
     // 支持简单三元：{gang.isOn ? '开' : '关'}（渲染层更常用预求值字段，这里兜底）。
     final String? direct = _values[key];
     if (direct != null) return direct;
+    // {draft:<后缀>}：本地暂存的选项值（如点模式时先选菜谱、点开始才下发）。
+    // 与 id:/s: 一样按 entity_id 子串匹配，避免硬编码 DID；未暂存返回空串。
+    if (key.toLowerCase().startsWith('draft:')) {
+      final String pattern = key.substring(6).trim().toLowerCase();
+      if (pattern.isEmpty) return '';
+      for (final MapEntry<String, String> entry in draftValues.entries) {
+        if (entry.key.toLowerCase().contains(pattern)) return entry.value;
+      }
+      return '';
+    }
     // 按实体 id 后缀取值：{s:<后缀>}=state、{a:<后缀>.<属性>}=attribute、
+    // {last:<后缀>}=最后一次可用 state、{last:<后缀>.<属性>}=最后一次可用属性、
+    // {lastAt:<后缀>}=最后一次可用时刻 ISO 串（可接 |ago / |date:）。
+    // 休眠设备（门锁）用它显示 unavailable 之前的真实状态；与 s:/a: 一样按
+    // entity_id 后缀匹配，不写死 DID。
     // {s:<后缀>.<属性>} 等价于 a:、{id:<后缀>}=完整 entity_id。用于同类实体很多、
     // 下标不稳定的设备（如热水瓶：保温开关 / 工作状态 / 模式 / 设定温度）。
     final String? entityValue = _resolveEntityToken(key);
@@ -452,12 +505,20 @@ class CardEvalContext {
   /// 占位符内联规则：
   /// - pct：HA light 的 0-255 → 0-100 百分比；
   /// - int：数值取整显示（去掉 `.0`，如 180.0 → 180）；非数值原样返回；
+  /// - sec2min：秒 → 分钟向上取整（电饭煲 left_time 单位是 s，0 保持 0）；
   /// - date / date:`pattern`：把 ISO 时间串按 Flutter DateFormat 格式化；
   ///   带时区偏移（如 `+00:00`/`Z`）的时间会先转成本地时间再显示；
   ///   pattern 省略时默认 'yMd'；支持 'zh'/'en_US' 等 locale 前缀 `zh:yMd`；
   ///   也支持 DateFormat 简写名（yMd/Hms/yMEd/yMMM…），见 [_dateFormat]。
   /// - maxWith=<占位符 key>：当前值与另一个占位符都是 ISO 时间时取较晚者。
   /// - ago：ISO 时间 → 相对时间（刚刚 / N分钟前 / N小时前 / N天前）。
+  /// - blank=<文案>：本占位符取值为空时替换为文案；有值时原样保留。
+  ///   与 default 的区别：default 是「没有任何规则命中」兜底，有值但无映射时也会生效；
+  ///   blank 只认空值，适合 `{s:battery|blank=—}%` 这类有值必须原样显示的场景。
+  /// - offline=<文案>：判定为离线（全组 unavailable 超宽限期）时替换为文案，
+  ///   休眠/在线时原样保留。配合 card.sleepGraceSeconds 使用。
+  /// - fallback=<占位符 key>：本占位符取值为空时取另一个占位符的值（draft 未暂存时回退设备当前值）。
+  /// - diff=<占位符 key>：当前值减去另一个占位符的值（如 7 - 5 → 2），结果可继续接阈值/映射规则。
   /// - when=<占位符 key>:<期望值>=<文案>：另一个占位符当前值等于期望值时，把本占位符输出替换为文案
   ///   （如充电中覆盖开机文案；key 内含冒号，从右侧起第二个冒号分隔期望值）。
   /// - key=val：整值映射。
@@ -486,6 +547,16 @@ class CardEvalContext {
         if (n != null) out = '${n.round()}';
         continue;
       }
+      if (low == 'sec2min') {
+        // 秒 → 分钟，向上取整（与原生 RiceCookerSummary 的 (s/60).ceil() 一致）。
+        // 电饭煲 left_time 单位是 s，0 秒保持 0（剩余不足 1 分钟按 1 分钟显示，
+        // 但 0 就是 0，避免出现「0 秒 → 1 分钟」）。结果可继续接阈值/映射。
+        final num? n = num.tryParse(out.trim());
+        if (n != null) {
+          out = n <= 0 ? '0' : '${(n / 60).ceil()}';
+        }
+        continue;
+      }
       if (low == 'date' || low.startsWith('date:') || low.startsWith('date=')) {
         final String spec = s.length > 5 ? s.substring(5).trim() : '';
         out = _formatInlineDate(out, spec);
@@ -512,6 +583,52 @@ class CardEvalContext {
       // 非时间值原样返回，后面可再接映射把 unknown/unavailable 转成 —。
       if (low == 'ago') {
         out = _formatAgo(out);
+        continue;
+      }
+      // blank=<文案>：本占位符取值为空时替换为文案，有值原样保留。
+      // 与 default 不同：default 是「没有任何规则命中」兜底，有值但未命中映射时
+      // 也会生效；blank 只认空串，用于 `{s:battery|blank=—}%` 这类数值直显场景。
+      if (low.startsWith('blank=')) {
+        String text = s.substring(6).trim();
+        if (text.length >= 2 &&
+            ((text.startsWith("'") && text.endsWith("'")) ||
+                (text.startsWith('"') && text.endsWith('"')))) {
+          text = text.substring(1, text.length - 1);
+        }
+        if (out.isEmpty) out = text;
+        continue;
+      }
+      // offline=<文案>：判定为离线（全组 unavailable 且超宽限期）时，
+      // 把本占位符输出替换为文案（如「离线」）；休眠/在线时原样保留。
+      // 与 default 不同：只在真离线时生效，不干扰休眠展示的最后上报值。
+      if (low.startsWith('offline=')) {
+        if (isOffline) {
+          String text = s.substring(8).trim();
+          if (text.length >= 2 &&
+              ((text.startsWith("'") && text.endsWith("'")) ||
+                  (text.startsWith('"') && text.endsWith('"')))) {
+            text = text.substring(1, text.length - 1);
+          }
+          out = text;
+          matched = true;
+        }
+        continue;
+      }
+      // fallback=<占位符 key>：本占位符取值为空时才取另一个占位符的值。
+      // 典型用法 {draft:mode_p_2_25|fallback=s:mode_p_2_25}：没暂存时显示设备当前模式。
+      if (low.startsWith('fallback=')) {
+        final String otherKey = s.substring(9).trim();
+        if (otherKey.isNotEmpty && out.isEmpty) out = _resolveToken(otherKey);
+        continue;
+      }
+      // diff=<占位符 key>：当前值减去另一个占位符的值（如当前温度 - 目标温度）。
+      // 非数值原样返回；结果可继续接阈值/映射规则（如 >0=偏高,default=正常）。
+      if (low.startsWith('diff=')) {
+        final String otherKey = s.substring(5).trim();
+        if (otherKey.isEmpty) continue;
+        final num? a = num.tryParse(out.trim());
+        final num? b = num.tryParse(_resolveToken(otherKey).trim());
+        if (a != null && b != null) out = '${a - b}';
         continue;
       }
       // when=<key>:<期望值>=<文案>：另一个占位符当前值等于期望值时覆盖本占位符输出。
@@ -692,7 +809,9 @@ class CardEvalContext {
     if (rest.isEmpty) return null;
     // s: 也支持点号读属性：{s:_s_3_ambient_light.brightness} 与 a: 等价，
     // 便于后台统一用后缀写法（用户常把亮度写成 s:后缀.brightness）。
-    final int attrDot = (kind == 'a' || kind == 's') ? rest.lastIndexOf('.') : -1;
+    // last: 同样支持点号读属性，语义与 s: 一致但取自 lastKnown 快照。
+    final bool attrCapable = <String>{'a', 's', 'last'}.contains(kind);
+    final int attrDot = attrCapable ? rest.lastIndexOf('.') : -1;
     if (kind == 'a' && attrDot <= 0) return null;
     final String pattern = (attrDot > 0 ? rest.substring(0, attrDot) : rest).toLowerCase();
     for (final HaEntityStateModel e in group.entities) {
@@ -711,6 +830,16 @@ class CardEvalContext {
           final String attr = rest.substring(attrDot + 1);
           final Object? value = e.attributes[attr];
           return value == null ? '' : '$value';
+        case 'last':
+          if (attrDot > 0) {
+            final String attr = rest.substring(attrDot + 1);
+            final Object? value = e.displayLastAttribute(attr);
+            return value == null ? '' : '$value';
+          }
+          return e.displayLastState ?? '';
+        case 'lastat':
+          final DateTime? at = e.lastKnownAt;
+          return at == null ? '' : at.toIso8601String();
       }
     }
     return null;
@@ -992,6 +1121,78 @@ String? climateFanStepTarget(List<String> modes, String current, {int? delta}) {
   final String option = rest.substring(sep + 1).trim();
   if (entityId.isEmpty || option.isEmpty) return null;
   return (entityId: entityId, option: option);
+}
+
+/// 解析 `notify@<entityId>:<message>` 动作（触发 notify 域动作实体）。
+///
+/// 电饭煲/热水瓶的「开始烹饪 / 开始加热」是 notify 实体，集成按 YAML 解析
+/// message（如电饭煲 `[1]`、热水瓶 `[M0, 95, true, ...]`），必须带参数才能触发，
+/// 因此与「无参数」的 press@ 分开。entityId 不含冒号，message 按第一个冒号拆分，
+/// 本身可含冒号/逗号/方括号。onClick 在渲染阶段已 resolve，message 里可直接写
+/// `{s:xxx}` 占位符拼动态参数。返回 null 表示格式非法。
+({String entityId, String message})? parseNotifyAction(String action) {
+  const String prefix = 'notify@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  final int sep = rest.indexOf(':');
+  if (sep <= 0) return null;
+  final String entityId = rest.substring(0, sep).trim();
+  if (entityId.isEmpty) return null;
+  return (entityId: entityId, message: rest.substring(sep + 1).trim());
+}
+
+/// 解析 `draftOption@<entityId>[:<option>]` 动作（选模式阶段，只暂存不下发）。
+///
+/// - 不带 option：由调用方弹出 select 实体的选项列表让用户选，选中写入本地暂存；
+/// - 带 option：直接把该选项写入暂存（用于「快捷预设」按钮，同样不下发 HA）。
+/// 返回 null 表示格式非法。
+({String entityId, String? option})? parseDraftOptionAction(String action) {
+  const String prefix = 'draftOption@';
+  if (!action.startsWith(prefix)) return null;
+  return parseSelectOptionAction('selectOption@${action.substring(prefix.length)}');
+}
+
+/// 解析 `draftCycle@<entityId>[:<delta>]` 动作（原地循环暂存选项，不下发 HA）。
+///
+/// - delta 省略或 0 以外整数均可；默认 +1（下一项），-1 为上一项；
+/// - 当前值优先取暂存，无暂存时以设备当前 state 为基准；
+/// - 到列表两端后环绕，调用方按实体 options 的真实顺序切换。
+/// 返回 null 表示格式非法。
+({String entityId, int delta})? parseDraftCycleAction(String action) {
+  const String prefix = 'draftCycle@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  if (rest.isEmpty) return null;
+  final int sep = rest.lastIndexOf(':');
+  if (sep == 0) return null;
+  final String entityId = (sep > 0 ? rest.substring(0, sep) : rest).trim();
+  if (entityId.isEmpty) return null;
+  if (sep <= 0) return (entityId: entityId, delta: 1);
+  final String deltaText = rest.substring(sep + 1).trim();
+  final int? delta = int.tryParse(deltaText);
+  if (delta == null || delta == 0) return null;
+  return (entityId: entityId, delta: delta);
+}
+
+/// 解析 `commitDraft@<entityId>[:<entityId>...]` 动作（点开始烹饪时）。
+///
+/// 按 entity_id 的 domain 分类：select 实体读暂存并下发（未暂存则用设备当前值），
+/// button 实体依次按下。典型写法：
+/// `commitDraft@{id:mode_p_2_25}:{id:texture_p_2_32}:{id:target_cooking_measure_p_2_29}:{id:start_cook_a_2_1}`
+/// 返回 null 表示格式非法（含空段）。
+List<String>? parseCommitDraftAction(String action) {
+  const String prefix = 'commitDraft@';
+  if (!action.startsWith(prefix)) return null;
+  final String rest = action.substring(prefix.length).trim();
+  if (rest.isEmpty) return null;
+  final List<String> raw = rest.split(':');
+  final List<String> ids = <String>[];
+  for (final String part in raw) {
+    final String id = part.trim();
+    if (id.isEmpty) return null;
+    ids.add(id);
+  }
+  return ids;
 }
 
 /// 解析 `fanOscillate@<entityId>[:<on|off>]` 动作。

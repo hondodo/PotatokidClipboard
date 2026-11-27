@@ -18,6 +18,7 @@ import 'package:pscreen_home/features/home/application/bloc/home_event.dart';
 import 'package:pscreen_home/features/home/application/bloc/home_state.dart';
 import 'package:pscreen_home/features/home/application/history_service.dart';
 import 'package:pscreen_home/features/home/application/metric_history.dart';
+import 'package:pscreen_home/features/home/data/cache/card_draft_store.dart';
 import 'package:pscreen_home/features/screen/application/clock_formatter.dart';
 import 'package:pscreen_home/features/screen/application/live_stage_controller.dart';
 import 'package:pscreen_home/features/home/domain/models/card_layout.dart';
@@ -107,6 +108,7 @@ class _HomeControllBoardState extends State<HomeControllBoard> with WidgetsBindi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 暂存只存内存：进程重启即清空，{draft:后缀|fallback=s:后缀} 会回退显示设备当前值。
     // 连接可能在页面挂载前就已就绪（例如从其他页面返回 / 热重启），
     // BlocListener 只监听后续状态变化，这里补一次初始检查。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1137,6 +1139,191 @@ class _ControlGridState extends State<_ControlGrid> {
                 entityId: parsed.entityId,
                 option: option,
               ));
+              return;
+            }
+            // notify@<entityId>:<message>：触发 notify 域动作实体（开始烹饪/加热）。
+            // 与 press@ 分开：notify 实体必须按集成约定带 YAML 列表参数，press@ 只认 button。
+            // message 在渲染阶段已 resolve，可直接用占位符拼动态参数（如电饭煲 menu_id）。
+            if (trimmed.startsWith('notify@')) {
+              final ({String entityId, String message})? parsed =
+                  parseNotifyAction(trimmed);
+              final HaEntityStateModel? notifyEntity = parsed == null
+                  ? null
+                  : state.entities[parsed.entityId];
+              if (parsed == null ||
+                  notifyEntity == null ||
+                  notifyEntity.domain != 'notify') {
+                reject();
+                return;
+              }
+              bloc.add(PressNotifyAction(
+                entityId: parsed.entityId,
+                message: parsed.message,
+              ));
+              return;
+            }
+            // draftOption@<entityId>[:<option>]：只把选项写入本地暂存，不下发 HA。
+            // 用于「选模式 → 点开始才真正下发」的两段式交互（如空气炸锅菜谱：
+            // select_option 一旦下发设备立即启动，所以选择阶段绝不能碰设备）。
+            if (trimmed.startsWith('draftOption@')) {
+              final ({String entityId, String? option})? parsed =
+                  parseDraftOptionAction(trimmed);
+              if (parsed == null) {
+                reject();
+                return;
+              }
+              final HaEntityStateModel? selectEntity = state.entities[parsed.entityId];
+              if (selectEntity == null || selectEntity.domain != 'select') {
+                reject();
+                return;
+              }
+              final String draftStore = CardDraftStore.instance.read(parsed.entityId);
+              if (parsed.option != null) {
+                // 带选项：直接暂存，不下发。
+                if (!selectEntity.options.contains(parsed.option)) {
+                  reject();
+                  return;
+                }
+                CardDraftStore.instance.write(parsed.entityId, parsed.option!);
+                return;
+              }
+              // 不带选项：弹底部面板列出真实 options，选中写入暂存。
+              // 当前已暂存项打勾，再点一次可清除（恢复「未选」）。
+              showModalBottomSheet<String>(
+                context: context,
+                isScrollControlled: true,
+                builder: (BuildContext sheetContext) {
+                  final List<String> options = selectEntity.options;
+                  return SafeArea(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(sheetContext).size.height * 0.7,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.restaurant_menu_rounded, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '选择${selectEntity.displayName}（暂存，点开始才生效）',
+                                  style: Theme.of(sheetContext).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          Flexible(
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: options.length,
+                              itemBuilder: (BuildContext _, int i) {
+                                final String option = options[i];
+                                final bool selected = option == draftStore;
+                                return ListTile(
+                                  title: Text(option),
+                                  trailing: selected
+                                      ? const Icon(Icons.check_rounded, color: Color(0xFFFF8A65))
+                                      : null,
+                                  onTap: () => Navigator.of(sheetContext).pop(option),
+                                );
+                              },
+                            ),
+                          ),
+                          if (draftStore.isNotEmpty)
+                            ListTile(
+                              leading: const Icon(Icons.clear_rounded, color: Color(0xFFF87171)),
+                              title: const Text('清除暂存'),
+                              onTap: () => Navigator.of(sheetContext).pop(''),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ).then((String? chosen) {
+                if (chosen == null) return; // 取消
+                CardDraftStore.instance.write(parsed.entityId, chosen);
+              });
+              return;
+            }
+            // draftCycle@<entityId>[:<delta>]：原地循环暂存选项，不下发 HA。
+            // 当前值优先取暂存，无暂存时以设备 state 为基准；到两端环绕。
+            // 用于卡片内的 −/+ 按钮和「点一下切下一项」的 chip，替代弹层选择。
+            if (trimmed.startsWith('draftCycle@')) {
+              final ({String entityId, int delta})? parsed =
+                  parseDraftCycleAction(trimmed);
+              final HaEntityStateModel? selectEntity = parsed == null
+                  ? null
+                  : state.entities[parsed.entityId];
+              if (parsed == null ||
+                  selectEntity == null ||
+                  selectEntity.domain != 'select' ||
+                  selectEntity.options.isEmpty) {
+                reject();
+                return;
+              }
+              final List<String> options = selectEntity.options;
+              final String stored = CardDraftStore.instance.read(parsed.entityId);
+              final String current = stored.isEmpty ? selectEntity.state : stored;
+              int index = options.indexOf(current);
+              // 当前值不在选项表里：+1 从第一项开始，-1 从最后一项倒回。
+              if (index < 0) index = parsed.delta > 0 ? -1 : 0;
+              final int next = ((index + parsed.delta) % options.length +
+                      options.length) %
+                  options.length;
+              CardDraftStore.instance.write(parsed.entityId, options[next]);
+              return;
+            }
+            // commitDraft@<entity>[:<entity>...]：点开始烹饪时一次性提交暂存。
+            // select 实体：有暂存用暂存，无暂存用设备当前值，依次下发 select.select_option；
+            // button 实体：依次 press。只有这一步才真正碰设备。
+            if (trimmed.startsWith('commitDraft@')) {
+              final List<String>? ids = parseCommitDraftAction(trimmed);
+              if (ids == null) {
+                reject();
+                return;
+              }
+              final List<String> selectIds = <String>[];
+              final List<String> buttonIds = <String>[];
+              for (final String id in ids) {
+                final HaEntityStateModel? entity = state.entities[id];
+                if (entity == null) {
+                  reject();
+                  return;
+                }
+                if (entity.domain == 'select') {
+                  selectIds.add(id);
+                } else if (entity.domain == 'button') {
+                  buttonIds.add(id);
+                } else {
+                  reject();
+                  return;
+                }
+              }
+              // 依次下发所有 select：有暂存用暂存，没暂存就用设备当前值，
+              // 与卡片上「没选就显示当前值」的语义保持一致。
+              for (final String id in selectIds) {
+                final HaEntityStateModel entity = state.entities[id]!;
+                final String stored = CardDraftStore.instance.read(id);
+                final String option = stored.isNotEmpty &&
+                        entity.options.contains(stored)
+                    ? stored
+                    : (entity.options.contains(entity.state) ? entity.state : '');
+                if (option.isEmpty) continue;
+                bloc.add(SelectEntityOption(entityId: id, option: option));
+              }
+              for (final String id in buttonIds) {
+                bloc.add(PressEntityButton(entityId: id));
+              }
+              // 提交后清空暂存，避免下次开始误用上一次的菜谱。
+              for (final String id in selectIds) {
+                CardDraftStore.instance.clear(id);
+              }
               return;
             }
             // brightness@<entityId>:<percent>：卡片亮度条松手时下发。

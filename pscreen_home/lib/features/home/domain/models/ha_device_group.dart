@@ -117,6 +117,28 @@ class HaDeviceGroup {
   bool get isUnavailable =>
       entities.every((HaEntityStateModel e) => e.isUnavailable);
 
+  /// 组内最近一次「有上报」的时刻：任一实体有 lastKnownAt 即说明设备在休眠前
+  /// 醒着，取其中最新者作为休眠计时的起点（避免某个不常上报的实体拖早判离线）。
+  DateTime? get lastKnownAt {
+    DateTime? latest;
+    for (final HaEntityStateModel e in entities) {
+      final DateTime? at = e.lastKnownAt;
+      if (at != null && (latest == null || at.isAfter(latest))) latest = at;
+    }
+    return latest;
+  }
+
+  /// 组内最早被观察到的时刻：用于「启动即休眠、从无上报记录」的宽限起点。
+  /// 取最早而非最晚，保证从第一眼看到这台设备就开始等完整一个周期。
+  DateTime? get firstObservedAt {
+    DateTime? earliest;
+    for (final HaEntityStateModel e in entities) {
+      final DateTime? at = e.firstObservedAt;
+      if (at != null && (earliest == null || at.isBefore(earliest))) earliest = at;
+    }
+    return earliest;
+  }
+
   /// 组内可用实体数
   int get availableCount =>
       entities.where((HaEntityStateModel e) => e.isAvailable).length;

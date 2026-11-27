@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "filename": "potatokid_esp_v1.kicad_pro",
+    "version": 1
+  },
+  "boards": [],
+  "cvpcb": {
+    "equivalence_files": []
+  },
+  "erc": {
+    "erc_exclusions": []
+  },
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default"
+      }
+    ]
+  },
+  "schematic": {
+    "legacy_lib_dir": "",
+    "legacy_lib_list": []
+  },
+  "sheets": [
+    [
+      "6fe2b8a4-da47-551b-be85-c8d465303635",
+      "Root"
+    ]
+  ],
+  "text_variables": {}
+}
