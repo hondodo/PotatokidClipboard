@@ -644,12 +644,19 @@
     const subTxt = page.tplSub ? espRenderTemplate(page.tplSub, ctx) : '';
     const line3Txt = tplLine3 ? espRenderTemplate(tplLine3, ctx) : '';
     const line4Txt = tplLine4 ? espRenderTemplate(tplLine4, ctx) : '';
+    // 槽位可以是物理数字，也可以是设备级 433 遥控键 id（rfN）：后者用遥控键
+    // 自己登记的名字（如「客厅遥控」）显示，和数字槽位的显示名同一套心智。
+    const rfNames = new Map(((espDevDraft && espDevDraft.rfKeys) || []).map((item) => [item.id, item.name]));
+    const slotOrder = (slot) => (typeof slot === 'string' ? 9 : Number(slot) || 0);
     let keys = (page.buttons || [])
-      .filter((item) => item.enabled !== false && Number(item.slot) >= 1)
-      .sort((a, b2) => Number(a.slot) - Number(b2.slot))
+      .filter((item) => item.enabled !== false
+        && (typeof item.slot === 'string' ? !!item.slot : Number(item.slot) >= 1))
+      .sort((a, b2) => slotOrder(a.slot) - slotOrder(b2.slot))
       .map((item) => {
-        const slotName = (espDevDraft && espDevDraft.slotNames || {})[String(item.slot)];
-        return `${slotName || item.slot}:${String(item.name || item.label || '').trim()}`;
+        const slotName = typeof item.slot === 'string'
+          ? (rfNames.get(item.slot) || item.slot)
+          : ((espDevDraft && espDevDraft.slotNames) || {})[String(item.slot)] || item.slot;
+        return `${slotName}:${String(item.name || item.label || '').trim()}`;
       })
       .join('  ');
     // 纯图片页：标题/正文/按键提示全部留空，预览与真机下发保持一致。
@@ -824,6 +831,8 @@
     // 槽位 0 显示「—」，本机没启用的槽位显示「未映射」。
     const pinMap = new Map((espDevDraft.buttons || []).map((item) => [Number(item.slot), Number(item.pin)]));
     const pinOf = (slot) => {
+      // 433 遥控键没有 GPIO，按「遥控触发」展示，不参与未映射告警。
+      if (typeof slot === 'string') return { text: '433 遥控', mapped: true };
       const n = Number(slot);
       if (!n) return { text: '—', mapped: true };
       if (pinMap.has(n)) return { text: `GPIO${pinMap.get(n)}`, mapped: true };
@@ -833,8 +842,8 @@
       ? [...pinMap.entries()].sort((a, b) => a[0] - b[0]).map(([slot, pin]) => `${slot}→GPIO${pin}`).join(' · ')
       : '设备尚未上报';
     const missingSlots = [...new Set((page.buttons || [])
-      .filter((item) => item.enabled !== false && Number(item.slot) >= 1 && !pinMap.has(Number(item.slot)))
-      .map((item) => Number(item.slot)))].sort((a, b) => a - b);
+      .filter((item) => item.enabled !== false && typeof item.slot === 'number'
+        && item.slot >= 1 && !pinMap.has(item.slot)))].sort((a, b) => a - b);
 
     // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」代替「1:空调开关」。
     const slotNames = (espDevDraft && espDevDraft.slotNames) || {};
@@ -904,14 +913,22 @@
       }
       // 需要参数的 HA 动作（如 set_temperature）必须显式填值，否则 HA 会 400。
       const needsHaParam = !isSys && !isRemote && ESP_HA_PARAM_ACTIONS.has(button.action);
-      const slotOpts = ['<option value="0">—</option>']
-        .concat(Array.from({ length: 8 }, (_, i) =>
-          `<option value="${i + 1}" ${Number(button.slot) === i + 1 ? 'selected' : ''}>${i + 1}</option>`))
-        .join('');
+      // 槽位分为「物理槽位 1..8」和「433 遥控键」两组：遥控键是设备级实体，
+      // 名字在右侧「433 遥控键」里改，这里选它即可像槽位一样绑动作。
+      const rfKeys = espDevDraft.rfKeys || [];
+      const rfGroup = rfKeys.length
+        ? `<optgroup label="433 遥控">${rfKeys.map((key) =>
+          `<option value="${esc(key.id)}" ${button.slot === key.id ? 'selected' : ''}>${esc(key.name)}</option>`).join('')}</optgroup>`
+        : '';
+      const slotOpts = ['<option value="0">—</option>',
+        `<optgroup label="物理槽位">${Array.from({ length: 8 }, (_, i) =>
+          `<option value="${i + 1}" ${Number(button.slot) === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</optgroup>`,
+        rfGroup].join('');
       const total = (page.buttons || []).length;
       return `<tr data-btn="${esc(button.id)}">
         <td class="slot-cell"><select data-f="slot">${slotOpts}</select>${
-          slotNames[String(button.slot)] ? `<span class="esp-slot-sub">${esc(slotNames[String(button.slot)])}</span>` : ''
+          typeof button.slot === 'number' && slotNames[String(button.slot)]
+            ? `<span class="esp-slot-sub">${esc(slotNames[String(button.slot)])}</span>` : ''
         }</td>
         <td><span class="pin-badge${pin.mapped ? '' : ' off'}">${esc(pin.text)}</span></td>
         <td><input data-f="name" maxlength="40" value="${esc(button.name || button.label || '')}" placeholder="屏幕显示名称"></td>
@@ -1082,7 +1099,7 @@
         <div class="dt-actions">
           <button class="btn small" type="button" id="esp-add-btn">＋ 添加按键</button>
         </div>
-        <p class="hint">「板上 GPIO」来自设备心跳上报的实际槽位映射（后台只读）。显示「未映射」说明本机没启用该槽位，按下不会触发；名称直接用完整文案，屏幕底部提示行放不下会自动滚动。上方「槽位显示名」只影响屏幕提示（数字 → 蓝色按钮），不改槽位号和 GPIO。</p>
+        <p class="hint">「板上 GPIO」来自设备心跳上报的实际槽位映射（后台只读）。显示「未映射」说明本机没启用该槽位，按下不会触发；名称直接用完整文案，屏幕底部提示行放不下会自动滚动。上方「槽位显示名」只影响屏幕提示（数字 → 蓝色按钮），不改槽位号和 GPIO。<br>槽位下拉里的「433 遥控」是设备级遥控键（编码和名字在右侧「433 遥控键」里维护）：选中后，按该遥控器就执行本页这个按键的动作，屏幕提示同样用遥控键的名字。</p>
       </div>
       <div class="esp-section">
         <h4>④ 翻页与安全</h4>
@@ -1358,7 +1375,8 @@
       tr.querySelectorAll('[data-f]').forEach((el) => {
         const field = el.dataset.f;
         const commit = () => {
-          if (field === 'slot') button.slot = Number(el.value) || 0;
+          // 数字 = 物理槽位；rfN = 设备级 433 遥控键 id，原样保留字符串。
+          if (field === 'slot') button.slot = /^\d+$/.test(el.value) ? (Number(el.value) || 0) : el.value;
           else if (field === 'name') button.name = el.value;
           else if (field === 'remoteTarget') {
             button.remoteTarget = el.value;
@@ -1633,6 +1651,188 @@
     espSpeechTimer = setInterval(() => refreshEspSpeechStatus(deviceId), 2000);
   }
 
+  // ------------------------------------------------------------ 433 遥控键
+  //
+  // 遥控键属于设备本身（和物理槽位一样），这里只维护「编码 + 显示名」。
+  // 每个页面再在「③ 按键定义」里把某个槽位选成遥控键并配置动作。
+  // 一个遥控键可以带多个编码：同一个物理按键常会上报按下/松开两个编码，
+  // 「补学编码」把它们并进同一个键，任意一个命中都触发同一动作。
+  let espRfLearnTimer = 0;
+  let espRfEditId = '';
+
+  const espRfKeys = () => (espDevDraft && espDevDraft.rfKeys) || [];
+
+  const espRfCodesOf = (item) => (Array.isArray(item.codes) ? item.codes : (item.code ? [item.code] : []));
+
+  function espRfRowHtml(item, index) {
+    const used = (espDevDraft.pages || []).filter((page) =>
+      (page.buttons || []).some((button) => button.enabled !== false && button.slot === item.id));
+    const usedText = used.length
+      ? `已用于：${used.map((page) => page.name || '未命名').join('、')}`
+      : '未绑定到任何页面';
+    const chips = espRfCodesOf(item)
+      .map((code) => `<span class="esp-rf-chip">0x${esc(code)}</span>`).join('');
+    return `<div class="esp-rf-row" data-i="${index}">
+      <div class="esp-rf-codes">${chips}</div>
+      <input class="esp-rf-name" value="${esc(item.name || '')}" maxlength="20" placeholder="名称（屏幕提示用）">
+      <span class="esp-rf-used hint">${esc(usedText)}</span>
+      <button class="btn small" type="button" data-rf-learn="${index}">补学编码</button>
+      <button class="btn small" type="button" data-rf-del="${index}">删除</button>
+    </div>`;
+  }
+
+  function renderEspRf() {
+    const box = $('espdev-rf-list');
+    if (!box) return;
+    const list = espRfKeys();
+    const count = $('espdev-rf-count');
+    if (count) count.textContent = list.length ? `· ${list.length} 个` : '';
+    if (!list.length) {
+      box.innerHTML = '<span class="hint">还没有遥控键，点「学习」按一下遥控器</span>';
+      return;
+    }
+    box.innerHTML = list.map(espRfRowHtml).join('');
+    box.querySelectorAll('.esp-rf-row').forEach((row) => {
+      const i = Number(row.dataset.i);
+      const item = list[i];
+      if (!item) return;
+      row.querySelector('.esp-rf-name').oninput = (event) => {
+        item.name = event.target.value;
+        // 名字会出现在按键提示里：边改边刷新预览。
+        drawEspPreview();
+      };
+      row.querySelector('[data-rf-learn]').onclick = () => learnEspRf('append', i);
+      row.querySelector('[data-rf-del]').onclick = () => {
+        if (!confirm(`删除遥控键「${item.name || item.id}」？各页面里绑定它的按键会变成未绑定。`)) return;
+        list.splice(i, 1);
+        renderEspRf();
+        renderEspPageEditor();
+      };
+    });
+  }
+
+  function nextEspRfId() {
+    const used = new Set(espRfKeys().map((item) => item.id));
+    for (let i = 1; i <= 64; i += 1) if (!used.has(`rf${i}`)) return `rf${i}`;
+    return `rf${espRfKeys().length + 1}`;
+  }
+
+  /**
+   * 学习：轮询最近捕获的编码。
+   * - mode='new'：新建一个遥控键；
+   * - mode='append'：把下一个编码并进指定遥控键（按下/松开两个编码合并成一个键）。
+   */
+  function learnEspRf(mode = 'new', index = -1) {
+    const hint = $('espdev-rf-hint');
+    const id = espRfEditId;
+    if (!id) return;
+    const deadline = Date.now() + 30000;
+    const startAt = Date.now() - 500;
+    clearInterval(espRfLearnTimer);
+    const target = mode === 'append' ? espRfKeys()[index] : null;
+    if (hint) {
+      hint.textContent = mode === 'append'
+        ? `请再按一次「${(target && target.name) || '该遥控键'}」，把第二个编码并进来（30 秒内）…`
+        : '请按一下遥控器（30 秒内）…';
+    }
+    espRfLearnTimer = setInterval(async () => {
+      if (Date.now() > deadline) {
+        clearInterval(espRfLearnTimer);
+        if (hint) hint.textContent = '没有收到编码：确认接收板已切到串口模式、D0 接 GPIO21';
+        return;
+      }
+      let data;
+      try {
+        data = await api(`/api/admin/machines/${encodeURIComponent(id)}/esp/rf`);
+      } catch (_) {
+        return;
+      }
+      const list = espRfKeys();
+      // 只认真按之后捕获的编码，避免把旧记录当成新按键。
+      const fresh = (data.recent || []).filter((entry) => Number(entry.at) >= startAt);
+      if (!fresh.length) return;
+
+      if (mode === 'append') {
+        const current = list[index];
+        if (!current) {
+          clearInterval(espRfLearnTimer);
+          return;
+        }
+        const hit = fresh.find((entry) => !espRfCodesOf(current).includes(entry.code));
+        if (!hit) return;
+        clearInterval(espRfLearnTimer);
+        const codes = espRfCodesOf(current);
+        if (codes.length >= 8) {
+          if (hint) hint.textContent = '单个遥控键最多 8 个编码，删掉多余的再补学';
+          return;
+        }
+        // 同一编码如果原来属于另一个键，直接摘过去，实现「合并成一个键」。
+        const owner = list.find((key) => key !== current && espRfCodesOf(key).includes(hit.code));
+        // 被并掉的键在页面里可能配过动作：它们会变成「未绑定」，提示用户复查。
+        const affected = owner
+          ? (espDevDraft.pages || []).filter((page) =>
+            (page.buttons || []).some((button) => button.slot === owner.id)).length
+          : 0;
+        if (owner) {
+          owner.codes = espRfCodesOf(owner).filter((code) => code !== hit.code);
+          if (!owner.codes.length) {
+            const oi = list.indexOf(owner);
+            if (oi >= 0) list.splice(oi, 1);
+          }
+        }
+        current.codes = espRfCodesOf(current).concat(hit.code);
+        renderEspRf();
+        renderEspPageEditor();
+        if (hint) {
+          hint.textContent = owner
+            ? `已把 0x${hit.code} 并入「${current.name}」，重复键已移除；${affected ? `${affected} 个页面用到过它，请重新选动作` : '页面绑定未受影响'}`
+            : `已把 0x${hit.code} 并入「${current.name}」，现在任一编码都会触发同一动作`;
+        }
+        return;
+      }
+
+      const known = new Set(list.flatMap(espRfCodesOf));
+      const hit = fresh.find((entry) => !known.has(entry.code));
+      if (!hit) {
+        // 按到的编码已经登记过：给出合并提示并结束本次学习。
+        const owner = list.find((key) => espRfCodesOf(key).includes(fresh[0].code));
+        if (owner) {
+          clearInterval(espRfLearnTimer);
+          if (hint) hint.textContent = `这个编码已属于「${owner.name}」；要合并请点它那一行的「补学编码」`;
+        }
+        return;
+      }
+      clearInterval(espRfLearnTimer);
+      espDevDraft.rfKeys.push({
+        id: nextEspRfId(),
+        name: `遥控 ${espRfKeys().length + 1}`,
+        codes: [hit.code],
+      });
+      renderEspRf();
+      // 新键要立刻出现在当前页的槽位下拉里。
+      renderEspPageEditor();
+      if (hint) hint.textContent = `已捕获 0x${hit.code}，命名后到「③ 按键定义」选它配动作，最后点「保存并下发」`;
+    }, 1500);
+  }
+
+  async function saveEspRf(id) {
+    const keys = espRfKeys().map((item) => ({
+      id: item.id, name: item.name || '', codes: espRfCodesOf(item),
+    }));
+    try {
+      const data = await api(`/api/admin/machines/${encodeURIComponent(id)}/esp/rf`, {
+        method: 'PUT',
+        body: JSON.stringify({ keys }),
+      });
+      espDevDraft.rfKeys = Array.isArray(data && data.keys) ? data.keys.slice() : [];
+      renderEspRf();
+      renderEspPageEditor();
+      toast('433 遥控键已保存', 'success');
+    } catch (error) {
+      toast('保存失败：' + error.message, 'error');
+    }
+  }
+
   async function openEspDevEditor(id) {
     const host = $('espdev-editor');
     host.innerHTML = '<div class="empty">加载中…</div>';
@@ -1693,6 +1893,12 @@
       buttons: Array.isArray(cfg.buttons) ? cfg.buttons : [],
       // 槽位显示名（设备级）：屏幕底部提示用「蓝色按钮:空调开关」。
       slotNames: Object.assign({}, cfg.slotNames || {}),
+      // 433 遥控键（设备级）：{id, name, codes}，页面槽位下拉直接引用 id。
+      rfKeys: (cfg.rfKeys || []).map((item) => ({
+        id: item.id,
+        name: item.name || '',
+        codes: Array.isArray(item.codes) ? item.codes.slice() : (item.code ? [item.code] : []),
+      })),
       // 熄屏秒数（设备级）：0 = 常亮。
       screen: Object.assign({ onSeconds: 0 }, cfg.screen || {}),
       // 语音播放音量（设备级）：0~100，随心跳下发。
@@ -1719,6 +1925,7 @@
     $('espdev-title').textContent = `页面配置 · ${espDevDraft.name}`;
     renderEspPages();
     renderEspPageEditor();
+    renderEspRf();
     const audioRefresh = $('espdev-audio-refresh');
     if (audioRefresh) audioRefresh.onclick = () => loadEspAudio(id);
     const speechUpload = $('espdev-speech-upload');
@@ -1735,6 +1942,11 @@
     }
     loadEspAudio(id);
     startEspSpeechWatch(id);
+    espRfEditId = id;
+    const rfLearn = $('espdev-rf-learn');
+    if (rfLearn) rfLearn.onclick = () => learnEspRf('new');
+    const rfSave = $('espdev-rf-save');
+    if (rfSave) rfSave.onclick = () => saveEspRf(id);
   }
 
   async function saveEspPages() {
@@ -1743,6 +1955,10 @@
     const payload = {
       // 槽位显示名是设备级配置，和页面一起保存。
       slotNames: espDevDraft.slotNames || {},
+      // 433 遥控键（设备级）：刚学习还没单独保存的键也能被页面立即引用。
+      rfKeys: espRfKeys().map((item) => ({
+        id: item.id, name: item.name || '', codes: espRfCodesOf(item),
+      })),
       // 熄屏秒数（设备级）：0 = 常亮。
       screen: { onSeconds: Number((espDevDraft.screen || {}).onSeconds) || 0 },
       // 语音音量（设备级）：随心跳下发。
@@ -1786,7 +2002,7 @@
                   : `${button.action}${button.param ? `(${button.param})` : ''}`,
           param: button.param || '',
           entityId: button.kind === 'ha' ? (button.entityId || '') : '',
-          slot: Number(button.slot) || 0,
+          slot: typeof button.slot === 'string' ? button.slot : (Number(button.slot) || 0),
           enabled: button.enabled !== false,
         })),
       })),

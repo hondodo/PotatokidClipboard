@@ -617,6 +617,36 @@
                 <div class="esp-audio-status" id="espdev-speech-status" hidden></div>
                 <div class="esp-audio-list" id="espdev-audio"><span class="hint">选择设备后显示</span></div>
               </div>
+              <div class="esp-audio-panel esp-rf-panel">
+                <div class="esp-audio-head">
+                  <h4>433 遥控 <span class="muted" id="espdev-rf-count"></span></h4>
+                  <div class="esp-audio-tools">
+                    <button class="btn small" type="button" id="espdev-rf-learn">学习</button>
+                    <button class="btn small" type="button" id="espdev-rf-save">保存</button>
+                  </div>
+                </div>
+                <div class="esp-rf-hint hint" id="espdev-rf-hint">遥控键属于设备本身：这里只学习编码、命名（屏幕提示用这个名字）。动作到左侧每页「③ 按键定义」的槽位下拉里选它再配。</div>
+                <div class="hint">同一个物理按键如果上报两个编码（按下/松开各一帧，或两个编码交替出现），点那一行的「补学编码」再按一次，把第二个编码并进同一个键：之后任意一个编码命中都会触发同一动作，不会变成两个键。若两个重复键在页面里分别配过动作，合并后请到对应页面重新选择一次动作。</div>
+                <details class="esp-rf-guide">
+                  <summary>怎么把接收板切到「串口模式」？收不到编码怎么查？</summary>
+                  <p class="hint">接收板出厂多为点动/自锁模式，必须切到<strong>串口模式</strong>才会从 D0 输出电压信号：</p>
+                  <ol>
+                    <li>先断电，把接收模块的 <strong>KEY</strong> 焊盘用杜邦线<strong>保持接 GND</strong>。</li>
+                    <li>给模块<strong>上电</strong>（VCC 接 3V3，GND 与开发板共地）。</li>
+                    <li>KEY 保持接地 <strong>1~2 秒</strong>后松开。</li>
+                    <li>看模块指示灯是否<strong>恰好闪 4 次</strong>：4 次 = 已进入串口模式。</li>
+                  </ol>
+                  <p class="hint">接线：模块焊盘从上往下是 GND / VCC / D0(TX) / D1 / D2 / D3 / KEY / ANT。<strong>D0 是第 3 个焊盘</strong>，另一端接开发板丝印 <strong>GPIO21</strong>（别接到 20 或 22）；天线焊在 ANT。</p>
+                  <p class="hint">按遥控却收不到编码时，按可能性排查：</p>
+                  <ol>
+                    <li><strong>模式没切对</strong>：那一下到底闪了几次？必须恰好 4 次；闪 1~3 次或 5 次都算没进串口模式，重来一遍（KEY 接 GND → 上电 → 保持 1~2 秒 → 松开）。</li>
+                    <li><strong>D0 接错脚</strong>：确认线接在 D0（第 3 个焊盘），另一端是 GPIO21，不是 20 或 22。</li>
+                    <li><strong>模块没收到射频</strong>：按遥控时接收板 LED 闪不闪？完全不闪就是没收到信号——检查天线是否焊在 ANT、遥控器电池、先把距离放到 1 米内。</li>
+                    <li><strong>供电</strong>：VCC 用 3V3（不是 5V），GND 必须和开发板共地。</li>
+                  </ol>
+                </details>
+                <div class="esp-rf-list" id="espdev-rf-list"><span class="hint">选择设备后显示</span></div>
+              </div>
             </div>
             <div class="card esp-preview-card2">
               <h3>128×64 实时预览</h3>

@@ -183,7 +183,9 @@ static const char *DEVICE_NAME         = CHIP_NAME;
 // oled-7.13：接上 MAX98357——后台把 WAV 排进队列，设备轮询取任务后下载播放。
 // oled-7.14：音量后台可配（随心跳下发）；播放阶段显示在屏幕、并回报给后台。
 // oled-7.15：播放任务可以直接是 yuntu 绝对地址（设备直连下载，绕开隧道限速）。
-static const char *APP_VER             = "oled-7.15";
+// oled-7.22：433 动作失败时屏幕直接显示服务端返回的原因（fail|…），
+//           不再一律显示 sent ok。
+static const char *APP_VER             = "oled-7.22";
 static const uint32_t REPORT_MS        = 20000;  // 心跳间隔（兼作隧道保活）
 
 // 1.3 寸面板控制器为 SH1106（显存 132 列，可见窗口从第 2 列开始）。
@@ -1285,6 +1287,9 @@ int batteryPercent() {
   return pct;
 }
 
+// 433 串口累计收到的字节数（诊断用，随心跳上报）。
+static volatile uint32_t rfByteCount = 0;
+
 void reportToServer(bool isRegister) {
   if (deviceId.isEmpty()) buildDeviceId();
   String body = "{\"deviceId\":\"" + deviceId + "\"";
@@ -1331,6 +1336,8 @@ void reportToServer(bool isRegister) {
           ",\"cause\":" + String((int)rtcWakeCause) +
           ",\"gpio\":" + String((unsigned long)rtcGpioMask) +
           ",\"ext1\":" + String((unsigned long)rtcExt1Mask) + "}";
+  // 433 串口累计字节数：用来判断接收板到底有没有往 GPIO21 吐数据。
+  body += ",\"rfBytes\":" + String((unsigned long)rfByteCount);
   body += ",\"cfgNow\":{\"role\":\"" + deviceRole + "\",\"master\":\"" + masterMac + "\"";
   body += ",\"auto\":" + String(autoUpdate ? 1 : 0);
   body += ",\"sleep\":" + String(sleepSeconds);
@@ -1788,6 +1795,25 @@ void checkRemoteConfig() {
   ESP.restart();
 }
 
+// 本地执行系统动作（翻页/回首页），返回 true 表示已处理。
+// 物理按键和 433 遥控共用这一套规则，避免两处各写一遍。
+bool applySysActionLocal(const String &act) {
+  if (act != "next_page" && act != "prev_page" && act != "home_page") return false;
+  int target = currentPage;
+  if (act == "next_page") {
+    if (currentPage < pageCount) target = currentPage + 1;
+    else if (pageLoop) target = 1;
+  } else if (act == "prev_page") {
+    if (currentPage > 1) target = currentPage - 1;
+    else if (pageLoop) target = pageCount;
+  } else {
+    target = 1;
+  }
+  Serial.printf("[sys] %s: %d -> %d\n", act.c_str(), currentPage, target);
+  if (target != currentPage) switchPageLocal(target);
+  return true;
+}
+
 void onButtonPress(int slot) {
   // PIR peek 期间（还没开射频）：把槽位交给主循环，由它决定开射频执行还是进后台。
   if (peekMode) {
@@ -1806,21 +1832,7 @@ void onButtonPress(int slot) {
   // 系统动作（翻页/回首页）完全在本地执行：不占用网络，按下即出内容。
   // 服务端随每页下发 action 段（next_page/prev_page/home_page），这里直接读缓存切页。
   const String act = btnAction[slot];
-  if (act == "next_page" || act == "prev_page" || act == "home_page") {
-    int target = currentPage;
-    if (act == "next_page") {
-      if (currentPage < pageCount) target = currentPage + 1;
-      else if (pageLoop) target = 1;
-    } else if (act == "prev_page") {
-      if (currentPage > 1) target = currentPage - 1;
-      else if (pageLoop) target = pageCount;
-    } else {
-      target = 1;
-    }
-    Serial.printf("[btn] %s: %d -> %d\n", act.c_str(), currentPage, target);
-    if (target != currentPage) switchPageLocal(target);
-    return;
-  }
+  if (applySysActionLocal(act)) return;
 
   String shown = btnName[slot].length() ? btnName[slot] : (btnLabel[slot].length() ? btnLabel[slot] : "sending...");
   oledToast(String("Slot ") + slot, shown);
@@ -1852,6 +1864,137 @@ void onButtonPress(int slot) {
   // 动作已下发：约 0.7 秒后（等 HA 状态机更新）立刻拉一次显示，
   // 不用等 60 秒心跳，按下后屏幕状态基本即时更新。
   if (ok) netRefreshAt = millis() + 700;
+}
+
+// ------------------------------------------------------------ 433 遥控（串口模式）
+//
+// ASL430D 学习型接收板打卡「串口模式」后：D0(TX) 以 9600 8N1 输出 3 字节，
+// 前 20 位是遥控器地址码、后 4 位是按键码（24bit）。D0 接 GPIO21。
+// 串口模式不用对码，任何 EV1527 系遥控器都能解出来，所以能支持几十个键。
+// 每收到一个编码就带当前页上报服务端，由后台按「设备级遥控键 × 当前页按键」
+// 决定做什么；翻页这类系统动作由固件本地执行，不额外等网络往返。
+HardwareSerial rfSerial(1);
+
+static uint8_t rfBuf[3];
+static uint8_t rfLen = 0;
+static uint32_t rfLastByteAt = 0;
+static uint32_t rfLastCode = 0;
+static uint32_t rfLastAt = 0;
+static const uint32_t RF_REPEAT_MS = 700;   // 长按时重复帧的去重窗口
+
+static void rfBegin() {
+  if (PIN_RF433_DATA < 0) return;
+  rfSerial.begin(9600, SERIAL_8N1, PIN_RF433_DATA, -1);
+  Serial.printf("[rf] uart ready: GPIO%d @9600\n", PIN_RF433_DATA);
+}
+
+static bool postRfCode(const String &hex, String &out) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  WiFiClient client;
+  HTTPClient http;
+  // 带上当前页：同一个遥控键在不同页面可以配置不同动作。
+  String path = "/api/device/esp/rf?format=text&deviceId=" + deviceId + "&code=0x" + hex
+                + "&page=" + String(currentPage);
+  if (!http.begin(client, serverBase + path)) return false;
+  http.setTimeout(5000);
+  int status = http.POST((uint8_t *)"", 0);
+  bool ok = status == 200;
+  if (ok) out = http.getString();
+  http.end();
+  return ok;
+}
+
+static void handleRfCode(uint32_t code) {
+  uint32_t now = millis();
+  if (code == rfLastCode && now - rfLastAt < RF_REPEAT_MS) { rfLastAt = now; return; }
+  rfLastCode = code;
+  rfLastAt = now;
+  if (deviceId.isEmpty()) buildDeviceId();
+  char hex[9];
+  snprintf(hex, sizeof(hex), "%06lX", (unsigned long)code);
+  Serial.printf("[rf] code 0x%s\n", hex);
+  lastActivityAt = millis();
+  wakeScreen();
+  String resp;
+  if (!postRfCode(String(hex), resp)) {
+    oledToast("433 遥控", String("0x") + hex, "网络不可用");
+    return;
+  }
+  resp.trim();
+  if (resp.startsWith("sys|")) {
+    if (!applySysActionLocal(resp.substring(4))) {
+      oledToast("433 遥控", String("0x") + hex, "动作无效");
+    }
+    return;
+  }
+  if (resp == "none" || resp.length() == 0) {
+    // 未绑定：把编码显示出来，方便后台「学习」时对照。
+    oledToast("433 未绑定", String("0x") + hex, "后台添加该编码");
+    return;
+  }
+  if (resp.startsWith("fail")) {
+    // 服务端把失败原因跟在 fail| 后面（如 HA 实体域不支持该动作），
+    // 直接显示在屏幕上，不用再回后台翻日志。
+    String reason = resp.startsWith("fail|") ? resp.substring(5) : String("执行失败");
+    if (reason.length() == 0) reason = "执行失败";
+    oledToast("433 失败", String("0x") + hex, reason, 4000);
+    return;
+  }
+  oledToast("433 遥控", String("0x") + hex, "sent ok");
+  netRefreshAt = millis() + 700;
+}
+
+// 一次按下 = 一段连续帧。同一帧会重复很多次，偶发错位只污染其中几帧，
+// 所以按「整段多数投票」取最可信的编码，而不是逐帧上报。
+static uint32_t rfTallyCode[4];
+static uint8_t rfTallyCount[4];
+static uint8_t rfTallyLen = 0;
+static uint32_t rfBurstAt = 0;
+
+static void rfTallyPush(uint32_t code) {
+  for (uint8_t i = 0; i < rfTallyLen; i++) {
+    if (rfTallyCode[i] == code) {
+      if (rfTallyCount[i] < 200) rfTallyCount[i]++;
+      return;
+    }
+  }
+  if (rfTallyLen < 4) {
+    rfTallyCode[rfTallyLen] = code;
+    rfTallyCount[rfTallyLen] = 1;
+    rfTallyLen++;
+  }
+}
+
+static void rfFlushBurst() {
+  uint8_t best = 0;
+  for (uint8_t i = 1; i < rfTallyLen; i++) {
+    if (rfTallyCount[i] > rfTallyCount[best]) best = i;
+  }
+  uint32_t code = rfTallyLen ? rfTallyCode[best] : 0;
+  uint8_t times = rfTallyLen ? rfTallyCount[best] : 0;
+  rfTallyLen = 0;
+  if (code != 0 && times >= 2) handleRfCode(code);
+}
+
+static void pollRf() {
+  if (PIN_RF433_DATA < 0) return;
+  while (rfSerial.available() > 0) {
+    uint8_t ch = (uint8_t)rfSerial.read();
+    uint32_t now = millis();
+    rfByteCount++;
+    // 两个数据包之间一定有空闲，>60ms 就把缓冲清空重新对齐。
+    if (rfLen > 0 && now - rfLastByteAt > 60) rfLen = 0;
+    rfLastByteAt = now;
+    rfBurstAt = now;
+    rfBuf[rfLen++] = ch;
+    if (rfLen >= 3) {
+      rfLen = 0;
+      uint32_t code = ((uint32_t)rfBuf[0] << 16) | ((uint32_t)rfBuf[1] << 8) | rfBuf[2];
+      if (code != 0) rfTallyPush(code);
+    }
+  }
+  // 一段帧结束（空闲 120ms）再投票，避免把错位帧当成真编码。
+  if (rfTallyLen > 0 && millis() - rfBurstAt > 120) rfFlushBurst();
 }
 
 // ------------------------------------------------------------ 长按录音
@@ -3385,6 +3528,9 @@ void setup() {
   lastPresenceAt = millis();
   lastActivityAt = millis();
 
+  // 433 接收板（串口模式）：D0(TX) → GPIO21，9600 8N1。
+  rfBegin();
+
   // 先识别唤醒来源 + 恢复缓存页，再决定要不要亮屏/联网。
   wakeReason = detectWakeReason();
   bool restored = restorePage();
@@ -3540,6 +3686,7 @@ void loop() {
 
   lostSince = 0;
   pollButtons();
+  pollRf();
   maybeStartRecording();
 
   // 人体感应：有人立即亮屏并刷新计时；人走后按服务端给的秒数熄屏。

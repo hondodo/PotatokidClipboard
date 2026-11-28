@@ -696,6 +696,26 @@
     .esp-audio-item { display: flex; align-items: center; gap: 10px; }
     .esp-audio-meta { display: flex; flex-direction: column; gap: 2px; min-width: 118px; font-size: 12px; color: var(--muted); }
     .esp-audio-item audio { flex: 1 1 auto; height: 32px; min-width: 180px; }
+    /* 433 遥控：设备级遥控键 = 编码 + 名称；接线与串口模式说明折叠在「学习」上方。 */
+    .esp-rf-hint { margin-top: 6px; }
+    .esp-rf-guide { margin-top: 8px; font-size: 12px; color: var(--muted); }
+    .esp-rf-guide summary { cursor: pointer; color: var(--text); font-weight: 600; }
+    .esp-rf-guide ol { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+    .esp-rf-guide p { margin: 8px 0 0; }
+    .esp-rf-guide strong { color: var(--text); }
+    .esp-rf-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-height: 300px; overflow: auto; }
+    .esp-rf-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+    /* 一个遥控键可含多个编码（按下/松开两帧）：用小标签并排展示。 */
+    .esp-rf-codes { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 150px; }
+    .esp-rf-chip {
+      font-family: ui-monospace, monospace; font-weight: 600; letter-spacing: .4px;
+      padding: 2px 6px; border-radius: 6px; background: rgba(96, 165, 250, .14);
+      border: 1px solid rgba(96, 165, 250, .28);
+    }
+    .esp-rf-row input, .esp-rf-row select { font-size: 12px; padding: 4px 6px; }
+    .esp-rf-name { width: 140px; }
+    /* 遥控键现在只维护编码 + 名称；「已用于哪些页面」占满剩余宽度。 */
+    .esp-rf-used { flex: 1 1 auto; font-size: 12px; }
 
     .overlay {
       position: fixed; inset: 0; background: rgba(3, 8, 12, .66); backdrop-filter: blur(3px);

@@ -74,7 +74,9 @@ const UNNAMED_DEVICE = '未命名设备';
 // 设备本地设置页分配（NVS），后台只引用槽位号，换接线不用改配置。
 const MAX_ESP_PAGES = 12;
 const MAX_ESP_BUTTONS = 8;
-const MAX_ESP_BUTTONS_PER_PAGE = 8;
+// 一页最多 8 个物理槽位 + 64 个设备级 433 遥控键（槽位唯一性在归一化时保证）。
+// 遥控键不算物理按键，不该挤占 8 个槽位，否则学多了会被静默丢弃。
+const MAX_ESP_BUTTONS_PER_PAGE = MAX_ESP_BUTTONS + 64;
 const ESP_ENTITY_RE = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/i;
 // 「值替换 / 按实体替换」的键：HA 实体 `domain.object_id`，或遥控语义字段
 // `remote.<设备>.<字段>`（对应模板里的三段式标签，如 remote.android_xxx.sleep）。
@@ -87,6 +89,75 @@ const ESP_ACTION_KINDS = new Set([
     'select_option', 'number_set', 'brightness', 'press', 'next_effect', 'next_option',
 ]);
 const ESP_SYS_ACTIONS = new Set(['next_page', 'prev_page', 'home_page']);
+
+// 433 遥控（接收板串口模式）：每个按键一个 24bit 编码（20 位地址 + 4 位按键码），
+// 后台按「编码 → 动作」维护映射；最近编码只留在内存里，供「学习」时取码。
+const ESP_RF_CODE_RE = /^[0-9A-F]{6}$/;
+const MAX_ESP_RF_KEYS = 64;
+const ESP_RF_RECENT_MS = 10 * 60 * 1000;
+const espRfRecent = new Map();
+
+function normalizeRfCode(value) {
+    const text = String(value || '').trim().toUpperCase().replace(/^0X/, '');
+    return ESP_RF_CODE_RE.test(text) ? text : '';
+}
+
+function rememberRfCode(deviceId, code) {
+    const now = nowMs();
+    const list = (espRfRecent.get(deviceId) || [])
+        .filter((item) => now - item.at <= ESP_RF_RECENT_MS && item.code !== code);
+    list.unshift({ code, at: now });
+    espRfRecent.set(deviceId, list.slice(0, 8));
+}
+
+// 遥控键 id：页面按键的 slot 直接引用它（改名不改 id，重建编码也不影响绑定）。
+const ESP_RF_KEY_ID_RE = /^rf[0-9A-Za-z_-]{0,12}$/;
+
+// 一个物理遥控键可能上报多个编码（常见于按下/松开两帧，或地址位抖动），
+// 所以每个遥控键存 codes 数组，任意一个编码命中都算按了这个键。
+const MAX_ESP_RF_CODES = 8;
+
+/**
+ * 校验并裁剪「设备级遥控键」表：`[{id, name, codes: ['462C41', ...]}]`。
+ *
+ * 433 键和物理槽位一样属于设备本身：这里只维护编码与显示名，具体做什么
+ * 由每个页面把某个槽位（数字或遥控键 id）绑到动作上。旧版「编码 → 全局动作」
+ * 的字段（kind/action/entityId…）一律丢弃；旧版单编码 `code` 会迁移进 codes。
+ * 编码跨键唯一，避免一次按下同时命中两个遥控键。
+ */
+function normalizeEspRfKeys(input) {
+    if (!Array.isArray(input)) return [];
+    const out = [];
+    const seenCodes = new Set();
+    const seenIds = new Set();
+    const nextId = () => {
+        for (let i = 1; i <= MAX_ESP_RF_KEYS + 1; i += 1) {
+            if (!seenIds.has(`rf${i}`)) return `rf${i}`;
+        }
+        return '';
+    };
+    for (const item of input) {
+        if (out.length >= MAX_ESP_RF_KEYS) break;
+        const rawCodes = Array.isArray(item && item.codes) ? item.codes : [item && item.code];
+        const codes = [];
+        for (const raw of rawCodes) {
+            if (codes.length >= MAX_ESP_RF_CODES) break;
+            const code = normalizeRfCode(raw);
+            if (!code || seenCodes.has(code) || codes.includes(code)) continue;
+            codes.push(code);
+        }
+        if (!codes.length) continue;
+        let id = String((item && item.id) || '').trim();
+        if (!ESP_RF_KEY_ID_RE.test(id) || seenIds.has(id)) id = nextId();
+        if (!id) break;
+        const name = String((item && item.name) || '').trim()
+            .replace(/[|\r\n]/g, ' ').slice(0, 20) || `遥控 ${codes[0]}`;
+        out.push({ id, name, codes });
+        codes.forEach((code) => seenCodes.add(code));
+        seenIds.add(id);
+    }
+    return out;
+}
 // 遥控设备（中控 / 电视）：一页绑定一台设备，按键从该设备的能力表里挑命令。
 // 命令名与 TV 端 MessageCommandExecutor 对齐；参数按 args 描述由后台生成输入，
 // 服务端只认这里登记过的命令，避免把任意字符串投给对端。
@@ -472,7 +543,7 @@ function normalizeEspEntityValueMap(value) {
  * entity_id，且动作名落在白名单里。非法项直接丢弃，避免把设备变成任意
  * 服务调用器。`slot=0` 表示只在网页里点，不绑物理按键。
  */
-function normalizeEspButton(raw, index, usedSlots) {
+function normalizeEspButton(raw, index, usedSlots, rfIds) {
     if (!raw || typeof raw !== 'object') return null;
     // 动作别名：原型里「回首页」写成 home，统一归一到 home_page。
     const rawActionText = String(raw.action || 'toggle').trim();
@@ -514,11 +585,20 @@ function normalizeEspButton(raw, index, usedSlots) {
     // 自己的节拍滚动，放不下时自动走马灯，不需要提前缩成两个字。
     // 旧数据里的 label 可能是被截断的短名，这里统一以完整 name 为准。
     const label = name;
-    const rawSlot = Number(raw.slot == null ? raw.button : raw.slot);
-    let slot = Number.isInteger(rawSlot) && rawSlot >= 1 && rawSlot <= MAX_ESP_BUTTONS ? rawSlot : 0;
+    // 槽位可以是物理按键 1..8，也可以是设备级 433 遥控键 id（如 rf1）。
+    // 遥控键必须已在该设备的 espRfKeys 里登记；已删除的键退化为「仅网页」。
+    const rawSlot = raw.slot == null ? raw.button : raw.slot;
+    let slot = 0;
+    if (typeof rawSlot === 'string') {
+        const rfId = rawSlot.trim();
+        if (rfIds && rfIds.has(rfId)) slot = rfId;
+    } else {
+        const n = Number(rawSlot);
+        if (Number.isInteger(n) && n >= 1 && n <= MAX_ESP_BUTTONS) slot = n;
+    }
     // 同一页一个槽位只能绑一个动作：重复的自动降级为「仅网页」，避免按键歧义。
-    if (slot && usedSlots && usedSlots.has(slot)) slot = 0;
-    if (slot && usedSlots) usedSlots.add(slot);
+    if (slot !== 0 && usedSlots && usedSlots.has(slot)) slot = 0;
+    if (slot !== 0 && usedSlots) usedSlots.add(slot);
     return {
         id,
         name,
@@ -645,7 +725,7 @@ function remoteStateText(state) {
 }
 
 /** 单页归一：页面名 + 图标 + 显示类型/绑定 + 按键表 + 翻页/空闲策略。 */
-function normalizeEspPage(raw, index) {
+function normalizeEspPage(raw, index, rfIds) {
     if (!raw || typeof raw !== 'object') return null;
     let id = String(raw.id || '').trim();
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) id = `p${index + 1}`;
@@ -657,7 +737,7 @@ function normalizeEspPage(raw, index) {
     const rawButtons = Array.isArray(raw.buttons) ? raw.buttons : [];
     for (const item of rawButtons) {
         if (buttons.length >= MAX_ESP_BUTTONS_PER_PAGE) break;
-        const button = normalizeEspButton(item, buttons.length, usedSlots);
+        const button = normalizeEspButton(item, buttons.length, usedSlots, rfIds);
         if (!button) continue;
         while (seenIds.has(button.id)) button.id = `${button.id}x`;
         seenIds.add(button.id);
@@ -813,7 +893,7 @@ function normalizeEspButtons(value) {
 }
 
 /** 页面数组归一 + 旧数据自动迁移（传了 espPages 就忽略旧字段）。 */
-function normalizeEspPages(value, legacyActions, legacyDisplay, deviceName) {
+function normalizeEspPages(value, legacyActions, legacyDisplay, deviceName, rfIds) {
     let rawPages = Array.isArray(value) ? value : [];
     if (!rawPages.length && Array.isArray(legacyActions) && legacyActions.length) {
         rawPages = migrateEspActionsToPages(legacyActions, legacyDisplay, deviceName);
@@ -822,7 +902,7 @@ function normalizeEspPages(value, legacyActions, legacyDisplay, deviceName) {
     const seenIds = new Set();
     for (const raw of rawPages) {
         if (pages.length >= MAX_ESP_PAGES) break;
-        const page = normalizeEspPage(raw, pages.length);
+        const page = normalizeEspPage(raw, pages.length, rfIds);
         if (!page) continue;
         while (seenIds.has(page.id)) page.id = `${page.id}x`;
         seenIds.add(page.id);
@@ -1365,6 +1445,13 @@ function attachAdmin(app, options = {}) {
             parents = [];
         }
         const nameInfo = normalizeMachineName(machine.name);
+        // 433 遥控键是设备级实体：只存编码与显示名（旧版 espRf 的全局动作字段在
+        // normalizeEspRfKeys 里丢弃，动作改由页面按键配置）。
+        const rfKeySource = Array.isArray(machine.espRfKeys)
+            ? machine.espRfKeys
+            : (Array.isArray(machine.espRf) ? machine.espRf : []);
+        const espRfKeys = normalizeEspRfKeys(rfKeySource);
+        const rfIds = new Set(espRfKeys.map((item) => item.id));
         return {
             id,
             kind,
@@ -1380,7 +1467,7 @@ function attachAdmin(app, options = {}) {
             // ESP 屏幕页面：一页 = 一台被控设备（显示类型/绑定 + 一组按键）。
             // 旧机器的平铺 espActions / espDisplay 在这里自动迁移，不丢历史配置。
             espPages: normalizeEspPages(machine.espPages, machine.espActions, machine.espDisplay,
-                nameInfo.nameSet ? nameInfo.name : ''),
+                nameInfo.nameSet ? nameInfo.name : '', rfIds),
             // 设备本地上报的按键槽位→GPIO（只读展示，后台不反向下发）。
             espButtons: normalizeEspButtons(machine.espButtons),
             // 远程配置下发：期望值（espCfg，带 ver）+ 设备最近一次自报（cfgNow、已应用版本）。
@@ -1398,6 +1485,13 @@ function attachAdmin(app, options = {}) {
             espSlotNames: normalizeEspSlotNames(machine.espSlotNames),
             // 熄屏（人体感应）：设备级，SCREEN 行下发给固件。
             espScreen: normalizeEspScreen(machine.espScreen),
+            // 语音播放音量（0~100）：心跳时按 vol= 下发。
+            espVolume: normalizeEspVolume(machine.espVolume),
+            // 433 遥控键（设备级，接收板串口模式下学习）：编码 + 显示名，
+            // 页面按键用 slot='rf1' 这类 id 引用。
+            espRfKeys,
+            // 433 串口累计字节数（设备上报，诊断用）。
+            rfBytes: Number(machine.rfBytes) || 0,
             // 人体感应状态（设备上报）：后台只读展示。
             espPresence: normalizeEspPresence(machine.espPresence),
             platform: typeof machine.platform === 'string' ? machine.platform.slice(0, 32) : '',
@@ -3965,6 +4059,8 @@ function attachAdmin(app, options = {}) {
         if (Number.isFinite(Number(body.pirMode))) machine.pirMode = Math.round(Number(body.pirMode));
         // 唤醒原始诊断：复位原因 / 唤醒原因 / 两条唤醒通道的引脚掩码。
         if (body.diag && typeof body.diag === 'object') machine.diag = body.diag;
+        // 433 串口累计字节数：排查「接收板到底有没有输出」用的只读计数。
+        if (Number.isFinite(Number(body.rfBytes))) machine.rfBytes = Math.round(Number(body.rfBytes));
         // ESP 设备每次注册/心跳上报本机槽位→GPIO 映射；后台据此展示实际引脚，
         // 并提示「后台配了槽位但本机没启用」的情况。
         if (Array.isArray(body.espButtons)) {
@@ -4267,12 +4363,20 @@ function attachAdmin(app, options = {}) {
      * 槽位配了显示名（如「蓝色按钮」）时用名字代替数字。
      * 这里用**完整名称**，超出一行时由固件按自己的节拍走马灯滚动。
      */
-    function espKeyHints(buttons, slotNames) {
+    function espKeyHints(buttons, slotNames, rfKeys) {
         const names = slotNames || {};
+        const rfName = new Map((rfKeys || []).map((item) => [item.id, item.name]));
+        // 数字槽位按编号排在前面；433 遥控键跟在后面（保持设备里登记的顺序）。
+        const order = (slot) => (typeof slot === 'string' ? MAX_ESP_BUTTONS + 1 : Number(slot) || 0);
         return buttons
-            .filter((item) => item.enabled && item.slot >= 1)
-            .sort((a, b) => a.slot - b.slot)
-            .map((item) => `${names[String(item.slot)] || item.slot}:${(item.name || item.label || '').trim()}`)
+            .filter((item) => (typeof item.slot === 'string' ? !!item.slot : Number(item.slot) >= 1))
+            .sort((a, b) => order(a.slot) - order(b.slot))
+            .map((item) => {
+                const label = typeof item.slot === 'string'
+                    ? (rfName.get(item.slot) || item.slot)
+                    : (names[String(item.slot)] || item.slot);
+                return `${label}:${(item.name || item.label || '').trim()}`;
+            })
             .join('  ');
     }
 
@@ -4435,7 +4539,7 @@ function attachAdmin(app, options = {}) {
             title: pageObj ? pageObj.name : (machine.name || ''),
             main: pageObj ? '' : '未配置',
             sub: pageObj ? '' : '请在 Admin「ESP 设备分类」添加页面',
-            keys: espKeyHints(actions, machine.espSlotNames),
+            keys: espKeyHints(actions, machine.espSlotNames, machine.espRfKeys),
             homeLabel: '当前状态',
         };
         // 「显示图片」勾选后整页只出点阵图：标题/正文/按键提示全部清空。
@@ -4631,7 +4735,10 @@ function attachAdmin(app, options = {}) {
             if (showKeys) allRows.push(display.keys);
             const rows = allRows.filter((text) => String(text || '').trim() !== '').slice(0, 4);
             const rowsLine = ['ROWS', ...rows].join('|');
-            const lines = actions.map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
+            // 只下发物理槽位；433 遥控键（slot 为 rfN）由 /esp/rf 触发，固件不需要。
+            const lines = actions
+                .filter((item) => typeof item.slot === 'number' && item.slot >= 1)
+                .map((item) => [item.slot, item.label, item.name, item.entityId, item.action + (item.param ? `(${item.param})` : ''), item.id].join('|'));
             // 图片（v0.5）：页面配了 {image} 且有数据时下发一行 IMG|id|base64|invert。
             // 第 4 段是新增的反色位；老固件只读前 3 段，仍按原样显示，兼容。
             const extra = [];
@@ -5090,6 +5197,147 @@ function attachAdmin(app, options = {}) {
         });
     });
 
+    /**
+     * 执行一个 ESP 按键动作：物理槽位（/esp/press）与 433 遥控键（/esp/rf）
+     * 走同一套逻辑。返回 `{ ok, msg, data, sys }`：sys 有值时固件本地切页，
+     * 不需要把动作再翻译成别的协议。
+     */
+    async function runEspAction(id, pageObj, pageNo, action, source) {
+        // 录音键：由设备本地长按采集、松开上传，服务端不执行任何 HA/场景动作。
+        // 这里回执成功，兼容还没升级固件、仍按普通按键上报的情况。
+        if (action.kind === 'rec') {
+            console.log(`[esp] ${id} ${source} → 录音键`);
+            return { ok: true, msg: '录音由设备本地处理', data: { name: action.name, rec: true, page: pageNo } };
+        }
+
+        // 按键联动：只有物理槽位有槽位号；433 遥控键不参与按键触发场景。
+        // 按下即触发，不依赖该按键自己的动作是否成功
+        // （用户的心智是「我按了这个键」，而不是「这个键成功执行了」）。
+        if (typeof action.slot === 'number' && action.slot >= 1) {
+            try {
+                sceneEngine.onButton({ deviceId: id, slot: action.slot, page: pageNo });
+            } catch (error) {
+                console.error('[scenes] 按键联动失败:', error.message);
+            }
+        }
+
+        // 手动控制（场景）：按下即执行「智能」页里那条场景的动作组。
+        // 尊重场景自己的 enabled 与冷却——冷却中如实回「冷却中」，不假装成功，
+        // 否则用户连按两下会以为按键坏了。
+        if (action.kind === 'scene') {
+            if (!action.sceneId) return { ok: false, msg: '该按键还没选择手动控制，请先在后台选一个' };
+            let result = null;
+            try {
+                result = await sceneEngine.run(action.sceneId, { reason: 'esp-button' });
+            } catch (error) {
+                console.error(`[esp] ${id} 手动控制执行失败:`, error.message);
+                return { ok: false, msg: error.message };
+            }
+            console.log(`[esp] ${id} ${source} → 手动控制 ${action.sceneId} ${result.result}`);
+            if (result.skipped) return { ok: false, msg: result.reason || '本次未执行' };
+            if (!result.ok) {
+                const failed = (result.steps || []).find((step) => step.status === 'failed');
+                return {
+                    ok: false,
+                    msg: failed ? `${failed.label}：${failed.error || '执行失败'}` : (result.error || '执行失败'),
+                };
+            }
+            return {
+                ok: true,
+                msg: `已执行 ${result.steps.length} 个动作`,
+                data: { name: action.name, scene: action.sceneId, steps: (result.steps || []).length, page: pageNo },
+            };
+        }
+
+        // 系统动作（翻页/回首页）：不改 HA，只回执让固件本地切页。
+        if (action.kind === 'sys') {
+            console.log(`[esp] ${id} ${source} → 系统动作 ${action.action}`);
+            return {
+                ok: true,
+                sys: action.action,
+                msg: '已执行',
+                data: { name: action.name, sys: action.action, page: pageNo },
+            };
+        }
+
+        // 遥控动作（中控/电视）：不走 HA，按账号把 cmd 帧投给该按键选中的设备。
+        // 每个遥控按键各自绑定目标；旧配置没有时回退页面级 remoteTarget。
+        if (action.kind === 'remote') {
+            const targetId = action.remoteTarget || (pageObj && pageObj.remoteTarget);
+            if (!targetId) return { ok: false, msg: '该按键还没选择目标设备，请先在后台为它选一台中控或电视' };
+            const machines = readMachines();
+            const target = machines[targetId];
+            if (!target) return { ok: false, msg: '绑定的遥控设备已不存在，请重新选择' };
+            if (target.kind !== 'home' && target.kind !== 'tv') return { ok: false, msg: '绑定的设备不是中控或电视' };
+            // 命令必须在该设备类型的能力表里（防止换绑后残留了一个不支持的命令）。
+            if (!remoteCapabilities(target.kind).some((item) => item.cmd === action.action)) {
+                return { ok: false, msg: `${target.name || '目标设备'} 不支持「${action.action}」，请重新选择命令` };
+            }
+            // 儿童模式开关（仅电视）：幂等设置服务端 device-local.mode 并推送配置，
+            // 不投 cmd 帧（客户端没有对应命令，也不该走短码解锁那套校验）。
+            if (action.action === 'parental_on' || action.action === 'parental_off') {
+                if (target.kind !== 'tv') return { ok: false, msg: '儿童模式只对电视设备生效' };
+                if (!USE_FAMILY_MODEL) return { ok: false, msg: '家庭级模型未启用' };
+                const mode = action.action === 'parental_on' ? 'on' : 'off';
+                const saved = familyStore.setDeviceLocal(targetId, { mode }, 'esp-remote');
+                pushConfigToMachine(target, { reason: 'esp-parental' });
+                console.log(`[esp] ${id} ${source} → 电视 ${targetId} 儿童模式 ${saved.mode}`);
+                return {
+                    ok: true,
+                    msg: mode === 'on' ? '儿童模式已开启' : '儿童模式已关闭',
+                    data: {
+                        name: action.name,
+                        remote: action.action,
+                        target: targetId,
+                        mode: saved.mode,
+                        revision: saved.revision || 0,
+                        page: pageNo,
+                    },
+                };
+            }
+            const account = target.commAccount || '';
+            if (!account) return { ok: false, msg: '目标设备缺少通信账号，请让它重新连接一次' };
+            const lastSeen = Number(target.lastSeen) || 0;
+            if (!lastSeen || nowMs() - lastSeen > MACHINE_ONLINE_MS) {
+                return { ok: false, msg: `${target.name || '目标设备'} 离线，暂时不能遥控` };
+            }
+            const frame = {
+                t: 'msg',
+                from: 'esp-remote',
+                to: account,
+                body: JSON.stringify({ t: 'cmd', name: action.action, args: remoteCommandArgs(action) }),
+                ts: nowMs(),
+            };
+            const delivered = pushRemoteCommand(account, frame) || 0;
+            console.log(`[esp] ${id} ${source} → 遥控 ${targetId} ${action.action}${action.param ? `(${action.param})` : ''} delivered=${delivered}`);
+            return {
+                ok: true,
+                msg: delivered ? '已执行' : '已发送（目标设备暂无在线连接）',
+                data: {
+                    name: action.name,
+                    remote: action.action,
+                    param: action.param,
+                    target: targetId,
+                    delivered,
+                    page: pageNo,
+                },
+            };
+        }
+
+        try {
+            await callHaService(action.entityId, action.action, action.param);
+            console.log(`[esp] ${id} ${source} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
+            return {
+                ok: true,
+                msg: '已执行',
+                data: { name: action.name, entityId: action.entityId, action: action.action, param: action.param, page: pageNo },
+            };
+        } catch (error) {
+            console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
+            return { ok: false, msg: `调用 HA 失败：${error.message}` };
+        }
+    }
+
     app.post('/api/device/esp/press', async (req, res) => {
         const body = req.body || {};
         const id = safeDeviceId(body.deviceId);
@@ -5121,119 +5369,99 @@ function attachAdmin(app, options = {}) {
         }
         if (!action) return jsonFail(res, '该按键未配置动作，或尚未在后台启用', definds.code.FAILED, 403);
 
-        // 录音键：由设备本地长按采集、松开上传，服务端不执行任何 HA/场景动作。
-        // 这里回执成功，兼容还没升级固件、仍按普通按键上报的情况。
-        if (action.kind === 'rec') {
-            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 录音键`);
-            return jsonOk(res, { name: action.name, rec: true, page: pageNo }, '录音由设备本地处理');
-        }
+        const result = await runEspAction(id, pageObj, pageNo, action, `第${pageNo}页 槽位${action.slot || '-'}`);
+        if (!result.ok) return jsonFail(res, result.msg);
+        return jsonOk(res, result.data, result.msg);
+    });
 
-        // 按键联动：按下即触发，不依赖该按键自己的动作是否成功
-        // （用户的心智是「我按了这个键」，而不是「这个键成功执行了」）。
-        try {
-            sceneEngine.onButton({ deviceId: id, slot: action.slot || 0, page: pageNo });
-        } catch (error) {
-            console.error('[scenes] 按键联动失败:', error.message);
-        }
+    // ------------------------------------------------------------ 433 遥控
+    //
+    // 接收板切到「串口模式」后，D0(TX) 把每个按键的 24bit 编码（前 20 位地址码 +
+    // 后 4 位按键码）以 3 字节吐给设备，设备原样上报。编码 → 设备级遥控键
+    // （espRfKeys），再由「当前页里 slot=该键 id 的按键」决定动作；没登记的
+    // 编码只记录下来，供后台「学习」时挑选。
+    /** 设备侧：上报一段原始字节（十六进制），仅用于排查串口解码问题。 */
+    app.post('/api/device/esp/rf/raw', (req, res) => {
+        const q = req.query || {};
+        const id = safeDeviceId(q.deviceId);
+        const hex = String(q.hex || '').toUpperCase();
+        if (!id || !/^[0-9A-F]{2,96}$/.test(hex)) return res.type('text/plain').send('err');
+        console.log(`[rf-raw] ${id} ${hex}`);
+        return res.type('text/plain').send('ok');
+    });
 
-        // 手动控制（场景）：按下即执行「智能」页里那条场景的动作组。
-        // 尊重场景自己的 enabled 与冷却——冷却中如实回「冷却中」，不假装成功，
-        // 否则用户连按两下会以为按键坏了。
-        if (action.kind === 'scene') {
-            if (!action.sceneId) return jsonFail(res, '该按键还没选择手动控制，请先在后台选一个');
-            let result = null;
-            try {
-                result = await sceneEngine.run(action.sceneId, { reason: 'esp-button' });
-            } catch (error) {
-                console.error(`[esp] ${id} 手动控制执行失败:`, error.message);
-                return jsonFail(res, error.message);
-            }
-            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 手动控制 ${action.sceneId} ${result.result}`);
-            if (result.skipped) return jsonFail(res, result.reason || '本次未执行');
-            if (!result.ok) {
-                const failed = (result.steps || []).find((step) => step.status === 'failed');
-                return jsonFail(res, failed
-                    ? `${failed.label}：${failed.error || '执行失败'}`
-                    : (result.error || '执行失败'));
-            }
-            return jsonOk(res, {
-                name: action.name,
-                scene: action.sceneId,
-                steps: (result.steps || []).length,
-                page: pageNo,
-            }, `已执行 ${result.steps.length} 个动作`);
+    /**
+     * 设备侧：上报一个 433 编码 + 当前页，返回纯文本动作指令。
+     *
+     * 解析链路：编码 → 设备级遥控键 → 当前页里 slot=键 id 的按键 → 动作。
+     * 返回协议与物理按键一致：`sys|next_page` 由固件本地翻页，其余只回 ok/fail。
+     */
+    app.post('/api/device/esp/rf', async (req, res) => {
+        const q = req.query || {};
+        const id = safeDeviceId(q.deviceId);
+        const code = normalizeRfCode(q.code);
+        const send = (text) => res.type('text/plain; charset=utf-8').send(`${text}\n`);
+        res.setHeader('Cache-Control', 'no-store');
+        if (!id || !code) return send('err');
+        const machines = readMachines();
+        const machine = machines[id];
+        if (!machine) return send('err');
+        rememberRfCode(id, code);
+        const key = machine.espRfKeys.find((item) => item.codes.includes(code));
+        if (!key) {
+            console.log(`[esp] ${id} 433 ${code} 未学习`);
+            return send('none');
         }
+        const pages = machine.espPages;
+        const pageNo = clampEspPage(q.page, Math.max(1, pages.length));
+        const pageObj = pages[pageNo - 1] || null;
+        const action = pageObj
+            ? pageObj.buttons.find((item) => item.enabled && item.slot === key.id) || null
+            : null;
+        if (!action) {
+            console.log(`[esp] ${id} 433 ${code}(${key.name}) 第${pageNo}页 未绑定`);
+            return send('none');
+        }
+        const result = await runEspAction(id, pageObj, pageNo, action,
+            `第${pageNo}页 遥控${key.name}`);
+        // 失败原因跟着 fail| 回给固件，直接显示在屏幕上（去掉换行和分隔符）。
+        if (!result.ok) {
+            const reason = String(result.msg || '执行失败').replace(/[|\r\n]+/g, ' ').slice(0, 80);
+            return send(`fail|${reason}`);
+        }
+        if (result.sys) return send(`sys|${result.sys}`);
+        return send('ok');
+    });
 
-        // 系统动作（翻页/回首页）：不改 HA，只回执让固件本地切页。
-        if (action.kind === 'sys') {
-            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 系统动作 ${action.action}`);
-            return jsonOk(res, { name: action.name, sys: action.action, page: pageNo }, '已执行');
-        }
+    /** admin：读取设备级遥控键 + 最近捕获的编码。 */
+    app.get('/api/admin/machines/:id/esp/rf', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const now = nowMs();
+        const recent = (espRfRecent.get(id) || []).filter((item) => now - item.at <= ESP_RF_RECENT_MS);
+        return jsonOk(res, {
+            keys: machine.espRfKeys,
+            recent,
+            max: MAX_ESP_RF_KEYS,
+        });
+    });
 
-        // 遥控动作（中控/电视）：不走 HA，按账号把 cmd 帧投给该按键选中的设备。
-        // 每个遥控按键各自绑定目标；旧配置没有时回退页面级 remoteTarget。
-        if (action.kind === 'remote') {
-            const targetId = action.remoteTarget || (pageObj && pageObj.remoteTarget);
-            if (!targetId) return jsonFail(res, '该按键还没选择目标设备，请先在后台为它选一台中控或电视');
-            const machines = readMachines();
-            const target = machines[targetId];
-            if (!target) return jsonFail(res, '绑定的遥控设备已不存在，请重新选择');
-            if (target.kind !== 'home' && target.kind !== 'tv') return jsonFail(res, '绑定的设备不是中控或电视');
-            // 命令必须在该设备类型的能力表里（防止换绑后残留了一个不支持的命令）。
-            if (!remoteCapabilities(target.kind).some((item) => item.cmd === action.action)) {
-                return jsonFail(res, `${target.name || '目标设备'} 不支持「${action.action}」，请重新选择命令`);
-            }
-            // 儿童模式开关（仅电视）：幂等设置服务端 device-local.mode 并推送配置，
-            // 不投 cmd 帧（客户端没有对应命令，也不该走短码解锁那套校验）。
-            if (action.action === 'parental_on' || action.action === 'parental_off') {
-                if (target.kind !== 'tv') return jsonFail(res, '儿童模式只对电视设备生效');
-                if (!USE_FAMILY_MODEL) return jsonFail(res, '家庭级模型未启用', 409, 409);
-                const mode = action.action === 'parental_on' ? 'on' : 'off';
-                const saved = familyStore.setDeviceLocal(targetId, { mode }, 'esp-remote');
-                pushConfigToMachine(target, { reason: 'esp-parental' });
-                console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 电视 ${targetId} 儿童模式 ${saved.mode}`);
-                return jsonOk(res, {
-                    name: action.name,
-                    remote: action.action,
-                    target: targetId,
-                    mode: saved.mode,
-                    revision: saved.revision || 0,
-                    page: pageNo,
-                }, mode === 'on' ? '儿童模式已开启' : '儿童模式已关闭');
-            }
-            const account = target.commAccount || '';
-            if (!account) return jsonFail(res, '目标设备缺少通信账号，请让它重新连接一次');
-            const lastSeen = Number(target.lastSeen) || 0;
-            if (!lastSeen || nowMs() - lastSeen > MACHINE_ONLINE_MS) {
-                return jsonFail(res, `${target.name || '目标设备'} 离线，暂时不能遥控`);
-            }
-            const frame = {
-                t: 'msg',
-                from: 'esp-remote',
-                to: account,
-                body: JSON.stringify({ t: 'cmd', name: action.action, args: remoteCommandArgs(action) }),
-                ts: nowMs(),
-            };
-            const delivered = pushRemoteCommand(account, frame) || 0;
-            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → 遥控 ${targetId} ${action.action}${action.param ? `(${action.param})` : ''} delivered=${delivered}`);
-            return jsonOk(res, {
-                name: action.name,
-                remote: action.action,
-                param: action.param,
-                target: targetId,
-                delivered,
-                page: pageNo,
-            }, delivered ? '已执行' : '已发送（目标设备暂无在线连接）');
-        }
-
-        try {
-            await callHaService(action.entityId, action.action, action.param);
-            console.log(`[esp] ${id} 第${pageNo}页 槽位${action.slot || '-'} → ${action.entityId} ${action.action}${action.param ? `(${action.param})` : ''} ok`);
-            return jsonOk(res, { name: action.name, entityId: action.entityId, action: action.action, param: action.param, page: pageNo }, '已执行');
-        } catch (error) {
-            console.error(`[esp] ${id} 调用 HA 失败:`, error.message);
-            return jsonFail(res, `调用 HA 失败：${error.message}`);
-        }
+    /** admin：整表保存设备级遥控键（编码 + 名称）。 */
+    app.put('/api/admin/machines/:id/esp/rf', requireAdmin, (req, res) => {
+        const id = safeDeviceId(req.params.id);
+        const machine = espMachineOrFail(req, res, id);
+        if (!machine) return undefined;
+        const keys = normalizeEspRfKeys((req.body || {}).keys);
+        const machines = readMachines();
+        machines[id].espRfKeys = keys;
+        delete machines[id].espRf;
+        // 删除的遥控键可能还被页面按键引用：按新 id 集合重新归一，
+        // 避免 id 被新键复用时旧绑定「复活」到别的遥控器上。
+        machines[id].espPages = normalizeEspPages(machines[id].espPages, undefined, undefined, undefined,
+            new Set(keys.map((item) => item.id)));
+        saveMachines(machines);
+        return jsonOk(res, { keys }, '已保存');
     });
 
     /**
@@ -5353,6 +5581,8 @@ function attachAdmin(app, options = {}) {
             buttons: machine.espButtons,
             // 槽位显示名（1..8），屏幕底部提示与后台表格共用。
             slotNames: machine.espSlotNames || {},
+            // 设备级 433 遥控键：页面槽位下拉的候选项。
+            rfKeys: machine.espRfKeys || [],
             // 熄屏（人体感应）：人离开后多少秒熄屏，0 = 常亮。
             screen: normalizeEspScreen(machine.espScreen),
             // 语音播放音量（0~100）。
@@ -5367,8 +5597,14 @@ function attachAdmin(app, options = {}) {
         const machine = espMachineOrFail(req, res, id);
         if (!machine) return undefined;
         const body = req.body || {};
-        const pages = normalizeEspPages(body.pages);
         const machines = readMachines();
+        // 遥控键和设备级配置一起提交，保证「刚学习还没单独保存」的键能立即被页面引用。
+        if (body.rfKeys !== undefined) {
+            machines[id].espRfKeys = normalizeEspRfKeys(body.rfKeys);
+            delete machines[id].espRf;
+        }
+        const rfIds = new Set((machines[id].espRfKeys || []).map((item) => item.id));
+        const pages = normalizeEspPages(body.pages, undefined, undefined, undefined, rfIds);
         machines[id].espPages = pages;
         // 槽位显示名是设备级配置；老后台没传时保留原值。
         if (body.slotNames !== undefined) {
